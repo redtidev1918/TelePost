@@ -9,36 +9,34 @@
 
 ## [Unreleased]
 
-### 修复（2026-08）
+（暂无）
 
+## [2.3.0] - 2026-08
+
+### 修复（2026-08）
 - 修复 20+ 处核心缺陷：发布回调路径失效、删帖功能因 sqlite3.Row.get() 崩溃、帖子统计/原帖查询不存在的列、文档模式切换无法推进会话状态、Webhook 优雅退出中断、caption 未做 HTML 转义导致含 <>& 的投稿发布失败、时间筛选按钮传字符串导致搜索为空、消息存在性检查转发给机器人自身空转、会话超时机制读取从未写入的数据等
 - 恢复被误 ignore 的 health.py（Polling 模式 /health 健康检查，Docker HEALTHCHECK 依赖）
 - 环境变量统一为 `TOKEN`，新增 `BOT_TOKEN` / `TELEGRAM_BOT_TOKEN` 别名兼容（修复按旧文档配置导致启动失败）
 - 新增 `SUBMIT_LIMIT_PER_HOUR` 投稿频率限制（默认 10 次/小时，0 关闭）
 
-### 重命名（2026-08）
-
+重命名（2026-08）
 - **项目更名为 TelePost**（原 TeleSubmit-v2）：与上游同名项目区分，名称更贴合"频道投稿"主题。仓库地址改为 `redtidev1918/TelePost`，Docker 服务/容器名、systemd 单元名（telepost.service）、健康检查 service 标识同步更新；CHANGELOG 中更早条目保留历史名称。
 
-### 新增（2026-08）
-
+新增（2026-08）
 - **发布流水线**：新增 tag 驱动的 GitHub Actions——构建 amd64/arm64 镜像推送 GHCR（x.y.z / x.y / latest 标签），自动创建带 CHANGELOG 摘录的 GitHub Release；docker-compose 内置官方镜像名
 - **发布前编辑流程**：投稿最后一步改为预览确认页，支持发布前快速修改标签/简介、补充媒体或取消（新增 EDIT_TAG/EDIT_NOTE/EDIT_MEDIA 会话状态）
 - **结果列表分页**：/search 与 /hot 支持按钮翻页（⬅️/页码/➡️），查询上下文跨回调保持
 - **投稿频率限制** SUBMIT_LIMIT_PER_HOUR（每用户每小时上限，默认 10，0 关闭）
 
-### 变更（2026-08）
-
+变更（2026-08）
 - 投稿发布失败时保留会话数据，避免重传全部媒体
 - 剧透确认步骤严格校验"是/否"，避免错字被静默当作"否"直接发布
 - 搜索功能禁用时不再误建索引目录
 
-### 文档（2026-08）
-
+文档（2026-08）
 - 文档体系重构：新增 INSTALL / CONFIGURATION / COMMANDS / OPERATIONS / PERFORMANCE / TROUBLESHOOTING / TESTING 与 internals/moderation.md，重写 README，移除重复与失效文档
 
-### 新增
-
+新增
 - **频道消息监听器增强**
   - 增强频道消息监听器的鲁棒性和错误处理
   - 支持处理非本项目 bot 发布的不规范帖子
@@ -48,14 +46,12 @@
   - 完善的错误处理和日志记录
   - 支持多种消息格式和媒体类型
   - 自动同步到搜索索引
-
 - **中文部分匹配搜索支持**
   - 使用 SimpleAnalyzer 时，支持中文关键词的部分匹配
   - 搜索"卫宫"可以匹配"卫宫士郎"等包含该关键词的内容
   - 自动检测中文查询并使用通配符查询优化
   - 在标题、描述、标签、文件名等多个字段中搜索
   - 提升中文搜索体验，无需完整输入即可找到相关内容
-
 - **Webhook 模式支持**
   - 新增 Webhook 运行模式，与 Polling 模式并存
   - 支持通过配置文件或环境变量切换模式
@@ -63,15 +59,13 @@
   - 适用于生产环境和云服务器部署
   - 内置 Secret Token 验证机制
   - 支持多种部署方式（VPS、Docker、PaaS 平台）
-
 - **安装脚本增强**
   - `install.sh` 新增运行模式选择向导
   - 自动引导用户选择 Polling 或 Webhook 模式
   - Webhook 模式自动验证 URL 格式
   - 配置完成后显示摘要信息
 
-### 文档
-
+文档
 - 新增 `docs/WEBHOOK_MODE.md` - Webhook 模式完整指南
   - 两种模式详细对比
   - 多种部署方式示例（通用/Docker/PaaS）
@@ -85,8 +79,7 @@
   - 双向同步删除机制
   - 数据保留策略和恢复方法
 
-### 技术细节
-
+技术细节
 - 新增 `handlers/channel_listener.py` - 频道消息监听器模块（增强版）
   - 并发控制机制（`_processing_messages` 和 `_processing_lock`）
   - 文本清理和规范化函数（`clean_text`、`extract_tags_from_text`）
@@ -98,8 +91,7 @@
 - 新增依赖：`aiohttp>=3.9.0`（用于 Webhook）
 - 新增配置项：`RUN_MODE`、`WEBHOOK_URL`、`WEBHOOK_PORT`、`WEBHOOK_PATH`、`WEBHOOK_SECRET_TOKEN`
 
-### 改进
-
+改进
 - **删除功能优化：标记删除机制**
   - 采用标记删除（Soft Delete）替代物理删除，保留所有历史数据
   - 数据库记录永久保留，仅标记 `is_deleted = 1` 状态
@@ -111,8 +103,7 @@
   - 误删的帖子可以通过数据库操作恢复
   - 更新 `DELETE_POST_GUIDE.md` 文档，详细说明实现原理
 
-### 修复
-
+修复
 - **频道消息监听器** - 增强错误处理，防止异常导致监听器崩溃
 - **消息重复处理** - 添加并发控制，防止同一消息被重复处理
 - **文本长度限制** - 添加字段长度限制，防止数据库溢出
@@ -123,14 +114,12 @@
 - **Webhook 服务器** - 使用 aiohttp 同时处理 `/webhook` 和 `/health` 端点
 - **优雅关闭** - 正确清理 Webhook 服务器和 Telegram webhook 设置
 
-### 测试
-
+测试
 - 本地测试：Polling 和 Webhook 模式均通过
 - 生产部署：256MB 内存环境下稳定运行
 - Telegram Webhook：成功设置并接收消息
 - 健康检查：两种模式均正常响应
 - 验证平台：PaaS 平台、VPS 服务器、Docker 容器
-
 ---
 
 ## [2.2.0] - 2025-10-25
