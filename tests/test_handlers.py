@@ -255,6 +255,36 @@ class TestSubmitHandlers:
 
         # 应该发送欢迎/提示信息
         mock_telegram_update.message.reply_text.assert_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_submit_rate_limit(self, mock_telegram_update, mock_telegram_context):
+        """测试投稿频率限制：超过限额的 /submit 应被拒绝"""
+        from contextlib import asynccontextmanager
+        from telegram.ext import ConversationHandler
+
+        mock_telegram_update.message.reply_text = AsyncMock()
+        mock_telegram_context.bot_data = {}
+
+        @asynccontextmanager
+        async def _fake_get_db():
+            yield MagicMock()
+
+        with patch('handlers.mode_selection.SUBMIT_LIMIT_PER_HOUR', 2), \
+             patch('handlers.mode_selection.cleanup_old_data', new=AsyncMock()), \
+             patch('handlers.mode_selection.is_blacklisted', return_value=False), \
+             patch('handlers.mode_selection.get_db', _fake_get_db):
+            from handlers.mode_selection import submit
+            r1 = await submit(mock_telegram_update, mock_telegram_context)
+            r2 = await submit(mock_telegram_update, mock_telegram_context)
+            r3 = await submit(mock_telegram_update, mock_telegram_context)
+
+        # 前两次正常进入流程
+        assert r1 is not None
+        assert r2 is not None
+        # 第三次应被限流拒绝并结束会话
+        assert r3 == ConversationHandler.END
+        assert any('频繁' in str(c) for c in mock_telegram_update.message.reply_text.call_args_list)
     
     @pytest.mark.asyncio
     @pytest.mark.unit

@@ -33,6 +33,9 @@ BOT_MODE = MIXED
 # 允许的文档类型（扩展名或MIME，逗号分隔），留空或 * 表示允许所有
 ALLOWED_FILE_TYPES = *
 
+# 投稿频率限制：每用户每小时最多发起投稿次数（0 为关闭），默认 10
+SUBMIT_LIMIT_PER_HOUR = 10
+
 # 运行模式: POLLING (轮询) | WEBHOOK (Webhook)
 # - POLLING: 默认模式，机器人主动拉取消息，适合开发和小型部署
 # - WEBHOOK: Telegram 推送消息到服务器，适合生产环境，更高效

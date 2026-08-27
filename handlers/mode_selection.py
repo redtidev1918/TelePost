@@ -6,7 +6,7 @@ from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
 from telegram.ext import ConversationHandler, CallbackContext
 
-from config.settings import BOT_MODE, MODE_MEDIA, MODE_DOCUMENT, MODE_MIXED, ALLOWED_FILE_TYPES
+from config.settings import BOT_MODE, MODE_MEDIA, MODE_DOCUMENT, MODE_MIXED, ALLOWED_FILE_TYPES, SUBMIT_LIMIT_PER_HOUR
 from utils.file_validator import create_file_validator
 from models.state import STATE
 from database.db_manager import get_db, cleanup_old_data
@@ -29,16 +29,30 @@ async def submit(update: Update, context: CallbackContext) -> int:
     logger.info(f"收到 /submit 命令，user_id: {update.effective_user.id}")
     await cleanup_old_data()
     user_id = update.effective_user.id
-    
+
     # 获取用户名信息
     user = update.effective_user
     username = user.username or f"user{user.id}"
-    
+
     # 检查用户是否在黑名单中
     if is_blacklisted(user_id):
         logger.warning(f"黑名单用户尝试使用机器人，user_id: {user_id}")
         await update.message.reply_text("⚠️ 您已被列入黑名单，无法使用投稿功能。如有疑问，请联系管理员。")
         return ConversationHandler.END
+
+    # 投稿频率限制：滑动窗口统计（内存态，重启即清零）
+    if SUBMIT_LIMIT_PER_HOUR > 0:
+        import time as _time
+        now = _time.time()
+        history = context.bot_data.setdefault('submit_times', {}).setdefault(user_id, [])
+        history[:] = [t for t in history if now - t < 3600]
+        if len(history) >= SUBMIT_LIMIT_PER_HOUR:
+            logger.warning(f"用户触发投稿频率限制，user_id: {user_id}")
+            await update.message.reply_text(
+                f"⚠️ 投稿过于频繁（每小时最多 {SUBMIT_LIMIT_PER_HOUR} 次），请稍后再试。"
+            )
+            return ConversationHandler.END
+        history.append(now)
     
     try:
         async with get_db() as conn:

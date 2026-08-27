@@ -466,8 +466,8 @@ DB_CACHE_KB=1024
 ## 相关文档
 
 - [主文档 - README.md](../README.md)
-- [脚本使用指南 - SCRIPTS_GUIDE.md](../SCRIPTS_GUIDE.md)
-- [内存优化指南 - MEMORY_USAGE.md](../MEMORY_USAGE.md)
+- [脚本使用指南 - docs/OPERATIONS.md](../docs/OPERATIONS.md)
+- [内存优化指南 - docs/PERFORMANCE.md](../docs/PERFORMANCE.md)
 - [配置示例 - config.ini.example](../config.ini.example)
 
 ---
@@ -531,3 +531,5 @@ Bot Application
 **最后更新**: 2025-10-28  
 **适用版本**: TeleSubmit v2.1+
 
+
+> 2026-08 更正：环境变量统一为 `TOKEN`（兼容 `BOT_TOKEN` / `TELEGRAM_BOT_TOKEN`）；帖子统计更新周期为每 2 小时。

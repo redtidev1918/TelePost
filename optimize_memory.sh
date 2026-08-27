@@ -138,7 +138,7 @@ if [ $? -eq 0 ]; then
     echo ""
     echo "📚 更多优化选项请查看:"
     echo "  - MEMORY_OPTIMIZATION_REPORT.md"
-    echo "  - MEMORY_USAGE.md"
+    echo "  - docs/PERFORMANCE.md"
     echo ""
 else
     echo ""

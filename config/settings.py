@@ -162,6 +162,13 @@ else:
 _db_cache_kb = get_env_or_config('DB_CACHE_KB', 'DB', 'CACHE_SIZE_KB')
 DB_CACHE_KB = int(_db_cache_kb) if _db_cache_kb else get_config_int('DB', 'CACHE_SIZE_KB', 4096)  # SQLite page cache，单位KB
 
+# 投稿频率限制：每用户每小时最多发起投稿次数，0 为关闭
+_submit_limit = get_env_or_config('SUBMIT_LIMIT_PER_HOUR', 'BOT', 'SUBMIT_LIMIT_PER_HOUR')
+try:
+    SUBMIT_LIMIT_PER_HOUR = int(_submit_limit) if _submit_limit else get_config_int('BOT', 'SUBMIT_LIMIT_PER_HOUR', 10)
+except (ValueError, TypeError):
+    SUBMIT_LIMIT_PER_HOUR = 10
+
 # 验证必要配置
 if not TOKEN:
     raise ValueError("❌ TOKEN 未设置！请在环境变量或 config.ini 中设置")

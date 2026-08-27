@@ -510,7 +510,7 @@ cp ~/TeleSubmit-v2/data/submissions.db ~/backups/submissions_$(date +%Y%m%d).db
 - [主文档 - README.md](../README.md)
 - [Webhook 模式完整指南](WEBHOOK_MODE.md)
 - [部署指南 - DEPLOYMENT.md](../DEPLOYMENT.md)
-- [内存优化指南 - MEMORY_USAGE.md](../MEMORY_USAGE.md)
+- [内存优化指南 - docs/PERFORMANCE.md](../docs/PERFORMANCE.md)
 
 ---
 
@@ -534,3 +534,5 @@ cp ~/TeleSubmit-v2/data/submissions.db ~/backups/submissions_$(date +%Y%m%d).db
 - ✅ 健康检查返回 OK
 - ✅ Webhook 信息正确
 - ✅ 机器人响应正常（< 1 秒）
+
+> 2026-08 更正：环境变量统一为 `TOKEN`（兼容 `BOT_TOKEN` / `TELEGRAM_BOT_TOKEN`）；帖子统计更新周期为每 2 小时。

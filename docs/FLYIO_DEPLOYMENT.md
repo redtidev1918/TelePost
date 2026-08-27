@@ -177,8 +177,8 @@ https://my-telegram-bot.fly.dev
 使用 Fly.io 的 Secrets 功能安全地存储敏感信息：
 
 ```bash
-# 设置 Bot Token（⭐ 替换为实际 Token）
-flyctl secrets set BOT_TOKEN=your_bot_token_here
+# 设置 Bot Token（⭐ 替换为实际 Token；代码读取 TOKEN，BOT_TOKEN 亦兼容）
+flyctl secrets set TOKEN=your_bot_token_here
 
 # 设置频道 ID
 flyctl secrets set CHANNEL_ID=@your_channel
@@ -192,7 +192,7 @@ flyctl secrets set WEBHOOK_URL=https://your-app-name.fly.dev
 
 **完整示例**：
 ```bash
-flyctl secrets set BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+flyctl secrets set TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
 flyctl secrets set CHANNEL_ID=@mychannel
 flyctl secrets set OWNER_ID=987654321
 flyctl secrets set WEBHOOK_URL=https://my-telegram-bot.fly.dev
@@ -511,7 +511,7 @@ flyctl scale show
 - [主文档 - README.md](../README.md)
 - [Webhook 模式完整指南](WEBHOOK_MODE.md)
 - [部署指南 - DEPLOYMENT.md](../DEPLOYMENT.md)
-- [内存优化指南 - MEMORY_USAGE.md](../MEMORY_USAGE.md)
+- [内存优化指南 - MEMORY_USAGE.md](PERFORMANCE.md)
 - [Fly.io 官方文档](https://fly.io/docs/)
 
 ---
@@ -537,3 +537,5 @@ flyctl scale show
 - ✅ Webhook 信息正确
 - ✅ 机器人响应正常（< 1 秒）
 - ✅ 完全免费运行 🎉
+
+> 2026-08 更正：环境变量统一为 `TOKEN`（兼容 `BOT_TOKEN` / `TELEGRAM_BOT_TOKEN`）；帖子统计更新周期为每 2 小时。
