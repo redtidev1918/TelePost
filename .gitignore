@@ -138,7 +138,6 @@ analyze_memory.py
 
 # Fly.io 部署相关（临时文件）
 flyio.env.template
-health.py
 DEPLOYMENT_SUMMARY.md
 
 # Webhook 测试报告和调试文档（临时）
