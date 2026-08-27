@@ -2,6 +2,23 @@
 
 > 最后更新：2026-08
 
+## 发布流程（Tag → GHCR 镜像 → GitHub Release）
+
+1. 把 `CHANGELOG.md` 的 `[Unreleased]` 内容整理进新版本段 `## [x.y.z] - 日期`
+2. 必要时同步 `utils/helper_functions.py` 的 `CONFIG["VERSION"]`
+3. 发布：
+   ```bash
+   git tag vx.y.z
+   git push origin main --tags
+   ```
+4. GitHub Actions 自动完成：构建 amd64/arm64 镜像 → 推送
+   `ghcr.io/redtidev1918/telepost:{x.y.z, x.y, latest}` → 创建 GitHub Release
+   （正文取 CHANGELOG 对应版本段，缺失时回退 `[Unreleased]`）
+5. 首次发布后：GitHub → Packages → `telepost` → Package settings 改为 Public（否则匿名 `docker pull` 需 `docker login ghcr.io`）
+
+`docker-compose.yml` 已内置 `image: ghcr.io/redtidev1918/telepost:latest`，
+不想本地构建的用户删掉 `build:` 段即可直接拉镜像运行。
+
 ## 启动 / 停止 / 重启
 
 ```bash

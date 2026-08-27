@@ -2,6 +2,8 @@ version: '3.8'
 
 services:
   telepost:
+    # 官方镜像（tag 推送时由 CI 自动构建发布；本地 build 会覆盖）
+    image: ghcr.io/redtidev1918/telepost:latest
     build: 
       context: .
       network: host  # 使用宿主机网络进行构建

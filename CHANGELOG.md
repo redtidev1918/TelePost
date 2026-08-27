@@ -22,6 +22,7 @@
 
 ### 新增（2026-08）
 
+- **发布流水线**：新增 tag 驱动的 GitHub Actions——构建 amd64/arm64 镜像推送 GHCR（x.y.z / x.y / latest 标签），自动创建带 CHANGELOG 摘录的 GitHub Release；docker-compose 内置官方镜像名
 - **发布前编辑流程**：投稿最后一步改为预览确认页，支持发布前快速修改标签/简介、补充媒体或取消（新增 EDIT_TAG/EDIT_NOTE/EDIT_MEDIA 会话状态）
 - **结果列表分页**：/search 与 /hot 支持按钮翻页（⬅️/页码/➡️），查询上下文跨回调保持
 - **投稿频率限制** SUBMIT_LIMIT_PER_HOUR（每用户每小时上限，默认 10，0 关闭）
