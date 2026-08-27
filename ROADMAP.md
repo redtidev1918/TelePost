@@ -4,15 +4,11 @@
 
 ## P0 —— 完成已有半成品（性价比最高）
 
-### 1. 发布前编辑流程
-- **现状**：`handle_submit_edit` / `handle_submit_addtag` / `handle_submit_media` 是占位实现（"开发中..."），发布前想改标签只能取消重来。
-- **方案**：确认页增加 ✏️编辑 / 🏷️加标签 / 📎加媒体 三个真实可用的回调分支：addtag 进入 `TAG` 状态复用现有校验；addmedia 回到 `MEDIA` 状态；edit 逐项（标题/简介/链接）重新收集。提交数据库 UPDATE 逻辑全部现成。
-- **成本**：S-M。**价值**：投稿体验最大的现存缺口。
+### 1. ~~发布前编辑流程~~ ✅ 已实现（2026-08）
+- **实现**：剧透确认后进入发布预览页（`handlers/preview_handlers.py`），提供 ✅确认发布 / 🏷️改标签 / 📝改简介 / 📎补充媒体 / ❌取消 五个按钮；标签与简介为单字段快速覆盖，媒体直接追加（上限 50），每步修改后自动刷新预览。新增 EDIT_TAG/EDIT_NOTE/EDIT_MEDIA 三个会话状态。
 
-### 2. 结果列表真实分页
-- **现状**：`Keyboards.pagination` 与 `handle_pagination` 只回显"跳转到第 N 页"，不刷新数据；`/search`、`/myposts`、`/hot` 大结果集只能截断。
-- **方案**：把查询上下文（类型+关键词+页码）存入 `context.user_data`，`page_N` 回调触发对应查询函数重渲染。搜索接口已支持 `page_num/page_len`。
-- **成本**：M。
+### 2. ~~结果列表真实分页~~ ✅ 已实现（2026-08，覆盖 /search 与 /hot）
+- **实现**：/search 结果页与 /hot 排行页底部出现 ⬅️/页码/➡️ 导航（`Keyboards.page_nav`），查询上下文存于 `context.user_data['pg']`，page_N 回调重渲染。/myposts 因逐帖独立消息的展示形态暂不支持，保持后续提案。
 
 ### 3. ~~投稿速率限制（反滥用）~~ ✅ 已实现（2026-08）
 - **实现**：`SUBMIT_LIMIT_PER_HOUR` 配置（默认 10，0 关闭），在 `/submit` 入口做每用户滑动窗口计数（内存态），OWNER/ADMIN 暂不豁免（可在后续按需放开）。

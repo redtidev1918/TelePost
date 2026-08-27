@@ -10,7 +10,6 @@ from telegram.ext import ConversationHandler, CallbackContext
 from models.state import STATE
 from database.db_manager import get_db
 from utils.helper_functions import validate_state, process_tags
-from handlers.publish import publish_submission
 
 logger = logging.getLogger(__name__)
 
@@ -175,8 +174,10 @@ async def handle_spoiler(update: Update, context: CallbackContext) -> int:
         logger.error(f"剧透保存错误: {e}")
         await update.message.reply_text("❌ 剧透选择保存失败，请稍后再试")
         return ConversationHandler.END
-    await update.message.reply_text("✅ 剧透选择已保存，正在发布投稿……")
-    return await publish_submission(update, context)
+    await update.message.reply_text("✅ 剧透选择已保存")
+    # 进入发布前预览页：可确认发布、快速改标签/简介、补充媒体或取消
+    from handlers.preview_handlers import show_submission_preview
+    return await show_submission_preview(update, context)
 
 # 跳过可选项的处理函数
 @validate_state(STATE['LINK'])

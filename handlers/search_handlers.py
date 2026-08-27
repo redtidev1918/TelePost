@@ -15,6 +15,7 @@ import html as _html
 from database.db_manager import get_db
 from utils.search_engine import get_search_engine
 from utils.cache import TTLCache
+from ui.keyboards import Keyboards
 
 logger = logging.getLogger(__name__)
 
@@ -114,173 +115,194 @@ async def search_posts(update: Update, context: CallbackContext):
             tag_filter = keyword.lstrip('#')
             keyword = tag_filter  # 也搜索关键词
         
-        # 构建时间过滤器
-        time_filter = None
-        time_desc = ""
-        
-        if time_filter_str == 'day':
-            start_time = datetime.now() - timedelta(days=1)
-            time_filter = DateRange("publish_time", start_time, None)
-            time_desc = "今日"
-        elif time_filter_str == 'week':
-            start_time = datetime.now() - timedelta(days=7)
-            time_filter = DateRange("publish_time", start_time, None)
-            time_desc = "本周"
-        elif time_filter_str == 'month':
-            start_time = datetime.now() - timedelta(days=30)
-            time_filter = DateRange("publish_time", start_time, None)
-            time_desc = "本月"
-        
-        # 处理时间过滤（来自内联时间筛选按钮，存的是 'day'/'week'/'month'/'all' 字符串键）
-        # 注意：引擎要求 DateRange 对象，绝不能把裸字符串传入 search()，
-        # 否则 Whoosh 构造 filter 时抛异常被外层捕获，表现为"搜索无结果"。
-        time_filter_key = context.user_data.pop('time_filter', None)
-        if time_filter_key in ('day', 'week', 'month'):
-            days = {'day': 1, 'week': 7, 'month': 30}[time_filter_key]
-            time_filter = DateRange("publish_time", datetime.now() - timedelta(days=days), None)
-            time_desc = {'day': '今日', 'week': '本周', 'month': '本月'}[time_filter_key]
+        # 解析时间过滤键（'-t' 参数与时间筛选按钮统一处理）
+        tf_key = time_filter_str if time_filter_str in ('day', 'week', 'month') else None
+        button_key = context.user_data.pop('time_filter', None)
+        if button_key in ('day', 'week', 'month'):
+            tf_key = button_key
 
-        # 使用搜索引擎
-        search_engine = get_search_engine()
-        
-        # 执行搜索
-        search_result = search_engine.search(
-            query_str=keyword,
-            page_num=1,
-            page_len=limit,
-            time_filter=time_filter,
-            tag_filter=tag_filter if is_tag_search else None,
-            sort_by="publish_time"
+        # 渲染并输出结果（第 1 页；翻页回调会再次调用 _search_and_render）
+        await _search_and_render(
+            update, context,
+            keyword=keyword, tag_filter=tag_filter, is_tag_search=is_tag_search,
+            tf_key=tf_key, limit=limit, page=1,
         )
-        
-        if not search_result.hits:
-            search_desc = f"标签 #{tag_filter}" if is_tag_search else f"关键词 \"{keyword}\""
-            await update.message.reply_text(
-                f"🔍 未找到匹配{time_desc}{search_desc}的帖子"
-            )
-            return
-        
-        # 验证搜索结果是否仍然存在于频道中（过滤已删除的帖子）
-        # 通过检查数据库中的 is_deleted 字段来过滤已删除的帖子
-        valid_hits = []
-        
-        # 批量检查消息ID是否已删除
-        message_ids = [hit.message_id for hit in search_result.hits]
-        if message_ids:
-            async with get_db() as conn:
-                cursor = await conn.cursor()
-                # 使用 IN 查询批量检查
-                placeholders = ','.join('?' * len(message_ids))
-                await cursor.execute(
-                    f"SELECT message_id FROM published_posts WHERE message_id IN ({placeholders}) AND is_deleted = 0",
-                    message_ids
-                )
-                valid_message_ids = {row['message_id'] for row in await cursor.fetchall()}
-            
-            # 只保留未删除的帖子
-            for hit in search_result.hits:
-                if hit.message_id in valid_message_ids:
-                    valid_hits.append(hit)
-        
-        if not valid_hits:
-            search_desc = f"标签 #{tag_filter}" if is_tag_search else f"关键词 \"{keyword}\""
-            await update.message.reply_text(
-                f"🔍 未找到匹配{time_desc}{search_desc}的帖子（或所有结果已被删除）"
-            )
-            return
-        
-        # 构建结果消息
-        search_desc = f"#{tag_filter}" if is_tag_search else f"\"{keyword}\""
-        time_prefix = f"{time_desc} " if time_desc else ""
-        message = f"🔍 搜索结果：{time_prefix}{search_desc}\n"
-        message += f"找到 {len(valid_hits)} 个结果（显示前 {len(valid_hits)} 个）\n\n"
-        
-        # 存储消息ID用于删除按钮
-        message_ids = []
-        
-        for idx, hit in enumerate(valid_hits, 1):
-            # 生成帖子链接
-            if CHANNEL_ID.startswith('@'):
-                channel_username = CHANNEL_ID.lstrip('@')
-                post_link = f"https://t.me/{channel_username}/{hit.message_id}"
-            else:
-                post_link = f"消息ID: {hit.message_id}"
-            
-            # 解析标签
-            try:
-                tags = json.loads(hit.tags) if hit.tags else []
-                tags_preview = ' '.join([f"#{tag}" for tag in tags[:3]])
-            except (json.JSONDecodeError, TypeError, AttributeError):
-                tags_preview = hit.tags[:50] if hit.tags else ""
-            
-            # 使用高亮标题（如果有）。
-            # 安全处理：先剥离 Whoosh 高亮标记得到纯文本，再做 HTML 转义后输出，
-            # 避免标题中的 < > & 破坏 parse_mode=HTML（曾导致整个搜索列表发送失败）。
-            import re as _re
-            raw_title = hit.highlighted_title or hit.title or '无标题'
-            title_plain = _re.sub(r'<[^>]+>', '', str(raw_title))
-            # 截断在"纯文本"上进行，保证长度精确
-            if len(title_plain) > 40:
-                title_plain = title_plain[:40] + '...'
-            title = _html.escape(title_plain)
 
-            # 标签预览同样转义
-            try:
-                tags_preview_display = _html.escape(str(tags_preview)[:50])
-            except Exception:
-                tags_preview_display = ""
-            
-            # 发布时间
-            publish_date = hit.publish_time.strftime('%Y-%m-%d')
-            
-            # 匹配字段提示
-            matched_info = ""
-            if hasattr(hit, 'matched_fields') and hit.matched_fields:
-                matched_info = f"   💡 匹配: {', '.join(hit.matched_fields)}\n"
-            
-            message += (
-                f"{idx}. {title}\n"
-                f"   {tags_preview_display}\n"
-                f"{matched_info}"
-                f"   📅 {publish_date} | 👀 {hit.views} | 🔥 {hit.heat_score:.0f}\n"
-                f"   🔗 {post_link}\n\n"
-            )
-            
-            # 存储message_id供删除功能使用
-            if hit.message_id:
-                message_ids.append((idx, hit.message_id))
-            
-            # 防止消息过长
-            if len(message) > 3500:
-                message += "...\n\n结果过多，请使用更具体的关键词"
-                break
-        
-        # 如果是 OWNER，添加删除按钮
-        if is_owner(user_id) and message_ids:
-            keyboard = []
-            # 每行最多3个按钮
-            row = []
-            for idx, msg_id in message_ids[:9]:  # 最多显示9个按钮（3x3）
-                row.append(InlineKeyboardButton(f"🗑️ {idx}", callback_data=f"delete_post_{msg_id}"))
-                if len(row) == 3:
-                    keyboard.append(row)
-                    row = []
-            if row:  # 添加剩余的按钮
-                keyboard.append(row)
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                message, 
-                disable_web_page_preview=True, 
-                parse_mode='HTML',
-                reply_markup=reply_markup
-            )
-        else:
-            await update.message.reply_text(message, disable_web_page_preview=True, parse_mode='HTML')
-        
     except Exception as e:
         logger.error(f"搜索帖子失败: {e}", exc_info=True)
-        await update.message.reply_text("❌ 搜索失败，请稍后重试")
+        await update.effective_message.reply_text("❌ 搜索失败，请稍后重试")
+
+
+def _build_time_filter(tf_key):
+    """把 'day'/'week'/'month' 解析为 Whoosh DateRange 与中文描述；其他值返回 (None, '')"""
+    days = {'day': 1, 'week': 7, 'month': 30}
+    if tf_key in days:
+        start = datetime.now() - timedelta(days=days[tf_key])
+        desc = {'day': '今日', 'week': '本周', 'month': '本月'}[tf_key]
+        return DateRange("publish_time", start, None), desc
+    return None, ""
+
+
+async def _search_and_render(update, context, *, keyword, tag_filter, is_tag_search,
+                             tf_key, limit, page):
+    """执行搜索并渲染结果页（命令与翻页回调共用；支持分页导航）"""
+    import math as _math
+
+    time_filter, time_desc = _build_time_filter(tf_key)
+    search_engine = get_search_engine()
+    search_result = search_engine.search(
+        query_str=keyword,
+        page_num=page,
+        page_len=limit,
+        time_filter=time_filter,
+        tag_filter=tag_filter if is_tag_search else None,
+        sort_by="publish_time"
+    )
+
+    user_id = update.effective_user.id
+    is_callback = update.callback_query is not None
+
+    async def _output(text, reply_markup=None, html=False):
+        kwargs = {"reply_markup": reply_markup, "disable_web_page_preview": True}
+        if html:
+            kwargs["parse_mode"] = ParseMode.HTML
+        if is_callback:
+            try:
+                await update.callback_query.edit_message_text(text, **kwargs)
+                return
+            except Exception:
+                pass  # 内容未变化等情况下退回普通发送
+        await update.effective_message.reply_text(text, **kwargs)
+
+    try:
+        total = int(getattr(search_result, "total_results", 0) or 0)
+    except (TypeError, ValueError):
+        total = 0
+    pages = max(1, _math.ceil(total / limit)) if total else 1
+    page = min(max(1, page), pages)
+
+    if not search_result.hits:
+        search_desc = f"标签 #{tag_filter}" if is_tag_search else f'关键词 "{keyword}"'
+        await _output(f"🔍 未找到匹配{time_desc}{search_desc}的帖子")
+        return
+
+    # 验证搜索结果是否仍然存在于频道中（过滤已删除的帖子）
+    valid_hits = []
+    message_ids = [hit.message_id for hit in search_result.hits]
+    if message_ids:
+        async with get_db() as conn:
+            cursor = await conn.cursor()
+            placeholders = ','.join('?' * len(message_ids))
+            await cursor.execute(
+                f"SELECT message_id FROM published_posts WHERE message_id IN ({placeholders}) AND is_deleted = 0",
+                message_ids
+            )
+            valid_message_ids = {row['message_id'] for row in await cursor.fetchall()}
+
+        for hit in search_result.hits:
+            if hit.message_id in valid_message_ids:
+                valid_hits.append(hit)
+
+    if not valid_hits:
+        search_desc = f"标签 #{tag_filter}" if is_tag_search else f'关键词 "{keyword}"'
+        await _output(f"🔍 未找到匹配{time_desc}{search_desc}的帖子（或所有结果已被删除）")
+        return
+
+    # 构建结果消息
+    search_desc = f"#{tag_filter}" if is_tag_search else f'"{keyword}"'
+    time_prefix = f"{time_desc} " if time_desc else ""
+    message = f"🔍 搜索结果：{time_prefix}{search_desc}\n"
+    message += f"共 {total} 个结果，第 {page}/{pages} 页\n\n"
+
+    # 存储消息ID用于删除按钮
+    message_ids = []
+
+    for idx, hit in enumerate(valid_hits, 1):
+        # 生成帖子链接
+        if CHANNEL_ID.startswith('@'):
+            channel_username = CHANNEL_ID.lstrip('@')
+            post_link = f"https://t.me/{channel_username}/{hit.message_id}"
+        else:
+            post_link = f"消息ID: {hit.message_id}"
+
+        # 解析标签
+        try:
+            tags = json.loads(hit.tags) if hit.tags else []
+            tags_preview = ' '.join([f"#{tag}" for tag in tags[:3]])
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            tags_preview = hit.tags[:50] if hit.tags else ""
+
+        # 高亮标题剥离标记后转义（防 parse_mode=HTML 解析失败）
+        import re as _re
+        raw_title = hit.highlighted_title or hit.title or '无标题'
+        title_plain = _re.sub(r'<[^>]+>', '', str(raw_title))
+        if len(title_plain) > 40:
+            title_plain = title_plain[:40] + '...'
+        title = _html.escape(title_plain)
+
+        try:
+            tags_preview_display = _html.escape(str(tags_preview)[:50])
+        except Exception:
+            tags_preview_display = ""
+
+        publish_date = hit.publish_time.strftime('%Y-%m-%d')
+
+        matched_info = ""
+        if hasattr(hit, 'matched_fields') and hit.matched_fields:
+            matched_info = f"   💡 匹配: {', '.join(hit.matched_fields)}\n"
+
+        message += (
+            f"{idx}. {title}\n"
+            f"   {tags_preview_display}\n"
+            f"{matched_info}"
+            f"   📅 {publish_date} | 👀 {hit.views} | 🔥 {hit.heat_score:.0f}\n"
+            f"   🔗 {post_link}\n\n"
+        )
+
+        if hit.message_id:
+            message_ids.append((idx, hit.message_id))
+
+        if len(message) > 3500:
+            message += "...\n\n结果过多，请使用更具体的关键词"
+            break
+
+    keyboard = None
+    if is_owner(user_id) and message_ids:
+        rows = []
+        row = []
+        for idx, msg_id in message_ids[:9]:
+            row.append(InlineKeyboardButton(f"🗑️ {idx}", callback_data=f"delete_post_{msg_id}"))
+            if len(row) == 3:
+                rows.append(row)
+                row = []
+        if row:
+            rows.append(row)
+        keyboard = InlineKeyboardMarkup(rows)
+
+    # 分页导航
+    if pages > 1:
+        context.user_data['pg'] = {
+            'kind': 'search', 'keyword': keyword, 'tag': tag_filter,
+            'is_tag': is_tag_search, 'tf_key': tf_key, 'limit': limit,
+        }
+        nav_keyboard = Keyboards.page_nav(page, pages, base=keyboard)
+        await _output(message, reply_markup=nav_keyboard, html=True)
+    else:
+        context.user_data.pop('pg', None)
+        await _output(message, reply_markup=keyboard, html=True)
+
+
+async def render_search_page(update, context, page):
+    """翻页回调入口：按存储的查询上下文重新渲染指定页。返回是否成功处理。"""
+    pg = context.user_data.get('pg') or {}
+    if pg.get('kind') != 'search':
+        return False
+    await _search_and_render(
+        update, context,
+        keyword=pg['keyword'], tag_filter=pg['tag'], is_tag_search=pg['is_tag'],
+        tf_key=pg.get('tf_key'), limit=pg['limit'], page=page,
+    )
+    return True
 
 
 async def handle_search_input(update: Update, context: CallbackContext):

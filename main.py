@@ -76,6 +76,15 @@ from handlers.submit_handlers import (
 # 错误处理
 from handlers.error_handler import error_handler
 
+# 发布前预览与快速编辑
+from handlers.preview_handlers import (
+    show_submission_preview,
+    handle_edit_field_callback,
+    handle_edit_tag,
+    handle_edit_note,
+    handle_edit_media,
+)
+
 # 统计和搜索功能
 from handlers.stats_handlers import get_hot_posts, get_user_stats, update_post_stats
 from handlers.search_handlers import (
@@ -589,7 +598,20 @@ def setup_application(application):
                 STATE.get('EXTRA', 12): [MessageHandler(filters.TEXT & ~filters.COMMAND, collect_extra)],
                 STATE.get('PUBLISH', 13): [
                     CallbackQueryHandler(publish_submission, pattern="^publish$"),
-                    CallbackQueryHandler(cancel, pattern="^cancel$")
+                    CallbackQueryHandler(cancel, pattern="^cancel$"),
+                    CallbackQueryHandler(handle_edit_field_callback, pattern="^edit_(tag|note|media)$"),
+                ],
+
+                # 发布前快速编辑状态
+                STATE.get('EDIT_TAG', 14): [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_tag)
+                ],
+                STATE.get('EDIT_NOTE', 15): [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_note)
+                ],
+                STATE.get('EDIT_MEDIA', 16): [
+                    MessageHandler(filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.AUDIO |
+                                 filters.Document.ALL, handle_edit_media)
                 ],
                 
                 # 投稿处理状态

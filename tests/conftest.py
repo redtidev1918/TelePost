@@ -63,6 +63,11 @@ def mock_telegram_update():
     update.effective_user.first_name = 'Test'
     update.effective_chat.id = 987654321
     update.message.text = '/start'
+    # 处理器普遍通过 effective_message / message 的异步 reply_text 回复
+    update.message.reply_text = AsyncMock()
+    update.effective_message.reply_text = AsyncMock()
+    # 默认无回调来源；需要回调的测试显式覆盖
+    update.callback_query = None
     return update
 
 

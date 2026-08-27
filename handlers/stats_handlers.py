@@ -291,7 +291,7 @@ async def update_post_stats(context: CallbackContext):
         logger.error(f"更新统计数据失败: {e}")
 
 
-async def get_hot_posts(update: Update, context: CallbackContext, edit_message: bool = False):
+async def get_hot_posts(update: Update, context: CallbackContext, edit_message: bool = False, page: int = 1):
     """
     获取热门帖子排行 - 只显示主贴，优化预览样式
 
@@ -305,6 +305,7 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
 
     Args:
         edit_message: 由按钮回调触发时为 True，编辑原消息而非发送新消息
+        page: 页码（从 1 开始），由分页按钮回调传入
     
     Args:
         update: Telegram 更新对象
@@ -356,12 +357,37 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
         else:
             time_desc = "全部"
         
-        # 按热度排序
-        query += " ORDER BY heat_score DESC LIMIT ?"
+        # 总条数（用于分页导航）
+        page = max(1, int(page or 1))
+        count_query = "SELECT COUNT(*) AS c FROM published_posts WHERE is_deleted = 0"
+        count_params = []
+        if time_filter == 'day':
+            count_query += " AND publish_time > ?"
+            count_params.append((datetime.now() - timedelta(days=1)).timestamp())
+        elif time_filter == 'week':
+            count_query += " AND publish_time > ?"
+            count_params.append((datetime.now() - timedelta(days=7)).timestamp())
+        elif time_filter == 'month':
+            count_query += " AND publish_time > ?"
+            count_params.append((datetime.now() - timedelta(days=30)).timestamp())
+
+        # 按热度排序（分页取数）
+        query += " ORDER BY heat_score DESC LIMIT ? OFFSET ?"
+        offset = (page - 1) * limit
         query_params.append(limit)
-        
+        query_params.append(offset)
+
         async with get_db() as conn:
             cursor = await conn.cursor()
+            await cursor.execute(count_query, count_params)
+            crow = await cursor.fetchone()
+            try:
+                total_count = int(crow["c"]) if crow else 0
+            except (TypeError, ValueError, IndexError):
+                total_count = 0
+            pages = max(1, (total_count + limit - 1) // limit)
+            page = min(page, pages)
+
             await cursor.execute(query, query_params)
             hot_posts = await cursor.fetchall()
         
@@ -497,25 +523,37 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
         message += f"💡 使用 <code>/hot &lt;数量&gt; &lt;时间&gt;</code> 自定义查询\n"
         message += f"⏰ 时间范围：day(今日)、week(本周)、month(本月)"
         
+        # 分页导航：多页时附加 ⬅️/➡️ 按钮，并记录翻页上下文
+        from ui.keyboards import Keyboards
+        if pages > 1:
+            context.user_data['pg'] = {'kind': 'hot', 'tf': time_filter, 'limit': limit}
+            keyboard = Keyboards.page_nav(page, pages)
+        else:
+            context.user_data.pop('pg', None)
+            keyboard = None
+
         # 回调触发时编辑原消息；命令触发时发送新消息
         if edit_message and update.callback_query:
             try:
                 await update.callback_query.edit_message_text(
                     message,
                     disable_web_page_preview=True,
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    reply_markup=keyboard,
                 )
             except Exception:
-                await update.message.reply_text(
+                await update.effective_message.reply_text(
                     message,
                     disable_web_page_preview=True,
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    reply_markup=keyboard,
                 )
         else:
             await update.message.reply_text(
                 message,
                 disable_web_page_preview=True,
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup=keyboard,
             )
         
     except Exception as e:

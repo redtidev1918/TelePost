@@ -174,6 +174,28 @@ class Keyboards:
         return InlineKeyboardMarkup(keyboard)
     
     @staticmethod
+    def page_nav(page: int, pages: int, base: 'InlineKeyboardMarkup' = None) -> InlineKeyboardMarkup:
+        """
+        构建分页导航键盘：⬅️ 上一页 / 页码 / 下一页 ➡️
+
+        Args:
+            page: 当前页码（从 1 开始）
+            pages: 总页数
+            base: 可选的已有键盘，其按钮行会保留在导航行之前
+        """
+        rows = []
+        if base is not None and getattr(base, "inline_keyboard", None):
+            rows.extend(base.inline_keyboard)
+        row = []
+        if page > 1:
+            row.append(InlineKeyboardButton("⬅️ 上一页", callback_data=f"page_{page - 1}"))
+        row.append(InlineKeyboardButton(f"📄 {page}/{pages}", callback_data="page_info"))
+        if page < pages:
+            row.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"page_{page + 1}"))
+        rows.append(row)
+        return InlineKeyboardMarkup(rows)
+
+    @staticmethod
     def tag_cloud(tags: list, max_tags: int = 20):
         """标签云键盘"""
         keyboard = []

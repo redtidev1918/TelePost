@@ -148,6 +148,7 @@ class TestStatsHandlers:
         mock_get_db.return_value.__aexit__ = AsyncMock(return_value=False)
 
         mock_telegram_context.args = []
+        mock_telegram_update.callback_query = None
         mock_telegram_update.message.reply_text = AsyncMock()
         
         from handlers.stats_handlers import get_hot_posts
