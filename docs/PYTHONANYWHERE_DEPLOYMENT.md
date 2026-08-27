@@ -53,7 +53,7 @@ PythonAnywhere 对外部 API 访问有限制，这意味着：
 
 ```bash
 cd ~
-git clone https://github.com/zoidberg-xgd/TeleSubmit-v2.git
+git clone https://github.com/redtidev1918/TeleSubmit-v2.git
 cd TeleSubmit-v2
 ```
 
@@ -521,7 +521,7 @@ cp ~/TeleSubmit-v2/data/submissions.db ~/backups/submissions_$(date +%Y%m%d).db
 1. **检查文档**：先查看本指南和相关文档
 2. **查看日志**：PythonAnywhere 的 error.log 通常包含详细错误信息
 3. **搜索问题**：在 PythonAnywhere 论坛搜索类似问题
-4. **提交 Issue**：在 [GitHub Issues](https://github.com/zoidberg-xgd/TeleSubmit-v2/issues) 提问
+4. **提交 Issue**：在 [GitHub Issues](https://github.com/redtidev1918/TeleSubmit-v2/issues) 提问
 
 ---
 

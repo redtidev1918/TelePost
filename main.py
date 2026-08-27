@@ -261,7 +261,7 @@ async def main():
     """
     主函数 - 设置并启动机器人
     """
-    logger.info(f"启动TeleSubmit机器人。版本: {CONFIG.get('VERSION', '0.1.0')}")
+    logger.info(f"启动TeleSubmit机器人。版本: {CONFIG.get('VERSION', '2.2.0')}")
     logger.info(f"会话超时时间: {TIMEOUT_SECONDS}秒")
     
     # 启动健康检查服务器（仅在 Polling 模式下）

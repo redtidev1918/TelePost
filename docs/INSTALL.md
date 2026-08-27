@@ -15,7 +15,7 @@
 ## 1. Quickstart（快速体验）
 
 ```bash
-git clone https://github.com/zoidberg-xgd/TeleSubmit-v2.git && cd TeleSubmit-v2
+git clone https://github.com/redtidev1918/TeleSubmit-v2.git && cd TeleSubmit-v2
 ./quickstart.sh     # 引导式配置并启动
 ```
 

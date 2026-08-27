@@ -100,6 +100,13 @@ async def init_db():
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_id ON published_posts(user_id)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_tags ON published_posts(tags)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_is_deleted ON published_posts(is_deleted)')
+
+            # 组合索引：覆盖 /hot、/myposts 等高频查询的
+            # "WHERE is_deleted = 0 [+ user_id] ORDER BY ..." 热路径，
+            # 避免在 is_deleted 单列索引上回表后再排序
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_heat ON published_posts(is_deleted, heat_score DESC)')
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_publish_time ON published_posts(is_deleted, publish_time DESC)')
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_deleted ON published_posts(user_id, is_deleted)')
             
             await conn.commit()
             logger.info("数据库初始化完成")

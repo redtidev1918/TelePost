@@ -20,7 +20,7 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/zoidberg-xgd/TeleSubmit-v2.git
+git clone https://github.com/redtidev1918/TeleSubmit-v2.git
 cd TeleSubmit-v2
 ./quickstart.sh   # 智能检测环境并引导完成配置与启动
 ```
@@ -102,5 +102,5 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 
 ## 支持 & 许可
 
-- 问题反馈请开 [Issue](https://github.com/zoidberg-xgd/TeleSubmit-v2/issues)
+- 问题反馈请开 [Issue](https://github.com/redtidev1918/TeleSubmit-v2/issues)
 - 本项目基于 [MIT License](LICENSE) 开源

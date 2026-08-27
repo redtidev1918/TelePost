@@ -51,7 +51,7 @@ flyctl auth login
 克隆或进入项目目录：
 
 ```bash
-git clone https://github.com/zoidberg-xgd/TeleSubmit-v2.git
+git clone https://github.com/redtidev1918/TeleSubmit-v2.git
 cd TeleSubmit-v2
 ```
 
@@ -523,7 +523,7 @@ flyctl scale show
 1. **检查文档**：先查看本指南和 Fly.io 官方文档
 2. **查看日志**：`flyctl logs` 通常包含详细错误信息
 3. **Fly.io 社区**：[Fly.io Community](https://community.fly.io/)
-4. **提交 Issue**：在 [GitHub Issues](https://github.com/zoidberg-xgd/TeleSubmit-v2/issues) 提问
+4. **提交 Issue**：在 [GitHub Issues](https://github.com/redtidev1918/TeleSubmit-v2/issues) 提问
 
 ---
 
