@@ -1,5 +1,5 @@
 # Fly.io 应用配置文件
-# TeleSubmit v2 - Telegram 投稿机器人
+# TelePost - Telegram 投稿机器人
 
 # 应用名称（留空将在 fly launch 时自动生成或提示输入）
 app = ""
@@ -55,7 +55,7 @@ primary_region = ""
 # 挂载持久化存储（可选，用于数据持久化）
 # 取消注释以下配置来启用持久化存储
 # [[mounts]]
-#   source = "telesubmit_data"
+#   source = "telepost_data"
 #   destination = "/app/data"
 #   initial_size = "1gb"
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# TeleSubmit v2 卸载脚本
+# TelePost 卸载脚本
 
 set -e
 
@@ -35,7 +35,7 @@ log_error() {
 # 警告确认
 confirm_uninstall() {
     echo ""
-    echo -e "${RED}${BOLD}⚠️  警告：即将卸载 TeleSubmit v2${NC}"
+    echo -e "${RED}${BOLD}⚠️  警告：即将卸载 TelePost${NC}"
     echo ""
     echo -e "${YELLOW}以下数据将被处理：${NC}"
     echo -e "  • 机器人进程将被停止"
@@ -150,7 +150,7 @@ backup_data() {
     
     # 创建备份说明
     cat > "$BACKUP_DIR/README.txt" << EOF
-TeleSubmit v2 卸载备份
+TelePost 卸载备份
 备份时间: $(date)
 备份内容:
 - config.ini: 机器人配置文件
@@ -158,7 +158,7 @@ TeleSubmit v2 卸载备份
 - logs/: 运行日志
 
 恢复方法:
-1. 重新安装 TeleSubmit v2
+1. 重新安装 TelePost
 2. 将备份的文件复制回相应位置
 3. 运行 ./start.sh 启动机器人
 EOF
@@ -249,7 +249,7 @@ show_summary() {
 # 主函数
 main() {
     echo ""
-    echo -e "${CYAN}${BOLD}=== TeleSubmit v2 卸载 ===${NC}"
+    echo -e "${CYAN}${BOLD}=== TelePost 卸载 ===${NC}"
     
     confirm_uninstall
     choose_mode
@@ -281,7 +281,7 @@ main() {
     
     show_summary
     
-    echo -e "${GREEN}${BOLD}感谢使用 TeleSubmit v2！${NC}\n"
+    echo -e "${GREEN}${BOLD}感谢使用 TelePost！${NC}\n"
 }
 
 main "$@"

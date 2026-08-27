@@ -1,4 +1,4 @@
-# TeleSubmit v2
+# TelePost
 
 > 功能强大的 Telegram 频道投稿机器人 —— 投稿、搜索、热度统计、标签体系，开箱即用
 
@@ -20,8 +20,8 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/redtidev1918/TeleSubmit-v2.git
-cd TeleSubmit-v2
+git clone https://github.com/redtidev1918/TelePost.git
+cd TelePost
 ./quickstart.sh   # 智能检测环境并引导完成配置与启动
 ```
 
@@ -102,5 +102,5 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 
 ## 支持 & 许可
 
-- 问题反馈请开 [Issue](https://github.com/redtidev1918/TeleSubmit-v2/issues)
+- 问题反馈请开 [Issue](https://github.com/redtidev1918/TelePost/issues)
 - 本项目基于 [MIT License](LICENSE) 开源

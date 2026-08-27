@@ -1,5 +1,5 @@
 #!/bin/bash
-# TeleSubmit v2 更新脚本
+# TelePost 更新脚本
 
 set -e
 
@@ -192,7 +192,7 @@ show_changelog() {
 # 主函数
 main() {
     echo ""
-    log_info "=== TeleSubmit v2 更新 ==="
+    log_info "=== TelePost 更新 ==="
     echo ""
     
     check_git

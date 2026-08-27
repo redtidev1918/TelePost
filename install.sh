@@ -1,5 +1,5 @@
 #!/bin/bash
-# TeleSubmit v2 一键安装脚本
+# TelePost 一键安装脚本
 
 set -e
 
@@ -41,7 +41,7 @@ print_welcome() {
     clear
     echo -e "${CYAN}${BOLD}"
     echo "╔════════════════════════════════════════╗"
-    echo "║   TeleSubmit v2 一键安装向导          ║"
+    echo "║   TelePost 一键安装向导          ║"
     echo "║   Telegram 频道投稿机器人             ║"
     echo "╚════════════════════════════════════════╝"
     echo -e "${NC}"
@@ -335,7 +335,7 @@ main() {
     ask_start
     show_help
     
-    echo -e "${GREEN}${BOLD}感谢使用 TeleSubmit v2！${NC}\n"
+    echo -e "${GREEN}${BOLD}感谢使用 TelePost！${NC}\n"
 }
 
 # 运行主函数

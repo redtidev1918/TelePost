@@ -97,7 +97,7 @@ class MessageFormatter:
 • 🎯 个性化推荐
 
 <b>👨‍💻 开发者：</b> redtidev1918
-<b>📦 开源地址：</b> https://github.com/redtidev1918/TeleSubmit-v2
+<b>📦 开源地址：</b> https://github.com/redtidev1918/TelePost
 
 <i>感谢使用！如有问题请联系管理员。</i>
 """

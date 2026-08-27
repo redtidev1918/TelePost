@@ -27,7 +27,7 @@ async def _health_handler(request: web.Request) -> web.Response:
     """健康检查端点"""
     return web.json_response({
         "status": "ok",
-        "service": "telesubmit-bot",
+        "service": "telepost-bot",
         "mode": "polling",
     })
 

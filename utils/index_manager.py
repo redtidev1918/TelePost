@@ -429,7 +429,7 @@ def _exit_code_from_result(result: dict) -> int:
 
 
 def cli_main() -> int:
-    parser = argparse.ArgumentParser(description="TeleSubmit 索引管理工具")
+    parser = argparse.ArgumentParser(description="TelePost 索引管理工具")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # rebuild

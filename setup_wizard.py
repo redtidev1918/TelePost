@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TeleSubmit v2 配置向导
+TelePost 配置向导
 交互式配置脚本，帮助快速部署机器人
 """
 import os
@@ -10,7 +10,7 @@ from pathlib import Path
 def print_header():
     """打印欢迎头部"""
     print("\n" + "=" * 70)
-    print("🤖 TeleSubmit v2 配置向导".center(70))
+    print("🤖 TelePost 配置向导".center(70))
     print("=" * 70 + "\n")
 
 def print_section(title):
@@ -78,7 +78,7 @@ def create_config():
     """创建配置文件"""
     print_header()
     
-    print("欢迎使用 TeleSubmit v2！")
+    print("欢迎使用 TelePost！")
     print("这个向导将帮助您配置机器人。\n")
     
     # 步骤1：Bot Token

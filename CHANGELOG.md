@@ -16,6 +16,10 @@
 - 环境变量统一为 `TOKEN`，新增 `BOT_TOKEN` / `TELEGRAM_BOT_TOKEN` 别名兼容（修复按旧文档配置导致启动失败）
 - 新增 `SUBMIT_LIMIT_PER_HOUR` 投稿频率限制（默认 10 次/小时，0 关闭）
 
+### 重命名（2026-08）
+
+- **项目更名为 TelePost**（原 TeleSubmit-v2）：与上游同名项目区分，名称更贴合"频道投稿"主题。仓库地址改为 `redtidev1918/TelePost`，Docker 服务/容器名、systemd 单元名（telepost.service）、健康检查 service 标识同步更新；CHANGELOG 中更早条目保留历史名称。
+
 ### 新增（2026-08）
 
 - **发布前编辑流程**：投稿最后一步改为预览确认页，支持发布前快速修改标签/简介、补充媒体或取消（新增 EDIT_TAG/EDIT_NOTE/EDIT_MEDIA 会话状态）

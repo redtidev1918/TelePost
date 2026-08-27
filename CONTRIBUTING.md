@@ -1,11 +1,11 @@
 # 贡献指南
 
-感谢关注 TeleSubmit v2！
+感谢关注 TelePost！
 
 ## 开发环境
 
 ```bash
-git clone https://github.com/redtidev1918/TeleSubmit-v2.git && cd TeleSubmit-v2
+git clone https://github.com/redtidev1918/TelePost.git && cd TelePost
 python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 cp config.ini.example config.ini   # 填入测试用 Token/频道
 ```

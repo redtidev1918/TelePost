@@ -112,7 +112,7 @@ def main():
     args = parser.parse_args()
     
     logger.info("="*60)
-    logger.info("TeleSubmit-v2 数据迁移工具")
+    logger.info("TelePost 数据迁移工具")
     logger.info("="*60)
     
     if args.clear:

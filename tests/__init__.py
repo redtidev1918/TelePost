@@ -1,3 +1,3 @@
 """
-TeleSubmit-v2 测试套件
+TelePost 测试套件
 """

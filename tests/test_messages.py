@@ -60,7 +60,7 @@ class TestMessageFormatter:
         assert "v2.0" in message
         assert "python-telegram-bot" in message
         assert "redtidev1918" in message
-        assert "github.com/redtidev1918/TeleSubmit-v2" in message
+        assert "github.com/redtidev1918/TelePost" in message
     
     @pytest.mark.unit
     def test_submission_preview_basic(self):

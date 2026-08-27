@@ -1,5 +1,5 @@
 #!/bin/bash
-# TeleSubmit v2 启动脚本
+# TelePost 启动脚本
 
 set -e
 
@@ -135,7 +135,7 @@ start_bot() {
 # 主函数
 main() {
     echo ""
-    log_info "=== TeleSubmit v2 启动 ==="
+    log_info "=== TelePost 启动 ==="
     echo ""
     
     check_python

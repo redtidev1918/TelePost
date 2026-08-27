@@ -15,7 +15,7 @@
 ## 1. Quickstart（快速体验）
 
 ```bash
-git clone https://github.com/redtidev1918/TeleSubmit-v2.git && cd TeleSubmit-v2
+git clone https://github.com/redtidev1918/TelePost.git && cd TelePost
 ./quickstart.sh     # 引导式配置并启动
 ```
 
@@ -24,7 +24,7 @@ git clone https://github.com/redtidev1918/TeleSubmit-v2.git && cd TeleSubmit-v2
 ```bash
 sudo ./install.sh   # 创建 venv、写入 config.ini、注册 systemd 服务
 ```
-管理：`systemctl {start|stop|restart|status} telesubmit`（服务名以脚本实际注册为准）。更新用 `./update.sh`。
+管理：`systemctl {start|stop|restart|status} telepost`（服务名以脚本实际注册为准）。更新用 `./update.sh`。
 
 ## 3. Docker
 

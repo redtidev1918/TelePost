@@ -1,11 +1,11 @@
 #!/bin/bash
 # Fly.io 快速部署脚本
-# TeleSubmit v2 - Telegram 投稿机器人
+# TelePost - Telegram 投稿机器人
 
 set -e
 
 echo "========================================="
-echo "  TeleSubmit v2 - Fly.io 部署脚本"
+echo "  TelePost - Fly.io 部署脚本"
 echo "========================================="
 echo ""
 

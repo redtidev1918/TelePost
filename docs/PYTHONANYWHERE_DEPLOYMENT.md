@@ -1,6 +1,6 @@
 # PythonAnywhere Webhook 模式部署指南
 
-本指南详细说明如何在 PythonAnywhere 上以 Webhook 模式部署 TeleSubmit v2 项目。
+本指南详细说明如何在 PythonAnywhere 上以 Webhook 模式部署 TelePost 项目。
 
 ---
 
@@ -53,8 +53,8 @@ PythonAnywhere 对外部 API 访问有限制，这意味着：
 
 ```bash
 cd ~
-git clone https://github.com/redtidev1918/TeleSubmit-v2.git
-cd TeleSubmit-v2
+git clone https://github.com/redtidev1918/TelePost.git
+cd TelePost
 ```
 
 #### 方式 2：手动上传
@@ -65,8 +65,8 @@ cd TeleSubmit-v2
 
 ```bash
 cd ~
-unzip TeleSubmit-v2.zip
-cd TeleSubmit-v2
+unzip TelePost.zip
+cd TelePost
 ```
 
 ---
@@ -151,7 +151,7 @@ CACHE_SIZE_KB = 1024
 项目已包含 PythonAnywhere 专用的 WSGI 文件，只需简单配置：
 
 ```bash
-cd ~/TeleSubmit-v2
+cd ~/TelePost
 nano pythonanywhere_wsgi.py
 ```
 
@@ -193,7 +193,7 @@ import sys
 import os
 
 # 项目路径
-project_home = '/home/yourusername/TeleSubmit-v2'
+project_home = '/home/yourusername/TelePost'
 if project_home not in sys.path:
     sys.path.insert(0, project_home)
 
@@ -343,13 +343,13 @@ pip3.9 install --user --force-reinstall -r requirements.txt
 
 ```bash
 # 确认项目路径正确
-ls -la ~/TeleSubmit-v2/
+ls -la ~/TelePost/
 
 # 检查 WSGI 文件中的路径
 nano /var/www/yourusername_pythonanywhere_com_wsgi.py
 
 # 确保路径正确：
-# project_home = '/home/yourusername/TeleSubmit-v2'
+# project_home = '/home/yourusername/TelePost'
 ```
 
 ### 问题 4：数据库权限错误
@@ -360,7 +360,7 @@ nano /var/www/yourusername_pythonanywhere_com_wsgi.py
 
 ```bash
 # 确保 data 目录存在且有写权限
-cd ~/TeleSubmit-v2
+cd ~/TelePost
 mkdir -p data
 chmod 755 data
 
@@ -429,9 +429,9 @@ CACHE_SIZE_KB = 1024       # 适度缓存
 
 ```bash
 # 创建日志清理脚本
-cat > ~/TeleSubmit-v2/cleanup_logs.sh << 'EOF'
+cat > ~/TelePost/cleanup_logs.sh << 'EOF'
 #!/bin/bash
-cd ~/TeleSubmit-v2
+cd ~/TelePost
 find logs/ -name "*.log" -mtime +7 -delete
 EOF
 
@@ -447,7 +447,7 @@ chmod +x cleanup_logs.sh
 
 ```bash
 # 在 Bash 控制台运行
-cd ~/TeleSubmit-v2
+cd ~/TelePost
 python3.9 optimize_database.py
 ```
 
@@ -459,7 +459,7 @@ python3.9 optimize_database.py
 
 ```bash
 # 1. 进入项目目录
-cd ~/TeleSubmit-v2
+cd ~/TelePost
 
 # 2. 备份配置
 cp config.ini config.ini.backup
@@ -491,7 +491,7 @@ pip3.9 install --user -r requirements.txt
 
 ```bash
 # 创建备份
-cp ~/TeleSubmit-v2/data/submissions.db ~/backups/submissions_$(date +%Y%m%d).db
+cp ~/TelePost/data/submissions.db ~/backups/submissions_$(date +%Y%m%d).db
 
 # 下载备份到本地
 # 在 Files 页面下载备份文件
@@ -521,12 +521,12 @@ cp ~/TeleSubmit-v2/data/submissions.db ~/backups/submissions_$(date +%Y%m%d).db
 1. **检查文档**：先查看本指南和相关文档
 2. **查看日志**：PythonAnywhere 的 error.log 通常包含详细错误信息
 3. **搜索问题**：在 PythonAnywhere 论坛搜索类似问题
-4. **提交 Issue**：在 [GitHub Issues](https://github.com/redtidev1918/TeleSubmit-v2/issues) 提问
+4. **提交 Issue**：在 [GitHub Issues](https://github.com/redtidev1918/TelePost/issues) 提问
 
 ---
 
 **最后更新**：2025-12-02  
-**适用版本**：TeleSubmit v2.1+  
+**适用版本**：TelePost.1+  
 **测试账号**：PythonAnywhere Hacker Plan (512MB 内存)
 
 **部署成功标志**：

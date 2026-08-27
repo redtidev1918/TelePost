@@ -1,5 +1,5 @@
 #!/bin/bash
-# TeleSubmit v2 功能升级脚本（包含数据迁移）
+# TelePost 功能升级脚本（包含数据迁移）
 
 set -e
 
@@ -264,7 +264,7 @@ show_summary() {
 # 主函数
 main() {
     echo ""
-    echo -e "${CYAN}${BOLD}=== TeleSubmit v2 功能升级 ===${NC}"
+    echo -e "${CYAN}${BOLD}=== TelePost 功能升级 ===${NC}"
     echo ""
     
     log_info "开始升级流程..."

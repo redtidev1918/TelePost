@@ -1,5 +1,5 @@
 #!/bin/bash
-# TeleSubmit v2 快速启动向导
+# TelePost 快速启动向导
 
 set -e
 
@@ -40,7 +40,7 @@ print_welcome() {
     cat << "EOF"
 ╔════════════════════════════════════════════════╗
 ║                                                ║
-║      TeleSubmit v2 快速启动向导               ║
+║      TelePost 快速启动向导               ║
 ║      Telegram Channel Submission Bot          ║
 ║                                                ║
 ╚════════════════════════════════════════════════╝
@@ -263,7 +263,7 @@ main() {
     choose_deployment
     show_help
     
-    echo -e "${GREEN}${BOLD}感谢使用 TeleSubmit v2！${NC}\n"
+    echo -e "${GREEN}${BOLD}感谢使用 TelePost！${NC}\n"
 }
 
 main "$@"

@@ -1,6 +1,6 @@
 """
 搜索引擎模块 - 基于 Whoosh 的全文搜索
-改编自 tg_searcher 项目，用于 TeleSubmit-v2
+改编自 tg_searcher 项目，用于 TelePost
 """
 import logging
 from pathlib import Path

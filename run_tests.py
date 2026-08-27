@@ -23,7 +23,7 @@ class TestRunner:
     def run_all_tests(self):
         """运行所有测试"""
         print('='*80)
-        print('🧪 TeleSubmit-v2 全面测试')
+        print('🧪 TelePost 全面测试')
         print('='*80)
         print()
         

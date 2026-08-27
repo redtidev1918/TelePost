@@ -18,7 +18,7 @@ def cleanup():
     """清理重复文件并迁移数据"""
     
     print("=" * 60)
-    print("  TeleSubmit v2 数据清理和迁移脚本")
+    print("  TelePost 数据清理和迁移脚本")
     print("=" * 60)
     print()
     

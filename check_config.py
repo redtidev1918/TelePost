@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 配置检查脚本
-用于验证 TeleSubmit v2 的配置是否正确
+用于验证 TelePost 的配置是否正确
 """
 import os
 import sys
@@ -123,7 +123,7 @@ def check_project_structure():
 def main():
     """主函数"""
     print("=" * 60)
-    print("TeleSubmit v2 配置检查")
+    print("TelePost 配置检查")
     print("=" * 60)
     print()
     

@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  telesubmit:
+  telepost:
     build: 
       context: .
       network: host  # 使用宿主机网络进行构建
@@ -9,7 +9,7 @@ services:
       # args:
       #   - HTTP_PROXY=${HTTP_PROXY}
       #   - HTTPS_PROXY=${HTTPS_PROXY}
-    container_name: telesubmit-v2
+    container_name: telepost
     restart: unless-stopped
     
     # DNS 配置 - 使用真实 DNS 服务器

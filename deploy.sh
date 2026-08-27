@@ -1,5 +1,5 @@
 #!/bin/bash
-# TeleSubmit v2 Docker 部署脚本
+# TelePost Docker 部署脚本
 
 set -e
 
@@ -192,7 +192,7 @@ main() {
     parse_args "$@"
     
     echo ""
-    log_info "=== TeleSubmit v2 Docker 部署 ==="
+    log_info "=== TelePost Docker 部署 ==="
     echo ""
     
     # 检查 Docker

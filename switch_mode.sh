@@ -1,5 +1,5 @@
 #!/bin/bash
-# TeleSubmit v2 配置模式切换脚本
+# TelePost 配置模式切换脚本
 # 作用：在不同内存/性能模式之间快速切换
 
 set -e
@@ -10,7 +10,7 @@ CONFIG_FILE="$SCRIPT_DIR/config.ini"
 show_help() {
     cat << EOF
 ================================================
-  TeleSubmit v2 配置模式切换工具
+  TelePost 配置模式切换工具
 ================================================
 
 使用方法:

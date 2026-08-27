@@ -3,7 +3,7 @@
 # 默认目标
 help:
 	@echo "====================================="
-	@echo "  TeleSubmit v2 管理命令"
+	@echo "  TelePost 管理命令"
 	@echo "====================================="
 	@echo ""
 	@echo "使用方法: make [命令]"
@@ -85,18 +85,18 @@ status:
 	@docker-compose ps
 	@echo ""
 	@echo "💻 资源使用:"
-	@docker stats --no-stream telesubmit-v2 2>/dev/null || echo "容器未运行"
+	@docker stats --no-stream telepost 2>/dev/null || echo "容器未运行"
 
 # 进入容器 shell
 shell:
 	@echo "🐚 进入容器 shell（输入 exit 退出）..."
-	docker exec -it telesubmit-v2 /bin/bash
+	docker exec -it telepost /bin/bash
 
 # 运行数据迁移
 migrate:
 	@echo "🔄 运行数据迁移..."
-	@if docker ps | grep -q telesubmit-v2; then \
-		docker exec telesubmit-v2 python migrate_to_search.py; \
+	@if docker ps | grep -q telepost; then \
+		docker exec telepost python migrate_to_search.py; \
 		echo "✅ 迁移完成"; \
 	else \
 		echo "❌ 容器未运行，请先启动容器: make up"; \

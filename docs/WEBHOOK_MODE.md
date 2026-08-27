@@ -1,6 +1,6 @@
 # Webhook 模式使用指南
 
-TeleSubmit v2 支持两种运行模式：**Polling（轮询）** 和 **Webhook**。
+TelePost 支持两种运行模式：**Polling（轮询）** 和 **Webhook**。
 
 ## 📊 两种模式对比
 
@@ -62,7 +62,7 @@ export WEBHOOK_SECRET_TOKEN=your_random_token  # 可选
 
 ```yaml
 services:
-  telesubmit:
+  telepost:
     environment:
       - RUN_MODE=WEBHOOK
       - WEBHOOK_URL=https://your-domain.com
@@ -73,7 +73,7 @@ services:
 
 **Systemd 服务**：
 
-编辑 `/etc/systemd/system/telesubmit.service`：
+编辑 `/etc/systemd/system/telepost.service`：
 
 ```ini
 [Service]
@@ -133,7 +133,7 @@ server {
 ```yaml
 version: '3.8'
 services:
-  telesubmit:
+  telepost:
     build: .
     ports:
       - "8080:8080"
@@ -529,7 +529,7 @@ Bot Application
 ---
 
 **最后更新**: 2025-10-28  
-**适用版本**: TeleSubmit v2.1+
+**适用版本**: TelePost.1+
 
 
 > 2026-08 更正：环境变量统一为 `TOKEN`（兼容 `BOT_TOKEN` / `TELEGRAM_BOT_TOKEN`）；帖子统计更新周期为每 2 小时。

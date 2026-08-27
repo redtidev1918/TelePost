@@ -1,6 +1,6 @@
 # Fly.io Webhook 模式部署指南
 
-本指南详细说明如何在 Fly.io 上以 Webhook 模式部署 TeleSubmit v2 项目。
+本指南详细说明如何在 Fly.io 上以 Webhook 模式部署 TelePost 项目。
 
 ---
 
@@ -51,8 +51,8 @@ flyctl auth login
 克隆或进入项目目录：
 
 ```bash
-git clone https://github.com/redtidev1918/TeleSubmit-v2.git
-cd TeleSubmit-v2
+git clone https://github.com/redtidev1918/TelePost.git
+cd TelePost
 ```
 
 ---
@@ -523,12 +523,12 @@ flyctl scale show
 1. **检查文档**：先查看本指南和 Fly.io 官方文档
 2. **查看日志**：`flyctl logs` 通常包含详细错误信息
 3. **Fly.io 社区**：[Fly.io Community](https://community.fly.io/)
-4. **提交 Issue**：在 [GitHub Issues](https://github.com/redtidev1918/TeleSubmit-v2/issues) 提问
+4. **提交 Issue**：在 [GitHub Issues](https://github.com/redtidev1918/TelePost/issues) 提问
 
 ---
 
 **最后更新**：2025-12-02  
-**适用版本**：TeleSubmit v2.1+  
+**适用版本**：TelePost.1+  
 **测试环境**：Fly.io Free Tier (256MB RAM)
 
 **部署成功标志**：

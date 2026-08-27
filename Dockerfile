@@ -1,4 +1,4 @@
-# TeleSubmit v2 - Telegram 投稿机器人
+# TelePost - Telegram 投稿机器人
 # 基于 Python 3.11 slim 镜像
 FROM python:3.11-slim
 

@@ -1,6 +1,6 @@
 """
 PythonAnywhere WSGI 配置文件
-用于在 Webhook 模式下运行 TeleSubmit v2
+用于在 Webhook 模式下运行 TelePost
 
 使用说明:
 1. 将此文件复制到 /var/www/yourusername_pythonanywhere_com_wsgi.py
@@ -17,7 +17,7 @@ from pathlib import Path
 USERNAME = 'yourusername'  # 修改这里！
 
 # 添加项目路径
-project_home = f'/home/{USERNAME}/TeleSubmit-v2'
+project_home = f'/home/{USERNAME}/TelePost'
 if project_home not in sys.path:
     sys.path.insert(0, project_home)
 
@@ -192,6 +192,6 @@ def application(environ, start_response):
 
 # 记录启动信息
 logger.info("=" * 50)
-logger.info("TeleSubmit v2 WSGI Application")
+logger.info("TelePost WSGI Application")
 logger.info(f"Project path: {project_home}")
 logger.info("=" * 50)
