@@ -83,8 +83,10 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo ""
     
     # 设置密钥
-    echo "设置 BOT_TOKEN..."
-    flyctl secrets set BOT_TOKEN="$BOT_TOKEN"
+    # 注意：代码读取 TOKEN（兼容 BOT_TOKEN / TELEGRAM_BOT_TOKEN 别名），
+    # 这里同时设置两个名字，确保任何版本都能读到
+    echo "设置 TOKEN..."
+    flyctl secrets set TOKEN="$BOT_TOKEN" BOT_TOKEN="$BOT_TOKEN"
     
     echo "设置 CHANNEL_ID..."
     flyctl secrets set CHANNEL_ID="$CHANNEL_ID"

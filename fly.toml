@@ -60,7 +60,8 @@ primary_region = ""
 #   initial_size = "1gb"
 
 # 注意：
-# 1. 敏感信息（BOT_TOKEN, CHANNEL_ID, OWNER_ID, WEBHOOK_URL）应使用 flyctl secrets set 设置
+# 1. 敏感信息（TOKEN, CHANNEL_ID, OWNER_ID, WEBHOOK_URL）应使用 flyctl secrets set 设置
 # 2. 首次部署使用: flyctl launch
-# 3. 设置密钥: flyctl secrets set BOT_TOKEN=xxx CHANNEL_ID=@xxx OWNER_ID=xxx WEBHOOK_URL=https://xxx.fly.dev
+# 3. 设置密钥: flyctl secrets set TOKEN=xxx CHANNEL_ID=@xxx OWNER_ID=xxx WEBHOOK_URL=https://xxx.fly.dev
+#    （代码兼容 BOT_TOKEN / TELEGRAM_BOT_TOKEN 作为别名）
 # 4. 后续部署使用: flyctl deploy

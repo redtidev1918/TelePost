@@ -5,11 +5,13 @@ import json
 import logging
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ParseMode
 from telegram.ext import CallbackContext
 from telegram.error import BadRequest, TelegramError
 from whoosh.query import DateRange
 
 from config.settings import CHANNEL_ID, OWNER_ID
+import html as _html
 from database.db_manager import get_db
 from utils.search_engine import get_search_engine
 from utils.cache import TTLCache
@@ -129,13 +131,14 @@ async def search_posts(update: Update, context: CallbackContext):
             time_filter = DateRange("publish_time", start_time, None)
             time_desc = "本月"
         
-        # 处理时间过滤（来自内联时间筛选）
-        time_filter = context.user_data.get('time_filter')
-        if time_filter:
-            # 将时间过滤转换为 -t 选项处理逻辑
-            if '-t' not in context.args:
-                context.args.extend(['-t', time_filter])
-            context.user_data['time_filter'] = None
+        # 处理时间过滤（来自内联时间筛选按钮，存的是 'day'/'week'/'month'/'all' 字符串键）
+        # 注意：引擎要求 DateRange 对象，绝不能把裸字符串传入 search()，
+        # 否则 Whoosh 构造 filter 时抛异常被外层捕获，表现为"搜索无结果"。
+        time_filter_key = context.user_data.pop('time_filter', None)
+        if time_filter_key in ('day', 'week', 'month'):
+            days = {'day': 1, 'week': 7, 'month': 30}[time_filter_key]
+            time_filter = DateRange("publish_time", datetime.now() - timedelta(days=days), None)
+            time_desc = {'day': '今日', 'week': '本周', 'month': '本月'}[time_filter_key]
 
         # 使用搜索引擎
         search_engine = get_search_engine()
@@ -210,15 +213,22 @@ async def search_posts(update: Update, context: CallbackContext):
             except (json.JSONDecodeError, TypeError, AttributeError):
                 tags_preview = hit.tags[:50] if hit.tags else ""
             
-            # 使用高亮标题（如果有）
-            title = hit.highlighted_title or hit.title or '无标题'
-            # 清理HTML标签用于长度计算
-            import re
-            title_clean = re.sub(r'<[^>]+>', '', title)
-            
-            # 标题过长则截断
-            if len(title_clean) > 40:
-                title = title[:60] + '...'  # 考虑HTML标签，使用更大的截断长度
+            # 使用高亮标题（如果有）。
+            # 安全处理：先剥离 Whoosh 高亮标记得到纯文本，再做 HTML 转义后输出，
+            # 避免标题中的 < > & 破坏 parse_mode=HTML（曾导致整个搜索列表发送失败）。
+            import re as _re
+            raw_title = hit.highlighted_title or hit.title or '无标题'
+            title_plain = _re.sub(r'<[^>]+>', '', str(raw_title))
+            # 截断在"纯文本"上进行，保证长度精确
+            if len(title_plain) > 40:
+                title_plain = title_plain[:40] + '...'
+            title = _html.escape(title_plain)
+
+            # 标签预览同样转义
+            try:
+                tags_preview_display = _html.escape(str(tags_preview)[:50])
+            except Exception:
+                tags_preview_display = ""
             
             # 发布时间
             publish_date = hit.publish_time.strftime('%Y-%m-%d')
@@ -230,7 +240,7 @@ async def search_posts(update: Update, context: CallbackContext):
             
             message += (
                 f"{idx}. {title}\n"
-                f"   {tags_preview}\n"
+                f"   {tags_preview_display}\n"
                 f"{matched_info}"
                 f"   📅 {publish_date} | 👀 {hit.views} | 🔥 {hit.heat_score:.0f}\n"
                 f"   🔗 {post_link}\n\n"
@@ -859,7 +869,10 @@ async def delete_posts_batch(update: Update, context: CallbackContext):
                         continue
                     
                     # 检查是否已经标记为删除
-                    if post.get('is_deleted', 0) == 1:
+                    # 注意：post 是 sqlite3.Row，没有 .get() 方法
+                    post_keys = post.keys() if hasattr(post, "keys") else []
+                    is_deleted = post["is_deleted"] if "is_deleted" in post_keys else 0
+                    if is_deleted == 1:
                         already_deleted_count += 1
                         logger.debug(f"批量删除：帖子 {msg_id} 已经被标记为删除")
                         continue
@@ -902,10 +915,12 @@ async def delete_posts_batch(update: Update, context: CallbackContext):
                         logger.warning(f"批量删除：删除频道消息时出错: {e}")
                         channel_delete_failed += 1
                     
-                    # 从搜索索引删除
+                    # 从搜索索引删除（仅在搜索功能启用时操作，
+                    # 避免禁用搜索的部署意外创建目录位置错误的索引）
                     try:
+                        from config.settings import SEARCH_ENABLED
                         from utils.search_engine import get_search_engine
-                        search_engine = get_search_engine()
+                        search_engine = get_search_engine() if SEARCH_ENABLED else None
                         if search_engine:
                             search_engine.delete_post(msg_id)
                             deleted_from_index += 1

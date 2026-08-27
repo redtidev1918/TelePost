@@ -108,8 +108,13 @@ async def save_published_post(user_id, message_id, data, media_list, doc_list, a
             await conn.commit()
             logger.info(f"已保存帖子 {message_id} (post_id: {post_id}) 到published_posts表（文件名: {filename}）")
         
-        # 添加到搜索索引
+        # 添加到搜索索引（仅在搜索功能启用时；
+        # get_search_engine 在未初始化时会以默认目录创建索引，与配置目录不符）
         try:
+            from config.settings import SEARCH_ENABLED
+            if not SEARCH_ENABLED:
+                logger.debug("搜索功能已禁用，跳过索引写入")
+                return
             search_engine = get_search_engine()
             
             # 构建搜索文档
@@ -158,14 +163,37 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
         int: 会话结束状态
     """
     user_id = update.effective_user.id
+
+    # 本函数既可能被消息流程直接调用（handle_spoiler），
+    # 也可能被按钮回调触发（PUBLISH 状态 / submit_confirm 按钮）。
+    # 回调来源时 update.message 为 None，必须统一走 _notify。
+    is_callback = update.callback_query is not None
+
+    async def _reply_to_user(text: str):
+        """向用户反馈结果：回调来源编辑原消息，普通消息直接回复"""
+        if is_callback:
+            try:
+                await update.callback_query.answer()
+            except Exception:
+                pass  # 可能已被应答或查询过期，不影响后续
+            try:
+                await update.callback_query.edit_message_text(text)
+            except Exception:
+                try:
+                    await update.effective_message.reply_text(text)
+                except Exception as e:
+                    logger.error(f"发送结果通知失败: {e}")
+        else:
+            await update.message.reply_text(text)
+
     try:
         async with get_db() as conn:
             c = await conn.cursor()
             await c.execute("SELECT * FROM submissions WHERE user_id=?", (user_id,))
             data = await c.fetchone()
-        
+
         if not data:
-            await update.message.reply_text("❌ 数据异常，请重新发送 /start")
+            await _reply_to_user("❌ 数据异常，请重新发送 /start")
             return ConversationHandler.END
 
         caption = build_caption(data)
@@ -189,7 +217,11 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
             doc_list = []
         
         if not media_list and not doc_list:
-            await update.message.reply_text("❌ 未检测到任何上传文件，请重新发送 /start")
+            await _reply_to_user("❌ 未检测到任何上传文件，请重新发送 /start")
+            # 数据异常的空记录直接清理
+            async with get_db() as conn:
+                c = await conn.cursor()
+                await c.execute("DELETE FROM submissions WHERE user_id=?", (user_id,))
             return ConversationHandler.END
 
         # 安全处理spoiler字段，防止None值导致AttributeError
@@ -197,6 +229,7 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
         spoiler_flag = spoiler_value.lower() == "true"
         sent_message = None
         all_message_ids = []  # 用于记录所有发送的消息ID
+        publish_success = False  # 是否成功发布（决定 finally 中是否清理会话记录）
         
         # 处理媒体文件
         if media_list:
@@ -222,7 +255,12 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
         
         # 处理结果
         if not sent_message:
-            await update.message.reply_text("❌ 内容发送失败，请稍后再试")
+            await _reply_to_user(
+                "❌ 内容发送失败。\n"
+                "您的投稿数据已保留，请稍后重新发送 /submit 并完成相同步骤，或联系管理员处理。"
+            )
+            # 失败时不删除 submissions 记录：保留已上传的 file_id，
+            # 避免用户因瞬时网络错误而重传所有媒体。
             return ConversationHandler.END
             
         # 生成投稿链接
@@ -232,10 +270,13 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
         else:
             submission_link = "频道无公开链接"
 
-        await update.message.reply_text(
+        await _reply_to_user(
             f"🎉 投稿已成功发布到频道！\n点击以下链接查看投稿：\n{submission_link}"
         )
-        
+
+        # 标记发布成功：finally 中据此决定是否清理会话记录
+        publish_success = True
+
         # 保存已发布的帖子信息到数据库（用于热度统计和搜索）
         await save_published_post(user_id, sent_message.message_id, data, media_list, doc_list, all_message_ids)
         
@@ -245,9 +286,10 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
             logger.info(f"准备发送通知: NOTIFY_OWNER={NOTIFY_OWNER}, OWNER_ID={OWNER_ID}, 类型={type(OWNER_ID)}")
             
             # 获取用户名信息
+            # 注意：对 sqlite3.Row，"col" in data 判断的是值而非列名，必须用 data.keys()
             username = None
             try:
-                username = data["username"] if "username" in data else f"user{user_id}"
+                username = data["username"] if "username" in data.keys() else f"user{user_id}"
             except (KeyError, TypeError):
                 username = f"user{user_id}"
                 
@@ -255,14 +297,14 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
             user = update.effective_user
             real_username = user.username or username
             
-            # 安全处理可能缺失的数据字段
+            # 安全处理可能缺失的数据字段（同样使用 data.keys() 判断列存在）
             try:
-                mode = data["mode"] if "mode" in data else "未知"
-                media_count = len(json.loads(data["image_id"])) if "image_id" in data and data["image_id"] else 0
-                doc_count = len(json.loads(data["document_id"])) if "document_id" in data and data["document_id"] else 0
-                tag_text = data["tag"] if "tag" in data else "无"
-                title_text = data["title"] if "title" in data else "无"
-                spoiler_text = "是" if "spoiler" in data and data["spoiler"] == "true" else "否"
+                mode = data["mode"] if "mode" in data.keys() else "未知"
+                media_count = len(json.loads(data["image_id"])) if "image_id" in data.keys() and data["image_id"] else 0
+                doc_count = len(json.loads(data["document_id"])) if "document_id" in data.keys() and data["document_id"] else 0
+                tag_text = data["tag"] if "tag" in data.keys() else "无"
+                title_text = data["title"] if "title" in data.keys() else "无"
+                spoiler_text = "是" if "spoiler" in data.keys() and data["spoiler"] == "true" else "否"
             except Exception as e:
                 logger.error(f"数据处理错误: {e}")
                 # 设置默认值
@@ -314,10 +356,9 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                         logger.info("使用简化消息成功发送通知")
                     except Exception as e2:
                         logger.error(f"发送简化通知也失败: {e2}")
-                        # 通知用户有问题
-                        await update.message.reply_text(
-                            "⚠️ 投稿已发布，但无法通知管理员。请直接联系管理员。"
-                        )
+                        # 通知用户有问题（不覆盖成功消息，仅记录日志；
+                        # 投稿本身已发布成功，无需惊动用户）
+                        logger.warning("⚠️ 投稿已发布，但无法通知管理员")
             except Exception as e:
                 logger.error(f"处理通知过程中发生错误: 错误类型: {type(e)}, 详细信息: {str(e)}")
                 logger.error("异常追踪: ", exc_info=True)
@@ -325,21 +366,31 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
             logger.info(f"不发送通知: NOTIFY_OWNER={NOTIFY_OWNER}, OWNER_ID={OWNER_ID}")
         
     except Exception as e:
-        logger.error(f"发布投稿失败: {e}")
-        await update.message.reply_text(f"❌ 发布失败，请联系管理员。错误信息：{str(e)}")
-    finally:
-        # 清理用户会话数据
+        logger.error(f"发布投稿失败: {e}", exc_info=True)
         try:
-            async with get_db() as conn:
-                c = await conn.cursor()
-                await c.execute("DELETE FROM submissions WHERE user_id=?", (user_id,))
-            logger.info(f"已删除用户 {user_id} 的投稿记录")
-        except Exception as e:
-            logger.error(f"删除数据错误: {e}")
-        
+            await _reply_to_user("❌ 发布失败，您的投稿数据已保留，请稍后重试或联系管理员。")
+        except Exception as notify_err:
+            logger.error(f"发送失败通知时出错: {notify_err}")
+    finally:
+        # 仅在确认发布成功后清理会话数据；失败时保留，
+        # 用户可重新 /submit 或由 cleanup_old_data 按超时自动回收
+        if not publish_success:
+            logger.warning(f"用户 {user_id} 投稿未完成，会话数据已保留待恢复或超时清理")
+        else:
+            try:
+                async with get_db() as conn:
+                    c = await conn.cursor()
+                    await c.execute("DELETE FROM submissions WHERE user_id=?", (user_id,))
+                logger.info(f"已删除用户 {user_id} 的投稿记录")
+            except Exception as e:
+                logger.error(f"删除数据错误: {e}")
+
         # 清理过期数据
-        await cleanup_old_data()
-    
+        try:
+            await cleanup_old_data()
+        except Exception as e:
+            logger.error(f"清理过期数据失败: {e}")
+
     return ConversationHandler.END
 
 async def handle_media_publish(context, media_list, caption, spoiler_flag):

@@ -187,10 +187,17 @@ class Keyboards:
                 emoji = "⭐"
             else:
                 emoji = "🏷️"
-            
+
+            # Telegram callback_data 上限 64 字节（UTF-8）。
+            # 超长标签（如 >17 个汉字）会被 Telegram 拒绝，导致整个键盘发送失败，
+            # 这里跳过该按钮以保证其余标签正常展示。
+            callback_data = f"tag_search_{tag}"
+            if len(callback_data.encode("utf-8")) > 64:
+                continue
+
             button = InlineKeyboardButton(
                 f"{emoji} {tag} ({count})",
-                callback_data=f"tag_search_{tag}"
+                callback_data=callback_data
             )
             row.append(button)
             

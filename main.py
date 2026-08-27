@@ -35,8 +35,6 @@ from models.state import STATE
 # 数据库相关导入
 from database.db_manager import init_db, cleanup_old_data, get_db
 from utils.database import (
-    get_user_state, 
-    delete_user_state, 
     is_blacklisted, 
     initialize_database
 )
@@ -172,42 +170,51 @@ async def check_conversation_timeout(update: Update, context: CallbackContext) -
         await update.message.reply_text("❌ 您已被列入黑名单，无法使用此机器人。")
         return ApplicationHandlerStop()
     
-    # 尝试获取用户会话状态
+    # 检查投稿会话是否超时。
+    # 说明：会话活跃时间以 submissions.timestamp 为准（投稿流程每一步都会刷新）。
+    # 早期的 user_sessions 会话库从未在生产路径写入，原检查形同虚设。
     try:
-        user_state = get_user_state(user_id)
-        
-        # 如果用户没有会话，允许正常流程继续
-        if not user_state:
-            logger.debug(f"用户 {user_id} 没有活跃会话，不检查超时")
+        from database.db_manager import get_db
+        import time as _time
+
+        last_activity = 0.0
+        async with get_db() as conn:
+            c = await conn.cursor()
+            await c.execute("SELECT timestamp FROM submissions WHERE user_id=?", (user_id,))
+            row = await c.fetchone()
+            if row and row["timestamp"]:
+                last_activity = float(row["timestamp"])
+
+        if not last_activity:
+            logger.debug(f"用户 {user_id} 没有活跃投稿会话，不检查超时")
             return
-        
-        # 检查超时
-        import time
-        current_time = time.time()
-        last_activity = user_state.get("last_activity", 0)
+
+        current_time = _time.time()
         time_diff = current_time - last_activity
-        
+
         if time_diff > TIMEOUT_SECONDS:
             logger.info(f"用户 {user_id} 会话超时 ({time_diff:.2f}秒 > {TIMEOUT_SECONDS}秒)")
-            
-            # 删除用户会话数据
-            delete_user_state(user_id)
-            
+
+            # 删除过期会话数据
+            async with get_db() as conn:
+                c = await conn.cursor()
+                await c.execute("DELETE FROM submissions WHERE user_id=?", (user_id,))
+
             # 向用户发送超时通知
             try:
                 await update.message.reply_text(
-                    "⏱️ 您的会话已超时。请发送 /start 重新开始。"
+                    "⏱️ 您的投稿会话已超时，未发布的内容已被清理。请发送 /submit 重新开始。"
                 )
             except Exception as e:
                 logger.error(f"发送超时通知失败: {e}")
-            
+
             return ApplicationHandlerStop()
-        
+
         logger.debug(f"用户 {user_id} 会话活跃 ({time_diff:.2f}秒 < {TIMEOUT_SECONDS}秒)")
     except Exception as e:
         logger.error(f"检查会话超时时发生错误: {e}")
         # 出错时不阻止消息处理继续，而是让正常流程继续
-    
+
     return
 
 # 添加全局更新记录器
@@ -280,12 +287,20 @@ async def main():
                 logger.info("正在从数据库重新索引...")
                 try:
                     result = await auto_rebuild_index_if_needed()
-                    if result.get("success") or (result.get("result") and result["result"].get("success")):
-                        logger.info(f"✅ 索引重建成功！")
-                        # 清除重建标记
+                    # 返回结构: {"action": "sync"|"rebuild"|"none"|"failed", "result": {...}, ...}
+                    action = result.get("action")
+                    inner = result.get("result") or {}
+                    if action == "none":
+                        logger.info("✅ 索引无需重建，已同步")
+                        search_engine._needs_reindex = False
+                    elif action == "sync" and inner.get("success"):
+                        logger.info("✅ 索引已自动同步")
+                        search_engine._needs_reindex = False
+                    elif action == "rebuild" and inner.get("success"):
+                        logger.info("✅ 索引重建成功！")
                         search_engine._needs_reindex = False
                     else:
-                        logger.warning(f"⚠️ 索引重建未完全成功，搜索功能可能受限")
+                        logger.warning(f"⚠️ 索引检查/重建未完全成功 (action={action})，搜索功能可能受限")
                 except Exception as rebuild_err:
                     logger.error(f"自动重建索引失败: {rebuild_err}", exc_info=True)
                     logger.warning("搜索功能可能不可用，请手动执行 /rebuild_index")
@@ -322,7 +337,7 @@ async def main():
     # 创建和启动应用程序
     token = TOKEN
     if not token:
-        logger.error("未设置TELEGRAM_BOT_TOKEN环境变量")
+        logger.error("未设置机器人 Token：请通过环境变量 TOKEN（或 BOT_TOKEN / TELEGRAM_BOT_TOKEN）或 config.ini [BOT] TOKEN 配置")
         sys.exit(1)
         
     # 创建Application实例
@@ -448,7 +463,13 @@ async def shutdown(application, signal, loop, webhook_server=None):
             logger.warning(f"删除 Webhook 失败: {e}")
     
     # 关闭机器人更新器
-    await application.updater.stop()
+    # 注意：Webhook 模式下 Updater 从未通过 start_polling/start_webhook 启动，
+    # 直接 stop() 会抛 RuntimeError 并中断后续的 stop/shutdown 清理
+    try:
+        if application.updater and application.updater.is_connected:
+            await application.updater.stop()
+    except Exception as e:
+        logger.warning(f"停止 Updater 失败（可忽略）: {e}")
     await application.stop()
     await application.shutdown()
     

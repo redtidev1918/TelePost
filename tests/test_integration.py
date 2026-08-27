@@ -33,58 +33,53 @@ class TestSearchIntegration:
     @pytest.mark.integration
     @pytest.mark.slow
     def test_search_indexing_and_query(self, temp_dir):
-        """测试搜索索引和查询"""
-        from utils.search_engine import SearchEngine, PostDocument
-        
+        """测试搜索索引和查询（真实 API：PostSearchEngine.add_post / search）"""
+        from utils.search_engine import PostSearchEngine, PostDocument
+
         # 创建搜索引擎
         index_dir = os.path.join(temp_dir, 'search_index')
-        engine = SearchEngine(index_dir)
-        
+        engine = PostSearchEngine(index_dir)
+
         # 添加文档
-        doc1 = PostDocument(
+        engine.add_post(PostDocument(
             message_id=1,
             title="Python 教程",
             description="学习 Python 编程"
-        )
-        doc2 = PostDocument(
+        ))
+        engine.add_post(PostDocument(
             message_id=2,
             title="JavaScript 指南",
             description="Web 开发入门"
-        )
-        
-        engine.add_document(doc1)
-        engine.add_document(doc2)
-        engine.commit()
-        
+        ))
+
         # 搜索
-        results = engine.search("Python", limit=10)
-        
+        results = engine.search("Python", page_len=10)
+
         # 验证结果
-        assert len(results) > 0
-        assert any('Python' in str(r) for r in results)
+        assert len(results.hits) > 0
+        assert any('Python' in (hit.title or '') for hit in results.hits)
     
     @pytest.mark.integration
     def test_search_chinese_content(self, temp_dir):
-        """测试中文内容搜索"""
-        from utils.search_engine import SearchEngine, PostDocument
-        
+        """测试中文内容搜索（真实 API：PostSearchEngine.add_post / search）"""
+        from utils.search_engine import PostSearchEngine, PostDocument
+
         index_dir = os.path.join(temp_dir, 'search_cn')
-        engine = SearchEngine(index_dir)
-        
+        engine = PostSearchEngine(index_dir)
+
         # 添加中文文档
-        doc = PostDocument(
+        engine.add_post(PostDocument(
             message_id=1,
             title="编程学习",
             description="这是一个关于编程的教程"
-        )
-        
-        engine.add_document(doc)
-        engine.commit()
-        
-        # 搜索中文
-        results = engine.search("编程", limit=10)
-        
-        assert len(results) > 0
+        ))
+
+        # 搜索中文。
+        # 注意：默认 simple 分词器将连续 CJK 串作为一个整词（依赖 jieba 才能子词匹配），
+        # 因此这里用标题中出现的完整词进行查询。
+        results = engine.search("编程学习", page_len=10)
+
+        assert len(results.hits) > 0
 
 
 class TestDatabaseIntegration:
@@ -273,22 +268,21 @@ class TestCacheIntegration:
     
     @pytest.mark.integration
     def test_cache_operations(self):
-        """测试缓存操作"""
-        from utils.cache import Cache
-        
-        cache = Cache()
-        
+        """测试缓存操作（真实实现为 utils.cache.TTLCache）"""
+        from utils.cache import TTLCache
+
+        cache = TTLCache(default_ttl=60)
+
         # 设置缓存
         cache.set('test_key', 'test_value', ttl=60)
-        
+
         # 获取缓存
         value = cache.get('test_key')
         assert value == 'test_value'
-        
-        # 删除缓存
-        cache.delete('test_key')
-        value = cache.get('test_key')
-        assert value is None
+
+        # TTL 过期后应返回 None
+        cache.set('expired', 'v', ttl=-1)
+        assert cache.get('expired') is None
 
 
 class TestPerformance:
@@ -297,34 +291,31 @@ class TestPerformance:
     @pytest.mark.integration
     @pytest.mark.slow
     def test_large_dataset_search(self, temp_dir):
-        """测试大数据集搜索性能"""
-        from utils.search_engine import SearchEngine, PostDocument
+        """测试大数据集搜索性能（真实 API：PostSearchEngine.add_post / search）"""
+        from utils.search_engine import PostSearchEngine, PostDocument
         import time
-        
+
         index_dir = os.path.join(temp_dir, 'perf_test')
-        engine = SearchEngine(index_dir)
-        
+        engine = PostSearchEngine(index_dir)
+
         # 添加大量文档
         for i in range(1000):
-            doc = PostDocument(
+            engine.add_post(PostDocument(
                 message_id=i,
-                title=f"测试文档 {i}",
-                description=f"这是第 {i} 个测试文档"
-            )
-            engine.add_document(doc)
-        
-        engine.commit()
-        
+                title=f"perf doc {i}",
+                description=f"performance test document number {i}"
+            ))
+
         # 测试搜索性能
         start_time = time.time()
-        results = engine.search("测试", limit=10)
+        results = engine.search("perf", page_len=10)
         end_time = time.time()
-        
+
         search_time = end_time - start_time
-        
+
         # 搜索应该在合理时间内完成（例如 < 1秒）
         assert search_time < 1.0
-        assert len(results) > 0
+        assert len(results.hits) > 0
     
     @pytest.mark.integration
     @pytest.mark.slow

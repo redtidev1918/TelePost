@@ -19,16 +19,32 @@ from handlers.search_handlers import search_posts_by_tag
 logger = logging.getLogger(__name__)
 
 
+async def _safe_answer(query, text: str = None, **kwargs):
+    """
+    安全应答回调查询。
+
+    每个 callback query 只能被应答一次，重复应答会抛出 telegram.error.BadRequest。
+    这里统一吞掉该类错误：先到的应答生效（例如带 show_alert 的提示），
+    后续重复调用不再中断业务流程。
+    """
+    try:
+        await query.answer(text=text, **kwargs)
+    except Exception as e:
+        logger.debug(f"回调应答失败（通常为重复应答或已过期）: {e}")
+
+
 async def handle_callback_query(update: Update, context: CallbackContext):
     """
     处理所有回调查询（按钮点击）
+
+    注意：这里不做全局抢先 answer，否则会占用唯一的应答机会，
+    导致各分支中的 show_alert 弹窗全部失效。由各分支自行调用 _safe_answer。
     
     Args:
         update: Telegram 更新对象
         context: 回调上下文
     """
     query = update.callback_query
-    await query.answer()  # 确认接收到回调
     
     data = query.data
     user_id = update.effective_user.id
@@ -92,7 +108,7 @@ async def handle_callback_query(update: Update, context: CallbackContext):
         
         # 管理面板（已移除）：给予提示并返回主菜单
         elif data.startswith("admin_"):
-            await query.answer("管理面板已下线", show_alert=True)
+            await _safe_answer(query, "管理面板已下线", show_alert=True)
             await handle_back_to_main(update, context)
         
         # 黑名单操作
@@ -134,6 +150,7 @@ async def handle_submit_confirm(update: Update, context: CallbackContext):
     """处理投稿确认"""
     query = update.callback_query
     user_id = update.effective_user.id
+    await _safe_answer(query)
     
     await query.edit_message_text("⏳ 正在发布投稿...")
     
@@ -146,6 +163,7 @@ async def handle_submit_confirm(update: Update, context: CallbackContext):
 async def handle_submit_edit(update: Update, context: CallbackContext):
     """处理编辑投稿内容"""
     query = update.callback_query
+    await _safe_answer(query)
     
     await query.edit_message_text(
         "✏️ 编辑功能开发中...\n\n当前请取消后重新开始投稿。",
@@ -156,6 +174,7 @@ async def handle_submit_edit(update: Update, context: CallbackContext):
 async def handle_submit_addtag(update: Update, context: CallbackContext):
     """处理添加标签"""
     query = update.callback_query
+    await _safe_answer(query)
     
     await query.edit_message_text(
         "🏷️ 请发送要添加的标签（用逗号分隔）：",
@@ -168,6 +187,7 @@ async def handle_submit_addtag(update: Update, context: CallbackContext):
 async def handle_submit_media(update: Update, context: CallbackContext):
     """处理添加媒体"""
     query = update.callback_query
+    await _safe_answer(query)
     
     await query.edit_message_text(
         "📎 请发送要添加的媒体文件：",
@@ -181,6 +201,7 @@ async def handle_submit_cancel(update: Update, context: CallbackContext):
     """处理取消投稿"""
     query = update.callback_query
     user_id = update.effective_user.id
+    await _safe_answer(query)
     
     try:
         async with get_db() as conn:
@@ -206,6 +227,7 @@ async def handle_submit_cancel(update: Update, context: CallbackContext):
 async def handle_hot_filter(update: Update, context: CallbackContext):
     """处理热门帖子时间筛选"""
     query = update.callback_query
+    await _safe_answer(query)
     time_filter = query.data.replace("hot_filter_", "")
     
     # 保存筛选条件到上下文
@@ -218,6 +240,7 @@ async def handle_hot_filter(update: Update, context: CallbackContext):
 async def handle_hot_limit(update: Update, context: CallbackContext):
     """处理热门帖子数量限制"""
     query = update.callback_query
+    await _safe_answer(query)
     limit = int(query.data.replace("hot_limit_", ""))
     
     # 保存限制到上下文
@@ -231,7 +254,7 @@ async def handle_hot_refresh(update: Update, context: CallbackContext):
     """刷新热门帖子"""
     query = update.callback_query
     
-    await query.answer("🔄 正在刷新...")
+    await _safe_answer(query, "🔄 正在刷新...")
     
     # 更新统计数据
     await update_post_stats(context)
@@ -243,6 +266,7 @@ async def handle_hot_refresh(update: Update, context: CallbackContext):
 async def handle_search_action(update: Update, context: CallbackContext):
     """处理搜索操作"""
     query = update.callback_query
+    await _safe_answer(query)
     action = query.data.replace("search_", "")
     
     if action == "fulltext":
@@ -265,7 +289,7 @@ async def handle_search_action(update: Update, context: CallbackContext):
         
     elif action == "time":
             # 先回应回调，避免界面长时间 loading
-            await query.answer("请选择时间范围")
+            await _safe_answer(query, "请选择时间范围")
             await query.edit_message_text(
                 "📅 请选择时间范围：",
                 reply_markup=Keyboards.time_filter()
@@ -277,7 +301,7 @@ async def handle_tag_search(update: Update, context: CallbackContext):
     query = update.callback_query
     tag = query.data.replace("tag_search_", "")
     
-    await query.answer(f"正在搜索标签: {tag}")
+    await _safe_answer(query, f"正在搜索标签: {tag}")
     
     # 调用标签搜索
     await search_posts_by_tag(update, context, tag)
@@ -291,8 +315,10 @@ async def handle_view_post(update: Update, context: CallbackContext):
     try:
         async with get_db() as conn:
             c = await conn.cursor()
+            # published_posts 表没有 id 列（主键为 message_id），
+            # 回调中的 post_id 是数据库 rowid
             await c.execute(
-                "SELECT message_id FROM published_posts WHERE id=? AND is_deleted = 0",
+                "SELECT message_id FROM published_posts WHERE rowid=? AND is_deleted = 0",
                 (post_id,)
             )
             row = await c.fetchone()
@@ -305,17 +331,17 @@ async def handle_view_post(update: Update, context: CallbackContext):
                 channel_username = CHANNEL_ID.replace('@', '')
                 link = f"https://t.me/{channel_username}/{message_id}"
                 
-                await query.answer("正在跳转...")
+                await _safe_answer(query, "正在跳转...")
                 await query.edit_message_text(
                     f"📱 <a href='{link}'>点击查看原帖</a>",
                     parse_mode=ParseMode.HTML
                 )
             else:
-                await query.answer("❌ 帖子未找到", show_alert=True)
+                await _safe_answer(query, "❌ 帖子未找到", show_alert=True)
                 
     except Exception as e:
         logger.error(f"查看帖子时出错: {e}")
-        await query.answer("❌ 操作失败", show_alert=True)
+        await _safe_answer(query, "❌ 操作失败", show_alert=True)
 
 
 async def handle_stats_post(update: Update, context: CallbackContext):
@@ -324,37 +350,43 @@ async def handle_stats_post(update: Update, context: CallbackContext):
     post_id = query.data.replace("stats_post_", "")
     
     try:
+        from datetime import datetime
         async with get_db() as conn:
             c = await conn.cursor()
             await c.execute(
                 """
-                SELECT views, forwards, heat_score, created_at 
+                SELECT views, forwards, heat_score, publish_time 
                 FROM published_posts 
-                WHERE id=?
+                WHERE rowid=? AND is_deleted = 0
                 """,
                 (post_id,)
             )
             row = await c.fetchone()
             
             if row:
+                # publish_time 为 Unix 时间戳（REAL），格式化展示
+                try:
+                    publish_time_str = datetime.fromtimestamp(row["publish_time"]).strftime("%Y-%m-%d %H:%M")
+                except (TypeError, ValueError):
+                    publish_time_str = "未知"
                 stats_text = f"""
 📊 <b>帖子统计</b>
 
 👁️ 浏览量: {row['views']:,}
 📤 转发量: {row['forwards']}
 🔥 热度分: {row['heat_score']:.2f}
-📅 发布时间: {row['created_at']}
+📅 发布时间: {publish_time_str}
 """
                 await query.edit_message_text(
                     stats_text,
                     parse_mode=ParseMode.HTML
                 )
             else:
-                await query.answer("❌ 统计数据未找到", show_alert=True)
+                await _safe_answer(query, "❌ 统计数据未找到", show_alert=True)
                 
     except Exception as e:
         logger.error(f"查看统计时出错: {e}")
-        await query.answer("❌ 操作失败", show_alert=True)
+        await _safe_answer(query, "❌ 操作失败", show_alert=True)
 
 
 async def handle_delete_post(update: Update, context: CallbackContext):
@@ -371,7 +403,7 @@ async def handle_delete_post(update: Update, context: CallbackContext):
     
     # 检查权限：只有 OWNER 可以删除
     if not is_owner(user_id):
-        await query.answer("⛔ 权限不足：只有管理员可以删除帖子", show_alert=True)
+        await _safe_answer(query, "⛔ 权限不足：只有管理员可以删除帖子", show_alert=True)
         logger.warning(f"用户 {user_id} 尝试删除帖子但权限不足")
         return
     
@@ -400,19 +432,19 @@ async def handle_unblock_user(update: Update, context: CallbackContext):
     
     # 检查权限
     if not is_owner(user_id):
-        await query.answer("⛔ 权限不足", show_alert=True)
+        await _safe_answer(query, "⛔ 权限不足", show_alert=True)
         return
     
     # 移除黑名单
     success = await remove_from_blacklist(target_user_id)
     
     if success:
-        await query.answer("✅ 已移除黑名单", show_alert=True)
+        await _safe_answer(query, "✅ 已移除黑名单", show_alert=True)
         await query.edit_message_text(
             f"✅ 用户 {target_user_id} 已从黑名单移除"
         )
     else:
-        await query.answer("❌ 操作失败", show_alert=True)
+        await _safe_answer(query, "❌ 操作失败", show_alert=True)
 
 
 async def handle_user_info(update: Update, context: CallbackContext):
@@ -442,7 +474,7 @@ async def handle_user_info(update: Update, context: CallbackContext):
             
     except Exception as e:
         logger.error(f"查看用户信息时出错: {e}")
-        await query.answer("❌ 操作失败", show_alert=True)
+        await _safe_answer(query, "❌ 操作失败", show_alert=True)
 
 
 async def handle_pagination(update: Update, context: CallbackContext):
@@ -450,7 +482,7 @@ async def handle_pagination(update: Update, context: CallbackContext):
     query = update.callback_query
     
     if query.data == "page_info":
-        await query.answer()
+        await _safe_answer(query)
         return
     
     # 提取页码
@@ -459,7 +491,7 @@ async def handle_pagination(update: Update, context: CallbackContext):
     
     # 根据上下文重新加载数据
     # 这需要根据具体场景实现
-    await query.answer(f"跳转到第 {page} 页")
+    await _safe_answer(query, f"跳转到第 {page} 页")
 
 
 async def handle_confirm_action(update: Update, context: CallbackContext):
@@ -476,7 +508,7 @@ async def handle_confirm_action(update: Update, context: CallbackContext):
     
     # 检查权限：只有 OWNER 可以确认危险操作
     if not is_owner(user_id):
-        await query.answer("⛔ 权限不足：只有管理员可以执行此操作", show_alert=True)
+        await _safe_answer(query, "⛔ 权限不足：只有管理员可以执行此操作", show_alert=True)
         logger.warning(f"用户 {user_id} 尝试确认操作但权限不足")
         return
     
@@ -492,6 +524,7 @@ async def handle_confirm_action(update: Update, context: CallbackContext):
 async def handle_cancel_action(update: Update, context: CallbackContext):
     """处理取消操作"""
     query = update.callback_query
+    await _safe_answer(query)
     action_data = query.data.replace("cancel_", "")
     
     if action_data.startswith("delete_post_"):
@@ -532,7 +565,10 @@ async def execute_delete_post(query, message_id: str, context: CallbackContext):
                 return
             
             # 检查是否已经标记为删除
-            if post_row.get('is_deleted', 0) == 1:
+            # 注意：post_row 是 sqlite3.Row，没有 .get()，需先判断列是否存在
+            row_keys = post_row.keys() if hasattr(post_row, "keys") else []
+            is_deleted = post_row["is_deleted"] if "is_deleted" in row_keys else 0
+            if is_deleted == 1:
                 await query.edit_message_text("ℹ️ 该帖子已被标记为删除")
                 logger.info(f"帖子 {message_id} 已经被标记为删除")
                 return
@@ -585,12 +621,13 @@ async def execute_delete_post(query, message_id: str, context: CallbackContext):
                 logger.error(f"删除频道消息时出错: {e}")
                 channel_delete_failed = True
             
-            # 从搜索索引中删除
+            # 从搜索索引中删除（仅在搜索启用时操作，避免创建目录错位的索引）
             index_deleted = False
             related_count = 0
             try:
+                from config.settings import SEARCH_ENABLED
                 from utils.search_engine import get_search_engine
-                search_engine = get_search_engine()
+                search_engine = get_search_engine() if SEARCH_ENABLED else None
                 if search_engine:
                     search_engine.delete_post(int(message_id))
                     index_deleted = True
@@ -652,6 +689,7 @@ async def execute_delete_post(query, message_id: str, context: CallbackContext):
 async def handle_back_to_main(update: Update, context: CallbackContext):
     """返回主菜单"""
     query = update.callback_query
+    await _safe_answer(query)
     user_id = update.effective_user.id
     
     # 检查是否是管理员
@@ -674,6 +712,7 @@ async def handle_back_to_main(update: Update, context: CallbackContext):
 async def handle_back(update: Update, context: CallbackContext):
     """返回上一页"""
     query = update.callback_query
+    await _safe_answer(query)
     
     await query.edit_message_text(
         "🔙 返回上一页",

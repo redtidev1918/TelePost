@@ -3,6 +3,7 @@
 """
 import re
 import json
+import html as _html
 import asyncio
 import logging
 from functools import lru_cache, wraps
@@ -64,7 +65,9 @@ def process_tags(raw_tags: str) -> tuple:
 
 def escape_markdown(text: str) -> str:
     """
-    转义 HTML 中的特殊字符
+    转义 MarkdownV2 中的特殊字符。
+    注意：这与 HTML 转义无关；频道 caption 使用 parse_mode=HTML，
+    用户输入进入 caption 前应使用 html.escape（见 build_caption）。
     
     Args:
         text: 需要转义的文本
@@ -75,30 +78,52 @@ def escape_markdown(text: str) -> str:
     escape_chars = r'\_*[]()~>#+-=|{}.!'
     return ''.join(f"\\{c}" if c in escape_chars else c for c in text)
 
+# 截断 HTML 文本时避免把转义实体（如 &amp;）从中间切断
+def _trim_html_entities(text: str, limit: int) -> str:
+    """截断到 limit 长度；若末尾留下未闭合的转义实体则回退到实体边界"""
+    if len(text) <= limit:
+        return text
+    text = text[:limit]
+    amp = text.rfind("&")
+    semi = text.rfind(";")
+    if amp > semi:  # 存在未闭合的 &...（其后没有分号）
+        text = text[:amp]
+    return text
+
+
 def build_caption(data) -> str:
     """
-    构建媒体说明文本
+    构建媒体说明文本。
+    所有用户输入字段都会做 HTML 转义（caption 以 parse_mode="HTML" 发送），
+    否则包含 <、>、& 的投稿会导致 Telegram 解析失败，投稿无法发布。
     
     Args:
         data: 包含投稿信息的数据对象
         
     Returns:
-        str: 格式化的说明文本
+        str: 格式化的说明文本（已转义，长度不超过 Telegram 上限）
     """
     MAX_CAPTION_LENGTH = 1024  # Telegram 的最大 caption 长度
 
+    def esc(value) -> str:
+        """转义并保证输入为字符串；异常数据退化为空串，确保 caption 总能构建"""
+        try:
+            return _html.escape(str(value))
+        except Exception:
+            return ""
+
     def get_link_part(link: str) -> str:
-        return f"🔗 链接： {link}" if link else ""
+        return f"🔗 链接： {esc(link)}" if link else ""
     
     def get_title_part(title: str) -> str:
-        return f"🔖 标题： \n【{title}】" if title else ""
+        return f"🔖 标题： \n【{esc(title)}】" if title else ""
     
     def get_note_part(note: str) -> str:
         # "简介"部分要求第一行为标签，后面跟内容
-        return f"📝 简介：\n{note}" if note else ""
+        return f"📝 简介：\n{esc(note)}" if note else ""
     
     def get_tags_part(tags: str) -> str:
-        return f"🏷 Tags: {tags}" if tags else ""
+        return f"🏷 Tags: {esc(tags)}" if tags else ""
     
     def get_spoiler_part(spoiler: str) -> str:
         return "⚠️点击查看⚠️" if spoiler.lower() == "true" else ""
@@ -108,14 +133,18 @@ def build_caption(data) -> str:
             return ""
         
         # 获取保存的用户名，如果存在的话
-        # sqlite3.Row对象不支持get()方法，使用try-except处理
+        # 注意：对 sqlite3.Row 使用 "col" in data 判断的是"值"是否相等（几乎恒为 False），
+        # 必须用 data.keys() 判断列是否存在
         try:
-            username = data["username"] if "username" in data else f"user{user_id}"
-        except (KeyError, TypeError):
+            username = data["username"] if "username" in data.keys() else f"user{user_id}"
+            if not username:
+                username = f"user{user_id}"
+        except (KeyError, TypeError, IndexError):
             username = f"user{user_id}"
         
-        # 构建用户链接，可以通过点击访问用户资料
-        return f"\n\n投稿人：<a href=\"tg://user?id={user_id}\">@{username}</a>"
+        # 构建用户链接，可以通过点击访问用户资料（用户名需转义）
+        safe_username = esc(str(username)) if username else f"user{user_id}"
+        return f"\n\n投稿人：<a href=\"tg://user?id={user_id}\">@{safe_username}</a>"
 
     # 收集各部分，只有内容不为空时才添加，避免产生多余的换行
     parts = []
@@ -195,12 +224,23 @@ def build_caption(data) -> str:
     connector = "\n" if fixed_text and note else ""
     available_length = MAX_CAPTION_LENGTH - len(prefix) - len(fixed_text) - len(connector) - len(submitter)
     
+    truncated_note_part = ""
     try:
-        truncated_note = (data["note"][:available_length] + "...") if (available_length > 0 and data["note"]) else ""
+        raw_note = data["note"] if (available_length > 0 and data["note"]) else ""
+        if raw_note:
+            # 先按可用长度截原始文本，再转义；若转义后超限则逐步收缩
+            candidate = raw_note[:available_length]
+            escaped_candidate = esc(candidate + "...") if len(raw_note) > available_length else esc(candidate)
+            while len(escaped_candidate) > max(0, available_length - 5):
+                candidate = candidate[:-max(1, len(escaped_candidate) // 4)]
+                if not candidate:
+                    escaped_candidate = ""
+                    break
+                escaped_candidate = esc(candidate + "...")
+            truncated_note = candidate + ("..." if len(raw_note) > len(candidate) and candidate else "")
+            truncated_note_part = get_note_part(truncated_note)
     except (KeyError, TypeError):
-        truncated_note = ""
-        
-    truncated_note_part = get_note_part(truncated_note)
+        truncated_note_part = ""
     
     # 重新组装各部分
     parts = []
@@ -215,7 +255,8 @@ def build_caption(data) -> str:
     caption_body = "\n".join(parts)
     full_caption = f"{spoiler}\n{caption_body}{submitter}" if spoiler and caption_body else f"{spoiler or caption_body}{submitter}"
 
-    return full_caption[:MAX_CAPTION_LENGTH]
+    # 硬上限兜底：使用实体安全截断，避免切坏 &amp; 之类的转义序列
+    return _trim_html_entities(full_caption, MAX_CAPTION_LENGTH)
 
 def validate_state(expected_state: int):
     """

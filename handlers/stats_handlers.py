@@ -2,6 +2,7 @@
 帖子统计和热度排行模块
 """
 import json
+import html as _html
 import logging
 import asyncio
 from datetime import datetime, timedelta
@@ -239,9 +240,14 @@ async def update_post_stats(context: CallbackContext):
                     updated_count += 1
                 else:
                     # 如果获取统计失败，检查消息是否被删除
-                    # 通过尝试转发消息来检查
+                    # 通过尝试转发消息来检查。
+                    # 注意：不能转发给机器人自己（Telegram 禁止 bot 向 bot 发消息，
+                    # 必然 Forbidden）。没有可用的检查目标时跳过删除检测。
                     try:
-                        check_chat_id = OWNER_ID if OWNER_ID else context.bot.id
+                        if not OWNER_ID:
+                            failed_count += 1
+                            continue
+                        check_chat_id = OWNER_ID
                         forwarded_msg = await context.bot.forward_message(
                             chat_id=check_chat_id,
                             from_chat_id=CHANNEL_ID,
@@ -285,17 +291,20 @@ async def update_post_stats(context: CallbackContext):
         logger.error(f"更新统计数据失败: {e}")
 
 
-async def get_hot_posts(update: Update, context: CallbackContext):
+async def get_hot_posts(update: Update, context: CallbackContext, edit_message: bool = False):
     """
     获取热门帖子排行 - 只显示主贴，优化预览样式
-    
+
     命令格式：
     /hot [数量] [时间范围]
-    
+
     示例：
     /hot - 查看热门帖子（默认10个）
     /hot 20 - 查看前20个热门帖子
     /hot 10 week - 查看本周前10个热门帖子
+
+    Args:
+        edit_message: 由按钮回调触发时为 True，编辑原消息而非发送新消息
     
     Args:
         update: Telegram 更新对象
@@ -357,7 +366,14 @@ async def get_hot_posts(update: Update, context: CallbackContext):
             hot_posts = await cursor.fetchall()
         
         if not hot_posts:
-            await update.message.reply_text(f"📊 暂无{time_desc}热门帖子数据")
+            empty_text = f"📊 暂无{time_desc}热门帖子数据"
+            if edit_message and update.callback_query:
+                try:
+                    await update.callback_query.edit_message_text(empty_text)
+                    return
+                except Exception:
+                    pass
+            await update.message.reply_text(empty_text)
             return
         
         # 再次验证帖子是否仍然存在（防止并发问题）
@@ -382,7 +398,14 @@ async def get_hot_posts(update: Update, context: CallbackContext):
                     valid_hot_posts.append(post)
         
         if not valid_hot_posts:
-            await update.message.reply_text(f"📊 暂无{time_desc}热门帖子数据（或所有结果已被删除）")
+            empty_text = f"📊 暂无{time_desc}热门帖子数据（或所有结果已被删除）"
+            if edit_message and update.callback_query:
+                try:
+                    await update.callback_query.edit_message_text(empty_text)
+                    return
+                except Exception:
+                    pass  # 编辑失败则退回普通发送
+            await update.message.reply_text(empty_text)
             return
         
         # 构建消息 - 优化显示格式
@@ -411,12 +434,13 @@ async def get_hot_posts(update: Update, context: CallbackContext):
                     tags_list = post['tags'].split()[:5]
                     tags_display = ' '.join([f"#{tag.lstrip('#')}" for tag in tags_list])
             
-            # 处理标题
+            # 处理标题（纯文本上截断，转义后再进 HTML，防止 < > & 破坏解析）
             title = post['title'] or '无标题'
             if len(title) > 40:
                 title = title[:37] + '...'
-            
-            # 处理简介（note）
+            title = _html.escape(str(title))
+
+            # 处理简介（note）——同样转义
             note_preview = ""
             if post['note']:
                 note = post['note'].strip()
@@ -425,14 +449,22 @@ async def get_hot_posts(update: Update, context: CallbackContext):
                     note = note.replace('\n', ' ').replace('\r', ' ')
                     if len(note) > 60:
                         note = note[:57] + '...'
-                    note_preview = f"\n   💬 {note}"
+                    note_preview = f"\n   💬 {_html.escape(note)}"
+
+            # 标签转义
+            if tags_display:
+                tags_display = _html.escape(str(tags_display))
             
             # 格式化发布时间
             publish_time = datetime.fromtimestamp(post['publish_time'])
             time_ago = _format_time_ago(publish_time)
             
             # 构建单个帖子的显示
-            message += f"<b>{idx}.</b> <a href='{post_link}'>{title}</a>\n"
+            # 仅当链接是真实 URL 时才用 <a> 包裹（私有频道时 post_link 是纯文本）
+            if str(post_link).startswith("http"):
+                message += f"<b>{idx}.</b> <a href=\"{post_link}\">{title}</a>\n"
+            else:
+                message += f"<b>{idx}.</b> {title}\n"
             
             if tags_display:
                 message += f"   🏷 {tags_display}\n"
@@ -465,15 +497,34 @@ async def get_hot_posts(update: Update, context: CallbackContext):
         message += f"💡 使用 <code>/hot &lt;数量&gt; &lt;时间&gt;</code> 自定义查询\n"
         message += f"⏰ 时间范围：day(今日)、week(本周)、month(本月)"
         
-        await update.message.reply_text(
-            message, 
-            disable_web_page_preview=True,
-            parse_mode='HTML'
-        )
+        # 回调触发时编辑原消息；命令触发时发送新消息
+        if edit_message and update.callback_query:
+            try:
+                await update.callback_query.edit_message_text(
+                    message,
+                    disable_web_page_preview=True,
+                    parse_mode='HTML'
+                )
+            except Exception:
+                await update.message.reply_text(
+                    message,
+                    disable_web_page_preview=True,
+                    parse_mode='HTML'
+                )
+        else:
+            await update.message.reply_text(
+                message,
+                disable_web_page_preview=True,
+                parse_mode='HTML'
+            )
         
     except Exception as e:
         logger.error(f"获取热门帖子失败: {e}")
-        await update.message.reply_text("❌ 获取热门帖子失败，请稍后重试")
+        try:
+            target = update.callback_query if update.callback_query else update.effective_message
+            await target.reply_text("❌ 获取热门帖子失败，请稍后重试")
+        except Exception:
+            pass
 
 
 def _format_time_ago(publish_time: datetime) -> str:

@@ -813,53 +813,62 @@ async def check_and_handle_deleted_message(message_id: int, context: CallbackCon
         bool: 如果消息被删除并成功标记为已删除，返回 True；否则返回 False
     """
     try:
-        from config.settings import CHANNEL_ID
+        from config.settings import CHANNEL_ID, OWNER_ID
         from telegram.error import BadRequest, TelegramError
-        
+
+        # 转发目标不能是机器人自己：Telegram 禁止 bot 向 bot（包括自身）发消息，
+        # 必然 Forbidden，导致本检查成为永远失败的空转。
+        # 改为转发到 OWNER 的私聊（不可见噪音最小）；未配置 OWNER 时无法检查。
+        if not OWNER_ID:
+            logger.debug("未配置 OWNER_ID，跳过消息存在性检查")
+            return False
+
         # 尝试通过转发消息来检查消息是否存在
         # 如果消息不存在（被删除），会抛出 BadRequest 异常
         try:
-            # 尝试转发消息到 bot 自己（用于检查消息是否存在）
-            # 注意：这需要 bot 有权限访问频道
             forwarded_msg = await context.bot.forward_message(
-                chat_id=context.bot.id,
+                chat_id=OWNER_ID,
                 from_chat_id=CHANNEL_ID,
                 message_id=message_id
             )
-            
+
             # 如果成功转发，说明消息存在，立即删除转发的消息以减少副作用
             try:
                 await context.bot.delete_message(
-                    chat_id=context.bot.id,
+                    chat_id=OWNER_ID,
                     message_id=forwarded_msg.message_id
                 )
             except Exception as e:
                 # 删除失败不影响检查结果，只记录警告
                 logger.debug(f"删除检查用的转发消息失败: {e}")
-            
+
             # 消息存在，返回 False
             return False
-            
+
         except BadRequest as e:
-            # BadRequest 异常通常表示消息不存在
             error_msg = str(e).lower()
-            
-            # 检查是否是消息不存在的错误
-            if ('message not found' in error_msg or 
-                'message to forward not found' in error_msg or
-                'bad request' in error_msg and 'not found' in error_msg):
+
+            # 只有明确表明"消息不存在"的错误才能判定为已删除。
+            # 注意排除 "chat not found"（OWNER_ID 错误/未启动机器人）
+            # 与 "bot was blocked" 等环境问题——这些情况下绝不能批量标记删除。
+            message_missing = (
+                'message to forward not found' in error_msg
+                or ('message not found' in error_msg and 'chat not found' not in error_msg)
+                or 'message id invalid' in error_msg
+            )
+            if message_missing:
                 logger.info(f"检测到频道消息 {message_id} 已被删除，开始标记为已删除")
                 return await delete_channel_post_from_db(message_id, context)
             else:
                 # 其他 BadRequest 错误（可能是权限问题等），记录但不删除
                 logger.debug(f"检查消息 {message_id} 时出错（可能是权限问题）: {error_msg}")
                 return False
-                
+
         except TelegramError as e:
             # 其他 Telegram 错误（网络问题等），记录但不删除
             logger.debug(f"检查消息 {message_id} 时出错（可能是网络问题）: {e}")
             return False
-            
+
     except Exception as e:
         logger.error(f"检查删除消息时出错 (message_id: {message_id}): {e}", exc_info=True)
         return False

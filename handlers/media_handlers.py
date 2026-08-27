@@ -332,14 +332,12 @@ async def switch_to_doc_mode(update: Update, context: CallbackContext) -> int:
         
         await context.bot.send_message(chat_id=chat_id, text=welcome_text)
         logger.info(f"已成功切换到文档模式，user_id: {user_id}")
-        
-        # 强制结束当前函数处理
-        from telegram.ext import ApplicationHandlerStop
-        raise ApplicationHandlerStop(STATE['DOC'])
-        
-    except ApplicationHandlerStop as stop:
-        # 传递ApplicationHandlerStop异常，包含正确的状态
-        raise stop
+
+        # 通过返回值推进 ConversationHandler 状态。
+        # 注意：不能使用 ApplicationHandlerStop —— 它只阻止后续处理器执行，
+        # 并不会改变会话状态；会话状态只能由回调的返回值决定。
+        return STATE['DOC']
+
     except Exception as e:
         logger.error(f"切换到文档模式错误: {e}", exc_info=True)
         try:

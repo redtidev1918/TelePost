@@ -75,8 +75,18 @@ def get_env_or_config(env_key, section, config_key, fallback=None):
         return value
 
 # 从环境变量或配置文件获取配置（环境变量优先）
-TOKEN = get_env_or_config('TOKEN', 'BOT', 'TOKEN')
-CHANNEL_ID = get_env_or_config('CHANNEL_ID', 'BOT', 'CHANNEL_ID')
+# Token 支持多个环境变量名：TOKEN（本项目约定）、BOT_TOKEN、TELEGRAM_BOT_TOKEN（社区惯用）。
+# 注意：Fly.io 部署指南（fly.toml 注释 / deploy_flyio.sh / 文档）使用 BOT_TOKEN，
+# 若只读 TOKEN 会导致按文档配置的部署直接启动失败，故此处必须做别名兼容。
+TOKEN = (
+    get_env_or_config('TOKEN', 'BOT', 'TOKEN')
+    or os.getenv('BOT_TOKEN')
+    or os.getenv('TELEGRAM_BOT_TOKEN')
+)
+CHANNEL_ID = (
+    get_env_or_config('CHANNEL_ID', 'BOT', 'CHANNEL_ID')
+    or os.getenv('CHANNEL')
+)
 DB_PATH = get_config('BOT', 'DB_PATH', fallback='data/submissions.db')
 TIMEOUT = int(get_env_or_config('TIMEOUT', 'BOT', 'TIMEOUT') or get_config_int('BOT', 'TIMEOUT', 300))
 ALLOWED_TAGS = int(get_env_or_config('ALLOWED_TAGS', 'BOT', 'ALLOWED_TAGS') or get_config_int('BOT', 'ALLOWED_TAGS', 30))

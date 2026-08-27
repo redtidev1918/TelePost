@@ -11,16 +11,18 @@ class TestCommandHandlers:
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_start_command(self, mock_telegram_update, mock_telegram_context):
-        """测试 /start 命令"""
-        from handlers.command_handlers import start_command
-        
+        """测试 /start 命令（实现位于 handlers.mode_selection.start）"""
+        from handlers.mode_selection import start
+
         mock_telegram_update.message.reply_text = AsyncMock()
-        
-        await start_command(mock_telegram_update, mock_telegram_context)
-        
+
+        with patch('handlers.mode_selection.cleanup_old_data', new=AsyncMock()), \
+             patch('handlers.mode_selection.is_blacklisted', return_value=False):
+            await start(mock_telegram_update, mock_telegram_context)
+
         # 验证回复被调用
         mock_telegram_update.message.reply_text.assert_called_once()
-        
+
         # 验证回复内容包含欢迎信息
         call_args = mock_telegram_update.message.reply_text.call_args
         assert call_args is not None
@@ -38,23 +40,7 @@ class TestCommandHandlers:
         # 验证回复被调用
         mock_telegram_update.message.reply_text.assert_called_once()
     
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_about_command(self, mock_telegram_update, mock_telegram_context):
-        """测试 /about 命令"""
-        from handlers.command_handlers import about_command
-        
-        mock_telegram_update.message.reply_text = AsyncMock()
-        
-        await about_command(mock_telegram_update, mock_telegram_context)
-        
-        # 验证回复被调用
-        mock_telegram_update.message.reply_text.assert_called_once()
-        
-        # 验证回复内容包含版本信息
-        call_args = mock_telegram_update.message.reply_text.call_args
-        message = call_args[0][0] if call_args else ""
-        assert "v2.0" in message or "版本" in message
+    # 注：/about 命令已从项目中移除，原 test_about_command 一并删除
 
 
 class TestSearchHandlers:
@@ -69,19 +55,21 @@ class TestSearchHandlers:
         mock_telegram_update, 
         mock_telegram_context
     ):
-        """测试基本搜索命令"""
-        # 模拟搜索引擎
+        """测试基本搜索命令（/search，实现为 search_posts）"""
+        from types import SimpleNamespace
+
+        # 模拟搜索引擎（search_posts 使用同步 search() 并读取 .hits）
         mock_engine = MagicMock()
-        mock_engine.search = AsyncMock(return_value=[])
+        mock_engine.search = MagicMock(return_value=SimpleNamespace(hits=[]))
         mock_search_engine.return_value = mock_engine
         
         # 设置命令参数
         mock_telegram_context.args = ['Python']
         mock_telegram_update.message.reply_text = AsyncMock()
         
-        from handlers.search_handlers import search_command
+        from handlers.search_handlers import search_posts
         
-        await search_command(mock_telegram_update, mock_telegram_context)
+        await search_posts(mock_telegram_update, mock_telegram_context)
         
         # 验证搜索被调用
         mock_engine.search.assert_called_once()
@@ -97,9 +85,9 @@ class TestSearchHandlers:
         mock_telegram_context.args = []
         mock_telegram_update.message.reply_text = AsyncMock()
         
-        from handlers.search_handlers import search_command
+        from handlers.search_handlers import search_posts
         
-        await search_command(mock_telegram_update, mock_telegram_context)
+        await search_posts(mock_telegram_update, mock_telegram_context)
         
         # 应该回复提示信息
         mock_telegram_update.message.reply_text.assert_called_once()
@@ -133,11 +121,11 @@ class TestStatsHandlers:
         mock_get_db.return_value = mock_db
         
         mock_telegram_update.message.reply_text = AsyncMock()
-        
-        from handlers.stats_handlers import mystats_command
-        
-        await mystats_command(mock_telegram_update, mock_telegram_context)
-        
+
+        from handlers.stats_handlers import get_user_stats
+
+        await get_user_stats(mock_telegram_update, mock_telegram_context)
+
         # 验证回复被调用
         mock_telegram_update.message.reply_text.assert_called_once()
     
@@ -150,21 +138,24 @@ class TestStatsHandlers:
         mock_telegram_update, 
         mock_telegram_context
     ):
-        """测试 /hot 命令"""
-        # 模拟数据库
-        mock_db = MagicMock()
-        mock_db.get_hot_posts = AsyncMock(return_value=[])
-        mock_get_db.return_value = mock_db
-        
+        """测试 /hot 命令（实现为 get_hot_posts）"""
+        # 模拟数据库连接：查询返回空列表 → 走"暂无热门数据"分支
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[])
+        mock_conn = MagicMock()
+        mock_conn.cursor = AsyncMock(return_value=mock_cursor)
+        mock_get_db.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_get_db.return_value.__aexit__ = AsyncMock(return_value=False)
+
         mock_telegram_context.args = []
         mock_telegram_update.message.reply_text = AsyncMock()
         
-        from handlers.stats_handlers import hot_command
+        from handlers.stats_handlers import get_hot_posts
         
-        await hot_command(mock_telegram_update, mock_telegram_context)
+        await get_hot_posts(mock_telegram_update, mock_telegram_context)
         
-        # 验证数据库查询被调用
-        mock_db.get_hot_posts.assert_called_once()
+        # 验证回复被调用（暂无数据提示）
+        mock_telegram_update.message.reply_text.assert_called()
 
 
 class TestCallbackHandlers:
@@ -173,21 +164,22 @@ class TestCallbackHandlers:
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_button_callback(self, mock_telegram_context):
-        """测试按钮回调处理"""
-        # 创建回调查询
+        """测试按钮回调处理（实现为 handle_callback_query）"""
+        # 创建回调查询：back 分支会编辑消息并应答
         callback_query = MagicMock()
-        callback_query.data = "test_action"
+        callback_query.data = "back"
         callback_query.answer = AsyncMock()
-        callback_query.message.edit_text = AsyncMock()
+        callback_query.edit_message_text = AsyncMock()
         
         mock_update = MagicMock()
         mock_update.callback_query = callback_query
+        mock_update.effective_user.first_name = "tester"
         
-        from handlers.callback_handlers import button_callback
+        from handlers.callback_handlers import handle_callback_query
         
-        await button_callback(mock_update, mock_telegram_context)
+        await handle_callback_query(mock_update, mock_telegram_context)
         
-        # 验证回调被确认
+        # 验证回调被应答（_safe_answer 内部调用 query.answer）
         callback_query.answer.assert_called_once()
 
 
@@ -234,33 +226,51 @@ class TestSubmitHandlers:
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_submit_command_start(self, mock_telegram_update, mock_telegram_context):
-        """测试开始投稿"""
-        from handlers.submit_handlers import submit_command
-        
+        """测试开始投稿（实现为 mode_selection.submit，媒体模式）"""
+        from models.state import STATE as _STATE
+
         mock_telegram_update.message.reply_text = AsyncMock()
-        
-        result = await submit_command(mock_telegram_update, mock_telegram_context)
-        
-        # 应该返回下一个状态
-        assert result is not None
-        
-        # 应该发送提示信息
+
+        # 模拟数据库：submit 会清理旧记录并插入新会话行
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def _fake_get_db():
+            yield mock_conn
+
+        mock_cursor = AsyncMock()
+        mock_conn = MagicMock()
+        mock_conn.cursor = AsyncMock(return_value=mock_cursor)
+        mock_conn.commit = AsyncMock()
+
+        with patch('handlers.mode_selection.BOT_MODE', 'MEDIA'), \
+             patch('handlers.mode_selection.cleanup_old_data', new=AsyncMock()), \
+             patch('handlers.mode_selection.is_blacklisted', return_value=False), \
+             patch('handlers.mode_selection.get_db', _fake_get_db):
+            from handlers.mode_selection import submit
+            result = await submit(mock_telegram_update, mock_telegram_context)
+
+        # 媒体模式下应进入 MEDIA 状态
+        assert result == _STATE['MEDIA']
+
+        # 应该发送欢迎/提示信息
         mock_telegram_update.message.reply_text.assert_called()
     
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_cancel_command(self, mock_telegram_update, mock_telegram_context):
-        """测试取消投稿"""
-        from handlers.submit_handlers import cancel_command
+        """测试取消投稿（实现为 command_handlers.cancel）"""
         from telegram.ext import ConversationHandler
-        
+
         mock_telegram_update.message.reply_text = AsyncMock()
-        
-        result = await cancel_command(mock_telegram_update, mock_telegram_context)
-        
+
+        from handlers.command_handlers import cancel
+
+        result = await cancel(mock_telegram_update, mock_telegram_context)
+
         # 应该结束对话
         assert result == ConversationHandler.END or result is not None
-        
+
         # 应该发送确认信息
         mock_telegram_update.message.reply_text.assert_called()
 
@@ -270,37 +280,29 @@ class TestPublishHandlers:
     
     @pytest.mark.asyncio
     @pytest.mark.unit
-    @patch('handlers.publish.get_db')
+    @patch('handlers.publish.safe_send')
     async def test_publish_to_channel(
         self, 
-        mock_get_db,
+        mock_safe_send,
         mock_telegram_context
     ):
-        """测试发布到频道"""
-        from handlers.publish import publish_to_channel
-        
-        # 模拟数据库
-        mock_db = MagicMock()
-        mock_db.add_post = AsyncMock()
-        mock_get_db.return_value = mock_db
-        
-        # 模拟发布数据
-        post_data = {
-            'content': '测试内容',
-            'user_id': 123456,
-            'tags': '#测试'
-        }
-        
-        # 模拟 bot
-        mock_telegram_context.bot.send_message = AsyncMock(
-            return_value=MagicMock(message_id=12345)
+        """测试发布到频道（单条媒体走 handle_media_publish）"""
+        sent_message = MagicMock(message_id=12345)
+        mock_safe_send.return_value = sent_message
+
+        from handlers.publish import handle_media_publish
+
+        main_msg, all_ids = await handle_media_publish(
+            mock_telegram_context,
+            ["photo:test_file_id"],
+            "测试说明",
+            False,
         )
-        
-        # 测试发布
-        result = await publish_to_channel(mock_telegram_context, post_data)
-        
-        # 验证发送成功
-        assert result is not None or True  # 根据实际实现调整
+
+        # 主消息与消息ID列表应被正确返回
+        assert main_msg is not None
+        assert 12345 in all_ids
+        mock_safe_send.assert_called_once()
 
 
 class TestMediaHandlers:
@@ -309,40 +311,71 @@ class TestMediaHandlers:
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_handle_photo(self, mock_telegram_update, mock_telegram_context):
-        """测试处理照片"""
+        """测试处理照片（实现为 media_handlers.handle_media）"""
+        from types import SimpleNamespace
+        from models.state import STATE as _STATE
+
         # 模拟照片消息
         photo = MagicMock()
         photo.file_id = 'test_file_id'
-        photo.file_size = 1024 * 1024  # 1MB
-        
         mock_telegram_update.message.photo = [photo]
         mock_telegram_update.message.reply_text = AsyncMock()
-        
-        from handlers.media_handlers import handle_photo
-        
-        await handle_photo(mock_telegram_update, mock_telegram_context)
-        
-        # 应该保存到用户数据
-        assert 'photos' in mock_telegram_context.user_data or True
+
+        # 模拟数据库：返回包含空媒体列表的会话行
+        # 注意：handle_media 被 utils.helper_functions.validate_state 装饰，
+        # 该装饰器也会通过自己的 get_db 查询会话，因此两处都需要 patch
+        from contextlib import asynccontextmanager
+
+        row = {"image_id": "[]", "mode": "media", "timestamp": 1.0}
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone = AsyncMock(return_value=row)
+        mock_conn = MagicMock()
+        mock_conn.cursor = AsyncMock(return_value=mock_cursor)
+
+        @asynccontextmanager
+        async def _fake_get_db():
+            yield mock_conn
+
+        with patch('handlers.media_handlers.get_db', _fake_get_db), \
+             patch('utils.helper_functions.get_db', _fake_get_db):
+            from handlers.media_handlers import handle_media
+            result = await handle_media(mock_telegram_update, mock_telegram_context)
+
+        assert result == _STATE['MEDIA']
+        mock_telegram_update.message.reply_text.assert_called()
     
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_handle_video(self, mock_telegram_update, mock_telegram_context):
-        """测试处理视频"""
+        """测试处理视频（实现为 media_handlers.handle_media）"""
+        from types import SimpleNamespace
+        from models.state import STATE as _STATE
+
         # 模拟视频消息
         video = MagicMock()
         video.file_id = 'test_video_id'
-        video.file_size = 10 * 1024 * 1024  # 10MB
-        
         mock_telegram_update.message.video = video
         mock_telegram_update.message.reply_text = AsyncMock()
-        
-        from handlers.media_handlers import handle_video
-        
-        await handle_video(mock_telegram_update, mock_telegram_context)
-        
-        # 应该保存到用户数据
-        assert 'video' in mock_telegram_context.user_data or True
+
+        from contextlib import asynccontextmanager
+
+        row = {"image_id": "[]", "mode": "media", "timestamp": 1.0}
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone = AsyncMock(return_value=row)
+        mock_conn = MagicMock()
+        mock_conn.cursor = AsyncMock(return_value=mock_cursor)
+
+        @asynccontextmanager
+        async def _fake_get_db():
+            yield mock_conn
+
+        with patch('handlers.media_handlers.get_db', _fake_get_db), \
+             patch('utils.helper_functions.get_db', _fake_get_db):
+            from handlers.media_handlers import handle_media
+            result = await handle_media(mock_telegram_update, mock_telegram_context)
+
+        assert result == _STATE['MEDIA']
+        mock_telegram_update.message.reply_text.assert_called()
 
 
 class TestBlacklistHandlers:

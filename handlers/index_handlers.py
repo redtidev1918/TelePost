@@ -178,13 +178,22 @@ async def optimize_index_command(update: Update, context: CallbackContext) -> No
             return
         
         # 执行优化
-        success = await manager.optimize_index()
-        
+        # 注意：optimize_index 返回 {"success": bool, "message": str} 字典，
+        # 非空字典恒为真值，必须取 success 字段判断
+        result = await manager.optimize_index()
+
+        if isinstance(result, dict):
+            success = bool(result.get("success"))
+            detail = result.get("message", "")
+        else:
+            success = bool(result)
+            detail = ""
+
         if success:
-            await status_msg.edit_text("✅ 索引优化成功！")
+            await status_msg.edit_text("✅ 索引优化成功！" + (f"\n{detail}" if detail else ""))
             logger.info(f"管理员 {user_id} 执行了索引优化")
         else:
-            await status_msg.edit_text("❌ 索引优化失败")
+            await status_msg.edit_text("❌ 索引优化失败" + (f"：{detail}" if detail else ""))
         
     except Exception as e:
         logger.error(f"优化索引时发生错误: {e}", exc_info=True)

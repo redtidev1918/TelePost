@@ -154,7 +154,17 @@ async def handle_spoiler(update: Update, context: CallbackContext) -> int:
     logger.info(f"处理剧透选择，user_id: {update.effective_user.id}")
     user_id = update.effective_user.id
     answer = update.message.text.strip()
-    spoiler_flag = True if answer == "是" else False
+    # 严格校验：这是发布前最后一步，输入错误不能静默当作"否"直接发布
+    YES_ANSWERS = ("是", "是。", "要", "y", "yes", "true")
+    NO_ANSWERS = ("否", "不", "不要", "无", "n", "no", "false")
+    normalized = answer.lower()
+    if normalized in YES_ANSWERS:
+        spoiler_flag = True
+    elif normalized in NO_ANSWERS:
+        spoiler_flag = False
+    else:
+        await update.message.reply_text('⚠️ 请回复 "是" 或 "否"（将媒体设为剧透/不设剧透）')
+        return STATE['SPOILER']
     try:
         async with get_db() as conn:
             c = await conn.cursor()
