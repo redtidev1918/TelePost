@@ -418,16 +418,26 @@ async def catch_all(update: Update, context: CallbackContext):
             _guidance_cache = TTLCache(default_ttl=600, max_size=1024)
         user_key = f"guide:{update.effective_user.id}"
         if _guidance_cache.get(user_key):
-            logger.debug(f"引导冷却中，跳过提示: {user_key}")
+            logger.info(f"引导冷却中，跳过提示: {user_key}")
             return
         _guidance_cache.set(user_key, "1", ttl=600)
-        try:
-            await update.message.reply_text(
-                "🤔 我不太明白这条消息。\n"
+
+        text = (update.message.text or "").strip()
+        if text.startswith("/"):
+            reply = (
+                f"❓ 未知命令：{text.split()[0]}\n"
                 "• 投稿请发送 /submit\n"
-                "• 查看用法请发送 /help\n"
-                "• 若上次投稿未完成，重新 /submit 即可继续"
+                "• 全部命令请发送 /help"
             )
+        else:
+            reply = (
+                "🤔 这条消息我没看懂。\n"
+                "• 投稿请发送 /submit（按提示一步步来）\n"
+                "• 全部命令请发送 /help"
+            )
+        logger.info(f"发送兜底引导给 {update.effective_user.id}: {text[:30]}")
+        try:
+            await update.message.reply_text(reply)
         except Exception as e:
             logger.debug(f"发送兜底引导失败: {e}")
 
