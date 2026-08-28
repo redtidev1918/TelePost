@@ -1,0 +1,24 @@
+# TelePost 多 bot 实例（一台机承载 BOT1 + BOT2 两个频道）
+# 部署：fly deploy -c deploy.fly-multi-bot.toml --now
+app = "your-app-name"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PYTHONUNBUFFERED = "1"
+  PYTHONDONTWRITEBYTECODE = "1"
+  TZ = "Asia/Shanghai"
+  # 双 bot 同机运行，simple 分词省内存；需要更高质量分词可改回 jieba
+  SEARCH_ANALYZER = "simple"
+
+# 既有数据卷原样挂载（历史数据保留在卷上，新版写到 data/bot1、data/bot2 子目录）
+[mounts]
+  source = "data"
+  destination = "/app/data"
+
+[vm]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512

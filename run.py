@@ -12,6 +12,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 
 # 子进程可按 BOT{n}_<KEY> 覆盖的配置项
 OVERRIDABLE_KEYS = (
