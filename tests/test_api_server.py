@@ -162,6 +162,35 @@ class TestSubmission:
         finally:
             await client.close()
 
+    @pytest.mark.asyncio
+    async def test_review_mode_queues_without_publishing(self, monkeypatch):
+        monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
+        queue_mock = AsyncMock(return_value={
+            "status": "pending_review", "review_id": 42,
+            "media_count": 1, "document_count": 0,
+        })
+        monkeypatch.setattr("handlers.review.queue_review_from_files", queue_mock)
+        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            form = __import__("aiohttp").FormData()
+            form.add_field("files", b"fake-image", filename="photo.jpg", content_type="image/jpeg")
+            form.add_field("tags", "Pixiv")
+            form.add_field("idempotency_key", "pixiv:123")
+            resp = await client.post(
+                "/api/v1/submissions", data=form,
+                headers={"Authorization": "Bearer tp_ok"},
+            )
+            assert resp.status == 201
+            data = await resp.json()
+            assert data["data"]["status"] == "pending_review"
+            assert data["data"]["review_id"] == 42
+            queue_mock.assert_awaited_once()
+            assert queue_mock.call_args.kwargs["idempotency_key"] == "pixiv:123"
+            publish_mock.assert_not_called()
+        finally:
+            await client.close()
+
 
 class TestFileIdDirect:
     """file_id 直投（JSON body）分支"""
@@ -248,6 +277,34 @@ class TestFileIdDirect:
             assert resp.status == 201
             kwargs = file_id_mock.call_args.kwargs
             assert file_id_mock.call_args.args[2][0]["filename"] == "archive.zip"
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_review_mode_queues_file_ids(self, monkeypatch):
+        monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
+        queue_mock = AsyncMock(return_value={
+            "status": "pending_review", "review_id": 7,
+            "media_count": 1, "document_count": 0,
+        })
+        monkeypatch.setattr("handlers.review.queue_review_from_file_ids", queue_mock)
+        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            resp = await client.post(
+                "/api/v1/submissions",
+                headers={"Authorization": "Bearer tp_ok"},
+                json={
+                    "media": [{"type": "photo", "file_id": "AAA"}],
+                    "tags": "Pixiv",
+                    "idempotency_key": "pixiv:456",
+                },
+            )
+            assert resp.status == 201
+            assert (await resp.json())["data"]["status"] == "pending_review"
+            queue_mock.assert_awaited_once()
+            assert queue_mock.call_args.kwargs["idempotency_key"] == "pixiv:456"
+            publish_mock.assert_not_called()
         finally:
             await client.close()
 

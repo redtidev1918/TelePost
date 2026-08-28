@@ -9,6 +9,19 @@
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-08-29
+
+### 新增
+
+- **运行模式自适应**：新增默认 `RUN_MODE=AUTO`；有效公网 HTTPS `WEBHOOK_URL` 自动选择 Webhook，否则选择 Polling，Webhook 注册失败时自动安全回退
+- **可选投稿来源审核**：`API_REVIEW_REQUIRED` 与 `CHAT_REVIEW_REQUIRED` 可独立控制 HTTP API 和 Telegram `/submit` 投稿是否进入私有审核群，管理员点击通过/拒绝
+- **审核持久化与幂等**：待审核媒体保存 Telegram file_id，SQLite 记录状态；`idempotency_key` 防止网络重试生成重复审核项
+- **聊天审核结果通知**：聊天投稿通过或拒绝后，Bot 私聊通知原投稿人
+
+### 修复
+
+- API file_id 直投的单个媒体/文档不再错用 `send_media_group`
+
 ### 安全
 
 - `/gen_token` 现在仅允许 `OWNER_ID` 对应的 Bot 所有者使用，防止普通用户生成可用于 HTTP API 投稿的访问令牌

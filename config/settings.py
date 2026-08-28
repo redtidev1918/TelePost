@@ -5,6 +5,8 @@ import os
 import configparser
 import logging
 
+from utils.run_mode import resolve_run_mode
+
 logger = logging.getLogger(__name__)
 
 # 项目根目录
@@ -133,16 +135,19 @@ BOT_MODE = get_env_or_config('BOT_MODE', 'BOT', 'BOT_MODE', fallback='MIXED')
 # 允许的文件类型配置
 ALLOWED_FILE_TYPES = get_env_or_config('ALLOWED_FILE_TYPES', 'BOT', 'ALLOWED_FILE_TYPES', fallback='*')
 
-# 运行模式配置
-_run_mode = get_env_or_config('RUN_MODE', 'BOT', 'RUN_MODE', fallback='POLLING')
-RUN_MODE = _run_mode.strip().upper() if _run_mode else 'POLLING'
-
-# Webhook 配置（仅当 RUN_MODE = WEBHOOK 时生效）
+# Webhook 与运行模式配置。AUTO 在存在有效公网 HTTPS URL 时选择 Webhook，
+# 否则使用 Polling；run.py 多 bot 启动器会通过 RUN_MODE_REQUESTED 保留原始选择。
 WEBHOOK_URL = get_env_or_config('WEBHOOK_URL', 'WEBHOOK', 'URL', fallback='')
 _webhook_port = get_env_or_config('WEBHOOK_PORT', 'WEBHOOK', 'PORT')
 WEBHOOK_PORT = int(_webhook_port) if _webhook_port else get_config_int('WEBHOOK', 'PORT', 8080)
 WEBHOOK_PATH = get_env_or_config('WEBHOOK_PATH', 'WEBHOOK', 'PATH', fallback='/webhook')
 WEBHOOK_SECRET_TOKEN = get_env_or_config('WEBHOOK_SECRET_TOKEN', 'WEBHOOK', 'SECRET_TOKEN', fallback='')
+
+_run_mode = os.getenv('RUN_MODE_REQUESTED') or get_env_or_config(
+    'RUN_MODE', 'BOT', 'RUN_MODE', fallback='AUTO'
+)
+RUN_MODE_REQUESTED = (_run_mode or 'AUTO').strip().upper()
+RUN_MODE = resolve_run_mode(RUN_MODE_REQUESTED, WEBHOOK_URL)
 
 # 搜索引擎配置
 SEARCH_INDEX_DIR = get_env_or_config('SEARCH_INDEX_DIR', 'SEARCH', 'INDEX_DIR', fallback='data/search_index')
@@ -169,11 +174,36 @@ try:
 except (ValueError, TypeError):
     SUBMIT_LIMIT_PER_HOUR = 10
 
+# 投稿审核来源开关。两个开关相互独立，可只审核 API、只审核聊天，或同时审核。
+_api_review_required = get_env_or_config(
+    'API_REVIEW_REQUIRED', 'BOT', 'API_REVIEW_REQUIRED', fallback='false'
+)
+API_REVIEW_REQUIRED = str(_api_review_required).lower() in ('true', '1', 'yes')
+
+_chat_review_required = get_env_or_config(
+    'CHAT_REVIEW_REQUIRED', 'BOT', 'CHAT_REVIEW_REQUIRED', fallback='false'
+)
+CHAT_REVIEW_REQUIRED = str(_chat_review_required).lower() in ('true', '1', 'yes')
+
+_review_chat_id = get_env_or_config('REVIEW_CHAT_ID', 'BOT', 'REVIEW_CHAT_ID', fallback='')
+if _review_chat_id:
+    try:
+        REVIEW_CHAT_ID = int(_review_chat_id)
+    except (ValueError, TypeError):
+        REVIEW_CHAT_ID = str(_review_chat_id).strip()
+else:
+    REVIEW_CHAT_ID = None
+
 # 验证必要配置
 if not TOKEN:
     raise ValueError("❌ TOKEN 未设置！请在环境变量或 config.ini 中设置")
 if not CHANNEL_ID:
     raise ValueError("❌ CHANNEL_ID 未设置！请在环境变量或 config.ini 中设置")
+if (API_REVIEW_REQUIRED or CHAT_REVIEW_REQUIRED) and not REVIEW_CHAT_ID:
+    raise ValueError(
+        "❌ 已开启 API_REVIEW_REQUIRED 或 CHAT_REVIEW_REQUIRED，"
+        "但 REVIEW_CHAT_ID 未设置"
+    )
 
 # 模式常量定义
 MODE_MEDIA = 'MEDIA'      # 仅媒体上传
@@ -183,12 +213,19 @@ MODE_MIXED = 'MIXED'      # 混合模式
 # 打印配置信息（调试用）
 logger.info(f"配置加载完成:")
 logger.info(f"  - BOT_MODE: {BOT_MODE}")
-logger.info(f"  - RUN_MODE: {RUN_MODE}")
+logger.info(
+    f"  - RUN_MODE: {RUN_MODE_REQUESTED} -> {RUN_MODE}"
+    if RUN_MODE_REQUESTED == 'AUTO'
+    else f"  - RUN_MODE: {RUN_MODE}"
+)
 logger.info(f"  - CHANNEL_ID: {CHANNEL_ID}")
 logger.info(f"  - DB_PATH: {DB_PATH}")
 logger.info(f"  - TIMEOUT: {TIMEOUT}")
 logger.info(f"  - OWNER_ID: {OWNER_ID if OWNER_ID else '未设置'}")
 logger.info(f"  - ADMIN_IDS: {ADMIN_IDS if ADMIN_IDS else '未设置'}")
+logger.info(f"  - API_REVIEW_REQUIRED: {API_REVIEW_REQUIRED}")
+logger.info(f"  - CHAT_REVIEW_REQUIRED: {CHAT_REVIEW_REQUIRED}")
+logger.info(f"  - REVIEW_CHAT_ID: {REVIEW_CHAT_ID if REVIEW_CHAT_ID else '未设置'}")
 logger.info(f"  - ALLOWED_FILE_TYPES: {ALLOWED_FILE_TYPES}")
 if RUN_MODE == 'WEBHOOK':
     logger.info(f"  - WEBHOOK_URL: {WEBHOOK_URL if WEBHOOK_URL else '未设置'}")

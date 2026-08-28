@@ -13,7 +13,11 @@ from datetime import datetime
 
 from aiohttp import web
 
-from config.settings import SUBMIT_LIMIT_PER_HOUR
+from config.settings import (
+    API_REVIEW_REQUIRED,
+    CHAT_REVIEW_REQUIRED,
+    SUBMIT_LIMIT_PER_HOUR,
+)
 from utils.api_tokens import authenticate
 from utils.cache import TTLCache
 
@@ -56,6 +60,10 @@ def _fields_link(payload) -> str:
     return str(payload.get("link", "")).strip()
 
 
+def _fields_idempotency_key(payload) -> str:
+    return str(payload.get("idempotency_key", "")).strip()[:240]
+
+
 def _fields_bool(payload, key: str) -> bool:
     return str(payload.get(key, "false")).lower() in ("true", "1", "yes")
 
@@ -89,7 +97,10 @@ def add_api_routes(web_app, application) -> None:
     async def health(request):
         import utils.helper_functions as hf
         return _ok({"service": "telepost-api", "api_version": API_VERSION,
-                    "bot_version": hf.CONFIG.get("VERSION", "")})
+                    "bot_version": hf.CONFIG.get("VERSION", ""),
+                    "review_required": API_REVIEW_REQUIRED,
+                    "api_review_required": API_REVIEW_REQUIRED,
+                    "chat_review_required": CHAT_REVIEW_REQUIRED})
 
     async def me(request):
         row = await authenticate(_bearer(request) or "")
@@ -150,20 +161,38 @@ def add_api_routes(web_app, application) -> None:
             if link and not link.startswith(("http://", "https://")):
                 return _error(400, "invalid_link", "链接必须以 http:// 或 https:// 开头")
 
-            from handlers.publish import publish_from_file_ids
             try:
-                result = await publish_from_file_ids(
-                    bot, media, documents,
-                    tags=_fields_tags(payload), title=_fields_title(payload),
-                    note=_fields_note(payload), link=link,
-                    anonymous=_fields_bool(payload, "anonymous"),
-                    spoiler=_fields_bool(payload, "spoiler"),
-                    user_id=user_id, username=username,
-                )
+                common = {
+                    "tags": _fields_tags(payload),
+                    "title": _fields_title(payload),
+                    "note": _fields_note(payload),
+                    "link": link,
+                    "anonymous": _fields_bool(payload, "anonymous"),
+                    "spoiler": _fields_bool(payload, "spoiler"),
+                    "user_id": user_id,
+                    "username": username,
+                }
+                if API_REVIEW_REQUIRED:
+                    from handlers.review import queue_review_from_file_ids
+                    result = await queue_review_from_file_ids(
+                        bot, media, documents,
+                        idempotency_key=_fields_idempotency_key(payload),
+                        **common,
+                    )
+                else:
+                    from handlers.publish import publish_from_file_ids
+                    result = await publish_from_file_ids(
+                        bot, media, documents, **common,
+                    )
             except Exception as e:
+                action = "进入审核队列" if API_REVIEW_REQUIRED else "发布到频道"
                 logger.error(f"API file_id 投稿失败: {e}", exc_info=True)
-                return _error(502, "publish_failed", f"发布到频道失败: {str(e)[:200]}")
-            logger.info(f"API file_id 投稿成功: user={user_id} message_id={result['message_id']}")
+                code = "review_queue_failed" if API_REVIEW_REQUIRED else "publish_failed"
+                return _error(502, code, f"{action}失败: {str(e)[:200]}")
+            logger.info(
+                "API file_id 投稿已处理: user=%s status=%s",
+                user_id, result.get("status"),
+            )
             return _ok(result, status=201)
 
         if not (request.content_type or "").startswith("multipart/"):
@@ -218,17 +247,35 @@ def add_api_routes(web_app, application) -> None:
         spoiler = _fields_bool(fields, "spoiler")
 
         try:
-            result = await publish_from_files(
-                bot, files,
-                tags=tags, title=title, note=note, link=link,
-                anonymous=anonymous, spoiler=spoiler,
-                user_id=user_id, username=username,
-            )
+            common = {
+                "tags": tags,
+                "title": title,
+                "note": note,
+                "link": link,
+                "anonymous": anonymous,
+                "spoiler": spoiler,
+                "user_id": user_id,
+                "username": username,
+            }
+            if API_REVIEW_REQUIRED:
+                from handlers.review import queue_review_from_files
+                result = await queue_review_from_files(
+                    bot, files,
+                    idempotency_key=_fields_idempotency_key(fields),
+                    **common,
+                )
+            else:
+                result = await publish_from_files(bot, files, **common)
         except Exception as e:
-            logger.error(f"API 投稿发布失败: {e}", exc_info=True)
-            return _error(502, "publish_failed", f"发布到频道失败: {str(e)[:200]}")
+            action = "进入审核队列" if API_REVIEW_REQUIRED else "发布到频道"
+            logger.error(f"API 投稿处理失败: {e}", exc_info=True)
+            code = "review_queue_failed" if API_REVIEW_REQUIRED else "publish_failed"
+            return _error(502, code, f"{action}失败: {str(e)[:200]}")
 
-        logger.info(f"API 投稿成功: user={user_id} message_id={result['message_id']}")
+        logger.info(
+            "API 投稿已处理: user=%s status=%s",
+            user_id, result.get("status"),
+        )
         return _ok(result, status=201)
 
     web_app.router.add_get("/api/v1/health", health)

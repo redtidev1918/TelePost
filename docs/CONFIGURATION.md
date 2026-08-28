@@ -19,8 +19,8 @@
 | `SHOW_SUBMITTER` | `true` | 发布的帖子是否显示投稿人 |
 | `NOTIFY_OWNER` | `true` | 新投稿是否私聊通知所有者 |
 | `SUBMIT_LIMIT_PER_HOUR` | `10` | 每用户每小时投稿次数上限，`0` 关闭 |
-| `RUN_MODE` | `POLLING` | `POLLING` / `WEBHOOK` |
-| `WEBHOOK_URL` | 空 | Webhook 模式必填，如 `https://app.fly.dev` |
+| `RUN_MODE` | `AUTO` | `AUTO` / `POLLING` / `WEBHOOK`；AUTO 有有效公网 HTTPS URL 时选 Webhook，否则 Polling |
+| `WEBHOOK_URL` | 空 | Webhook 公网入口，如 `https://app.fly.dev`；AUTO 模式下可留空 |
 | `WEBHOOK_PORT` / `WEBHOOK_PATH` | `8080` / `/webhook` | 监听端口与路径 |
 | `WEBHOOK_SECRET_TOKEN` | 自动生成 | Telegram 回调校验令牌 |
 | `SEARCH_ENABLED` | `true` | 关闭后完全不建/写索引 |
@@ -33,6 +33,9 @@
 | `HEALTH_PORT` | `8080` | Polling 模式健康检查端口（多 bot 时自动错开为 8081/8082/…） |
 | `DB_PATH` | `data/submissions.db` | 数据库文件路径（多 bot 时默认按 bot 隔离） |
 | `API_ENABLED` | `true` | 是否启用 HTTP API（/api/v1，供外部项目投稿） |
+| `API_REVIEW_REQUIRED` | `false` | HTTP API 投稿是否进入审核队列 |
+| `CHAT_REVIEW_REQUIRED` | `false` | Telegram `/submit` 投稿是否进入审核队列 |
+| `REVIEW_CHAT_ID` | 空 | 私有审核群 ID；任一审核开关为 `true` 时必填 |
 
 ## 多 bot 模式（BOT{n}_*）
 
@@ -48,17 +51,18 @@
 | `BOT{n}_SHOW_SUBMITTER` / `BOT{n}_NOTIFY_OWNER` / `BOT{n}_BOT_MODE` / `BOT{n}_ALLOWED_FILE_TYPES` | 各 bot 的行为开关 |
 | `BOT{n}_DB_PATH` / `BOT{n}_SEARCH_INDEX_DIR` / `BOT{n}_SEARCH_ENABLED` / `BOT{n}_SEARCH_ANALYZER` | 各 bot 的存储与搜索 |
 | `BOT{n}_SUBMIT_LIMIT_PER_HOUR` / `BOT{n}_HEALTH_PORT` / `BOT{n}_TIMEOUT` | 各 bot 的限频/端口/超时 |
+| `BOT{n}_API_REVIEW_REQUIRED` / `BOT{n}_CHAT_REVIEW_REQUIRED` / `BOT{n}_REVIEW_CHAT_ID` | 各 bot 的 API/聊天审核开关与私有审核群 |
 
 Webhook 模式下回调路径自动分配为 `/webhook/botN`（详见 [WEBHOOK_MODE.md](WEBHOOK_MODE.md)）。
 
 ## config.ini
 
-节与键与上表一一对应：`[BOT]`（TOKEN/CHANNEL_ID/OWNER_ID/ADMIN_IDS/BOT_MODE/ALLOWED_FILE_TYPES/SHOW_SUBMITTER/NOTIFY_OWNER/SUBMIT_LIMIT_PER_HOUR/TIMEOUT/ALLOWED_TAGS/DB_PATH）、`[WEBHOOK]`（URL/PORT/PATH/SECRET_TOKEN）、`[SEARCH]`（ENABLED/INDEX_DIR/ANALYZER/HIGHLIGHT）、`[DB]`（CACHE_SIZE_KB）。
+节与键与上表一一对应：`[BOT]`（TOKEN/CHANNEL_ID/OWNER_ID/ADMIN_IDS/BOT_MODE/RUN_MODE/ALLOWED_FILE_TYPES/SHOW_SUBMITTER/NOTIFY_OWNER/SUBMIT_LIMIT_PER_HOUR/API_REVIEW_REQUIRED/CHAT_REVIEW_REQUIRED/REVIEW_CHAT_ID/TIMEOUT/ALLOWED_TAGS/DB_PATH）、`[WEBHOOK]`（URL/PORT/PATH/SECRET_TOKEN）、`[SEARCH]`（ENABLED/INDEX_DIR/ANALYZER/HIGHLIGHT）、`[DB]`（CACHE_SIZE_KB）。
 `ALLOWED_TAGS` 默认 30；`DB_PATH` 默认 `data/submissions.db`。完整带注释模板见 [`config.ini.example`](../config.ini.example)。
 
 ## 数据库
 
-- `data/submissions.db`（WAL 模式）：`submissions`（进行中的投稿会话）与 `published_posts`（已发布帖子：`message_id` 主键、`publish_time`、`heat_score`、`related_message_ids`、`is_deleted` 软删标记等）。
+- `data/submissions.db`（WAL 模式）：`submissions`（进行中的聊天投稿会话）、`pending_reviews`（API/聊天待审核记录与 Telegram `file_id`）与 `published_posts`（已发布帖子）。
 - 备份时请连同 `-wal`/`-shm` 文件或先执行 checkpoint。
 
 ## 常见误区

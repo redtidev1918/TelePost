@@ -14,6 +14,8 @@ Telegram 频道投稿机器人：媒体/文档投稿、全文搜索、热度统�
 - 标签云
 - 管理：黑名单、批量删帖（软删除，保留历史）
 - 多 bot：一台机器承载多个频道的投稿 bot，数据相互隔离
+- 网络自适应：`RUN_MODE=AUTO` 在有公网 HTTPS Webhook 地址时使用推送，否则自动回退轮询
+- 可选审核队列：可分别控制 API 投稿、Telegram `/submit` 投稿是否进入私有审核群，由管理员点击通过/拒绝
 
 ## 快速开始
 
@@ -30,7 +32,7 @@ cd TelePost
 | 机器人 Token | `TOKEN` | 从 [@BotFather](https://t.me/BotFather) 获取；兼容 `BOT_TOKEN` 别名 |
 | 频道 ID | `CHANNEL_ID` | `@yourchannel` 或 `-100xxxxxxxxxx`，机器人需为频道管理员 |
 
-其余配置见 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)。默认 Polling 模式，服务器部署建议切换 Webhook，见 [docs/WEBHOOK_MODE.md](docs/WEBHOOK_MODE.md)。
+其余配置见 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)。默认 AUTO 模式：配置公网 HTTPS Webhook 地址时使用推送，否则使用 Polling，见 [docs/WEBHOOK_MODE.md](docs/WEBHOOK_MODE.md)。
 
 ## 常用命令
 

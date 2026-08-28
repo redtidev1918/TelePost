@@ -80,6 +80,48 @@ async def init_db():
                     revoked INTEGER DEFAULT 0
                 )
             ''')
+
+            # API/聊天投稿审核队列。媒体先上传到私有审核群，此处只保存
+            # Telegram file_id 与审核状态，避免 Fly 重启后丢失待审核文件。
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS pending_reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    idempotency_key TEXT UNIQUE NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'api',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    user_id INTEGER NOT NULL,
+                    username TEXT DEFAULT '',
+                    title TEXT DEFAULT '',
+                    tags TEXT DEFAULT '',
+                    note TEXT DEFAULT '',
+                    link TEXT DEFAULT '',
+                    anonymous INTEGER DEFAULT 0,
+                    spoiler INTEGER DEFAULT 0,
+                    media_json TEXT NOT NULL DEFAULT '[]',
+                    documents_json TEXT NOT NULL DEFAULT '[]',
+                    review_chat_id TEXT NOT NULL,
+                    review_message_ids TEXT NOT NULL DEFAULT '[]',
+                    control_message_id INTEGER,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    decided_at REAL,
+                    decided_by INTEGER,
+                    published_message_id INTEGER,
+                    error TEXT DEFAULT ''
+                )
+            ''')
+            try:
+                await conn.execute(
+                    "ALTER TABLE pending_reviews "
+                    "ADD COLUMN source TEXT NOT NULL DEFAULT 'api'"
+                )
+                logger.info("已添加 source 字段到 pending_reviews 表")
+            except Exception:
+                pass  # 字段已存在
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_pending_reviews_status_created '
+                'ON pending_reviews(status, created_at DESC)'
+            )
             
             # 已发布帖子表（用于热度统计和搜索）
             await conn.execute('''

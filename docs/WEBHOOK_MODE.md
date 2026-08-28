@@ -1,6 +1,24 @@
 # Webhook 模式使用指南
 
-TelePost 支持两种运行模式：**Polling（轮询）** 和 **Webhook**。
+TelePost 支持 **AUTO（自动选择）**、**Polling（轮询）** 和 **Webhook**。
+
+## AUTO 模式（默认）
+
+```ini
+[BOT]
+RUN_MODE = AUTO
+
+[WEBHOOK]
+# 有公网 HTTPS 域名时填写；没有则留空
+URL = https://your-domain.com
+```
+
+- `WEBHOOK_URL` 是有效的公网 HTTPS 地址：启动 Webhook。
+- URL 为空、使用 HTTP、localhost 或私网 IP：启动 Polling。
+- AUTO 选中 Webhook、但向 Telegram 注册失败：停止 Webhook 服务并自动回退 Polling。
+- `POLLING` / `WEBHOOK` 是强制模式；显式 Webhook 注册失败时仍退出，以暴露部署错误。
+
+AUTO 不会仅凭机器拥有公网 IP 就启用 Webhook，因为 Telegram 还需要可访问的 HTTPS 域名、证书与入站端口。
 
 ## 两种模式对比
 
@@ -11,7 +29,7 @@ TelePost 支持两种运行模式：**Polling（轮询）** 和 **Webhook**。
 | **响应延迟** | 1-3 秒 | < 1 秒 |
 | **适用场景** | 开发环境、小型部署 | 生产环境、高并发 |
 | **部署要求** | 无特殊要求 | 需要公网 HTTPS 域名 |
-| **推荐环境** | 本地开发、测试 | 云服务器、PaaS 平台 |
+| **推荐环境** | 本地、无公网服务器 | 有公网 HTTPS 的云服务器、PaaS 平台 |
 
 ---
 

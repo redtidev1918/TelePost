@@ -33,6 +33,24 @@ class TestWebhookMapping:
         env = run_mod.build_bot_env(1, dict(os.environ))
         assert env["WEBHOOK_URL"] == "https://app.fly.dev"
 
+    def test_auto_mode_uses_webhook_mapping_with_public_url(self, monkeypatch):
+        monkeypatch.setenv("BOT1_TOKEN", "t1")
+        monkeypatch.setenv("RUN_MODE", "AUTO")
+        monkeypatch.setenv("WEBHOOK_URL", "https://app.fly.dev")
+        env = run_mod.build_bot_env(1, dict(os.environ))
+        assert env["RUN_MODE_REQUESTED"] == "AUTO"
+        assert env["RUN_MODE"] == "WEBHOOK"
+        assert env["WEBHOOK_PORT"] == "8081"
+        assert env["WEBHOOK_PATH"] == "/webhook/bot1"
+
+    def test_auto_mode_uses_polling_without_public_url(self, monkeypatch):
+        monkeypatch.setenv("BOT1_TOKEN", "t1")
+        monkeypatch.setenv("RUN_MODE", "AUTO")
+        monkeypatch.delenv("WEBHOOK_URL", raising=False)
+        env = run_mod.build_bot_env(1, dict(os.environ))
+        assert env["RUN_MODE_REQUESTED"] == "AUTO"
+        assert env["RUN_MODE"] == "POLLING"
+
 
 class TestRouterRelay:
     @pytest.mark.asyncio

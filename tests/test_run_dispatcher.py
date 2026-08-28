@@ -1,6 +1,8 @@
 """
 多 bot 启动器（run.py）测试
 """
+import os
+
 import run
 
 
@@ -16,6 +18,19 @@ class TestBotIndices:
 
     def test_no_bots(self):
         assert run.bot_indices({"TOKEN": "t"}) == []
+
+    def test_single_launcher_leaves_config_file_mode_unshadowed(self, monkeypatch):
+        monkeypatch.delenv("BOT1_TOKEN", raising=False)
+        monkeypatch.delenv("RUN_MODE", raising=False)
+        monkeypatch.delenv("RUN_MODE_REQUESTED", raising=False)
+        called = []
+        monkeypatch.setattr(run, "run_single", lambda: called.append(True))
+
+        run.main()
+
+        assert called == [True]
+        assert "RUN_MODE" not in os.environ
+        assert "RUN_MODE_REQUESTED" not in os.environ
 
 
 class TestBuildBotEnv:
@@ -53,9 +68,15 @@ class TestBuildBotEnv:
         env = self.base()
         env["BOT2_DB_PATH"] = "data/custom.db"
         env["BOT2_SEARCH_ENABLED"] = "false"
+        env["BOT2_API_REVIEW_REQUIRED"] = "true"
+        env["BOT2_CHAT_REVIEW_REQUIRED"] = "true"
+        env["BOT2_REVIEW_CHAT_ID"] = "-100123"
         out = run.build_bot_env(2, env)
         assert out["DB_PATH"] == "data/custom.db"
         assert out["SEARCH_ENABLED"] == "false"
+        assert out["API_REVIEW_REQUIRED"] == "true"
+        assert out["CHAT_REVIEW_REQUIRED"] == "true"
+        assert out["REVIEW_CHAT_ID"] == "-100123"
 
     def test_base_env_not_mutated(self):
         base = self.base()

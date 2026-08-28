@@ -15,10 +15,10 @@
 
 ## P1 —— 高价值新功能
 
-### 4. 可选审核队列（投稿审前拦截）
-- **现状**：投稿经 spoiler 确认后直接发布到频道，管理员只能事后删。
-- **方案**：新增 `REVIEW_REQUIRED` 配置（默认关闭保持现行为）。开启后发布前把预览（caption+媒体缩略）发给 OWNER，附 ✅通过 / ❌拒绝 / ✏️退回修改 按钮；通过后调用现有 `publish_submission`。
-- **成本**：M。**价值**：把机器人从"自动转发器"升级为真正的投稿管理系统（README 的自我定位）。
+### 4. ~~可选投稿审核队列~~ ✅ 已实现（2026-08）
+- `API_REVIEW_REQUIRED` 与 `CHAT_REVIEW_REQUIRED` 分别控制 HTTP API 和 Telegram `/submit` 投稿是否先进入私有 `REVIEW_CHAT_ID`，管理员通过按钮发布或拒绝。
+- 审核队列保存 Telegram `file_id` 和 SQLite 状态，支持幂等键和防重复审批。
+- 两个开关相互独立且默认关闭，可只审核一种投稿来源，也可同时审核。
 
 ### 5. 定时发布
 - **方案**：发布确认页增加 🕐定时 选项（如 +1h/+3h/明早9点），用 PTB 自带 `job_queue.run_once`（项目已依赖 job-queue extra）在到点执行发布；到期前可取消。

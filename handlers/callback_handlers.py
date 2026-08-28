@@ -52,8 +52,16 @@ async def handle_callback_query(update: Update, context: CallbackContext):
     logger.info(f"收到回调查询: {data} 来自用户: {user_id}")
     
     try:
+        # API 投稿审核（不进入普通 /submit 会话）
+        if data.startswith("review_approve:"):
+            from handlers.review import approve_review
+            return await approve_review(update, context)
+        elif data.startswith("review_reject:"):
+            from handlers.review import reject_review
+            return await reject_review(update, context)
+
         # 投稿确认相关
-        if data.startswith("submit_confirm_"):
+        elif data.startswith("submit_confirm_"):
             await handle_submit_confirm(update, context)
         elif data.startswith("submit_edit_"):
             await handle_submit_edit(update, context)
@@ -718,4 +726,3 @@ async def handle_back(update: Update, context: CallbackContext):
         "🔙 返回上一页",
         reply_markup=None
     )
-

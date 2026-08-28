@@ -16,10 +16,13 @@ import sys
 import threading
 import time
 
+from utils.run_mode import resolve_run_mode
+
 # 子进程可按 BOT{n}_<KEY> 覆盖的配置项
 OVERRIDABLE_KEYS = (
     "OWNER_ID", "ADMIN_IDS", "SHOW_SUBMITTER", "NOTIFY_OWNER",
     "BOT_MODE", "ALLOWED_FILE_TYPES", "SUBMIT_LIMIT_PER_HOUR",
+    "API_REVIEW_REQUIRED", "CHAT_REVIEW_REQUIRED", "REVIEW_CHAT_ID",
     "DB_PATH", "SEARCH_INDEX_DIR", "SEARCH_ENABLED", "SEARCH_ANALYZER",
     "HEALTH_PORT", "TIMEOUT", "RUN_MODE", "WEBHOOK_SECRET_TOKEN",
 )
@@ -62,6 +65,14 @@ def build_bot_env(index: int, base: dict) -> dict:
         value = env.get(f"BOT{index}_{key}")
         if value:
             env[key] = value
+
+    requested_mode = (
+        env.get(f"BOT{index}_RUN_MODE")
+        or env.get("RUN_MODE_REQUESTED")
+        or env.get("RUN_MODE", "AUTO")
+    )
+    env["RUN_MODE_REQUESTED"] = requested_mode.strip().upper()
+    env["RUN_MODE"] = resolve_run_mode(requested_mode, env.get("WEBHOOK_URL", ""))
 
     # 数据目录默认按 bot 隔离，避免不同频道的用户/帖子数据混在一起
     env["DB_PATH"] = env.get("DB_PATH", f"data/bot{index}/submissions.db")
@@ -244,6 +255,18 @@ def run_multi(indices: list) -> None:
 def main():
     indices = bot_indices(os.environ)
     if indices:
+        # 多 bot 的路由器必须先知道最终模式，因此在启动子进程前解析。
+        # 单 bot 不在此处解析，避免环境变量覆盖 config.ini 中的配置。
+        requested_mode = os.environ.get("RUN_MODE", "AUTO")
+        os.environ["RUN_MODE_REQUESTED"] = requested_mode.strip().upper()
+        os.environ["RUN_MODE"] = resolve_run_mode(
+            requested_mode, os.environ.get("WEBHOOK_URL", "")
+        )
+        if os.environ["RUN_MODE_REQUESTED"] == "AUTO":
+            print(
+                f"[launcher] AUTO 选择 {os.environ['RUN_MODE']} 模式",
+                flush=True,
+            )
         run_multi(indices)
     else:
         run_single()

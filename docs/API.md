@@ -26,7 +26,7 @@
      -F "link=https://example.com（可选）"
    ```
 
-3. 成功返回 `201`：
+3. 成功返回 `201`。默认立即发布：
 
    ```json
    {
@@ -35,6 +35,20 @@
        "status": "published",
        "message_id": 123,
        "link": "https://t.me/yourchannel/123",
+       "media_count": 2,
+       "document_count": 0
+     }
+   }
+   ```
+
+   开启 `API_REVIEW_REQUIRED=true` 时，改为进入审核队列：
+
+   ```json
+   {
+     "ok": true,
+     "data": {
+       "status": "pending_review",
+       "review_id": 42,
        "media_count": 2,
        "document_count": 0
      }
@@ -69,7 +83,7 @@ Authorization: Bearer tp_xxxxxxxx
 
 ### POST /api/v1/submissions
 
-创建并立即发布一次投稿（multipart/form-data）。
+创建一次投稿（multipart/form-data）。默认立即发布；开启 API 审核时先进入私有审核群。
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
@@ -80,6 +94,7 @@ Authorization: Bearer tp_xxxxxxxx
 | `link` | text | 否 | http(s) 链接 |
 | `anonymous` | text | 否 | `true` 时频道内不显示投稿人 |
 | `spoiler` | text | 否 | `true` 时媒体加剧透遮罩 |
+| `idempotency_key` | text | 否 | 审核模式下的防重键，建议传稳定的来源 ID，最长 240 字符 |
 
 约束：单文件 ≤ 50MB；媒体（图片/视频/GIF）与文档混传时，文档作为媒体主贴的回复发出。
 
@@ -120,7 +135,8 @@ Authorization: Bearer tp_xxxx
   "documents": [{"file_id": "CCC", "filename": "archive.zip"}],
   "tags": "测试",
   "title": "标题（可选）",
-  "anonymous": false
+  "anonymous": false,
+  "idempotency_key": "source:123"
 }
 ```
 
@@ -151,6 +167,59 @@ Authorization: Bearer tp_xxxx
 | 413 | `file_too_large` | 同上 |
 | 429 | `rate_limited` | 超过每小时投稿限额 |
 | 502 | `publish_failed` | 频道发布失败（网络或 Telegram 侧错误） |
+| 502 | `review_queue_failed` | 审核群上传或审核记录持久化失败 |
+
+## 投稿审核来源选择
+
+API 与 Telegram 聊天投稿使用两个独立开关，部署者可以按来源选择是否审核：
+
+| API_REVIEW_REQUIRED | CHAT_REVIEW_REQUIRED | 行为 |
+|---|---|---|
+| `false` | `false` | 两种投稿都直接发布（默认，兼容旧行为） |
+| `true` | `false` | 仅 API 投稿进入审核群 |
+| `false` | `true` | 仅 Telegram `/submit` 投稿进入审核群 |
+| `true` | `true` | 两种投稿都进入审核群 |
+
+```env
+API_REVIEW_REQUIRED=true
+CHAT_REVIEW_REQUIRED=false
+REVIEW_CHAT_ID=-1001234567890
+```
+
+1. 创建私有 Telegram 审核群，将 Bot 加入群组，并取得 `-100...` 形式的 ID。
+2. 开启对应来源后，素材会先发到该群；SQLite 只保存 Telegram `file_id`、投稿字段、来源和审核状态。
+3. `OWNER_ID` 与 `ADMIN_IDS` 中的用户可点击「发布到频道」或「拒绝」。批准后复用 file_id，不二次上传原文件。
+4. 审批状态通过条件更新原子抢占，多人点击或重复点击不会重复发布。
+5. Telegram 聊天投稿人在提交后会看到“已进入审核队列”，通过或拒绝后会收到 Bot 私聊通知。
+
+多 bot 模式可逐 bot 配置：
+
+```env
+BOT1_API_REVIEW_REQUIRED=true
+BOT1_CHAT_REVIEW_REQUIRED=false
+BOT1_REVIEW_CHAT_ID=-1001234567890
+BOT2_API_REVIEW_REQUIRED=true
+BOT2_CHAT_REVIEW_REQUIRED=true
+BOT2_REVIEW_CHAT_ID=-1001234567890
+```
+
+PixivFlow 的 multipart target 建议加入幂等键：
+
+```json
+{
+  "fields": {
+    "tags": ["Pixiv", "{{tag}}"],
+    "title": "{{title}}",
+    "note": "Pixiv ID: {{pixivId}}",
+    "link": "https://www.pixiv.net/artworks/{{pixivId}}",
+    "anonymous": true,
+    "idempotency_key": "pixiv:{{pixivId}}:{{tag}}"
+  },
+  "success": { "statuses": [201], "jsonPath": "ok", "equals": true }
+}
+```
+
+TelePost 只在审核群上传成功且 SQLite 记录已建立后才返回 `201`。因此 PixivFlow 收到成功响应后可安全清理本地 cache；失败时应保留 outbox 并重试。
 
 ## 限额
 

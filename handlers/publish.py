@@ -15,12 +15,34 @@ from telegram import (
 )
 from telegram.ext import ConversationHandler, CallbackContext
 
-from config.settings import CHANNEL_ID, NET_TIMEOUT, OWNER_ID, NOTIFY_OWNER
+from config.settings import (
+    CHANNEL_ID,
+    CHAT_REVIEW_REQUIRED,
+    NET_TIMEOUT,
+    NOTIFY_OWNER,
+    OWNER_ID,
+)
 from database.db_manager import get_db, cleanup_old_data
 from utils.helper_functions import build_caption, safe_send
 from utils.search_engine import get_search_engine, PostDocument
 
 logger = logging.getLogger(__name__)
+
+
+def _review_items(media_list, doc_list):
+    """Convert the chat session's compact file_id format to review payloads."""
+    media = []
+    for item in media_list:
+        kind, file_id = item.split(":", 1)
+        media.append({"type": kind, "file_id": file_id})
+
+    documents = []
+    for item in doc_list:
+        parts = item.split(":", 2)
+        file_id = parts[1] if len(parts) >= 2 else parts[0]
+        filename = parts[2] if len(parts) >= 3 else "file"
+        documents.append({"file_id": file_id, "filename": filename})
+    return media, documents
 
 async def save_published_post(user_id, message_id, data, media_list, doc_list, all_message_ids=None):
     """
@@ -163,6 +185,7 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
         int: 会话结束状态
     """
     user_id = update.effective_user.id
+    publish_success = False  # 是否已发布或成功进入审核队列
 
     # 本函数既可能被消息流程直接调用（handle_spoiler），
     # 也可能被按钮回调触发（PUBLISH 状态 / submit_confirm 按钮）。
@@ -229,7 +252,42 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
         spoiler_flag = spoiler_value.lower() == "true"
         sent_message = None
         all_message_ids = []  # 用于记录所有发送的消息ID
-        publish_success = False  # 是否成功发布（决定 finally 中是否清理会话记录）
+
+        if CHAT_REVIEW_REQUIRED:
+            from handlers.review import queue_review_from_file_ids
+
+            review_media, review_documents = _review_items(media_list, doc_list)
+            username = (
+                data["username"]
+                if "username" in data.keys() and data["username"]
+                else (update.effective_user.username or f"user{user_id}")
+            )
+            anonymous_value = (
+                data["anonymous"]
+                if "anonymous" in data.keys() and data["anonymous"]
+                else "false"
+            )
+            review_result = await queue_review_from_file_ids(
+                context.bot,
+                review_media,
+                review_documents,
+                tags=data["tags"] or "",
+                title=data["title"] or "",
+                note=data["note"] or "",
+                link=data["link"] or "",
+                anonymous=str(anonymous_value).lower() == "true",
+                spoiler=spoiler_flag,
+                user_id=user_id,
+                username=username,
+                idempotency_key=f"submission:{data['timestamp']}",
+                source="chat",
+            )
+            await _reply_to_user(
+                f"✅ 投稿已进入审核队列（#{review_result['review_id']}）。\n"
+                "审核完成后机器人会通知你。"
+            )
+            publish_success = True
+            return ConversationHandler.END
         
         # 处理媒体文件
         if media_list:
@@ -372,7 +430,7 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
         except Exception as notify_err:
             logger.error(f"发送失败通知时出错: {notify_err}")
     finally:
-        # 仅在确认发布成功后清理会话数据；失败时保留，
+        # 仅在发布成功或成功进入审核队列后清理会话数据；失败时保留，
         # 用户可重新 /submit 或由 cleanup_old_data 按超时自动回收
         if not publish_success:
             logger.warning(f"用户 {user_id} 投稿未完成，会话数据已保留待恢复或超时清理")
@@ -818,54 +876,102 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="", not
     media_list = [f"{m['type']}:{m['file_id']}" for m in media]
     doc_list = [f"document:{d['file_id']}:{d.get('filename', 'file')}" for d in documents]
 
-    from telegram import (
-        InputMediaPhoto, InputMediaVideo, InputMediaAnimation,
-        InputMediaAudio, InputMediaDocument,
-    )
+    from telegram import InputMediaPhoto, InputMediaVideo, InputMediaDocument
     input_factories = {
         "photo": InputMediaPhoto,
         "video": InputMediaVideo,
-        "animation": InputMediaAnimation,
-        "audio": InputMediaAudio,
         "document": InputMediaDocument,
     }
 
     main_message = None
 
-    # 媒体组：每组最多 10 个，caption 只放第一组第一项
+    async def send_single_media(item, cap):
+        common = {
+            "chat_id": CHANNEL_ID,
+            "caption": cap,
+            "parse_mode": "HTML" if cap else None,
+        }
+        kind = item["type"]
+        if kind == "photo":
+            return await bot.send_photo(
+                photo=item["file_id"], has_spoiler=spoiler, **common
+            )
+        if kind == "video":
+            return await bot.send_video(
+                video=item["file_id"], has_spoiler=spoiler, **common
+            )
+        if kind == "animation":
+            return await bot.send_animation(
+                animation=item["file_id"], has_spoiler=spoiler, **common
+            )
+        return await bot.send_audio(audio=item["file_id"], **common)
+
+    # photo/video 只有在 2-10 项时才能使用 send_media_group。
+    # GIF/animation 不是 Bot API media group 支持的成员，单独发送。
     for chunk_index in range(0, len(media), 10):
         chunk = media[chunk_index:chunk_index + 10]
-        group = []
-        for i, item in enumerate(chunk):
-            factory = input_factories[item["type"]]
-            cap = caption if (chunk_index == 0 and i == 0) else None
-            kw = {"caption": cap, "parse_mode": "HTML" if cap else None}
-            if item["type"] in ("photo", "video"):
-                kw["has_spoiler"] = spoiler
-            group.append(factory(media=item["file_id"], **kw))
-        sent = await bot.send_media_group(chat_id=CHANNEL_ID, media=group)
-        all_message_ids.extend(m.message_id for m in sent)
-        if main_message is None:
-            main_message = sent[0]
+        can_group = len(chunk) >= 2 and all(
+            item["type"] in ("photo", "video") for item in chunk
+        )
+        if can_group:
+            group = []
+            for i, item in enumerate(chunk):
+                factory = input_factories[item["type"]]
+                cap = caption if main_message is None and i == 0 else None
+                group.append(factory(
+                    media=item["file_id"],
+                    caption=cap,
+                    parse_mode="HTML" if cap else None,
+                    has_spoiler=spoiler,
+                ))
+            sent = await bot.send_media_group(chat_id=CHANNEL_ID, media=group)
+            all_message_ids.extend(m.message_id for m in sent)
+            if main_message is None:
+                main_message = sent[0]
+        else:
+            for item in chunk:
+                sent_message = await send_single_media(
+                    item, caption if main_message is None else None
+                )
+                all_message_ids.append(sent_message.message_id)
+                if main_message is None:
+                    main_message = sent_message
 
     # 文档组（≤10 个一组；有媒体时作为媒体主贴的回复）
     for chunk_index in range(0, len(documents), 10):
         chunk = documents[chunk_index:chunk_index + 10]
-        group = []
-        for i, item in enumerate(chunk):
-            cap = caption if (not media and chunk_index == 0 and i == len(chunk) - 1) else None
-            group.append(InputMediaDocument(
-                media=item["file_id"],
-                caption=cap, parse_mode="HTML" if cap else None,
+        reply_to = main_message.message_id if main_message and media else None
+        if len(chunk) == 1:
+            item = chunk[0]
+            cap = caption if main_message is None else None
+            sent_message = await bot.send_document(
+                chat_id=CHANNEL_ID,
+                document=item["file_id"],
                 filename=item.get("filename") or None,
-            ))
-        sent = await bot.send_media_group(
-            chat_id=CHANNEL_ID, media=group,
-            reply_to_message_id=main_message.message_id if main_message else None,
-        )
-        all_message_ids.extend(m.message_id for m in sent)
-        if main_message is None:
-            main_message = sent[0]
+                caption=cap,
+                parse_mode="HTML" if cap else None,
+                reply_to_message_id=reply_to,
+            )
+            all_message_ids.append(sent_message.message_id)
+            if main_message is None:
+                main_message = sent_message
+        else:
+            group = []
+            for i, item in enumerate(chunk):
+                cap = caption if main_message is None and i == 0 else None
+                group.append(InputMediaDocument(
+                    media=item["file_id"],
+                    caption=cap,
+                    parse_mode="HTML" if cap else None,
+                    filename=item.get("filename") or None,
+                ))
+            sent = await bot.send_media_group(
+                chat_id=CHANNEL_ID, media=group,
+                reply_to_message_id=reply_to,
+            )
+            all_message_ids.extend(m.message_id for m in sent)
+            if main_message is None:
+                main_message = sent[0]
 
     if main_message is None:
         raise RuntimeError("没有可发布的媒体或文档")

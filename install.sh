@@ -182,18 +182,32 @@ configure_bot() {
     # 运行模式选择
     echo ""
     echo -e "${BOLD}选择运行模式：${NC}"
-    echo "  1) Polling 模式 (轮询) - 推荐用于本地开发和测试"
-    echo "  2) Webhook 模式 - 推荐用于生产环境和云服务器"
+    echo "  1) Auto 模式 - 有公网 HTTPS 地址时 Webhook，否则 Polling（推荐）"
+    echo "  2) Polling 模式 (轮询) - 用于本地或无公网服务器"
+    echo "  3) Webhook 模式 - 强制使用 Webhook"
     echo ""
     while true; do
-        read -p "请选择 (1/2) [默认: 1]: " RUN_MODE_CHOICE
+        read -p "请选择 (1/2/3) [默认: 1]: " RUN_MODE_CHOICE
         RUN_MODE_CHOICE=${RUN_MODE_CHOICE:-1}
         if [[ "$RUN_MODE_CHOICE" == "1" ]]; then
+            RUN_MODE="AUTO"
+            log_success "已选择 Auto 模式"
+            echo ""
+            log_info "如有公网 HTTPS 地址请填写；留空将自动使用 Polling"
+            while true; do
+                read -p "Webhook URL (可留空): " WEBHOOK_URL
+                if [ -z "$WEBHOOK_URL" ] || [[ "$WEBHOOK_URL" =~ ^https:// ]]; then
+                    break
+                fi
+                log_error "Webhook URL 必须以 https:// 开头"
+            done
+            break
+        elif [[ "$RUN_MODE_CHOICE" == "2" ]]; then
             RUN_MODE="POLLING"
             log_success "已选择 Polling 模式"
             WEBHOOK_URL=""
             break
-        elif [[ "$RUN_MODE_CHOICE" == "2" ]]; then
+        elif [[ "$RUN_MODE_CHOICE" == "3" ]]; then
             RUN_MODE="WEBHOOK"
             log_success "已选择 Webhook 模式"
             echo ""
@@ -214,7 +228,7 @@ configure_bot() {
             done
             break
         else
-            log_error "无效选择，请输入 1 或 2"
+            log_error "无效选择，请输入 1、2 或 3"
         fi
     done
     
@@ -243,7 +257,7 @@ configure_bot() {
     echo ""
     echo -e "${CYAN}${BOLD}配置摘要：${NC}"
     echo -e "  运行模式: ${BOLD}$RUN_MODE${NC}"
-    if [ "$RUN_MODE" == "WEBHOOK" ] && [ ! -z "$WEBHOOK_URL" ]; then
+    if [ "$RUN_MODE" != "POLLING" ] && [ ! -z "$WEBHOOK_URL" ]; then
         echo -e "  Webhook URL: ${BOLD}$WEBHOOK_URL${NC}"
     fi
     echo ""
@@ -340,4 +354,3 @@ main() {
 
 # 运行主函数
 main "$@"
-

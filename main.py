@@ -28,7 +28,8 @@ from dotenv import load_dotenv
 # 配置相关导入
 from config.settings import (
     TOKEN, TIMEOUT, BOT_MODE, MODE_MEDIA, MODE_DOCUMENT, MODE_MIXED,
-    RUN_MODE, WEBHOOK_URL, WEBHOOK_PORT, WEBHOOK_PATH, WEBHOOK_SECRET_TOKEN,
+    RUN_MODE, RUN_MODE_REQUESTED, WEBHOOK_URL, WEBHOOK_PORT, WEBHOOK_PATH,
+    WEBHOOK_SECRET_TOKEN,
     CHANNEL_ID, DB_PATH
 )
 from models.state import STATE
@@ -266,17 +267,26 @@ async def main():
     """
     主函数 - 设置并启动机器人
     """
-    logger.info(f"启动TelePost机器人。版本: {CONFIG.get('VERSION', '2.5.0')}")
+    logger.info(f"启动TelePost机器人。版本: {CONFIG.get('VERSION', '2.6.0')}")
     logger.info(f"会话超时时间: {TIMEOUT_SECONDS}秒")
     
-    # 启动健康检查服务器（仅在 Polling 模式下）
-    # Webhook 模式会使用 telegram 的内置服务器
-    if HEALTH_SERVER_ENABLED and RUN_MODE == 'POLLING':
+    health_server_started = False
+
+    def ensure_polling_health_server():
+        nonlocal health_server_started
+        if not HEALTH_SERVER_ENABLED or health_server_started:
+            return
         try:
             start_health_server(port=int(os.getenv("HEALTH_PORT", "8080")))
+            health_server_started = True
             logger.info("健康检查服务器已启动（Polling 模式）")
         except Exception as e:
             logger.warning(f"启动健康检查服务器失败: {e}")
+
+    # 启动健康检查服务器（仅在 Polling 模式下）
+    # Webhook 模式会使用 telegram 的内置服务器
+    if RUN_MODE == 'POLLING':
+        ensure_polling_health_server()
     
     # 初始化数据库
     await init_db()
@@ -395,33 +405,60 @@ async def main():
         if not WEBHOOK_SECRET_TOKEN:
             logger.info(f"已自动生成 Secret Token: {secret_token}")
         
-        # 创建并启动 Webhook 服务器（包含健康检查）
-        webhook_server = WebhookServer(
-            application=application,
-            port=WEBHOOK_PORT,
-            path=WEBHOOK_PATH,
-            secret_token=secret_token
-        )
-        await webhook_server.start()
+        # 创建服务器并向 Telegram 注册。AUTO 模式会把监听端口、DNS、
+        # TLS 或 Telegram API 侧的任何启动失败统一回退到 Polling。
+        success = False
+        try:
+            webhook_server = WebhookServer(
+                application=application,
+                port=WEBHOOK_PORT,
+                path=WEBHOOK_PATH,
+                secret_token=secret_token
+            )
+            await webhook_server.start()
+
+            success = await setup_webhook(
+                application=application,
+                webhook_url=WEBHOOK_URL,
+                webhook_path=WEBHOOK_PATH,
+                secret_token=secret_token
+            )
+        except Exception as e:
+            logger.error(f"❌ Webhook 启动失败: {e}", exc_info=True)
         
-        # 设置 Telegram Webhook
-        success = await setup_webhook(
-            application=application,
-            webhook_url=WEBHOOK_URL,
-            webhook_path=WEBHOOK_PATH,
-            secret_token=secret_token
-        )
-        
-        if not success:
+        if not success and RUN_MODE_REQUESTED == 'AUTO':
+            logger.warning("⚠️ AUTO 模式启动或注册 Webhook 失败，自动回退 Polling")
+            if webhook_server:
+                try:
+                    await webhook_server.stop()
+                except Exception as e:
+                    logger.warning(f"清理失败的 Webhook 服务时出错: {e}")
+            webhook_server = None
+            ensure_polling_health_server()
+            await application.updater.start_polling(allowed_updates=[
+                "message",
+                "edited_message",
+                "channel_post",
+                "edited_channel_post",
+                "callback_query",
+                "inline_query",
+            ])
+            logger.info("✅ Polling 回退模式已启动")
+        elif not success:
             logger.error("❌ Webhook 设置失败")
-            await webhook_server.stop()
+            if webhook_server:
+                try:
+                    await webhook_server.stop()
+                except Exception as e:
+                    logger.warning(f"清理失败的 Webhook 服务时出错: {e}")
             sys.exit(1)
-        
-        logger.info(f"✅ Webhook 模式已启动")
-        logger.info(f"   监听地址: 0.0.0.0:{WEBHOOK_PORT}{WEBHOOK_PATH}")
-        logger.info(f"   外部地址: {WEBHOOK_URL}{WEBHOOK_PATH}")
-        logger.info(f"   健康检查: http://0.0.0.0:{WEBHOOK_PORT}/health")
-        logger.info(f"   Secret Token: {'已设置' if WEBHOOK_SECRET_TOKEN else f'{secret_token[:16]}...'}")
+
+        if success:
+            logger.info(f"✅ Webhook 模式已启动")
+            logger.info(f"   监听地址: 0.0.0.0:{WEBHOOK_PORT}{WEBHOOK_PATH}")
+            logger.info(f"   外部地址: {WEBHOOK_URL}{WEBHOOK_PATH}")
+            logger.info(f"   健康检查: http://0.0.0.0:{WEBHOOK_PORT}/health")
+            logger.info(f"   Secret Token: {'已设置' if WEBHOOK_SECRET_TOKEN else f'{secret_token[:16]}...'}")
         
     else:
         # Polling 模式（默认）
