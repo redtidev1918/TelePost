@@ -424,17 +424,16 @@ async def catch_all(update: Update, context: CallbackContext):
 
         text = (update.message.text or "").strip()
         if text.startswith("/"):
-            reply = (
-                f"❓ 未知命令：{text.split()[0]}\n"
-                "• 投稿请发送 /submit\n"
-                "• 全部命令请发送 /help"
-            )
-        else:
-            reply = (
-                "🤔 这条消息我没看懂。\n"
-                "• 投稿请发送 /submit（按提示一步步来）\n"
-                "• 全部命令请发送 /help"
-            )
+            # 命令类消息：正常命令早已在更早的组被处理并回复，
+            # 走到这里的一定是无效命令。追加引导反而会造成
+            # "欢迎信息 + 我不太明白" 的双重回复（用户实际遇到的 bug），故只记日志
+            logger.info(f"未识别的命令（不重复打扰）: {text[:30]}")
+            return
+        reply = (
+            "🤔 这条消息我没看懂。\n"
+            "• 投稿请发送 /submit（按提示一步步来）\n"
+            "• 全部命令请发送 /help"
+        )
         logger.info(f"发送兜底引导给 {update.effective_user.id}: {text[:30]}")
         try:
             await update.message.reply_text(reply)
