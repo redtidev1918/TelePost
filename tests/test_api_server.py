@@ -214,7 +214,7 @@ class TestRouterApiRelay:
                 async with session.get("http://127.0.0.1:18090/api/bot1/v1/me") as resp:
                     assert resp.status == 200
                     assert (await resp.json())["ok"] is True
-            assert received["path"] == "/v1/me"
+            assert received["path"] == "/api/v1/me"
         finally:
             await router_runner.cleanup()
             await bot_runner.cleanup()
