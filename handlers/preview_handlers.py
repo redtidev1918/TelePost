@@ -45,21 +45,36 @@ def _build_preview_text(row) -> str:
         note = row["note"]
         suffix = " …" if len(note) > 80 else ""
         lines.append(f"📝 简介：{note[:80]}{suffix}")
+    is_anonymous = (row["anonymous"] if "anonymous" in row.keys() else "false") == "true"
     lines.append(f"🔞 剧透：{'是' if (row['spoiler'] or '') == 'true' else '否'}")
+    lines.append(f"🕵️ 匿名：{'是（频道内不显示投稿人）' if is_anonymous else '否（显示投稿人）'}")
     lines.append("")
     lines.append("确认无误请点击下方按钮发布，或先快速修改。")
     return "\n".join(lines)
 
 
-def _build_preview_keyboard() -> InlineKeyboardMarkup:
+def _build_preview_keyboard(row=None) -> InlineKeyboardMarkup:
+    is_anonymous = False
+    is_spoiler = False
+    if row is not None and hasattr(row, "keys"):
+        if "anonymous" in row.keys():
+            is_anonymous = (row["anonymous"] or "false") == "true"
+        if "spoiler" in row.keys():
+            is_spoiler = (row["spoiler"] or "false") == "true"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ 确认发布", callback_data="publish")],
         [
             InlineKeyboardButton("🏷️ 改标签", callback_data="edit_tag"),
             InlineKeyboardButton("📝 改简介", callback_data="edit_note"),
         ],
-        [InlineKeyboardButton("📎 补充媒体", callback_data="edit_media")],
-        [InlineKeyboardButton("❌ 取消投稿", callback_data="cancel")],
+        [
+            InlineKeyboardButton("📎 补充媒体", callback_data="edit_media"),
+            InlineKeyboardButton("❌ 取消投稿", callback_data="cancel"),
+        ],
+        [
+            InlineKeyboardButton(f"🕵️ 匿名：{'开' if is_anonymous else '关'}", callback_data="toggle_anon"),
+            InlineKeyboardButton(f"🔞 剧透：{'开' if is_spoiler else '关'}", callback_data="toggle_spoiler"),
+        ],
     ])
 
 
@@ -83,7 +98,7 @@ async def show_submission_preview(update: Update, context: CallbackContext) -> i
         return ConversationHandler.END
 
     text = _build_preview_text(row)
-    keyboard = _build_preview_keyboard()
+    keyboard = _build_preview_keyboard(row)
 
     if update.callback_query:
         try:
@@ -130,6 +145,48 @@ async def handle_edit_field_callback(update: Update, context: CallbackContext) -
         logger.debug(f"编辑提示消息失败: {e}")
         await update.effective_message.reply_text(prompt)
     return next_state
+
+
+async def handle_toggle_anon(update: Update, context: CallbackContext) -> int:
+    """预览页匿名开关：就地切换后刷新预览"""
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    async with get_db() as conn:
+        c = await conn.cursor()
+        await c.execute("SELECT anonymous FROM submissions WHERE user_id=?", (user_id,))
+        row = await c.fetchone()
+        current = (row["anonymous"] if row and "anonymous" in row.keys() else "false") == "true"
+        new_value = "false" if current else "true"
+        await c.execute("UPDATE submissions SET anonymous=?, timestamp=? WHERE user_id=?",
+                        (new_value, datetime.now().timestamp(), user_id))
+
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    return await show_submission_preview(update, context)
+
+
+async def handle_toggle_spoiler(update: Update, context: CallbackContext) -> int:
+    """预览页剧透开关：就地切换后刷新预览"""
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    async with get_db() as conn:
+        c = await conn.cursor()
+        await c.execute("SELECT spoiler FROM submissions WHERE user_id=?", (user_id,))
+        row = await c.fetchone()
+        current = (row["spoiler"] if row and "spoiler" in row.keys() else "false") == "true"
+        new_value = "false" if current else "true"
+        await c.execute("UPDATE submissions SET spoiler=?, timestamp=? WHERE user_id=?",
+                        (new_value, datetime.now().timestamp(), user_id))
+
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    return await show_submission_preview(update, context)
 
 
 async def handle_edit_tag(update: Update, context: CallbackContext) -> int:

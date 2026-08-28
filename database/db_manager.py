@@ -57,9 +57,17 @@ async def init_db():
                     title TEXT,
                     note TEXT,
                     spoiler TEXT,
+                    anonymous TEXT DEFAULT 'false',
                     username TEXT
                 )
             ''')
+
+            # 匿名投稿字段（存量表补列）
+            try:
+                await conn.execute("ALTER TABLE submissions ADD COLUMN anonymous TEXT DEFAULT 'false'")
+                logger.info("已添加 anonymous 字段到 submissions 表")
+            except Exception:
+                pass  # 字段已存在
             
             # 已发布帖子表（用于热度统计和搜索）
             await conn.execute('''

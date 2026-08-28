@@ -2,6 +2,13 @@
 
 > 最后更新：2026-08
 
+## 多 bot 部署（一台机承载多个频道）
+
+- **原理**：容器入口 run.py 检测到 `BOT1_TOKEN`/`BOT2_TOKEN`/… 时，为每个 bot 派生独立子进程（互不影响，崩溃自动重启），webhook 模式下由内置路由按 /webhook/botN 路径分发到对应子进程端口
+- **配置**：沿用 BOT{n}_TOKEN / BOT{n}_CHANNEL_ID / BOT{n}_OWNER_ID 系列变量；数据按 bot 隔离在 data/botN/（同卷不同目录）
+- **省电**：RUN_MODE=WEBHOOK + auto_stop_machines=true + min_machines_running=0 → 空闲自动停机（计算费 0），来消息自动唤醒；代价是每条消息约 1-2 秒唤醒延迟，且统计定时任务只在机器醒着的时候跑
+- **部署**：`fly deploy -c deploy.fly-multi-bot.toml --now`
+
 ## 发布流程（Tag → GHCR 镜像 → GitHub Release）
 
 1. 把 `CHANGELOG.md` 的 `[Unreleased]` 内容整理进新版本段 `## [x.y.z] - 日期`

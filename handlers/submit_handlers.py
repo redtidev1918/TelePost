@@ -135,47 +135,7 @@ async def handle_note(update: Update, context: CallbackContext) -> int:
         logger.error(f"简介保存错误: {e}")
         await update.message.reply_text("❌ 简介保存失败，请稍后再试")
         return ConversationHandler.END
-    await update.message.reply_text("✅ 简介已保存，请问是否将内容设为剧透（点击查看）？回复 \"否\" 或 \"是\"")
-    return STATE['SPOILER']
-
-@validate_state(STATE['SPOILER'])
-async def handle_spoiler(update: Update, context: CallbackContext) -> int:
-    """
-    处理剧透设置
-    
-    Args:
-        update: Telegram 更新对象
-        context: 回调上下文
-        
-    Returns:
-        int: 下一个会话状态或结束状态
-    """
-    logger.info(f"处理剧透选择，user_id: {update.effective_user.id}")
-    user_id = update.effective_user.id
-    answer = update.message.text.strip()
-    # 严格校验：这是发布前最后一步，输入错误不能静默当作"否"直接发布
-    YES_ANSWERS = ("是", "是。", "要", "y", "yes", "true")
-    NO_ANSWERS = ("否", "不", "不要", "无", "n", "no", "false")
-    normalized = answer.lower()
-    if normalized in YES_ANSWERS:
-        spoiler_flag = True
-    elif normalized in NO_ANSWERS:
-        spoiler_flag = False
-    else:
-        await update.message.reply_text('⚠️ 请回复 "是" 或 "否"（将媒体设为剧透/不设剧透）')
-        return STATE['SPOILER']
-    try:
-        async with get_db() as conn:
-            c = await conn.cursor()
-            await c.execute("UPDATE submissions SET spoiler=?, timestamp=? WHERE user_id=?",
-                      ("true" if spoiler_flag else "false", datetime.now().timestamp(), user_id))
-        logger.info(f"剧透选择保存成功，user_id: {user_id}，spoiler: {spoiler_flag}")
-    except Exception as e:
-        logger.error(f"剧透保存错误: {e}")
-        await update.message.reply_text("❌ 剧透选择保存失败，请稍后再试")
-        return ConversationHandler.END
-    await update.message.reply_text("✅ 剧透选择已保存")
-    # 进入发布前预览页：可确认发布、快速改标签/简介、补充媒体或取消
+    await update.message.reply_text("✅ 简介已保存")
     from handlers.preview_handlers import show_submission_preview
     return await show_submission_preview(update, context)
 
@@ -203,8 +163,9 @@ async def skip_optional_link(update: Update, context: CallbackContext) -> int:
         logger.error(f"/skip_optional 执行错误: {e}")
         await update.message.reply_text("❌ 跳过可选项失败，请稍后再试")
         return ConversationHandler.END
-    await update.message.reply_text("✅ 链接、标题、简介已跳过，请问是否将内容设为剧透（点击查看）？回复 \"否\" 或 \"是\"")
-    return STATE['SPOILER']
+    await update.message.reply_text("✅ 链接、标题、简介已跳过")
+    from handlers.preview_handlers import show_submission_preview
+    return await show_submission_preview(update, context)
 
 @validate_state(STATE['TITLE'])
 async def skip_optional_title(update: Update, context: CallbackContext) -> int:
@@ -229,8 +190,9 @@ async def skip_optional_title(update: Update, context: CallbackContext) -> int:
         logger.error(f"/skip_optional 执行错误: {e}")
         await update.message.reply_text("❌ 跳过可选项失败，请稍后再试")
         return ConversationHandler.END
-    await update.message.reply_text("✅ 标题、简介已跳过，请问是否将内容设为剧透（点击查看）？回复 \"否\" 或 \"是\"")
-    return STATE['SPOILER']
+    await update.message.reply_text("✅ 标题、简介已跳过")
+    from handlers.preview_handlers import show_submission_preview
+    return await show_submission_preview(update, context)
 
 @validate_state(STATE['NOTE'])
 async def skip_optional_note(update: Update, context: CallbackContext) -> int:
@@ -255,5 +217,6 @@ async def skip_optional_note(update: Update, context: CallbackContext) -> int:
         logger.error(f"/skip_optional 执行错误: {e}")
         await update.message.reply_text("❌ 跳过可选项失败，请稍后再试")
         return ConversationHandler.END
-    await update.message.reply_text("✅ 简介已跳过，请问是否将内容设为剧透（点击查看）？回复 \"否\" 或 \"是\"")
-    return STATE['SPOILER']
+    await update.message.reply_text("✅ 简介已跳过")
+    from handlers.preview_handlers import show_submission_preview
+    return await show_submission_preview(update, context)

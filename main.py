@@ -20,7 +20,8 @@ from telegram.ext import (
     ConversationHandler,
     CallbackContext,
     ApplicationHandlerStop,
-    CallbackQueryHandler
+    CallbackQueryHandler,
+    PicklePersistence
 )
 from dotenv import load_dotenv
 
@@ -28,7 +29,7 @@ from dotenv import load_dotenv
 from config.settings import (
     TOKEN, TIMEOUT, BOT_MODE, MODE_MEDIA, MODE_DOCUMENT, MODE_MIXED,
     RUN_MODE, WEBHOOK_URL, WEBHOOK_PORT, WEBHOOK_PATH, WEBHOOK_SECRET_TOKEN,
-    CHANNEL_ID
+    CHANNEL_ID, DB_PATH
 )
 from models.state import STATE
 
@@ -63,11 +64,10 @@ from handlers.mode_selection import submit, start, select_mode
 from handlers.document_handlers import handle_doc, done_doc, prompt_doc
 from handlers.media_handlers import handle_media, done_media, skip_media, prompt_media
 from handlers.submit_handlers import (
-    handle_tag, 
-    handle_link, 
-    handle_title, 
-    handle_note, 
-    handle_spoiler,
+    handle_tag,
+    handle_link,
+    handle_title,
+    handle_note,
     skip_optional_link,
     skip_optional_title,
     skip_optional_note
@@ -80,6 +80,8 @@ from handlers.error_handler import error_handler
 from handlers.preview_handlers import (
     show_submission_preview,
     handle_edit_field_callback,
+    handle_toggle_anon,
+    handle_toggle_spoiler,
     handle_edit_tag,
     handle_edit_note,
     handle_edit_media,
@@ -261,7 +263,7 @@ async def main():
     """
     主函数 - 设置并启动机器人
     """
-    logger.info(f"启动TelePost机器人。版本: {CONFIG.get('VERSION', '2.3.0')}")
+    logger.info(f"启动TelePost机器人。版本: {CONFIG.get('VERSION', '2.4.0')}")
     logger.info(f"会话超时时间: {TIMEOUT_SECONDS}秒")
     
     # 启动健康检查服务器（仅在 Polling 模式下）
@@ -350,7 +352,13 @@ async def main():
         sys.exit(1)
         
     # 创建Application实例
-    application = Application.builder().token(token).build()
+    # 会话持久化：auto_stop 停机 / 重启 / 发版后自动恢复投稿会话状态，
+    # 根治"对话中途失去响应"（此前会话状态仅存内存，停机即失忆）
+    persistence_dir = os.path.dirname(DB_PATH) or "data"
+    persistence_path = os.path.join(persistence_dir, "persistence.pickle")
+    os.makedirs(persistence_dir, exist_ok=True)
+    persistence = PicklePersistence(filepath=persistence_path)
+    application = Application.builder().token(token).persistence(persistence).build()
     
     # 设置应用程序
     setup_application(application)
@@ -599,6 +607,8 @@ def setup_application(application):
                 STATE.get('PUBLISH', 13): [
                     CallbackQueryHandler(publish_submission, pattern="^publish$"),
                     CallbackQueryHandler(cancel, pattern="^cancel$"),
+                    CallbackQueryHandler(handle_toggle_anon, pattern="^toggle_anon$"),
+                    CallbackQueryHandler(handle_toggle_spoiler, pattern="^toggle_spoiler$"),
                     CallbackQueryHandler(handle_edit_field_callback, pattern="^edit_(tag|note|media)$"),
                 ],
 
@@ -628,11 +638,10 @@ def setup_application(application):
                     CommandHandler('skip_optional', skip_optional_note),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, handle_note)
                 ],
-                STATE.get('SPOILER', 8): [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_spoiler)]
             },
             fallbacks=[CommandHandler("cancel", cancel)],
             name="submission_conversation",
-            persistent=False,
+            persistent=True,
         )
         
         application.add_handler(conv_handler, group=2)

@@ -406,6 +406,18 @@ async def catch_all(update: Update, context: CallbackContext):
             return
     
     logger.debug(f"收到未知消息: {update}")
+    
+    # 兜底引导：此前这里完全静默，用户在会话中断/输错指令时会觉得"bot 无回应"
+    if update.message and update.message.chat.type == 'private':
+        try:
+            await update.message.reply_text(
+                "🤔 我不太明白这条消息。\n"
+                "• 投稿请发送 /submit\n"
+                "• 查看用法请发送 /help\n"
+                "• 若上次投稿未完成，重新 /submit 即可继续"
+            )
+        except Exception as e:
+            logger.debug(f"发送兜底引导失败: {e}")
 
 async def blacklist_add(update: Update, context: CallbackContext):
     """

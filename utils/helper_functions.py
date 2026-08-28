@@ -21,7 +21,7 @@ TAG_SPLIT_PATTERN = re.compile(r'[,\s，]+')
 
 # 配置常量
 CONFIG = {
-    "VERSION": "2.3.0",
+    "VERSION": "2.4.0",
     "MAX_MEDIA_COUNT": 10,
     "MAX_DOCUMENT_COUNT": 10,
     "NET_TIMEOUT": 30,  # 网络超时时间（秒）
@@ -131,7 +131,14 @@ def build_caption(data) -> str:
     def get_submitter_part(user_id: int) -> str:
         if not SHOW_SUBMITTER:
             return ""
-        
+
+        # 匿名投稿：频道内不展示投稿人
+        try:
+            if "anonymous" in data.keys() and (data["anonymous"] or "false") == "true":
+                return ""
+        except (KeyError, TypeError, IndexError):
+            pass
+
         # 获取保存的用户名，如果存在的话
         # 注意：对 sqlite3.Row 使用 "col" in data 判断的是"值"是否相等（几乎恒为 False），
         # 必须用 data.keys() 判断列是否存在

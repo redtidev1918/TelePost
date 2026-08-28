@@ -29,11 +29,10 @@ from handlers.document_handlers import handle_doc, done_doc, prompt_doc
 
 # 提交处理函数
 from handlers.submit_handlers import (
-    handle_tag, 
-    handle_link, 
-    handle_title, 
-    handle_note, 
-    handle_spoiler,
+    handle_tag,
+    handle_link,
+    handle_title,
+    handle_note,
     skip_optional_link,
     skip_optional_title,
     skip_optional_note
