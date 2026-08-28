@@ -25,9 +25,9 @@ primary_region = "sin"
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = true     # 空闲自动停机 —— 省钱核心
-  auto_start_machines = true    # webhook 请求自动唤醒
-  min_machines_running = 0      # 允许 0 台常驻
+  auto_stop_machines = false    # 常驻：投稿 bot 必须秒回，auto_stop 的唤醒延迟不可接受
+  auto_start_machines = true
+  min_machines_running = 1      # 至少一台常驻
 
   [[http_service.checks]]
     grace_period = "60s"
