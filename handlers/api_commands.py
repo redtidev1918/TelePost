@@ -1,5 +1,5 @@
 """
-API 令牌管理命令（每个用户管理自己的 token）
+API 令牌管理命令（仅 OWNER 可生成，用户只能查看和吊销自己的 token）
 """
 import html
 import logging
@@ -8,13 +8,19 @@ from telegram import Update
 from telegram.ext import CallbackContext, ConversationHandler
 
 from utils import api_tokens
+from utils.blacklist import is_owner
 
 logger = logging.getLogger(__name__)
 
 
 async def gen_token(update: Update, context: CallbackContext) -> int:
-    """/gen_token <名称> —— 生成 API token（明文仅显示一次）"""
+    """/gen_token <名称> —— 仅 OWNER 可生成 API token（明文仅显示一次）"""
     user_id = update.effective_user.id
+    if not is_owner(user_id):
+        logger.warning("非所有者用户 %s 尝试生成 API token", user_id)
+        await update.message.reply_text("⛔ 此命令仅限机器人所有者使用")
+        return ConversationHandler.END
+
     name = " ".join(context.args[:]) if context.args else ""
     if not name:
         await update.message.reply_text('用法：/gen_token <名称>，例如 /gen_token 我的脚本')

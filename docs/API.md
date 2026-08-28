@@ -5,7 +5,7 @@
 
 ## 快速开始
 
-1. 在 Telegram 里向 bot 发送：
+1. 使用配置为 `OWNER_ID` 的 Telegram 账号向 bot 发送：
 
    ```
    /gen_token 我的自动化脚本
@@ -49,7 +49,7 @@
 Authorization: Bearer tp_xxxxxxxx
 ```
 
-- token 由 `/gen_token` 生成，绑定生成者的 Telegram 用户身份（投稿记账按该身份）
+- token 只能由 Bot 所有者（`OWNER_ID`）通过 `/gen_token` 生成，并绑定其 Telegram 用户身份
 - 服务端只存 SHA-256 哈希，明文丢失只能重新生成
 - `/tokens` 查看自己名下的 token，`/revoke_token <编号>` 吊销
 
