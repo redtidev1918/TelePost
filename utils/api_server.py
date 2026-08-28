@@ -36,6 +36,30 @@ def _ok(data, status: int = 200) -> web.Response:
     return web.json_response({"ok": True, "data": data}, status=status)
 
 
+# ---- 字段解析（multipart fields 与 JSON body 共用）----
+
+def _fields_tags(payload) -> str:
+    from utils.helper_functions import process_tags
+    ok, tags = process_tags(str(payload.get("tags", "")))
+    return tags if ok else ""
+
+
+def _fields_title(payload) -> str:
+    return str(payload.get("title", ""))[:100]
+
+
+def _fields_note(payload) -> str:
+    return str(payload.get("note", ""))[:600]
+
+
+def _fields_link(payload) -> str:
+    return str(payload.get("link", "")).strip()
+
+
+def _fields_bool(payload, key: str) -> bool:
+    return str(payload.get(key, "false")).lower() in ("true", "1", "yes")
+
+
 def detect_kind(filename: str, content_type: str) -> str:
     """根据扩展名与 MIME 判定媒体类型"""
     ct = (content_type or "").lower()
@@ -93,9 +117,59 @@ def add_api_routes(web_app, application) -> None:
                           f"每小时最多 {SUBMIT_LIMIT_PER_HOUR} 次投稿，请稍后再试")
         _rate_cache.set(f"api:{user_id}", used + 1, ttl=3600)
 
+        if (request.content_type or "").startswith("application/json"):
+            # file_id 直投：素材已在 Telegram 服务器（file_id 归属本 bot），零媒体传输
+            try:
+                payload = await request.json()
+            except Exception:
+                return _error(400, "invalid_json", "JSON 解析失败")
+            if not isinstance(payload, dict):
+                return _error(400, "invalid_json", "JSON body 必须是对象")
+
+            media = payload.get("media") or []
+            documents = payload.get("documents") or []
+            if not isinstance(media, list) or not isinstance(documents, list):
+                return _error(400, "invalid_media", "media/documents 必须是数组")
+            if not media and not documents:
+                return _error(400, "missing_media", "media 与 documents 至少提供一项")
+            if len(media) + len(documents) > MAX_FILES:
+                return _error(400, "too_many_files", f"单次最多 {MAX_FILES} 个文件")
+
+            allowed_types = ("photo", "video", "animation", "audio")
+            for item in media:
+                if not isinstance(item, dict) or not item.get("file_id"):
+                    return _error(400, "invalid_media", "media 项必须包含 file_id")
+                if item.get("type") not in allowed_types:
+                    return _error(400, "invalid_media",
+                                  f"media type 必须是 {'/'.join(allowed_types)}")
+            for item in documents:
+                if not isinstance(item, dict) or not item.get("file_id"):
+                    return _error(400, "invalid_media", "documents 项必须包含 file_id")
+
+            link = _fields_link(payload)
+            if link and not link.startswith(("http://", "https://")):
+                return _error(400, "invalid_link", "链接必须以 http:// 或 https:// 开头")
+
+            from handlers.publish import publish_from_file_ids
+            try:
+                result = await publish_from_file_ids(
+                    bot, media, documents,
+                    tags=_fields_tags(payload), title=_fields_title(payload),
+                    note=_fields_note(payload), link=link,
+                    anonymous=_fields_bool(payload, "anonymous"),
+                    spoiler=_fields_bool(payload, "spoiler"),
+                    user_id=user_id, username=username,
+                )
+            except Exception as e:
+                logger.error(f"API file_id 投稿失败: {e}", exc_info=True)
+                return _error(502, "publish_failed", f"发布到频道失败: {str(e)[:200]}")
+            logger.info(f"API file_id 投稿成功: user={user_id} message_id={result['message_id']}")
+            return _ok(result, status=201)
+
         if not (request.content_type or "").startswith("multipart/"):
             return _error(400, "invalid_content_type",
-                          "请使用 multipart/form-data 提交（字段 files 为媒体文件）")
+                          "请使用 multipart/form-data 提交（字段 files 为媒体文件），"
+                          "或以 application/json 提交 file_id 直投")
 
         fields = {}
         files = []
@@ -131,19 +205,17 @@ def add_api_routes(web_app, application) -> None:
         if len(files) > MAX_FILES:
             return _error(400, "too_many_files", f"单次最多 {MAX_FILES} 个文件")
 
-        tags_raw = fields.get("tags", "")
-        from utils.helper_functions import process_tags
-        ok, tags = process_tags(tags_raw)
-        if not ok or not tags:
+        tags = _fields_tags(fields)
+        if not tags:
             return _error(400, "invalid_tags", '标签格式错误（必填，最多30个，逗号分隔）')
 
-        title = fields.get("title", "")[:100]
-        note = fields.get("note", "")[:600]
-        link = fields.get("link", "")
+        title = _fields_title(fields)
+        note = _fields_note(fields)
+        link = _fields_link(fields)
         if link and not link.startswith(("http://", "https://")):
             return _error(400, "invalid_link", "链接必须以 http:// 或 https:// 开头")
-        anonymous = fields.get("anonymous", "false").lower() in ("true", "1", "yes")
-        spoiler = fields.get("spoiler", "false").lower() in ("true", "1", "yes")
+        anonymous = _fields_bool(fields, "anonymous")
+        spoiler = _fields_bool(fields, "spoiler")
 
         try:
             result = await publish_from_files(

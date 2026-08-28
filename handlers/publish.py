@@ -789,6 +789,97 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
     }
 
 
+
+
+def _link_of(message_id: int) -> str:
+    if str(CHANNEL_ID).startswith("@"):
+        return f"https://t.me/{str(CHANNEL_ID).lstrip('@')}/{message_id}"
+    return f"https://t.me/c/{str(CHANNEL_ID).replace('-100', '')}/{message_id}"
+
+
+async def publish_from_file_ids(bot, media, documents, *, tags="", title="", note="", link="",
+                                anonymous=False, spoiler=False, user_id, username="") -> dict:
+    """
+    API file_id 直投核心：素材已在 Telegram 服务器上（file_id 归属本 bot），
+    直接用 file_id 发布到频道——零媒体文件传输。
+
+    media:     [{"type": "photo|video|animation|audio", "file_id": str}]
+    documents: [{"file_id": str, "filename": str}]
+    """
+    data = {
+        "tags": tags, "title": title, "note": note, "link": link,
+        "spoiler": "true" if spoiler else "false",
+        "anonymous": "true" if anonymous else "false",
+        "user_id": user_id, "username": username,
+    }
+    caption = build_caption(data)
+
+    all_message_ids = []
+    media_list = [f"{m['type']}:{m['file_id']}" for m in media]
+    doc_list = [f"document:{d['file_id']}:{d.get('filename', 'file')}" for d in documents]
+
+    from telegram import (
+        InputMediaPhoto, InputMediaVideo, InputMediaAnimation,
+        InputMediaAudio, InputMediaDocument,
+    )
+    input_factories = {
+        "photo": InputMediaPhoto,
+        "video": InputMediaVideo,
+        "animation": InputMediaAnimation,
+        "audio": InputMediaAudio,
+        "document": InputMediaDocument,
+    }
+
+    main_message = None
+
+    # 媒体组：每组最多 10 个，caption 只放第一组第一项
+    for chunk_index in range(0, len(media), 10):
+        chunk = media[chunk_index:chunk_index + 10]
+        group = []
+        for i, item in enumerate(chunk):
+            factory = input_factories[item["type"]]
+            cap = caption if (chunk_index == 0 and i == 0) else None
+            kw = {"caption": cap, "parse_mode": "HTML" if cap else None}
+            if item["type"] in ("photo", "video"):
+                kw["has_spoiler"] = spoiler
+            group.append(factory(media=item["file_id"], **kw))
+        sent = await bot.send_media_group(chat_id=CHANNEL_ID, media=group)
+        all_message_ids.extend(m.message_id for m in sent)
+        if main_message is None:
+            main_message = sent[0]
+
+    # 文档组（≤10 个一组；有媒体时作为媒体主贴的回复）
+    for chunk_index in range(0, len(documents), 10):
+        chunk = documents[chunk_index:chunk_index + 10]
+        group = []
+        for i, item in enumerate(chunk):
+            cap = caption if (not media and chunk_index == 0 and i == len(chunk) - 1) else None
+            group.append(InputMediaDocument(
+                media=item["file_id"],
+                caption=cap, parse_mode="HTML" if cap else None,
+                filename=item.get("filename") or None,
+            ))
+        sent = await bot.send_media_group(
+            chat_id=CHANNEL_ID, media=group,
+            reply_to_message_id=main_message.message_id if main_message else None,
+        )
+        all_message_ids.extend(m.message_id for m in sent)
+        if main_message is None:
+            main_message = sent[0]
+
+    if main_message is None:
+        raise RuntimeError("没有可发布的媒体或文档")
+
+    await save_published_post(user_id, main_message.message_id, data, media_list, doc_list, all_message_ids)
+
+    return {
+        "status": "published",
+        "message_id": main_message.message_id,
+        "link": _link_of(main_message.message_id),
+        "media_count": len(media_list),
+        "document_count": len(doc_list),
+    }
+
 def _file_id_of(message):
     for attr in ("photo", "video", "animation", "audio", "document"):
         value = getattr(message, attr, None)

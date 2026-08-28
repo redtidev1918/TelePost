@@ -163,6 +163,95 @@ class TestSubmission:
             await client.close()
 
 
+class TestFileIdDirect:
+    """file_id 直投（JSON body）分支"""
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, monkeypatch):
+        file_id_mock = AsyncMock(return_value={
+            "status": "published", "message_id": 777,
+            "link": "https://t.me/c/1/777", "media_count": 2, "document_count": 0,
+        })
+        monkeypatch.setattr("handlers.publish.publish_from_file_ids", file_id_mock)
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            resp = await client.post(
+                "/api/v1/submissions",
+                headers={"Authorization": "Bearer tp_ok"},
+                json={
+                    "media": [
+                        {"type": "photo", "file_id": "AAA"},
+                        {"type": "video", "file_id": "BBB"},
+                    ],
+                    "tags": "测试",
+                    "title": "直投标题",
+                    "anonymous": True,
+                },
+            )
+            assert resp.status == 201
+            data = await resp.json()
+            assert data["data"]["message_id"] == 777
+
+            file_id_mock.assert_called_once()
+            kwargs = file_id_mock.call_args.kwargs
+            assert kwargs["anonymous"] is True
+            assert file_id_mock.call_args.args[1][0]["file_id"] == "AAA"
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_invalid_media_type(self, monkeypatch):
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            resp = await client.post(
+                "/api/v1/submissions",
+                headers={"Authorization": "Bearer tp_ok"},
+                json={"media": [{"type": "sticker", "file_id": "AAA"}]},
+            )
+            assert resp.status == 400
+            assert (await resp.json())["error"]["code"] == "invalid_media"
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_missing_media_and_documents(self, monkeypatch):
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            resp = await client.post(
+                "/api/v1/submissions",
+                headers={"Authorization": "Bearer tp_ok"},
+                json={"tags": "t"},
+            )
+            assert resp.status == 400
+            assert (await resp.json())["error"]["code"] == "missing_media"
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_documents_only(self, monkeypatch):
+        file_id_mock = AsyncMock(return_value={
+            "status": "published", "message_id": 55,
+            "link": "https://t.me/c/1/55", "media_count": 0, "document_count": 1,
+        })
+        monkeypatch.setattr("handlers.publish.publish_from_file_ids", file_id_mock)
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            resp = await client.post(
+                "/api/v1/submissions",
+                headers={"Authorization": "Bearer tp_ok"},
+                json={"documents": [{"file_id": "DDD", "filename": "archive.zip"}], "tags": "t"},
+            )
+            assert resp.status == 201
+            kwargs = file_id_mock.call_args.kwargs
+            assert file_id_mock.call_args.args[2][0]["filename"] == "archive.zip"
+        finally:
+            await client.close()
+
+
 class TestKindDetection:
     def test_photo(self):
         assert api_server.detect_kind("a.jpg", "image/jpeg") == "photo"
