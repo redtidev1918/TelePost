@@ -74,6 +74,11 @@ def setup_logging():
     # 创建日志格式
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
+    # 降噪与安全：httpx 的 INFO 日志会把带 Bot Token 的完整请求 URL
+    # 打进日志（每次轮询一条），构成凭据泄露面，统一只记 WARNING 以上
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
     # 配置根日志记录器
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
