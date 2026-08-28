@@ -76,6 +76,9 @@ from handlers.submit_handlers import (
 # 错误处理
 from handlers.error_handler import error_handler
 
+# API 令牌管理
+from handlers.api_commands import gen_token, tokens as api_tokens_command, revoke_token as revoke_token_command
+
 # 发布前预览与快速编辑
 from handlers.preview_handlers import (
     show_submission_preview,
@@ -263,7 +266,7 @@ async def main():
     """
     主函数 - 设置并启动机器人
     """
-    logger.info(f"启动TelePost机器人。版本: {CONFIG.get('VERSION', '2.4.0')}")
+    logger.info(f"启动TelePost机器人。版本: {CONFIG.get('VERSION', '2.5.0')}")
     logger.info(f"会话超时时间: {TIMEOUT_SECONDS}秒")
     
     # 启动健康检查服务器（仅在 Polling 模式下）
@@ -532,6 +535,9 @@ def setup_application(application):
     application.add_handler(CommandHandler("myposts", get_my_posts))
     application.add_handler(CommandHandler("searchuser", search_by_user))
     application.add_handler(CommandHandler("delete_posts", delete_posts_batch))
+    application.add_handler(CommandHandler("gen_token", gen_token))
+    application.add_handler(CommandHandler("tokens", api_tokens_command))
+    application.add_handler(CommandHandler("revoke_token", revoke_token_command))
     
     # 注册索引管理命令处理器（仅管理员）
     application.add_handler(CommandHandler("rebuild_index", rebuild_index_command))

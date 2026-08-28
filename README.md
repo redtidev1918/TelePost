@@ -44,6 +44,8 @@ cd TelePost
 
 管理员命令（`/blacklist_add`、`/delete_posts`、`/rebuild_index` 等）见 [docs/COMMANDS.md](docs/COMMANDS.md)。
 
+自动化投稿：提供 token 鉴权的 HTTP API，详见 [docs/API.md](docs/API.md)。
+
 ## 部署
 
 | 方式 | 文档 |
@@ -85,6 +87,7 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 | [docs/INSTALL.md](docs/INSTALL.md) | 部署方式与首次启动清单 |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | 配置项与优先级 |
 | [docs/COMMANDS.md](docs/COMMANDS.md) | 命令参考 |
+| [docs/API.md](docs/API.md) | HTTP API（自动化投稿） | 开发者 |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | 运维手册 |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 故障排查 |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | 性能与内存调优 |

@@ -686,3 +686,120 @@ async def handle_document_publish(context, doc_list, caption=None, reply_to_mess
         except Exception as e:
             logger.error(f"发送文档组失败: {e}")
             return None
+
+
+async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
+                             anonymous=False, spoiler=False, user_id, username="") -> dict:
+    """
+    API 投稿核心：把本地文件直接发布到频道（不经 Telegram 会话流程）。
+
+    files: [{"path": 本地路径, "kind": photo|video|animation|audio|document, "filename": 原始文件名}]
+    返回: {"status": "published", "message_id": int, "link": str,
+           "media_count": int, "document_count": int}
+    抛出异常时由调用方转成 API 500。
+    """
+    import os as _os
+    from telegram import InputFile
+
+    data = {
+        "tags": tags, "title": title, "note": note, "link": link,
+        "spoiler": "true" if spoiler else "false",
+        "anonymous": "true" if anonymous else "false",
+        "user_id": user_id, "username": username,
+    }
+    caption = build_caption(data)
+
+    media_files = [f for f in files if f["kind"] != "document"]
+    doc_files = [f for f in files if f["kind"] == "document"]
+
+    all_message_ids = []
+    media_list, doc_list = [], []
+    main_message = None
+
+    # 媒体组：每组最多 10 个，caption 只放在第一组第一项
+    for chunk_index in range(0, len(media_files), 10):
+        chunk = media_files[chunk_index:chunk_index + 10]
+        group = []
+        for i, f in enumerate(chunk):
+            cap = caption if (chunk_index == 0 and i == 0) else None
+            kw = {"caption": cap, "parse_mode": "HTML" if cap else None}
+            if f["kind"] in ("photo", "video", "animation"):
+                kw["has_spoiler"] = spoiler
+            with open(f["path"], "rb") as fh:
+                if f["kind"] == "photo":
+                    from telegram import InputMediaPhoto
+                    group.append(InputMediaPhoto(media=InputFile(fh, filename=f["filename"]), **kw))
+                elif f["kind"] == "video":
+                    from telegram import InputMediaVideo
+                    group.append(InputMediaVideo(media=InputFile(fh, filename=f["filename"]), **kw))
+                elif f["kind"] == "animation":
+                    from telegram import InputMediaAnimation
+                    group.append(InputMediaAnimation(media=InputFile(fh, filename=f["filename"]), **kw))
+                else:
+                    from telegram import InputMediaAudio
+                    group.append(InputMediaAudio(media=InputFile(fh, filename=f["filename"]), **kw))
+        sent = await bot.send_media_group(chat_id=CHANNEL_ID, media=group)
+        all_message_ids.extend(m.message_id for m in sent)
+        if main_message is None:
+            main_message = sent[0]
+        for m, f in zip(sent, chunk):
+            media_list.append(f"{f['kind']}:{_file_id_of(m)}")
+
+    # 文档：有媒体时作为媒体主贴的回复，否则单独成组
+    for chunk_index in range(0, len(doc_files), 10):
+        chunk = doc_files[chunk_index:chunk_index + 10]
+        group = []
+        for i, f in enumerate(chunk):
+            cap = caption if (not media_files and chunk_index == 0 and i == len(chunk) - 1) else None
+            with open(f["path"], "rb") as fh:
+                group.append(InputMediaDocumentFactory(fh, f["filename"], cap))
+        sent = await bot.send_media_group(
+            chat_id=CHANNEL_ID, media=group,
+            reply_to_message_id=main_message.message_id if main_message else None,
+        )
+        all_message_ids.extend(m.message_id for m in sent)
+        if main_message is None:
+            main_message = sent[0]
+        for m, f in zip(sent, chunk):
+            doc_list.append(f"document:{_file_id_of(m)}:{f['filename']}")
+
+    if main_message is None:
+        raise RuntimeError("所有消息发送失败")
+
+    await save_published_post(user_id, main_message.message_id, data, media_list, doc_list, all_message_ids)
+
+    if str(CHANNEL_ID).startswith("@"):
+        link = f"https://t.me/{str(CHANNEL_ID).lstrip('@')}/{main_message.message_id}"
+    else:
+        link = f"https://t.me/c/{str(CHANNEL_ID).replace('-100', '')}/{main_message.message_id}"
+
+    # 清理临时文件
+    for f in files:
+        try:
+            _os.remove(f["path"])
+        except OSError:
+            pass
+
+    return {
+        "status": "published",
+        "message_id": main_message.message_id,
+        "link": link,
+        "media_count": len(media_list),
+        "document_count": len(doc_list),
+    }
+
+
+def _file_id_of(message):
+    for attr in ("photo", "video", "animation", "audio", "document"):
+        value = getattr(message, attr, None)
+        if value:
+            if isinstance(value, list):
+                return value[-1].file_id
+            return value.file_id
+    return None
+
+
+def InputMediaDocumentFactory(file_handle, filename, caption):
+    from telegram import InputMediaDocument, InputFile
+    kw = {"caption": caption, "parse_mode": "HTML" if caption else None}
+    return InputMediaDocument(media=InputFile(file_handle, filename=filename), **kw)

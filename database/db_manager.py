@@ -68,6 +68,18 @@ async def init_db():
                 logger.info("已添加 anonymous 字段到 submissions 表")
             except Exception:
                 pass  # 字段已存在
+
+            # API 访问令牌（用于 /api/v1 自动化投稿，仅存哈希不存明文）
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS api_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    token_hash TEXT UNIQUE NOT NULL,
+                    telegram_user_id INTEGER NOT NULL,
+                    name TEXT DEFAULT '',
+                    created_at REAL,
+                    revoked INTEGER DEFAULT 0
+                )
+            ''')
             
             # 已发布帖子表（用于热度统计和搜索）
             await conn.execute('''

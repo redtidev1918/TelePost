@@ -126,6 +126,11 @@ class WebhookServer:
         # 注册路由
         self.web_app.router.add_post(self.path, self.webhook_handler)
         self.web_app.router.add_get('/health', self.health_handler)
+
+        # HTTP API（/api/v1，供外部项目自动化投稿）
+        if os.getenv("API_ENABLED", "true").lower() != "false":
+            from utils.api_server import add_api_routes
+            add_api_routes(self.web_app, self.application)
         
         # 创建并启动 runner
         self.runner = web.AppRunner(self.web_app)

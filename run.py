@@ -125,9 +125,12 @@ def build_router_app(indices: list):
 
     app = web.Application()
     app.router.add_get("/health", health)
-    for index in indices:
-        async def relay(request, *, _index=index):
-            target = f"http://127.0.0.1:{bot_webhook_port(_index)}{request.path_qs}"
+    def make_relay(index: int, strip: str | None):
+        async def relay(request):
+            path_qs = request.path_qs
+            if strip and path_qs.startswith(strip):
+                path_qs = path_qs[len(strip):] or "/"
+            target = f"http://127.0.0.1:{bot_webhook_port(index)}{path_qs}"
             body = await request.read()
             headers = {
                 k: v for k, v in request.headers.items()
@@ -137,7 +140,7 @@ def build_router_app(indices: list):
                 async with ClientSession() as session:
                     async with session.request(
                         request.method, target, data=body, headers=headers,
-                        timeout=__import__("aiohttp").ClientTimeout(total=30),
+                        timeout=__import__("aiohttp").ClientTimeout(total=120),
                     ) as resp:
                         data = await resp.read()
                         return web.Response(
@@ -146,9 +149,17 @@ def build_router_app(indices: list):
                         )
             except Exception as exc:
                 return web.json_response({"ok": False, "error": str(exc)}, status=502)
+        return relay
 
-        app.router.add_route("*", bot_webhook_path(index), relay)
-        app.router.add_route("*", bot_webhook_path(index) + "/{tail:.*}", relay)
+    for index in indices:
+        webhook_relay = make_relay(index, None)
+        app.router.add_route("*", bot_webhook_path(index), webhook_relay)
+        app.router.add_route("*", bot_webhook_path(index) + "/{tail:.*}", webhook_relay)
+        # HTTP API：/api/botN/v1/* → 子进程 /v1/*（投稿含文件上传，超时放宽到 120s）
+        api_prefix = f"/api/bot{index}"
+        api_relay = make_relay(index, api_prefix)
+        app.router.add_route("*", api_prefix, api_relay)
+        app.router.add_route("*", api_prefix + "/{tail:.*}", api_relay)
     return app
 
 
