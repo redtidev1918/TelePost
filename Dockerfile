@@ -60,6 +60,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health').read()" || exit 1
 
-# 运行机器人
-CMD ["python", "-u", "main.py"]
+# 运行机器人（run.py 自动分发：单 bot 直接运行；检测到 BOT1_TOKEN 则多 bot 模式）
+CMD ["python", "-u", "run.py"]
 

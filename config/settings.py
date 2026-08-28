@@ -87,7 +87,7 @@ CHANNEL_ID = (
     get_env_or_config('CHANNEL_ID', 'BOT', 'CHANNEL_ID')
     or os.getenv('CHANNEL')
 )
-DB_PATH = get_config('BOT', 'DB_PATH', fallback='data/submissions.db')
+DB_PATH = get_env_or_config('DB_PATH', 'BOT', 'DB_PATH', fallback='data/submissions.db')
 TIMEOUT = int(get_env_or_config('TIMEOUT', 'BOT', 'TIMEOUT') or get_config_int('BOT', 'TIMEOUT', 300))
 ALLOWED_TAGS = int(get_env_or_config('ALLOWED_TAGS', 'BOT', 'ALLOWED_TAGS') or get_config_int('BOT', 'ALLOWED_TAGS', 30))
 NET_TIMEOUT = 120   # 网络请求超时时间（秒）

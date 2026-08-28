@@ -268,7 +268,7 @@ async def main():
     # Webhook 模式会使用 telegram 的内置服务器
     if HEALTH_SERVER_ENABLED and RUN_MODE == 'POLLING':
         try:
-            start_health_server(port=8080)
+            start_health_server(port=int(os.getenv("HEALTH_PORT", "8080")))
             logger.info("健康检查服务器已启动（Polling 模式）")
         except Exception as e:
             logger.warning(f"启动健康检查服务器失败: {e}")
