@@ -423,6 +423,14 @@ async def catch_all(update: Update, context: CallbackContext):
         _guidance_cache.set(user_key, "1", ttl=600)
 
         text = (update.message.text or "").strip()
+        if text == "/cancel":
+            # 会话外 /cancel：干净告知当前无投稿（会话内的取消由 fallback 处理）
+            logger.info(f"会话外收到 /cancel，回复无进行中投稿: {update.effective_user.id}")
+            try:
+                await update.message.reply_text("ℹ️ 当前没有进行中的投稿。要开始新投稿请发送 /submit")
+            except Exception as e:
+                logger.debug(f"发送提示失败: {e}")
+            return
         if text.startswith("/"):
             # 命令类消息：正常命令早已在更早的组被处理并回复，
             # 走到这里的一定是无效命令。追加引导反而会造成

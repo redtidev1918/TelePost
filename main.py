@@ -519,7 +519,8 @@ def setup_application(application):
     
     # 注册基本命令处理器
     application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("cancel", cancel))
+    # /cancel 不在此处注册：会话内由 ConversationHandler fallback 处理，
+    # 会话外由 catch_all 兜底回复——否则会双重处理，导致两条回复
     application.add_handler(CommandHandler("settings", settings))
     application.add_handler(CommandHandler("blacklist", manage_blacklist), group=1)
     
