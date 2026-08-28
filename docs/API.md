@@ -103,6 +103,32 @@ Authorization: Bearer tp_xxxxxxxx
 
 无需认证。返回服务与版本信息，可用于探活。
 
+## file_id 直投（JSON body）
+
+如果素材已经在 Telegram 服务器上（你持有它的 file_id，且该 file_id 是**由本 bot**获取的——例如素材来自本 bot 监听的频道），可以用 JSON body 直投，文件传输量为零。
+
+```http
+POST /api/bot1/v1/submissions
+Content-Type: application/json
+Authorization: Bearer tp_xxxx
+
+{
+  "media": [
+    {"type": "photo", "file_id": "AAA"},
+    {"type": "video", "file_id": "BBB"}
+  ],
+  "documents": [{"file_id": "CCC", "filename": "archive.zip"}],
+  "tags": "测试",
+  "title": "标题（可选）",
+  "anonymous": false
+}
+```
+
+注意：
+- file_id 与 bot 绑定：必须是**同一个 bot**获取的 file_id，跨 bot 不可用
+- 适合素材源自本 bot 监听的频道/会话的场景；外部网站下载的文件请走 multipart 上传
+- 响应与 multipart 形态完全一致
+
 ## 错误格式
 
 非 2xx 响应统一为：
