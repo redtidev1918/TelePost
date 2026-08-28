@@ -125,11 +125,13 @@ def build_router_app(indices: list):
 
     app = web.Application()
     app.router.add_get("/health", health)
-    def make_relay(index: int, strip: str | None):
+    def make_relay(index: int, strip: str | None, prepend: str = ""):
         async def relay(request):
             path_qs = request.path_qs
             if strip and path_qs.startswith(strip):
                 path_qs = path_qs[len(strip):] or "/"
+            if prepend:
+                path_qs = prepend + path_qs
             target = f"http://127.0.0.1:{bot_webhook_port(index)}{path_qs}"
             body = await request.read()
             headers = {
@@ -157,7 +159,7 @@ def build_router_app(indices: list):
         app.router.add_route("*", bot_webhook_path(index) + "/{tail:.*}", webhook_relay)
         # HTTP API：/api/botN/v1/* → 子进程 /v1/*（投稿含文件上传，超时放宽到 120s）
         api_prefix = f"/api/bot{index}"
-        api_relay = make_relay(index, api_prefix)
+        api_relay = make_relay(index, api_prefix, prepend="/api")
         app.router.add_route("*", api_prefix, api_relay)
         app.router.add_route("*", api_prefix + "/{tail:.*}", api_relay)
     return app
