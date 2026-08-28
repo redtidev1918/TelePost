@@ -9,6 +9,19 @@
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-08-29
+
+### 新增
+
+- **PixivFlow 联合运行档**：Docker 可选安装 PixivFlow 2.7，现有多 Bot supervisor 同时监督单个 Node 多计划调度进程，异常退出自动重启
+- **Fly 512 MiB 模板**：双 Bot Webhook + PixivFlow 缓存投稿共用一台 Machine，默认关闭搜索、限制 Node heap/SQLite cache，并使用持久卷保存配置与 outbox
+- **SSH 原子热更新脚本**：`scripts/update_pixivflow_config.sh` 校验本地 JSON，SFTP 上传临时文件后同卷替换，无需 WebUI或重启
+
+### 改进
+
+- `/health` 在保留 `python_rss_mb` 的同时新增 `process_rss`，同时展示 Python 与 Node 子进程内存
+- PixivFlow 子进程不会继承 Telegram Bot Token，只接收独立投稿 token 与自身配置
+
 ## [2.6.0] - 2026-08-29
 
 ### 新增

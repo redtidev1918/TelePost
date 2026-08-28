@@ -82,3 +82,29 @@ class TestBuildBotEnv:
         base = self.base()
         run.build_bot_env(1, base)
         assert "TOKEN" not in base  # 原环境不被污染
+
+
+class TestPixivFlowWorker:
+    def test_disabled_by_default(self):
+        assert run.pixivflow_enabled({}) is False
+
+    def test_prepares_persistent_config_and_strips_bot_tokens(self, tmp_path):
+        template = tmp_path / "template.json"
+        config = tmp_path / "data" / "config.json"
+        template.write_text('{"schedules": []}', encoding="utf-8")
+        base = {
+            "PIXIVFLOW_ENABLED": "true",
+            "PIXIVFLOW_CONFIG": str(config),
+            "PIXIVFLOW_CONFIG_TEMPLATE": str(template),
+            "PIXIVFLOW_COMMAND": "pixivflow scheduler",
+            "BOT1_TOKEN": "telegram-secret",
+            "TELEPOST_BOT1_SUBMIT_TOKEN": "submission-secret",
+        }
+
+        command, env = run.prepare_pixivflow_env(base)
+
+        assert command == ["pixivflow", "scheduler"]
+        assert config.read_text(encoding="utf-8") == '{"schedules": []}'
+        assert env["PIXIV_DOWNLOADER_CONFIG"] == str(config)
+        assert "BOT1_TOKEN" not in env
+        assert env["TELEPOST_BOT1_SUBMIT_TOKEN"] == "submission-secret"

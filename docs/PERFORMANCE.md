@@ -10,6 +10,7 @@
 | Whoosh（simple 分词） | +10–20 MB | 默认可运行档 |
 | Whoosh（jieba 分词） | +100 MB 量级 | 需要 512MB 档；jieba 未安装时自动回退 simple |
 | SQLite cache | `DB_CACHE_KB`，默认 ≈4 MB | 旧文档"默认 20MB"有误 |
+| PixivFlow（可选） | Node 单进程，随任务量变化 | 512 MiB 联合档限制 V8 heap 128MB、SQLite 4MB、下载并发 1 |
 
 ## 可调项
 
@@ -32,6 +33,11 @@
 
 **256MB（简单分词档）**：`SEARCH_ANALYZER=simple`、`DB_CACHE_KB=1024`。
 **512MB（高质量分词档）**：安装 `jieba` 并 `SEARCH_ANALYZER=jieba`、`DB_CACHE_KB=4096`。
+
+**512MB（双 Bot + PixivFlow 联合档）**：这与上面的“高质量分词档”互斥。
+设置 `SEARCH_ENABLED=false`、`DB_CACHE_KB=1024`、`PIXIV_DB_CACHE_KB=4096`、
+`NODE_OPTIONS=--max-old-space-size=128`，PixivFlow `download.concurrency=1`，两个
+Cron 至少错开 15～20 分钟。WebUI、jieba、并发 PixivFlow 任务均不要开启。
 
 ## 索引健康
 

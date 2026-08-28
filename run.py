@@ -10,6 +10,8 @@ TelePost 启动器
 """
 import os
 import re
+import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -31,6 +33,43 @@ OVERRIDABLE_KEYS = (
 #   路由进程占 WEBHOOK_PORT（默认 8080，对外 + Fly 健康检查）
 #   botN 子进程占 8080+N（仅本机回环可见），webhook 路径为 /webhook/botN
 ROUTER_DEFAULT_PORT = 8080
+
+
+def pixivflow_enabled(env=None) -> bool:
+    env = env or os.environ
+    return env.get("PIXIVFLOW_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
+def prepare_pixivflow_env(base: dict) -> tuple[list, dict]:
+    """Build the isolated command/environment for the optional PixivFlow worker."""
+    config_path = base.get(
+        "PIXIVFLOW_CONFIG", "/app/data/pixivflow/config.json"
+    )
+    template_path = base.get(
+        "PIXIVFLOW_CONFIG_TEMPLATE",
+        "/usr/local/lib/node_modules/pixivflow/config/fly-two-bots.example.json",
+    )
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    if not os.path.exists(config_path):
+        if not os.path.exists(template_path):
+            raise FileNotFoundError(
+                f"PixivFlow config not found: {config_path}; template missing: {template_path}"
+            )
+        shutil.copy2(template_path, config_path)
+        print(f"[supervisor] initialized PixivFlow config: {config_path}", flush=True)
+
+    env = dict(base)
+    # PixivFlow only needs its own refresh/submission tokens. Do not expose the
+    # Telegram Bot API tokens to the Node child process.
+    for key in [k for k in env if k.startswith("BOT") and k.endswith("_TOKEN")]:
+        env.pop(key, None)
+    env["PIXIV_DOWNLOADER_CONFIG"] = config_path
+    command = shlex.split(base.get("PIXIVFLOW_COMMAND", "pixivflow scheduler"))
+    if not command:
+        raise ValueError("PIXIVFLOW_COMMAND cannot be empty")
+    return command, env
 
 
 def bot_webhook_port(index: int) -> int:
@@ -122,10 +161,14 @@ def build_router_app(indices: list):
                         name = line.split(":", 1)[1].strip()
                     elif line.startswith("VmRSS:"):
                         rss = int(line.split()[1])
-                if rss and name == "python":
-                    procs.append(rss)
+                if rss and name in {"python", "node"}:
+                    procs.append({"name": name, "rss_mb": round(rss / 1024.0, 1)})
+            payload["process_rss"] = sorted(
+                procs, key=lambda item: item["rss_mb"], reverse=True
+            )
             payload["python_rss_mb"] = sorted(
-                (round(x / 1024.0, 1) for x in procs), reverse=True
+                (item["rss_mb"] for item in procs if item["name"] == "python"),
+                reverse=True,
             )
             payload["system_available_mb"] = round(
                 psutil.virtual_memory().available / 1048576, 1
@@ -204,6 +247,7 @@ def start_webhook_router(port: int, indices: list):
 def run_multi(indices: list) -> None:
     """多 bot：监督循环，维持每个 bot 各一个子进程"""
     processes = {}
+    pixivflow_process = {"proc": None}
     stopping = {"flag": False}
 
     def _handle_stop(signum, frame):
@@ -211,6 +255,9 @@ def run_multi(indices: list) -> None:
         for proc in processes.values():
             if proc.poll() is None:
                 proc.terminate()
+        worker = pixivflow_process["proc"]
+        if worker is not None and worker.poll() is None:
+            worker.terminate()
 
     signal.signal(signal.SIGTERM, _handle_stop)
     signal.signal(signal.SIGINT, _handle_stop)
@@ -228,6 +275,10 @@ def run_multi(indices: list) -> None:
         router_port = int(os.environ.get("WEBHOOK_PORT", str(ROUTER_DEFAULT_PORT)))
         start_webhook_router(router_port, indices)
 
+    pixivflow_spec = None
+    if pixivflow_enabled():
+        pixivflow_spec = prepare_pixivflow_env(dict(os.environ))
+
     print(f"[supervisor] 多 bot 模式启动，共 {len(indices)} 个 bot: {indices}", flush=True)
     while not stopping["flag"]:
         for index in indices:
@@ -242,6 +293,21 @@ def run_multi(indices: list) -> None:
             env = build_bot_env(index, os.environ)
             processes[index] = subprocess.Popen([sys.executable, "-u", "main.py"], env=env)
             print(f"[supervisor] bot{index} 已启动 (pid={processes[index].pid})", flush=True)
+
+        if pixivflow_spec is not None and not stopping["flag"]:
+            worker = pixivflow_process["proc"]
+            if worker is None or worker.poll() is not None:
+                if worker is not None:
+                    print(
+                        f"[supervisor] PixivFlow 异常退出 (code={worker.returncode})，5 秒后重启",
+                        flush=True,
+                    )
+                    time.sleep(5)
+                if not stopping["flag"]:
+                    command, worker_env = pixivflow_spec
+                    worker = subprocess.Popen(command, env=worker_env)
+                    pixivflow_process["proc"] = worker
+                    print(f"[supervisor] PixivFlow 已启动 (pid={worker.pid})", flush=True)
         time.sleep(5)
 
     for proc in processes.values():
@@ -249,6 +315,12 @@ def run_multi(indices: list) -> None:
             proc.wait(timeout=15)
         except subprocess.TimeoutExpired:
             proc.kill()
+    worker = pixivflow_process["proc"]
+    if worker is not None:
+        try:
+            worker.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            worker.kill()
     print("[supervisor] 已全部停止", flush=True)
 
 

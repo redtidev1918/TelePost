@@ -16,6 +16,7 @@ Telegram 频道投稿机器人：媒体/文档投稿、全文搜索、热度统�
 - 多 bot：一台机器承载多个频道的投稿 bot，数据相互隔离
 - 网络自适应：`RUN_MODE=AUTO` 在有公网 HTTPS Webhook 地址时使用推送，否则自动回退轮询
 - 可选审核队列：可分别控制 API 投稿、Telegram `/submit` 投稿是否进入私有审核群，由管理员点击通过/拒绝
+- 可选 PixivFlow 联合调度：同一 Fly Machine 中用一个 Node 进程运行多条 Pixiv 下载计划，缓存投递到 Bot1/Bot2，配置可通过 SSH 原子热更新
 
 ## 快速开始
 
@@ -56,6 +57,7 @@ cd TelePost
 | install.sh + systemd（VPS） | [docs/INSTALL.md](docs/INSTALL.md) |
 | Docker / Compose | [docs/INSTALL.md](docs/INSTALL.md) |
 | Fly.io | [docs/FLYIO_DEPLOYMENT.md](docs/FLYIO_DEPLOYMENT.md) |
+| Fly.io 512 MiB：PixivFlow + 双 Bot | [docs/OPERATIONS.md#fly-512-mibpixivflow--telepost-双-bot](docs/OPERATIONS.md#fly-512-mibpixivflow--telepost-双-bot) |
 | PythonAnywhere | [docs/PYTHONANYWHERE_DEPLOYMENT.md](docs/PYTHONANYWHERE_DEPLOYMENT.md) |
 
 日常操作：
@@ -71,7 +73,7 @@ curl localhost:8080/health  # 健康检查
 
 ## 性能
 
-256MB 内存可运行（simple 分词，单 bot 约 80–120MB）。多 bot 与调优见 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)。
+256MB 内存可运行单 Bot；双 Bot + PixivFlow 的 512 MiB 档必须关闭搜索、下载并发设为 1，并错开计划，见 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)。
 
 ## 开发
 

@@ -9,6 +9,79 @@
 - **省电**：RUN_MODE=WEBHOOK + auto_stop_machines=true + min_machines_running=0 → 空闲自动停机（计算费 0），来消息自动唤醒；代价是每条消息约 1-2 秒唤醒延迟，且统计定时任务只在机器醒着的时候跑
 - **部署**：`fly deploy -c deploy.fly-multi-bot.toml --now`
 
+## Fly 512 MiB：PixivFlow + TelePost 双 Bot
+
+`deploy.fly-multi-bot.toml` 可构建联合镜像：TelePost 的 Python supervisor
+维持 Bot1、Bot2 两个隔离子进程，并可选监督一个 `pixivflow scheduler` Node 子进程。
+PixivFlow 内部的多个 Cron 共享认证、SQLite、文件服务，并串行下载，不再为每个
+任务启动一套 Node 运行时。WebUI 不安装也不启动。
+
+关键资源设置已经写进示例：`SEARCH_ENABLED=false`、`DB_CACHE_KB=1024`、
+`PIXIV_DB_CACHE_KB=4096`、`NODE_OPTIONS=--max-old-space-size=128`。PixivFlow 模板
+使用 `download.concurrency=1`、缓存交付和错峰 Cron。512 MiB 是经过约束后的运行
+档，不应开启 jieba、搜索索引、WebUI或并发计划；如出现 OOM，应先升至 1 GiB，
+不要用减少重试或删除 outbox 换取表面稳定。
+
+### 部署顺序
+
+1. 创建并挂载一个持久卷到 `/app/data`。内部 Cron 无外部请求可唤醒机器，所以
+   必须保持 `auto_stop_machines=false`、`min_machines_running=1`。
+2. 配置双 Bot 与 Pixiv 凭据后部署：
+
+   ```bash
+   fly secrets set -a <app> \
+     BOT1_TOKEN=... BOT1_CHANNEL_ID=... BOT1_OWNER_ID=... \
+     BOT2_TOKEN=... BOT2_CHANNEL_ID=... BOT2_OWNER_ID=... \
+     PIXIV_REFRESH_TOKEN=... \
+     WEBHOOK_URL=https://<app>.fly.dev
+   fly deploy -a <app> -c deploy.fly-multi-bot.toml --now
+   ```
+
+3. 分别在两个 Bot 私聊执行 `/gen_token`，得到各自的 `tp_...`，再写入：
+
+   ```bash
+   fly secrets set -a <app> \
+     TELEPOST_BOT1_SUBMIT_TOKEN=tp_... \
+     TELEPOST_BOT2_SUBMIT_TOKEN=tp_...
+   ```
+
+   若只让 PixivFlow/API 投稿进审核群、普通聊天投稿仍按原流程发布，再按 Bot 设置：
+
+   ```bash
+   fly secrets set -a <app> \
+     BOT1_API_REVIEW_REQUIRED=true BOT1_CHAT_REVIEW_REQUIRED=false BOT1_REVIEW_CHAT_ID=-100... \
+     BOT2_API_REVIEW_REQUIRED=true BOT2_CHAT_REVIEW_REQUIRED=false BOT2_REVIEW_CHAT_ID=-100...
+   ```
+
+4. 首次启动会把 PixivFlow 双 Bot 模板复制到持久卷；两个计划默认关闭，避免占位
+   tag 误执行。下载、修改 `TAG_A`～`TAG_D`、Cron 和 `enabled`：
+
+   ```bash
+   fly ssh sftp get -a <app> /app/data/pixivflow/config.json ./pixivflow.json
+   # 本地编辑并用 python3 -m json.tool pixivflow.json 校验
+   ./scripts/update_pixivflow_config.sh <app> ./pixivflow.json
+   ```
+
+上传脚本先写 `.upload` 临时文件，再在同一卷内 `mv`，避免半截 JSON。PixivFlow
+看到替换后会完整校验并原子切换调度表；错误 Cron、重复 id、未知 target id 会被
+拒绝，旧计划继续运行。可热更新 `schedules`、`targets`、`delivery`、`download`；
+修改 Pixiv 凭据、代理或存储路径后需 `fly machine restart`。
+
+每个 tag 的“昨日最热插画 + 小说”需要两条 target；tag 列表增加一项时，复制这
+一对 target，设置唯一 `id`，再把 id 加入对应 schedule 的 `targetIds`。模板使用
+`rankingDate: "YESTERDAY"`，会在每天实际执行前重新计算日期。
+
+### 观测与回退
+
+```bash
+curl https://<app>.fly.dev/health
+fly logs -a <app>
+fly machine status -a <app> <machine-id>   # 检查 OOM 事件
+```
+
+`/health` 返回 Python/Node 各进程 RSS 和系统可用内存。建议正常空闲时至少留
+100 MiB 可用空间；下载峰值后持续低于 60 MiB 或出现 OOM 时升级到 1 GiB。
+
 ## 发布流程（Tag → GHCR 镜像 → GitHub Release）
 
 1. 把 `CHANGELOG.md` 的 `[Unreleased]` 内容整理进新版本段 `## [x.y.z] - 日期`

@@ -5,6 +5,8 @@ FROM python:3.11-slim
 # 代理参数（可选，构建时通过 --build-arg 传入）
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
+ARG INSTALL_PIXIVFLOW=false
+ARG PIXIVFLOW_VERSION=2.7.0
 
 # 设置工作目录
 WORKDIR /app
@@ -24,6 +26,16 @@ RUN HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy="" apt-get update && 
     HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy="" apt-get install -y --no-install-recommends \
     tzdata && \
     rm -rf /var/lib/apt/lists/*
+
+# Optional combined Fly image: one Node scheduler plus the existing TelePost
+# multi-bot supervisor. The normal TelePost release image stays Python-only.
+RUN if [ "$INSTALL_PIXIVFLOW" = "true" ]; then \
+      HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy="" apt-get update && \
+      HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy="" apt-get install -y --no-install-recommends nodejs npm && \
+      npm install -g "pixivflow@${PIXIVFLOW_VERSION}" && \
+      npm cache clean --force && \
+      rm -rf /var/lib/apt/lists/*; \
+    fi
 
 RUN HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy="" apt-get update && \
     HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy="" apt-get install -y --no-install-recommends \
@@ -62,4 +74,3 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 
 # 运行机器人（run.py 自动分发：单 bot 直接运行；检测到 BOT1_TOKEN 则多 bot 模式）
 CMD ["python", "-u", "run.py"]
-

@@ -1,11 +1,15 @@
 # TelePost 多 bot 实例（一台机承载 BOT1 + BOT2 两个频道）
-# 模式：Webhook + auto_stop —— 空闲自动停机（计算费 0），来消息自动唤醒
+# 模式：Webhook + 常驻一台（保证定时任务与投稿 bot 不被停机）
 # 部署：fly deploy -c deploy.fly-multi-bot.toml --now
 app = "your-app-name"
 primary_region = "sin"
 
 [build]
   dockerfile = "Dockerfile"
+
+[build.args]
+  INSTALL_PIXIVFLOW = "true"
+  PIXIVFLOW_VERSION = "2.7.0"
 
 [env]
   PYTHONUNBUFFERED = "1"
@@ -16,6 +20,14 @@ primary_region = "sin"
   WEBHOOK_URL = "https://your-app.fly.dev"
   # 双 bot 同机运行，simple 分词省内存；需要更高质量分词可改回 jieba
   SEARCH_ANALYZER = "simple"
+  SEARCH_ENABLED = "false"
+  DB_CACHE_KB = "1024"
+  # 同一容器内启动 PixivFlow 单进程多计划调度器；不启动 WebUI
+  PIXIVFLOW_ENABLED = "true"
+  PIXIVFLOW_CONFIG = "/app/data/pixivflow/config.json"
+  PIXIV_DB_CACHE_KB = "4096"
+  NODE_OPTIONS = "--max-old-space-size=128"
+  MALLOC_ARENA_MAX = "2"
 
 # 既有数据卷原样挂载（历史数据保留在卷上，新版写到 data/bot1、data/bot2 子目录）
 [mounts]

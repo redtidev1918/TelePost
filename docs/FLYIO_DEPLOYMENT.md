@@ -2,6 +2,11 @@
 
 本指南详细说明如何在 Fly.io 上以 Webhook 模式部署 TelePost 项目。
 
+如果目标是一台 512 MiB Machine 同时运行 PixivFlow、TelePost Bot1 与 Bot2，
+请直接使用 [`deploy.fly-multi-bot.toml`](../deploy.fly-multi-bot.toml)
+并按[运维手册的联合部署章节](OPERATIONS.md#fly-512-mibpixivflow--telepost-双-bot)
+操作。该形态必须常驻；Fly 的 auto-stop 无法在内部 Cron 到点时主动唤醒机器。
+
 ---
 
 ## 前提条件
