@@ -407,8 +407,20 @@ async def catch_all(update: Update, context: CallbackContext):
     
     logger.debug(f"收到未知消息: {update}")
     
-    # 兜底引导：此前这里完全静默，用户在会话中断/输错指令时会觉得"bot 无回应"
+    # 兜底引导：此前这里完全静默，用户在会话中断/输错指令时会觉得"bot 无回应"。
+    # 但同一用户 10 分钟内只提示一次，避免闲聊刷屏
     if update.message and update.message.chat.type == 'private':
+        from utils.cache import TTLCache
+        global _guidance_cache
+        try:
+            _guidance_cache
+        except NameError:
+            _guidance_cache = TTLCache(default_ttl=600, max_size=1024)
+        user_key = f"guide:{update.effective_user.id}"
+        if _guidance_cache.get(user_key):
+            logger.debug(f"引导冷却中，跳过提示: {user_key}")
+            return
+        _guidance_cache.set(user_key, "1", ttl=600)
         try:
             await update.message.reply_text(
                 "🤔 我不太明白这条消息。\n"
