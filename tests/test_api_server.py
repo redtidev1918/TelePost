@@ -196,7 +196,7 @@ class TestRouterApiRelay:
         monkeypatch.setattr(run_mod, "bot_webhook_port", lambda i: 18091 if i == 1 else 18092)
 
         bot_app = web.Application()
-        bot_app.router.add_get("/v1/me", fake_v1_me)
+        bot_app.router.add_get("/api/v1/me", fake_v1_me)
         bot_runner = web.AppRunner(bot_app)
         await bot_runner.setup()
         bot_site = web.TCPSite(bot_runner, "127.0.0.1", 18091)
