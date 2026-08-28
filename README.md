@@ -11,11 +11,12 @@
 
 ## 它能做什么
 
-- 📮 **投稿** —— 用户向机器人发送媒体/文档，经引导流程补充标签与简介后自动发布到频道
+- 📮 **投稿** —— 用户向机器人发送媒体/文档，经引导流程补充标签与简介后自动发布到频道；支持 🕵️ 匿名投稿与发布前预览/一键修改
 - 🔍 **搜索** —— 基于 Whoosh 的全文搜索，支持关键词、#标签、文件名与时间范围筛选
 - 🔥 **热度统计** —— 自动采集浏览/转发数据，计算热度分并生成排行榜
 - 🛡️ **管理** —— 黑名单、OWNER/Admin 分级、批量删帖（软删除，保留历史）
 - 🏷️ **标签云** —— 频道内容自动打标，可视化浏览
+- 🧩 **多 bot 单机部署** —— 一个容器承载任意数量的频道 bot（BOT1_TOKEN/BOT2_TOKEN/…），数据互相隔离，配合 auto_stop 最大化省钱
 
 ## 快速开始
 
@@ -99,6 +100,25 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南 | 贡献者 |
 | [docs/internals/moderation.md](docs/internals/moderation.md) | 删帖与软删除设计 | 开发者 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本历史 | 所有人 |
+
+## 致谢
+
+TelePost 站在前人的肩膀上，感谢这些优秀的开源项目与作者：
+
+| 项目 | 贡献 |
+|---|---|
+| [zoidberg-xgd/TeleSubmit-v2](https://github.com/zoidberg-xgd/TeleSubmit-v2) | **上游项目** —— 本项目基于其设计与代码积累演进而来（频道监听、部署脚本体系等） |
+| [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) | Telegram Bot 开发框架（Apache-2.0），本项目的骨架 |
+| [Whoosh](https://github.com/mchaput/whoosh-search) | 纯 Python 全文搜索引擎，支撑 /search 与标签检索 |
+| [jieba](https://github.com/fxsjy/jieba) | 中文分词（可选启用，显著提升中文搜索质量） |
+| [aiohttp](https://github.com/aio-libs/aiohttp) | 异步 HTTP：webhook 服务器、健康检查与多 bot 路由 |
+| [APScheduler](https://github.com/agronholm/apscheduler) | 定时任务（统计更新、过期清理、已删帖检查） |
+| [aiosqlite](https://github.com/omnilib/aiosqlite) | 异步 SQLite 访问 |
+| [psutil](https://github.com/giampaolo/psutil) | 进程/内存监控（/health 自报容量） |
+| [python-dotenv](https://github.com/theskumar/python-dotenv) | 环境变量加载 |
+| [Fly.io](https://fly.io) | 一键全球化部署的托管平台 |
+
+排名不分先后。若你的项目被本仓库引用而未列名，请提 Issue 告知。
 
 ## 支持 & 许可
 

@@ -264,6 +264,21 @@ export RUN_MODE=POLLING
 
 ---
 
+## 多 bot 单机 Webhook（auto_stop 省钱形态）
+
+设置 `BOT1_TOKEN`/`BOT2_TOKEN`/… 后，容器入口 `run.py` 会：
+
+1. 为每个 bot 派生独立子进程，webhook 端口自动错开（8081、8082、…）
+2. 在 `WEBHOOK_PORT`（默认 8080）启动**按路径转发的路由**：
+   `/webhook/bot1` → bot1 子进程，`/webhook/bot2` → bot2 子进程
+3. 各 bot 以自己的 Secret Token 调用 `setWebhook`（Telegram 校验互不可见）
+
+配合 `auto_stop_machines=true` + `min_machines_running=0`：
+空闲自动停机（计算费 0），任何频道的来消息都会自动唤醒机器（约 1-2 秒延迟）。
+代价：统计定时任务只在机器醒着的时候执行。
+
+环境变量与数据隔离规则见 [CONFIGURATION.md](CONFIGURATION.md) 的「多 bot 模式」。
+
 ## 安全性
 
 ### Secret Token 验证

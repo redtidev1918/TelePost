@@ -30,6 +30,25 @@
 | `DB_CACHE_KB` | `4096` | SQLite page cache（KB） |
 | `TIMEOUT` | `300` | 过期投稿数据清理截止（秒） |
 | `SESSION_TIMEOUT` | `900` | 投稿会话不活动超时（秒），超时清理会话并提示 |
+| `HEALTH_PORT` | `8080` | Polling 模式健康检查端口（多 bot 时自动错开为 8081/8082/…） |
+| `DB_PATH` | `data/submissions.db` | 数据库文件路径（多 bot 时默认按 bot 隔离） |
+
+## 多 bot 模式（BOT{n}_*）
+
+设置 `BOT1_TOKEN` 即进入多 bot 模式：容器入口 `run.py` 会为每个 bot 派生独立子进程，
+数据目录自动隔离为 `data/botN/`（数据库与搜索索引互不干扰）。
+
+每个 bot 可用 `BOT{n}_<KEY>` 覆盖以下全局项：
+
+| 前缀变量 | 覆盖目标 |
+|---|---|
+| `BOT{n}_TOKEN` / `BOT{n}_CHANNEL_ID` | 必填，各 bot 的凭据与目标频道 |
+| `BOT{n}_OWNER_ID` / `BOT{n}_ADMIN_IDS` | 各 bot 的管理员 |
+| `BOT{n}_SHOW_SUBMITTER` / `BOT{n}_NOTIFY_OWNER` / `BOT{n}_BOT_MODE` / `BOT{n}_ALLOWED_FILE_TYPES` | 各 bot 的行为开关 |
+| `BOT{n}_DB_PATH` / `BOT{n}_SEARCH_INDEX_DIR` / `BOT{n}_SEARCH_ENABLED` / `BOT{n}_SEARCH_ANALYZER` | 各 bot 的存储与搜索 |
+| `BOT{n}_SUBMIT_LIMIT_PER_HOUR` / `BOT{n}_HEALTH_PORT` / `BOT{n}_TIMEOUT` | 各 bot 的限频/端口/超时 |
+
+Webhook 模式下回调路径自动分配为 `/webhook/botN`（详见 [WEBHOOK_MODE.md](WEBHOOK_MODE.md)）。
 
 ## config.ini
 
