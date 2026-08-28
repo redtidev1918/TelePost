@@ -1,4 +1,5 @@
 # TelePost 多 bot 实例（一台机承载 BOT1 + BOT2 两个频道）
+# 模式：Webhook + auto_stop —— 空闲自动停机（计算费 0），来消息自动唤醒
 # 部署：fly deploy -c deploy.fly-multi-bot.toml --now
 app = "your-app-name"
 primary_region = "sin"
@@ -10,6 +11,9 @@ primary_region = "sin"
   PYTHONUNBUFFERED = "1"
   PYTHONDONTWRITEBYTECODE = "1"
   TZ = "Asia/Shanghai"
+  RUN_MODE = "WEBHOOK"
+  # 公网入口（run.py 会为每个 bot 生成 /webhook/botN 回调地址）
+  WEBHOOK_URL = "https://your-app.fly.dev"
   # 双 bot 同机运行，simple 分词省内存；需要更高质量分词可改回 jieba
   SEARCH_ANALYZER = "simple"
 
@@ -17,6 +21,21 @@ primary_region = "sin"
 [mounts]
   source = "data"
   destination = "/app/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true     # 空闲自动停机 —— 省钱核心
+  auto_start_machines = true    # webhook 请求自动唤醒
+  min_machines_running = 0      # 允许 0 台常驻
+
+  [http_service.checks]
+    [http_service.checks.health]
+      grace_period = "60s"
+      interval = "30s"
+      method = "GET"
+      timeout = "5s"
+      path = "/health"
 
 [vm]
   cpu_kind = "shared"
