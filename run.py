@@ -99,7 +99,29 @@ def build_router_app(indices: list):
     from aiohttp import ClientSession, web
 
     async def health(request):
-        return web.json_response({"status": "ok", "service": "telepost", "bots": indices})
+        payload = {"status": "ok", "service": "telepost", "bots": indices}
+        try:
+            import glob
+            import psutil
+            procs = []
+            for f in glob.glob("/proc/[0-9]*/status"):
+                name = rss = None
+                for line in open(f):
+                    if line.startswith("Name:"):
+                        name = line.split(":", 1)[1].strip()
+                    elif line.startswith("VmRSS:"):
+                        rss = int(line.split()[1])
+                if rss and name == "python":
+                    procs.append(rss)
+            payload["python_rss_mb"] = sorted(
+                (round(x / 1024.0, 1) for x in procs), reverse=True
+            )
+            payload["system_available_mb"] = round(
+                psutil.virtual_memory().available / 1048576, 1
+            )
+        except Exception:
+            pass
+        return web.json_response(payload)
 
     app = web.Application()
     app.router.add_get("/health", health)

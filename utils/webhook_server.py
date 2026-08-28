@@ -100,7 +100,7 @@ class WebhookServer:
     
     async def health_handler(self, request: web.Request) -> web.Response:
         """
-        健康检查端点
+        健康检查端点（含内存自报，用于容量观测）
         
         Args:
             request: aiohttp Request 对象
@@ -108,7 +108,16 @@ class WebhookServer:
         Returns:
             web.Response: HTTP 响应
         """
-        return web.Response(status=200, text="OK")
+        payload = {"status": "ok", "bot_index": self.path.rsplit("bot", 1)[-1] or "?"}
+        try:
+            import psutil
+            proc = psutil.Process()
+            payload["process_rss_mb"] = round(proc.memory_info().rss / 1048576, 1)
+            vm = psutil.virtual_memory()
+            payload["system_available_mb"] = round(vm.available / 1048576, 1)
+        except Exception:
+            pass
+        return web.json_response(payload)
     
     async def start(self):
         """启动 Webhook 服务器"""
