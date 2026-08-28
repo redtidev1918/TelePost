@@ -29,13 +29,12 @@ primary_region = "sin"
   auto_start_machines = true    # webhook 请求自动唤醒
   min_machines_running = 0      # 允许 0 台常驻
 
-  [http_service.checks]
-    [http_service.checks.health]
-      grace_period = "60s"
-      interval = "30s"
-      method = "GET"
-      timeout = "5s"
-      path = "/health"
+  [[http_service.checks]]
+    grace_period = "60s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
 
 [vm]
   cpu_kind = "shared"
