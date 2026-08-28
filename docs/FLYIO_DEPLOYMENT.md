@@ -4,7 +4,7 @@
 
 ---
 
-## 📋 前提条件
+## 前提条件
 
 ### 必需信息
 
@@ -34,7 +34,7 @@ flyctl version
 
 ---
 
-## 🚀 部署步骤
+## 部署步骤
 
 ### 第一步：登录 Fly.io
 
@@ -123,11 +123,11 @@ CHANNEL_ID = @your_channel
 # 管理员 User ID
 OWNER_ID = 123456789
 
-# ⭐ 重要：设置为 WEBHOOK 模式
+# 重要：设置为 WEBHOOK 模式
 RUN_MODE = WEBHOOK
 
 [WEBHOOK]
-# ⚠️ 注意：URL 会在部署后自动设置，这里先留空或填占位符
+# 注意：URL 会在部署后自动设置，这里先留空或填占位符
 # 格式: https://your-app-name.fly.dev
 URL = 
 
@@ -219,7 +219,7 @@ flyctl deploy
 部署完成后，设置 Telegram Webhook：
 
 ```bash
-# ⭐ 替换为您的实际信息
+# 替换为您的实际信息
 curl -X POST "https://api.telegram.org/botYOUR_BOT_TOKEN/setWebhook" \
   -d "url=https://your-app-name.fly.dev/webhook" \
   -d "max_connections=40"
@@ -253,7 +253,7 @@ curl "https://api.telegram.org/botYOUR_BOT_TOKEN/getWebhookInfo"
 
 ---
 
-## ✅ 验证部署
+## 验证部署
 
 ### 1. 检查应用状态
 
@@ -297,7 +297,7 @@ curl https://your-app-name.fly.dev/health
 
 ---
 
-## 🔧 常见问题解决
+## 常见问题解决
 
 ### 问题 1：部署失败
 
@@ -403,7 +403,7 @@ flyctl secrets set WEBHOOK_URL=https://your-app-name.fly.dev
 
 ---
 
-## 📊 性能优化建议
+## 性能优化建议
 
 ### 1. 内存优化
 
@@ -446,7 +446,7 @@ flyctl platform regions
 
 ---
 
-## 🔄 更新和维护
+## 更新和维护
 
 ### 更新代码
 
@@ -506,7 +506,7 @@ flyctl scale show
 
 ---
 
-## 📚 相关文档
+## 相关文档
 
 - [主文档 - README.md](../README.md)
 - [Webhook 模式完整指南](WEBHOOK_MODE.md)
@@ -516,7 +516,7 @@ flyctl scale show
 
 ---
 
-## 💬 获取帮助
+## 获取帮助
 
 如遇到问题：
 

@@ -4,7 +4,7 @@
 
 ---
 
-## 📋 前提条件
+## 前提条件
 
 ### 账号要求
 
@@ -29,7 +29,7 @@
 - 管理员 User ID（从 [@userinfobot](https://t.me/userinfobot) 获取）
 - **一台可以访问互联网的设备**（本地电脑或手机）用于设置 Webhook
 
-### ⚠️ PythonAnywhere 网络限制说明
+### PythonAnywhere 网络限制说明
 
 PythonAnywhere 对外部 API 访问有限制，这意味着：
 
@@ -41,7 +41,7 @@ PythonAnywhere 对外部 API 访问有限制，这意味着：
 
 ---
 
-## 🚀 部署步骤
+## 部署步骤
 
 ### 第一步：上传代码
 
@@ -113,11 +113,11 @@ CHANNEL_ID = @your_channel
 # 管理员 User ID
 OWNER_ID = 123456789
 
-# ⭐ 重要：设置为 WEBHOOK 模式
+# 重要：设置为 WEBHOOK 模式
 RUN_MODE = WEBHOOK
 
 [WEBHOOK]
-# ⭐ 替换为你的 PythonAnywhere 用户名
+# 替换为你的 PythonAnywhere 用户名
 # 格式: https://你的用户名.pythonanywhere.com
 URL = https://yourusername.pythonanywhere.com
 
@@ -131,7 +131,7 @@ PATH = /webhook
 SECRET_TOKEN = 
 
 [SEARCH]
-# ⭐ 推荐使用 simple 模式以节省内存
+# 推荐使用 simple 模式以节省内存
 ANALYZER = simple
 
 [DB]
@@ -158,7 +158,7 @@ nano pythonanywhere_wsgi.py
 修改文件开头的用户名：
 
 ```python
-# ⭐ 重要：替换为你的 PythonAnywhere 用户名
+# 重要：替换为你的 PythonAnywhere 用户名
 USERNAME = 'yourusername'  # 修改这里！例如: USERNAME = 'john123'
 ```
 
@@ -188,7 +188,7 @@ USERNAME = 'yourusername'  # 修改这里！例如: USERNAME = 'john123'
    - 删除所有内容，替换为以下代码：
 
 ```python
-# ⭐ 重要：将下面的 'yourusername' 替换为你的实际用户名 ⭐
+# 重要：将下面的 'yourusername' 替换为你的实际用户名 ⭐
 import sys
 import os
 
@@ -226,7 +226,7 @@ from pythonanywhere_wsgi import application
 **在您的本地电脑**执行以下命令设置 Webhook：
 
 ```bash
-# ⚠️ 注意：将 YOUR_BOT_TOKEN 和 yourusername 替换为实际值，不要保留 <> 符号
+# 注意：将 YOUR_BOT_TOKEN 和 yourusername 替换为实际值，不要保留 <> 符号
 curl -X POST "https://api.telegram.org/botYOUR_BOT_TOKEN/setWebhook" \
   -d "url=https://yourusername.pythonanywhere.com/webhook" \
   -d "max_connections=40"
@@ -261,7 +261,7 @@ curl "https://api.telegram.org/botYOUR_BOT_TOKEN/getWebhookInfo"
 
 ---
 
-## ✅ 验证部署
+## 验证部署
 
 ### 1. 检查 Web App 状态
 
@@ -290,7 +290,7 @@ curl https://yourusername.pythonanywhere.com/health
 
 ---
 
-## 🔧 常见问题解决
+## 常见问题解决
 
 ### 问题 1：设置 Webhook 时出现 503 错误
 
@@ -407,7 +407,7 @@ curl -X POST "https://api.telegram.org/botYOUR_BOT_TOKEN/setWebhook" \
 
 ---
 
-## 📊 性能优化建议
+## 性能优化建议
 
 ### 1. 内存优化
 
@@ -453,7 +453,7 @@ python3.9 optimize_database.py
 
 ---
 
-## 🔄 更新代码
+## 更新代码
 
 当项目有新版本时：
 
@@ -476,7 +476,7 @@ pip3.9 install --user -r requirements.txt
 
 ---
 
-## 📱 监控和维护
+## 监控和维护
 
 ### 1. 定期检查
 
@@ -505,7 +505,7 @@ cp ~/TelePost/data/submissions.db ~/backups/submissions_$(date +%Y%m%d).db
 
 ---
 
-## 📚 相关文档
+## 相关文档
 
 - [主文档 - README.md](../README.md)
 - [Webhook 模式完整指南](WEBHOOK_MODE.md)
@@ -514,7 +514,7 @@ cp ~/TelePost/data/submissions.db ~/backups/submissions_$(date +%Y%m%d).db
 
 ---
 
-## 💬 获取帮助
+## 获取帮助
 
 如遇到问题：
 
