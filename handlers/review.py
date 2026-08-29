@@ -104,7 +104,11 @@ def _cleanup_local_files(files):
 async def _send_local_preview(bot, item, caption: Optional[str], spoiler: bool):
     kind = item["kind"]
     with open(item["path"], "rb") as file_handle:
-        media = InputFile(file_handle, filename=item["filename"])
+        media = InputFile(
+            file_handle,
+            filename=item["filename"],
+            read_file_handle=False,
+        )
         common = {
             "chat_id": REVIEW_CHAT_ID,
             "caption": caption,

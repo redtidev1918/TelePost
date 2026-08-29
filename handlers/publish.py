@@ -757,6 +757,7 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
     抛出异常时由调用方转成 API 500。
     """
     import os as _os
+    from contextlib import ExitStack
     from telegram import InputFile
 
     data = {
@@ -777,26 +778,30 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
     # 媒体组：每组最多 10 个，caption 只放在第一组第一项
     for chunk_index in range(0, len(media_files), 10):
         chunk = media_files[chunk_index:chunk_index + 10]
-        group = []
-        for i, f in enumerate(chunk):
-            cap = caption if (chunk_index == 0 and i == 0) else None
-            kw = {"caption": cap, "parse_mode": "HTML" if cap else None}
-            if f["kind"] in ("photo", "video", "animation"):
-                kw["has_spoiler"] = spoiler
-            with open(f["path"], "rb") as fh:
+        with ExitStack() as handles:
+            group = []
+            for i, f in enumerate(chunk):
+                cap = caption if (chunk_index == 0 and i == 0) else None
+                kw = {"caption": cap, "parse_mode": "HTML" if cap else None}
+                if f["kind"] in ("photo", "video", "animation"):
+                    kw["has_spoiler"] = spoiler
+                fh = handles.enter_context(open(f["path"], "rb"))
+                upload = InputFile(
+                    fh, filename=f["filename"], read_file_handle=False
+                )
                 if f["kind"] == "photo":
                     from telegram import InputMediaPhoto
-                    group.append(InputMediaPhoto(media=InputFile(fh, filename=f["filename"]), **kw))
+                    group.append(InputMediaPhoto(media=upload, **kw))
                 elif f["kind"] == "video":
                     from telegram import InputMediaVideo
-                    group.append(InputMediaVideo(media=InputFile(fh, filename=f["filename"]), **kw))
+                    group.append(InputMediaVideo(media=upload, **kw))
                 elif f["kind"] == "animation":
                     from telegram import InputMediaAnimation
-                    group.append(InputMediaAnimation(media=InputFile(fh, filename=f["filename"]), **kw))
+                    group.append(InputMediaAnimation(media=upload, **kw))
                 else:
                     from telegram import InputMediaAudio
-                    group.append(InputMediaAudio(media=InputFile(fh, filename=f["filename"]), **kw))
-        sent = await bot.send_media_group(chat_id=CHANNEL_ID, media=group)
+                    group.append(InputMediaAudio(media=upload, **kw))
+            sent = await bot.send_media_group(chat_id=CHANNEL_ID, media=group)
         all_message_ids.extend(m.message_id for m in sent)
         if main_message is None:
             main_message = sent[0]
@@ -806,15 +811,16 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
     # 文档：有媒体时作为媒体主贴的回复，否则单独成组
     for chunk_index in range(0, len(doc_files), 10):
         chunk = doc_files[chunk_index:chunk_index + 10]
-        group = []
-        for i, f in enumerate(chunk):
-            cap = caption if (not media_files and chunk_index == 0 and i == len(chunk) - 1) else None
-            with open(f["path"], "rb") as fh:
+        with ExitStack() as handles:
+            group = []
+            for i, f in enumerate(chunk):
+                cap = caption if (not media_files and chunk_index == 0 and i == len(chunk) - 1) else None
+                fh = handles.enter_context(open(f["path"], "rb"))
                 group.append(InputMediaDocumentFactory(fh, f["filename"], cap))
-        sent = await bot.send_media_group(
-            chat_id=CHANNEL_ID, media=group,
-            reply_to_message_id=main_message.message_id if main_message else None,
-        )
+            sent = await bot.send_media_group(
+                chat_id=CHANNEL_ID, media=group,
+                reply_to_message_id=main_message.message_id if main_message else None,
+            )
         all_message_ids.extend(m.message_id for m in sent)
         if main_message is None:
             main_message = sent[0]
@@ -1001,4 +1007,7 @@ def _file_id_of(message):
 def InputMediaDocumentFactory(file_handle, filename, caption):
     from telegram import InputMediaDocument, InputFile
     kw = {"caption": caption, "parse_mode": "HTML" if caption else None}
-    return InputMediaDocument(media=InputFile(file_handle, filename=filename), **kw)
+    return InputMediaDocument(
+        media=InputFile(file_handle, filename=filename, read_file_handle=False),
+        **kw,
+    )

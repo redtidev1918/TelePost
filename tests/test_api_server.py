@@ -2,6 +2,7 @@
 HTTP API（/api/v1）测试：鉴权、校验、投稿流转、路由转发
 """
 import os
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -85,6 +86,7 @@ class TestAuth:
 class TestSubmission:
     @pytest.mark.asyncio
     async def test_happy_path(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
         app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW)
         client = await _client(app)
         try:
@@ -106,7 +108,9 @@ class TestSubmission:
             assert publish_mock.call_count == 1
             bot_arg, files = publish_mock.call_args.args
             kwargs = publish_mock.call_args.kwargs
-            assert os.path.exists(files[0]["path"])
+            await asyncio.sleep(0)
+            assert not os.path.exists(files[0]["path"])
+            assert list((tmp_path / "data" / "api_uploads").iterdir()) == []
             assert files[0]["kind"] == "photo"
             assert kwargs["tags"].startswith("#")
             assert kwargs["title"] == "标题"
@@ -148,7 +152,8 @@ class TestSubmission:
             await client.close()
 
     @pytest.mark.asyncio
-    async def test_invalid_link(self, monkeypatch):
+    async def test_invalid_link(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
         app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW)
         client = await _client(app)
         try:
@@ -159,6 +164,36 @@ class TestSubmission:
             )
             assert resp.status == 400
             assert (await resp.json())["error"]["code"] == "invalid_link"
+            await asyncio.sleep(0)
+            assert list((tmp_path / "data" / "api_uploads").iterdir()) == []
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_failed_publish_cleans_upload_directory(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW)
+        publish_mock.side_effect = RuntimeError("telegram unavailable")
+        client = await _client(app)
+        try:
+            form = __import__("aiohttp").FormData()
+            form.add_field(
+                "files",
+                b"temporary-image",
+                filename="photo.jpg",
+                content_type="image/jpeg",
+            )
+            form.add_field("tags", "Pixiv")
+            resp = await client.post(
+                "/api/v1/submissions",
+                data=form,
+                headers={"Authorization": "Bearer tp_ok"},
+            )
+            assert resp.status == 502
+            uploaded_path = publish_mock.call_args.args[1][0]["path"]
+            await asyncio.sleep(0)
+            assert not os.path.exists(uploaded_path)
+            assert list((tmp_path / "data" / "api_uploads").iterdir()) == []
         finally:
             await client.close()
 

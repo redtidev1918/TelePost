@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 def build_polling_app(application) -> web.Application:
     """Build the local HTTP surface used while Telegram updates use polling."""
+    from utils.api_server import API_CLIENT_MAX_BYTES
 
     async def health(_request: web.Request) -> web.Response:
         payload = {
@@ -31,7 +32,7 @@ def build_polling_app(application) -> web.Application:
             pass
         return web.json_response(payload)
 
-    app = web.Application()
+    app = web.Application(client_max_size=API_CLIENT_MAX_BYTES)
     app.router.add_get("/health", health)
     if os.getenv("API_ENABLED", "true").lower() != "false":
         from utils.api_server import add_api_routes

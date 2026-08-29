@@ -35,6 +35,7 @@ OVERRIDABLE_KEYS = (
 #   路由进程占 WEBHOOK_PORT（默认 8080，对外 + Fly 健康检查）
 #   botN 子进程占 8080+N（仅本机回环可见），webhook 路径为 /webhook/botN
 ROUTER_DEFAULT_PORT = 8080
+ROUTER_CLIENT_MAX_BYTES = 510 * 1024 * 1024
 _STORAGE_METRICS_CACHE = {"expires_at": 0.0, "value": None}
 
 
@@ -276,7 +277,16 @@ def build_router_app(indices: list):
     - GET /health        → 200（Fly 健康检查 / auto_stop 唤醒入口）
     - /webhook/botN(/**) → 转发到 127.0.0.1:(8080+N) 对应子进程
     """
-    from aiohttp import ClientSession, web
+    from aiohttp import ClientSession, ClientTimeout, web
+    session_key = web.AppKey("telepost.router.session", ClientSession)
+
+    async def client_session_context(app):
+        timeout = ClientTimeout(
+            total=float(os.environ.get("ROUTER_TIMEOUT_SECONDS", "300"))
+        )
+        app[session_key] = ClientSession(timeout=timeout, auto_decompress=False)
+        yield
+        await app[session_key].close()
 
     async def health(request):
         payload = {"status": "ok", "service": "telepost", "bots": indices}
@@ -311,7 +321,10 @@ def build_router_app(indices: list):
             pass
         return web.json_response(payload)
 
-    app = web.Application()
+    # The router never buffers submission bodies. The explicit size ceiling is
+    # still useful for malformed clients and matches TelePost's 10 x 50 MiB API.
+    app = web.Application(client_max_size=ROUTER_CLIENT_MAX_BYTES)
+    app.cleanup_ctx.append(client_session_context)
     app.router.add_get("/health", health)
     def make_relay(index: int, strip: str | None, prepend: str = ""):
         async def relay(request):
@@ -321,23 +334,48 @@ def build_router_app(indices: list):
             if prepend:
                 path_qs = prepend + path_qs
             target = f"http://127.0.0.1:{bot_webhook_port(index)}{path_qs}"
-            body = await request.read()
             headers = {
                 k: v for k, v in request.headers.items()
-                if k.lower() not in ("host", "content-length")
+                if k.lower() not in {
+                    "host", "content-length", "connection", "keep-alive",
+                    "proxy-authenticate", "proxy-authorization", "te",
+                    "trailer", "transfer-encoding", "upgrade",
+                }
             }
+            downstream = None
             try:
-                async with ClientSession() as session:
-                    async with session.request(
-                        request.method, target, data=body, headers=headers,
-                        timeout=__import__("aiohttp").ClientTimeout(total=120),
-                    ) as resp:
-                        data = await resp.read()
-                        return web.Response(
-                            status=resp.status, body=data,
-                            content_type=resp.content_type or "application/json",
-                        )
+                session = request.app[session_key]
+                async with session.request(
+                    request.method,
+                    target,
+                    data=(
+                        request.content.iter_chunked(65536)
+                        if request.can_read_body
+                        else None
+                    ),
+                    headers=headers,
+                ) as resp:
+                    response_headers = {
+                        k: v for k, v in resp.headers.items()
+                        if k.lower() not in {
+                            "content-length", "connection", "keep-alive",
+                            "proxy-authenticate", "proxy-authorization", "te",
+                            "trailer", "transfer-encoding", "upgrade",
+                        }
+                    }
+                    downstream = web.StreamResponse(
+                        status=resp.status,
+                        reason=resp.reason,
+                        headers=response_headers,
+                    )
+                    await downstream.prepare(request)
+                    async for chunk in resp.content.iter_chunked(65536):
+                        await downstream.write(chunk)
+                    await downstream.write_eof()
+                    return downstream
             except Exception as exc:
+                if downstream is not None and downstream.prepared:
+                    raise
                 return web.json_response({"ok": False, "error": str(exc)}, status=502)
         return relay
 

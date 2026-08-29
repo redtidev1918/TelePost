@@ -121,7 +121,9 @@ class WebhookServer:
     
     async def start(self):
         """启动 Webhook 服务器"""
-        self.web_app = web.Application()
+        from utils.api_server import API_CLIENT_MAX_BYTES
+
+        self.web_app = web.Application(client_max_size=API_CLIENT_MAX_BYTES)
         
         # 注册路由
         self.web_app.router.add_post(self.path, self.webhook_handler)

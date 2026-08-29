@@ -4,10 +4,11 @@ HTTP API（/api/v1）—— 供外部项目自动化投稿
 认证：Authorization: Bearer tp_xxx（token 由 TG 内 /gen_token 生成，绑定 Telegram 用户）
 错误格式：{"ok": false, "error": {"code": "...", "message": "..."}}
 """
+import asyncio
 import logging
 import os
 import re
-import tempfile
+import shutil
 import uuid
 from datetime import datetime
 
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 API_VERSION = "1.0"
 MAX_FILE_BYTES = 50 * 1024 * 1024      # Telegram Bot API 单文件上限
 MAX_FILES = 10
+API_CLIENT_MAX_BYTES = MAX_FILES * MAX_FILE_BYTES + 10 * 1024 * 1024
 _rate_cache = TTLCache(default_ttl=3600, max_size=4096)
 
 
@@ -206,11 +208,21 @@ def add_api_routes(web_app, application) -> None:
         os.makedirs(upload_dir, exist_ok=True)
         session_dir = os.path.join(upload_dir, uuid.uuid4().hex)
         os.makedirs(session_dir, exist_ok=True)
+        # One aiohttp task owns one upload directory. Cleanup runs for every
+        # return/exception path, including validation errors and Telegram
+        # failures, so stale uploads cannot slowly fill the persistent volume.
+        request_task = asyncio.current_task()
+        if request_task is not None:
+            request_task.add_done_callback(
+                lambda _task: shutil.rmtree(session_dir, ignore_errors=True)
+            )
 
         try:
             reader = await request.multipart()
             while part := await reader.next():
                 if part.name == "files":
+                    if len(files) >= MAX_FILES:
+                        return _error(400, "too_many_files", f"单次最多 {MAX_FILES} 个文件")
                     filename = os.path.basename(part.filename or f"file-{len(files)+1}")
                     kind_hint = part.headers.get("Content-Type", "")
                     tmp_path = os.path.join(session_dir, f"{len(files)+1:02d}_{filename}")

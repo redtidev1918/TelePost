@@ -16,7 +16,7 @@ RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 # The combined Fly profile needs Node and PixivFlow, but not npm at runtime.
 FROM node:20-bookworm-slim AS pixivflow-builder
 
-ARG PIXIVFLOW_VERSION=2.7.0
+ARG PIXIVFLOW_VERSION=2.8.0
 RUN npm install --prefix /opt/pixivflow "pixivflow@${PIXIVFLOW_VERSION}" \
     && npm cache clean --force
 

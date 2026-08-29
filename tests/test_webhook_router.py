@@ -63,7 +63,10 @@ class TestRouterRelay:
         async def fake_bot(request):
             received["path"] = request.path
             received["secret"] = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-            received["body"] = await request.read()
+            chunks = []
+            async for chunk in request.content.iter_chunked(65536):
+                chunks.append(chunk)
+            received["body"] = b"".join(chunks)
             return web.json_response({"ok": True})
 
         async def fake_health(request):
@@ -78,6 +81,15 @@ class TestRouterRelay:
 
         router_app = run_mod.build_router_app([1])
 
+        # The parent router must stream rather than call request.read(), which
+        # would duplicate a potentially 500 MiB multipart upload in RAM.
+        from aiohttp.web_request import BaseRequest
+
+        async def forbidden_buffered_read(_request):
+            raise AssertionError("router buffered the request body")
+
+        monkeypatch.setattr(BaseRequest, "read", forbidden_buffered_read)
+
         bot_runner = web.AppRunner(bot_app)
         await bot_runner.setup()
         bot_site = web.TCPSite(bot_runner, "127.0.0.1", 8081)
@@ -91,9 +103,10 @@ class TestRouterRelay:
         try:
             import aiohttp
             async with aiohttp.ClientSession() as session:
+                payload = b"x" * (2 * 1024 * 1024)
                 async with session.post(
                     "http://127.0.0.1:18080/webhook/bot1",
-                    data=b"payload",
+                    data=payload,
                     headers={"X-Telegram-Bot-Api-Secret-Token": "sec123"},
                 ) as resp:
                     assert resp.status == 200
@@ -101,7 +114,7 @@ class TestRouterRelay:
 
             assert received["path"] == "/webhook/bot1"
             assert received["secret"] == "sec123"
-            assert received["body"] == b"payload"
+            assert received["body"] == payload
         finally:
             await router_runner.cleanup()
             await bot_runner.cleanup()

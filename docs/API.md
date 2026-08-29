@@ -59,6 +59,8 @@
 
 Polling 与 Webhook 模式都会启动相同的 HTTP API。多 Bot 部署通过父路由使用
 `/api/botN/v1/*`，因此切换 Telegram 更新模式时 PixivFlow 不需要修改投稿地址。
+父路由和 Telegram 上传均采用 64 KiB 分块流式传输；单文件仍限制 50 MiB、单次
+最多 10 个，临时文件会在所有成功或失败返回路径统一清理。
 
 所有 `/api/v1` 端点（除 health）都需要请求头：
 
