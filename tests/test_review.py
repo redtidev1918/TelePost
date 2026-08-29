@@ -144,6 +144,63 @@ async def test_multi_page_review_paces_preview_sends(review_db, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_multi_page_review_threads_previews(review_db, monkeypatch):
+    """多页图集进入审核群时，后续每张预览应回复上一条消息（回复链）。"""
+    bot = AsyncMock()
+    bot.send_photo.side_effect = [
+        _photo_message(message_id=10, file_id="PAGE_1"),
+        _photo_message(message_id=11, file_id="PAGE_2"),
+        _photo_message(message_id=12, file_id="PAGE_3"),
+    ]
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_INTERVAL_SECONDS", 0.0)
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_THREAD", True)
+
+    await review._stage_file_ids(
+        bot,
+        [
+            {"type": "photo", "file_id": "ORIGINAL_1"},
+            {"type": "photo", "file_id": "ORIGINAL_2"},
+            {"type": "photo", "file_id": "ORIGINAL_3"},
+        ],
+        [],
+        "caption",
+        False,
+        [],
+    )
+
+    calls = [call.kwargs for call in bot.send_photo.await_args_list]
+    assert calls[0].get("reply_to_message_id") is None
+    assert calls[1]["reply_to_message_id"] == 10
+    assert calls[2]["reply_to_message_id"] == 11
+
+
+@pytest.mark.asyncio
+async def test_multi_page_review_can_disable_threading(review_db, monkeypatch):
+    bot = AsyncMock()
+    bot.send_photo.side_effect = [
+        _photo_message(message_id=10, file_id="PAGE_1"),
+        _photo_message(message_id=11, file_id="PAGE_2"),
+    ]
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_INTERVAL_SECONDS", 0.0)
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_THREAD", False)
+
+    await review._stage_file_ids(
+        bot,
+        [
+            {"type": "photo", "file_id": "ORIGINAL_1"},
+            {"type": "photo", "file_id": "ORIGINAL_2"},
+        ],
+        [],
+        "caption",
+        False,
+        [],
+    )
+
+    calls = [call.kwargs for call in bot.send_photo.await_args_list]
+    assert all(call.get("reply_to_message_id") is None for call in calls)
+
+
+@pytest.mark.asyncio
 async def test_review_preview_uses_large_upload_timeouts(review_db, monkeypatch, tmp_path):
     source = tmp_path / "large-page.png"
     source.write_bytes(b"image")

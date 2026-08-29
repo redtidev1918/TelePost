@@ -38,6 +38,7 @@
 | `REVIEW_CHAT_ID` | 空 | 私有审核群 ID；任一审核开关为 `true` 时必填 |
 | `REVIEW_PREVIEW_INTERVAL_SECONDS` | `0.75` | 多文件审核预览发送间隔；低配实例建议保持默认值以减少 Telegram flood |
 | `REVIEW_PREVIEW_TIMEOUT_SECONDS` | `120` | 单个审核预览上传/响应超时；大图、多页作品或慢网络不要设得过低 |
+| `REVIEW_PREVIEW_THREAD` | `1` | 审核群预览是否回复上一条消息（回复链）；多页图集在群内视觉上连成一组，置 `0` 恢复平铺发送 |
 | `PIXIVFLOW_ENABLED` | `false` | 多 Bot supervisor 是否同时监督 PixivFlow 子进程 |
 | `PIXIVFLOW_CONFIG` | `/app/data/pixivflow/config.json` | 持久化配置路径；支持文件监听热重载 |
 | `PIXIVFLOW_CONFIG_TEMPLATE` | npm 包内双 Bot 模板 | 首次启动时复制到持久卷的模板路径 |

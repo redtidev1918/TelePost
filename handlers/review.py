@@ -33,6 +33,11 @@ REVIEW_PREVIEW_TIMEOUT_SECONDS = max(
     5.0, float(os.getenv("REVIEW_PREVIEW_TIMEOUT_SECONDS", "120"))
 )
 REVIEW_PREVIEW_MAX_ATTEMPTS = 5
+# 审核群预览是否回复上一条消息（形成回复链，多页图集在群内视觉上连成一组）。
+# 默认开启；置 0/false 恢复为全部平铺发送。
+REVIEW_PREVIEW_THREAD = str(
+    os.getenv("REVIEW_PREVIEW_THREAD", "1")
+).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _review_keyboard(review_id: int, link: str = "") -> InlineKeyboardMarkup:
@@ -112,7 +117,9 @@ def _cleanup_local_files(files):
             pass
 
 
-async def _send_local_preview(bot, item, caption: Optional[str], spoiler: bool):
+async def _send_local_preview(
+    bot, item, caption: Optional[str], spoiler: bool, *, reply_to_message_id=None
+):
     kind = item["kind"]
     with open(item["path"], "rb") as file_handle:
         media = InputFile(
@@ -132,6 +139,8 @@ async def _send_local_preview(bot, item, caption: Optional[str], spoiler: bool):
             "connect_timeout": min(REVIEW_PREVIEW_TIMEOUT_SECONDS, 30.0),
             "pool_timeout": min(REVIEW_PREVIEW_TIMEOUT_SECONDS, 30.0),
         }
+        if reply_to_message_id is not None:
+            common["reply_to_message_id"] = reply_to_message_id
         if kind == "photo":
             return await bot.send_photo(photo=media, has_spoiler=spoiler, **common)
         if kind == "video":
@@ -143,7 +152,10 @@ async def _send_local_preview(bot, item, caption: Optional[str], spoiler: bool):
         return await bot.send_document(document=media, **common)
 
 
-async def _send_file_id_preview(bot, item, caption: Optional[str], spoiler: bool, *, document=False):
+async def _send_file_id_preview(
+    bot, item, caption: Optional[str], spoiler: bool, *,
+    document=False, reply_to_message_id=None,
+):
     common = {
         "chat_id": REVIEW_CHAT_ID,
         "caption": caption,
@@ -153,6 +165,8 @@ async def _send_file_id_preview(bot, item, caption: Optional[str], spoiler: bool
         "connect_timeout": min(REVIEW_PREVIEW_TIMEOUT_SECONDS, 30.0),
         "pool_timeout": min(REVIEW_PREVIEW_TIMEOUT_SECONDS, 30.0),
     }
+    if reply_to_message_id is not None:
+        common["reply_to_message_id"] = reply_to_message_id
     if document:
         return await bot.send_document(document=item["file_id"], **common)
     kind = item["type"]
@@ -213,11 +227,16 @@ async def _pace_review_preview(index: int) -> None:
 
 async def _stage_local_files(bot, files, caption: str, spoiler: bool, message_ids):
     media, documents = [], []
+    previous_id = None
     for index, item in enumerate(files):
         await _pace_review_preview(index)
+        # 同一批（多页图集）的后续每张预览都回复上一条消息，形成回复链；
+        # 审核人在群内一眼就能看出这是一组投稿，而不是零散消息。
+        reply_to = previous_id if (REVIEW_PREVIEW_THREAD and previous_id is not None) else None
         message = await _send_preview_throttled(
-            lambda item=item, index=index: _send_local_preview(
-                bot, item, caption if index == 0 else None, spoiler
+            lambda item=item, index=index, reply_to=reply_to: _send_local_preview(
+                bot, item, caption if index == 0 else None, spoiler,
+                reply_to_message_id=reply_to,
             )
         )
         # Record the preview before extracting its file_id so an unexpected
@@ -230,17 +249,21 @@ async def _stage_local_files(bot, files, caption: str, spoiler: bool, message_id
             documents.append({"file_id": file_id, "filename": item["filename"]})
         else:
             media.append({"type": item["kind"], "file_id": file_id})
+        previous_id = message.message_id
     return media, documents
 
 
 async def _stage_file_ids(bot, media, documents, caption: str, spoiler: bool, message_ids):
     staged_media, staged_documents = [], []
     index = 0
+    previous_id = None
     for item in media:
         await _pace_review_preview(index)
+        reply_to = previous_id if (REVIEW_PREVIEW_THREAD and previous_id is not None) else None
         message = await _send_preview_throttled(
-            lambda item=item, index=index: _send_file_id_preview(
-                bot, item, caption if index == 0 else None, spoiler
+            lambda item=item, index=index, reply_to=reply_to: _send_file_id_preview(
+                bot, item, caption if index == 0 else None, spoiler,
+                reply_to_message_id=reply_to,
             )
         )
         message_ids.append(message.message_id)
@@ -248,12 +271,15 @@ async def _stage_file_ids(bot, media, documents, caption: str, spoiler: bool, me
         if not file_id:
             raise RuntimeError("审核群预览未返回 Telegram file_id")
         staged_media.append({"type": item["type"], "file_id": file_id})
+        previous_id = message.message_id
         index += 1
     for item in documents:
         await _pace_review_preview(index)
+        reply_to = previous_id if (REVIEW_PREVIEW_THREAD and previous_id is not None) else None
         message = await _send_preview_throttled(
-            lambda item=item, index=index: _send_file_id_preview(
-                bot, item, caption if index == 0 else None, spoiler, document=True
+            lambda item=item, index=index, reply_to=reply_to: _send_file_id_preview(
+                bot, item, caption if index == 0 else None, spoiler,
+                document=True, reply_to_message_id=reply_to,
             )
         )
         message_ids.append(message.message_id)
@@ -264,6 +290,7 @@ async def _stage_file_ids(bot, media, documents, caption: str, spoiler: bool, me
             "file_id": file_id,
             "filename": item.get("filename") or "file",
         })
+        previous_id = message.message_id
         index += 1
     return staged_media, staged_documents
 
