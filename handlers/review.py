@@ -5,6 +5,7 @@ Telegram ``file_id`` values rather than local paths, so pending reviews survive
 Fly Machine restarts without retaining the original files on disk.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -14,6 +15,7 @@ from typing import Optional
 
 import aiosqlite
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from telegram.error import RetryAfter
 
 from config.settings import ADMIN_IDS, REVIEW_CHAT_ID
 from database.db_manager import get_db
@@ -143,11 +145,39 @@ async def _send_file_id_preview(bot, item, caption: Optional[str], spoiler: bool
     return await bot.send_audio(audio=item["file_id"], **common)
 
 
+async def _send_preview_throttled(send_coro, attempt: int = 0):
+    """Send one review preview with flood-control backoff.
+
+    Staging a multi-page album (e.g. a 24-page Pixiv work) sends many media
+    messages to the review chat in a row; without pacing, Telegram answers
+    with RetryAfter / flood control. Pause briefly between sends and wait
+    out RetryAfter explicitly.
+    """
+    if attempt > 0:
+        await asyncio.sleep(0.35)
+    try:
+        return await send_coro
+    except RetryAfter as exc:
+        wait = float(getattr(exc, "retry_after", 5) or 5)
+        logger.warning("审核预览触发 Telegram 限流，等待 %.1fs 后重试", wait)
+        await asyncio.sleep(min(wait + 1, 60))
+        if attempt >= 4:
+            raise
+        return await _send_preview_throttled(send_coro, attempt=attempt + 1)
+    except Exception as exc:
+        msg = str(exc).lower()
+        if any(k in msg for k in ("flood", "retry after", "too many")):
+            await asyncio.sleep(5)
+            if attempt >= 4:
+                raise
+            return await _send_preview_throttled(send_coro, attempt=attempt + 1)
+        raise
+
 async def _stage_local_files(bot, files, caption: str, spoiler: bool, message_ids):
     media, documents = [], []
     for index, item in enumerate(files):
-        message = await _send_local_preview(
-            bot, item, caption if index == 0 else None, spoiler
+        message = await _send_preview_throttled(
+            _send_local_preview(bot, item, caption if index == 0 else None, spoiler)
         )
         # Record the preview before extracting its file_id so an unexpected
         # Telegram response can still be cleaned up by the caller.
@@ -166,8 +196,8 @@ async def _stage_file_ids(bot, media, documents, caption: str, spoiler: bool, me
     staged_media, staged_documents = [], []
     index = 0
     for item in media:
-        message = await _send_file_id_preview(
-            bot, item, caption if index == 0 else None, spoiler
+        message = await _send_preview_throttled(
+            _send_file_id_preview(bot, item, caption if index == 0 else None, spoiler)
         )
         message_ids.append(message.message_id)
         file_id = _file_id_of(message)
@@ -176,8 +206,8 @@ async def _stage_file_ids(bot, media, documents, caption: str, spoiler: bool, me
         staged_media.append({"type": item["type"], "file_id": file_id})
         index += 1
     for item in documents:
-        message = await _send_file_id_preview(
-            bot, item, caption if index == 0 else None, spoiler, document=True
+        message = await _send_preview_throttled(
+            _send_file_id_preview(bot, item, caption if index == 0 else None, spoiler, document=True)
         )
         message_ids.append(message.message_id)
         file_id = _file_id_of(message)

@@ -9,6 +9,12 @@
 
 ## [Unreleased]
 
+## [2.10.3] - 2026-08-29
+
+### 修复
+
+- 审核队列预览逐张发送时增加节流与 Telegram flood 退避（`RetryAfter` 等待后重试）：多页图集（如 24 页 Pixiv 作品）入审核队列不再触发 `Flood control exceeded` 502。
+
 ## [2.10.2] - 2026-08-29
 
 ### 修复
