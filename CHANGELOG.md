@@ -9,6 +9,12 @@
 
 ## [Unreleased]
 
+## [2.10.1] - 2026-08-29
+
+### 修复
+
+- 修复多 Bot 父路由在守护线程中启动失败的问题：`web.AppKey` 的模块名解析在非模块级调用上下文（daemon 线程）下抛 `UnboundLocalError: module`，导致 8080 路由完全不可用（`/health` 与 `/api/botN/v1` 全部失效）。改用普通字符串 key 存储 aiohttp client session，行为不变。
+
 ## [2.10.0] - 2026-08-29
 
 ### 改进

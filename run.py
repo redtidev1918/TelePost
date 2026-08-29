@@ -278,7 +278,10 @@ def build_router_app(indices: list):
     - /webhook/botN(/**) → 转发到 127.0.0.1:(8080+N) 对应子进程
     """
     from aiohttp import ClientSession, ClientTimeout, web
-    session_key = web.AppKey("telepost.router.session", ClientSession)
+    # NOTE: do not use web.AppKey here — its module-name resolution fails with
+    # UnboundLocalError when build_router_app runs from a daemon thread context.
+    # aiohttp Application is a plain dict; a string key is fully compatible.
+    session_key = "telepost.router.session"
 
     async def client_session_context(app):
         timeout = ClientTimeout(
