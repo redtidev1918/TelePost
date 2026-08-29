@@ -144,6 +144,28 @@ async def test_multi_page_review_paces_preview_sends(review_db, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_review_preview_uses_large_upload_timeouts(review_db, monkeypatch, tmp_path):
+    source = tmp_path / "large-page.png"
+    source.write_bytes(b"image")
+    bot = AsyncMock()
+    bot.send_photo.return_value = _photo_message()
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_TIMEOUT_SECONDS", 120.0)
+
+    await review._send_local_preview(
+        bot,
+        {"kind": "photo", "path": str(source), "filename": source.name},
+        "caption",
+        True,
+    )
+
+    kwargs = bot.send_photo.await_args.kwargs
+    assert kwargs["read_timeout"] == 120.0
+    assert kwargs["write_timeout"] == 120.0
+    assert kwargs["connect_timeout"] == 30.0
+    assert kwargs["pool_timeout"] == 30.0
+
+
+@pytest.mark.asyncio
 async def test_retry_after_creates_a_fresh_send_coroutine(review_db, monkeypatch):
     bot = AsyncMock()
     bot.send_photo.side_effect = [

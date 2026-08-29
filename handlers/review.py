@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 REVIEW_PREVIEW_INTERVAL_SECONDS = max(
     0.0, float(os.getenv("REVIEW_PREVIEW_INTERVAL_SECONDS", "0.75"))
 )
+REVIEW_PREVIEW_TIMEOUT_SECONDS = max(
+    5.0, float(os.getenv("REVIEW_PREVIEW_TIMEOUT_SECONDS", "120"))
+)
 REVIEW_PREVIEW_MAX_ATTEMPTS = 5
 
 
@@ -121,6 +124,13 @@ async def _send_local_preview(bot, item, caption: Optional[str], spoiler: bool):
             "chat_id": REVIEW_CHAT_ID,
             "caption": caption,
             "parse_mode": "HTML" if caption else None,
+            # Telegram's short default timeout is too aggressive for large
+            # Pixiv pages on a small Fly Machine. Scope the larger timeout to
+            # review staging so ordinary bot interactions remain responsive.
+            "read_timeout": REVIEW_PREVIEW_TIMEOUT_SECONDS,
+            "write_timeout": REVIEW_PREVIEW_TIMEOUT_SECONDS,
+            "connect_timeout": min(REVIEW_PREVIEW_TIMEOUT_SECONDS, 30.0),
+            "pool_timeout": min(REVIEW_PREVIEW_TIMEOUT_SECONDS, 30.0),
         }
         if kind == "photo":
             return await bot.send_photo(photo=media, has_spoiler=spoiler, **common)
@@ -138,6 +148,10 @@ async def _send_file_id_preview(bot, item, caption: Optional[str], spoiler: bool
         "chat_id": REVIEW_CHAT_ID,
         "caption": caption,
         "parse_mode": "HTML" if caption else None,
+        "read_timeout": REVIEW_PREVIEW_TIMEOUT_SECONDS,
+        "write_timeout": REVIEW_PREVIEW_TIMEOUT_SECONDS,
+        "connect_timeout": min(REVIEW_PREVIEW_TIMEOUT_SECONDS, 30.0),
+        "pool_timeout": min(REVIEW_PREVIEW_TIMEOUT_SECONDS, 30.0),
     }
     if document:
         return await bot.send_document(document=item["file_id"], **common)
