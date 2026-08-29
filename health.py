@@ -1,13 +1,13 @@
 """
-健康检查 HTTP 服务器（用于 Polling 模式部署）
+旧版 Polling 健康检查 HTTP 服务器（兼容外部调用）
 
 背景：
 - Webhook 模式下，utils/webhook_server.py 会在同一端口上同时提供
   /webhook 与 /health 端点，无需本模块。
-- Polling 模式（Docker、VPS 部署）没有任何 HTTP 端点，但
-  Dockerfile 的 HEALTHCHECK 与 docker-compose 的健康检查都会请求
-  http://localhost:8080/health。缺少本模块时容器会被判定为
-  unhealthy 并陷入重启循环。
+- TelePost 2.9 起，Polling 模式由 ``utils.polling_server`` 在 Bot 主事件循环
+  同时提供 ``/health`` 与 ``/api/v1/*``。主程序不再调用本模块。
+- 保留 ``start_health_server``，避免依赖旧入口的第三方部署立即失效；新代码
+  应使用 ``PollingApiServer``。
 
 实现说明：
 - 在独立的守护线程中运行自带事件循环的 aiohttp 服务器，
