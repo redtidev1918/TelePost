@@ -4,6 +4,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from telegram.error import RetryAfter
 
 from database import db_manager
 from handlers import review
@@ -112,6 +113,58 @@ async def test_failed_local_staging_deletes_uploaded_preview(review_db, tmp_path
 
     bot.delete_message.assert_awaited_once_with(chat_id=-100123, message_id=77)
     assert not source.exists()
+
+
+@pytest.mark.asyncio
+async def test_multi_page_review_paces_preview_sends(review_db, monkeypatch):
+    bot = AsyncMock()
+    bot.send_photo.side_effect = [
+        _photo_message(message_id=10, file_id="PAGE_1"),
+        _photo_message(message_id=11, file_id="PAGE_2"),
+    ]
+    sleep = AsyncMock()
+    monkeypatch.setattr(review.asyncio, "sleep", sleep)
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_INTERVAL_SECONDS", 0.75)
+
+    media, documents = await review._stage_file_ids(
+        bot,
+        [
+            {"type": "photo", "file_id": "ORIGINAL_1"},
+            {"type": "photo", "file_id": "ORIGINAL_2"},
+        ],
+        [],
+        "caption",
+        False,
+        [],
+    )
+
+    assert [item["file_id"] for item in media] == ["PAGE_1", "PAGE_2"]
+    assert documents == []
+    sleep.assert_awaited_once_with(0.75)
+
+
+@pytest.mark.asyncio
+async def test_retry_after_creates_a_fresh_send_coroutine(review_db, monkeypatch):
+    bot = AsyncMock()
+    bot.send_photo.side_effect = [
+        RetryAfter(2),
+        _photo_message(message_id=12, file_id="RETRIED"),
+    ]
+    sleep = AsyncMock()
+    monkeypatch.setattr(review.asyncio, "sleep", sleep)
+
+    media, _ = await review._stage_file_ids(
+        bot,
+        [{"type": "photo", "file_id": "ORIGINAL"}],
+        [],
+        "caption",
+        False,
+        [],
+    )
+
+    assert media[0]["file_id"] == "RETRIED"
+    assert bot.send_photo.await_count == 2
+    sleep.assert_awaited_once_with(3.0)
 
 
 @pytest.mark.asyncio

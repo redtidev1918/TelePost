@@ -21,7 +21,7 @@ TAG_SPLIT_PATTERN = re.compile(r'[,\s，]+')
 
 # 配置常量
 CONFIG = {
-    "VERSION": "2.10.0",
+    "VERSION": "2.10.4",
     "MAX_MEDIA_COUNT": 10,
     "MAX_DOCUMENT_COUNT": 10,
     "NET_TIMEOUT": 30,  # 网络超时时间（秒）
@@ -48,10 +48,12 @@ def process_tags(raw_tags: str) -> tuple:
         # 移除标签前的所有#号，然后统一添加一个#
         # 这样可以处理 ##tag, ###tag 等情况
         processed = []
+        seen = set()
         for tag in tags:
             # 移除开头的所有#号
             clean_tag = tag.lstrip('#')
-            if clean_tag:  # 确保移除#后还有内容
+            if clean_tag and clean_tag not in seen:  # 去重并保留来源顺序
+                seen.add(clean_tag)
                 processed.append(f"#{clean_tag}")
         
         # 处理标签长度超过30的情况

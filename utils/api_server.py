@@ -29,7 +29,10 @@ MAX_FILE_BYTES = 50 * 1024 * 1024      # Telegram Bot API 单文件上限
 # 入站文件数上限（发布侧会按每组 ≤10 自动拆成多个 Telegram media group），
 # 放宽以支持多页插画/图集整本投稿（如 Pixiv 24 页作品）。
 MAX_FILES = 50
-API_CLIENT_MAX_BYTES = MAX_FILES * MAX_FILE_BYTES + 10 * 1024 * 1024
+# 文件数与体积分别受限。不能按 50 × 50 MiB 放宽到 2.5 GiB，否则低配
+# 实例的持久卷可能被单个请求占满。默认累计 500 MiB，并与父路由一致。
+MAX_TOTAL_FILE_BYTES = 500 * 1024 * 1024
+API_CLIENT_MAX_BYTES = MAX_TOTAL_FILE_BYTES + 10 * 1024 * 1024
 _rate_cache = TTLCache(default_ttl=3600, max_size=4096)
 
 
@@ -221,6 +224,7 @@ def add_api_routes(web_app, application) -> None:
 
         try:
             reader = await request.multipart()
+            total_file_bytes = 0
             while part := await reader.next():
                 if part.name == "files":
                     if len(files) >= MAX_FILES:
@@ -232,9 +236,16 @@ def add_api_routes(web_app, application) -> None:
                     with open(tmp_path, "wb") as fh:
                         while chunk := await part.read_chunk(65536):
                             size += len(chunk)
+                            total_file_bytes += len(chunk)
                             if size > MAX_FILE_BYTES:
                                 return _error(413, "file_too_large",
                                               f"{filename} 超过 50MB 上限")
+                            if total_file_bytes > MAX_TOTAL_FILE_BYTES:
+                                return _error(
+                                    413,
+                                    "request_too_large",
+                                    "单次投稿文件累计超过 500MB 上限",
+                                )
                             fh.write(chunk)
                     files.append({"path": tmp_path, "filename": filename,
                                   "kind": detect_kind(filename, kind_hint)})

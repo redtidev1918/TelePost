@@ -11,6 +11,7 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Optional
 
 import aiosqlite
@@ -24,6 +25,11 @@ from utils.helper_functions import build_caption
 
 
 logger = logging.getLogger(__name__)
+
+REVIEW_PREVIEW_INTERVAL_SECONDS = max(
+    0.0, float(os.getenv("REVIEW_PREVIEW_INTERVAL_SECONDS", "0.75"))
+)
+REVIEW_PREVIEW_MAX_ATTEMPTS = 5
 
 
 def _review_keyboard(review_id: int, link: str = "") -> InlineKeyboardMarkup:
@@ -145,7 +151,17 @@ async def _send_file_id_preview(bot, item, caption: Optional[str], spoiler: bool
     return await bot.send_audio(audio=item["file_id"], **common)
 
 
-async def _send_preview_throttled(send_coro, attempt: int = 0):
+def _retry_after_seconds(exc: RetryAfter) -> float:
+    value = getattr(exc, "retry_after", 5) or 5
+    if hasattr(value, "total_seconds"):
+        value = value.total_seconds()
+    try:
+        return max(float(value), 0.0)
+    except (TypeError, ValueError):
+        return 5.0
+
+
+async def _send_preview_throttled(send_factory: Callable[[], Awaitable]):
     """Send one review preview with flood-control backoff.
 
     Staging a multi-page album (e.g. a 24-page Pixiv work) sends many media
@@ -153,31 +169,42 @@ async def _send_preview_throttled(send_coro, attempt: int = 0):
     with RetryAfter / flood control. Pause briefly between sends and wait
     out RetryAfter explicitly.
     """
-    if attempt > 0:
-        await asyncio.sleep(0.35)
-    try:
-        return await send_coro
-    except RetryAfter as exc:
-        wait = float(getattr(exc, "retry_after", 5) or 5)
-        logger.warning("审核预览触发 Telegram 限流，等待 %.1fs 后重试", wait)
-        await asyncio.sleep(min(wait + 1, 60))
-        if attempt >= 4:
-            raise
-        return await _send_preview_throttled(send_coro, attempt=attempt + 1)
-    except Exception as exc:
-        msg = str(exc).lower()
-        if any(k in msg for k in ("flood", "retry after", "too many")):
-            await asyncio.sleep(5)
-            if attempt >= 4:
+    last_error = None
+    for attempt in range(REVIEW_PREVIEW_MAX_ATTEMPTS):
+        try:
+            # A factory is required here: an awaited coroutine cannot be
+            # reused after RetryAfter. It also reopens local files per retry.
+            return await send_factory()
+        except RetryAfter as exc:
+            last_error = exc
+            wait = _retry_after_seconds(exc) + 1.0
+            logger.warning("审核预览触发 Telegram 限流，等待 %.1fs 后重试", wait)
+        except Exception as exc:
+            msg = str(exc).lower()
+            if not any(k in msg for k in ("flood", "retry after", "too many")):
                 raise
-            return await _send_preview_throttled(send_coro, attempt=attempt + 1)
-        raise
+            last_error = exc
+            wait = 5.0
+
+        if attempt + 1 >= REVIEW_PREVIEW_MAX_ATTEMPTS:
+            raise last_error
+        await asyncio.sleep(wait)
+
+    raise RuntimeError("审核预览重试次数已耗尽")
+
+
+async def _pace_review_preview(index: int) -> None:
+    if index > 0 and REVIEW_PREVIEW_INTERVAL_SECONDS > 0:
+        await asyncio.sleep(REVIEW_PREVIEW_INTERVAL_SECONDS)
 
 async def _stage_local_files(bot, files, caption: str, spoiler: bool, message_ids):
     media, documents = [], []
     for index, item in enumerate(files):
+        await _pace_review_preview(index)
         message = await _send_preview_throttled(
-            _send_local_preview(bot, item, caption if index == 0 else None, spoiler)
+            lambda item=item, index=index: _send_local_preview(
+                bot, item, caption if index == 0 else None, spoiler
+            )
         )
         # Record the preview before extracting its file_id so an unexpected
         # Telegram response can still be cleaned up by the caller.
@@ -196,8 +223,11 @@ async def _stage_file_ids(bot, media, documents, caption: str, spoiler: bool, me
     staged_media, staged_documents = [], []
     index = 0
     for item in media:
+        await _pace_review_preview(index)
         message = await _send_preview_throttled(
-            _send_file_id_preview(bot, item, caption if index == 0 else None, spoiler)
+            lambda item=item, index=index: _send_file_id_preview(
+                bot, item, caption if index == 0 else None, spoiler
+            )
         )
         message_ids.append(message.message_id)
         file_id = _file_id_of(message)
@@ -206,8 +236,11 @@ async def _stage_file_ids(bot, media, documents, caption: str, spoiler: bool, me
         staged_media.append({"type": item["type"], "file_id": file_id})
         index += 1
     for item in documents:
+        await _pace_review_preview(index)
         message = await _send_preview_throttled(
-            _send_file_id_preview(bot, item, caption if index == 0 else None, spoiler, document=True)
+            lambda item=item, index=index: _send_file_id_preview(
+                bot, item, caption if index == 0 else None, spoiler, document=True
+            )
         )
         message_ids.append(message.message_id)
         file_id = _file_id_of(message)

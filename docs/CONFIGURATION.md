@@ -36,6 +36,7 @@
 | `API_REVIEW_REQUIRED` | `false` | HTTP API 投稿是否进入审核队列 |
 | `CHAT_REVIEW_REQUIRED` | `false` | Telegram `/submit` 投稿是否进入审核队列 |
 | `REVIEW_CHAT_ID` | 空 | 私有审核群 ID；任一审核开关为 `true` 时必填 |
+| `REVIEW_PREVIEW_INTERVAL_SECONDS` | `0.75` | 多文件审核预览发送间隔；低配实例建议保持默认值以减少 Telegram flood |
 | `PIXIVFLOW_ENABLED` | `false` | 多 Bot supervisor 是否同时监督 PixivFlow 子进程 |
 | `PIXIVFLOW_CONFIG` | `/app/data/pixivflow/config.json` | 持久化配置路径；支持文件监听热重载 |
 | `PIXIVFLOW_CONFIG_TEMPLATE` | npm 包内双 Bot 模板 | 首次启动时复制到持久卷的模板路径 |

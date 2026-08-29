@@ -92,7 +92,7 @@ Authorization: Bearer tp_xxxxxxxx
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `files` | file，可重复 | 是 | 1–10 个文件；图片/视频/GIF/音频按媒体发布，其余按文档发布 |
+| `files` | file，可重复 | 是 | 1–50 个文件；图片/视频/GIF/音频按媒体发布，其余按文档发布 |
 | `tags` | text | 是 | 逗号分隔，最多 30 个，发布时自动加 # 前缀 |
 | `title` | text | 否 | ≤100 字符 |
 | `note` | text | 否 | ≤600 字符 |
@@ -101,7 +101,7 @@ Authorization: Bearer tp_xxxxxxxx
 | `spoiler` | text | 否 | `true` 时媒体加剧透遮罩 |
 | `idempotency_key` | text | 否 | 审核模式下的防重键，建议传稳定的来源 ID，最长 240 字符 |
 
-约束：单文件 ≤ 50MB；媒体（图片/视频/GIF）与文档混传时，文档作为媒体主贴的回复发出。
+约束：单文件 ≤50MB，单次文件累计 ≤500MB；媒体（图片/视频/GIF）与文档混传时，文档作为媒体主贴的回复发出。
 
 ### GET /api/v1/me
 
@@ -165,11 +165,11 @@ Authorization: Bearer tp_xxxx
 |---|---|---|
 | 400 | `invalid_content_type` | 未使用 multipart/form-data |
 | 400 | `missing_files` | 没有提供文件 |
-| 400 | `too_many_files` | 超过 10 个文件 |
-| 400 | `file_too_large` | 单文件超过 50MB |
+| 400 | `too_many_files` | 超过 50 个文件 |
 | 400 | `invalid_tags` / `invalid_link` | 字段校验失败 |
 | 401 | `invalid_token` | token 缺失/错误/已吊销 |
-| 413 | `file_too_large` | 同上 |
+| 413 | `file_too_large` | 单文件超过 50MB |
+| 413 | `request_too_large` | 单次文件累计超过 500MB |
 | 429 | `rate_limited` | 超过每小时投稿限额 |
 | 502 | `publish_failed` | 频道发布失败（网络或 Telegram 侧错误） |
 | 502 | `review_queue_failed` | 审核群上传或审核记录持久化失败 |
@@ -229,7 +229,8 @@ TelePost 只在审核群上传成功且 SQLite 记录已建立后才返回 `201`
 ## 限额
 
 - 每用户每小时 `SUBMIT_LIMIT_PER_HOUR` 次（默认 10，管理员可在配置中调整，0 关闭）
-- 频道侧限制：单媒体组 ≤10 个文件；单文件 ≤50MB
+- API 入站：最多 50 个文件，单文件 ≤50MB，累计 ≤500MB
+- 频道侧：单媒体组 ≤10 个文件；TelePost 会自动分组发送
 
 ## Python 调用示例
 

@@ -170,5 +170,5 @@ class TestTagProcessingEdgeCases:
         success, result = process_tags("Python,PYTHON,python")
         
         assert success is True
-        # 所有标签应该转换为小写
-        assert "#python" in result.lower()
+        # 所有标签应该转换为小写并去重
+        assert result == "#python"

@@ -198,6 +198,33 @@ class TestSubmission:
             await client.close()
 
     @pytest.mark.asyncio
+    async def test_rejects_files_over_aggregate_limit_and_cleans_uploads(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(api_server, "MAX_FILE_BYTES", 20)
+        monkeypatch.setattr(api_server, "MAX_TOTAL_FILE_BYTES", 10)
+        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            form = __import__("aiohttp").FormData()
+            form.add_field("files", b"123456", filename="one.jpg", content_type="image/jpeg")
+            form.add_field("files", b"abcdef", filename="two.jpg", content_type="image/jpeg")
+            form.add_field("tags", "Pixiv")
+            resp = await client.post(
+                "/api/v1/submissions",
+                data=form,
+                headers={"Authorization": "Bearer tp_ok"},
+            )
+            assert resp.status == 413
+            assert (await resp.json())["error"]["code"] == "request_too_large"
+            await asyncio.sleep(0)
+            assert list((tmp_path / "data" / "api_uploads").iterdir()) == []
+            publish_mock.assert_not_called()
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
     async def test_review_mode_queues_without_publishing(self, monkeypatch):
         monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
         queue_mock = AsyncMock(return_value={
