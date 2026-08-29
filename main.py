@@ -267,7 +267,7 @@ async def main():
     """
     主函数 - 设置并启动机器人
     """
-    logger.info(f"启动TelePost机器人。版本: {CONFIG.get('VERSION', '2.6.0')}")
+    logger.info(f"启动TelePost机器人。版本: {CONFIG.get('VERSION', 'unknown')}")
     logger.info(f"会话超时时间: {TIMEOUT_SECONDS}秒")
     
     health_server_started = False
