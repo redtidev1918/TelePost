@@ -1,6 +1,7 @@
 """
 多 bot 启动器（run.py）测试
 """
+import json
 import os
 
 import run
@@ -108,3 +109,39 @@ class TestPixivFlowWorker:
         assert env["PIXIV_DOWNLOADER_CONFIG"] == str(config)
         assert "BOT1_TOKEN" not in env
         assert env["TELEPOST_BOT1_SUBMIT_TOKEN"] == "submission-secret"
+
+
+def test_storage_health_snapshot_reports_cache_outbox_and_uploads(tmp_path):
+    pixiv_dir = tmp_path / "pixivflow"
+    cache_dir = pixiv_dir / "cache"
+    outbox_dir = pixiv_dir / "delivery-outbox"
+    uploads_dir = tmp_path / "api_uploads"
+    cache_dir.mkdir(parents=True)
+    outbox_dir.mkdir()
+    uploads_dir.mkdir()
+    (cache_dir / "artwork.jpg").write_bytes(b"a" * 11)
+    (outbox_dir / "pending.json").write_text(
+        '{"attempts": 2, "lastError": "temporary"}', encoding="utf-8"
+    )
+    (outbox_dir / "ignore.tmp").write_text("x", encoding="utf-8")
+    (uploads_dir / "upload.bin").write_bytes(b"b" * 7)
+    config = pixiv_dir / "config.json"
+    config.write_text(json.dumps({
+        "storage": {
+            "databasePath": "./pixivflow.db",
+            "downloadDirectory": "./cache",
+        }
+    }), encoding="utf-8")
+
+    result = run.storage_health_snapshot({
+        "PIXIVFLOW_CONFIG": str(config),
+        "TELEPOST_DATA_ROOT": str(tmp_path),
+    })
+
+    assert result["pixivflow_cache"]["bytes"] == 11
+    assert result["delivery_outbox"]["files"] == 1
+    assert result["delivery_outbox"]["total_attempts"] == 2
+    assert result["delivery_outbox"]["failed_files"] == 1
+    assert result["delivery_outbox"]["oldest_age_seconds"] >= 0
+    assert result["api_uploads"]["bytes"] == 7
+    assert result["volume"]["total_mb"] > 0

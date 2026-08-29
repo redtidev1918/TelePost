@@ -1,0 +1,16 @@
+{
+  "bots": {
+    "1": {
+      "channelId": "-1001111111111",
+      "reviewChatId": "-1002222222222",
+      "apiReviewRequired": true,
+      "chatReviewRequired": false
+    },
+    "2": {
+      "channelId": "-1003333333333",
+      "reviewChatId": "-1004444444444",
+      "apiReviewRequired": true,
+      "chatReviewRequired": false
+    }
+  }
+}

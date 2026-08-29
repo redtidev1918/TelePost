@@ -24,7 +24,7 @@ echo ""
 if ! command -v pytest &> /dev/null; then
     echo -e "${RED}❌ pytest 未安装${NC}"
     echo -e "${YELLOW}📦 正在安装测试依赖...${NC}"
-    pip3 install -r requirements.txt
+    pip3 install -r requirements-dev.txt
     echo ""
 fi
 

@@ -28,6 +28,20 @@
 
 - 多媒体发布按每组 ≤10 个分块、组间 2 秒延迟（规避 API 限流），多组消息以"回复"串联。
 - 索引写入仅在 `SEARCH_ENABLED=true` 时进行；禁用搜索的部署不会在磁盘产生索引目录。
+- Docker 使用多阶段构建：编译器、Python 头文件、npm 与测试工具只存在于构建阶段；
+  默认镜像不含 Node，Fly 联合档显式选择 `runtime-pixivflow`，仅额外复制 Node 运行时
+  和 PixivFlow 安装目录。
+- 生产依赖安装自 `requirements.txt`；开发和测试环境使用 `requirements-dev.txt`。
+
+## 磁盘与 outbox 观测
+
+联合档的 `/health` 会报告持久卷容量与使用率、PixivFlow cache、delivery outbox 和
+API 临时上传目录。outbox 还包含待交付文件数、总重试次数、带错误的文件数与最老
+任务年龄；这些数字持续增加通常说明 Telegram/API 交付链路异常。目录扫描结果缓存
+15 秒，因此健康探针不会每次都遍历整个缓存。
+
+缓存模式下不要直接清空 outbox 或其引用的下载文件。先恢复交付链路并让 PixivFlow
+在下次任务执行时重试；只有确认稿件无需投递后，才手工清理对应清单和缓存。
 
 ## 两档推荐配置
 

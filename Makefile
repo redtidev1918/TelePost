@@ -120,7 +120,7 @@ clean:
 # 本地安装依赖
 install:
 	@echo "📦 安装依赖..."
-	pip3 install -r requirements.txt
+	pip3 install -r requirements-dev.txt
 	@echo "✅ 依赖安装完成"
 
 # 本地开发环境
@@ -153,4 +153,3 @@ update:
 	@echo ""
 	@echo "📋 查看日志确认运行正常:"
 	@echo "   make logs"
-

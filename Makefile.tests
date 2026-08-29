@@ -92,7 +92,7 @@ clean-test:
 # 安装测试依赖
 install-test:
 	@echo "📦 安装测试依赖..."
-	pip install pytest pytest-asyncio pytest-cov pytest-mock coverage
+	pip install -r requirements-dev.txt
 
 # 检查测试覆盖率并生成报告
 coverage-report:

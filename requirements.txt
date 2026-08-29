@@ -30,10 +30,3 @@ whoosh>=2.7.4
 # 2. 重新安装依赖：pip install -r requirements.txt
 # 3. 修改 config.ini: [SEARCH] ANALYZER = jieba 或 simple
 # 4. 重启应用（自动适配索引）
-
-# 测试依赖
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-pytest-cov>=4.1.0
-pytest-mock>=3.11.0
-coverage>=7.3.0

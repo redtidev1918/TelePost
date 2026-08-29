@@ -9,6 +9,19 @@
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-08-29
+
+### 新增
+
+- `/health` 新增持久卷、PixivFlow cache、delivery outbox 与 API 临时上传指标；outbox 同时报告重试次数、错误文件数和最老任务年龄
+- 新增 Mac 端 `update_telepost_policy.sh`，用非敏感 JSON 校验并一次更新多 Bot 的频道、审核群与审核来源策略
+
+### 改进
+
+- Docker 改为多阶段构建，生产镜像不再包含编译器、npm 和测试工具；Fly 联合档仅保留 Node 运行时与 PixivFlow
+- 生产与测试依赖拆分为 `requirements.txt` 和 `requirements-dev.txt`
+- PixivFlow 远程原子更新脚本固定使用联合部署配置，避免仓库默认 Fly 配置缺失时产生误导警告
+
 ## [2.7.3] - 2026-08-29
 
 ### 修复

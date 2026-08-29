@@ -67,6 +67,36 @@ PixivFlow 内部的多个 Cron 共享认证、SQLite、文件服务，并串行�
 拒绝，旧计划继续运行。可热更新 `schedules`、`targets`、`delivery`、`download`；
 修改 Pixiv 凭据、代理或存储路径后需 `fly machine restart`。
 
+### 从 Mac 远程切换时间、tag、Bot 和频道
+
+PixivFlow 策略是真热重载。先把线上配置拉回 Mac，编辑后原子上传：
+
+```bash
+fly ssh sftp get -a <app> /app/data/pixivflow/config.json ./pixivflow.json
+# 修改 target.filterTag、schedule.cron/enabled/targetIds；修改
+# target.delivery.target 可在 telepost-bot1 / telepost-bot2 之间切换。
+python3 -m json.tool ./pixivflow.json >/dev/null
+./scripts/update_pixivflow_config.sh <app> ./pixivflow.json
+```
+
+上传后正在运行的任务不被中断，新配置从下一次触发生效。临时只运行一次的计划可
+设 `maxExecutions: 1`；要让今天与明天使用不同 tag/时刻，也可以预先建立两个
+schedule，分别设置不同 Cron 与 `targetIds`，不必每天登录服务器。
+
+TelePost 的 Bot Token 永远保留在 Fly Secret 中。频道和审核群策略从 Mac 使用
+非敏感 JSON 更新，示例见 `config/fly-telepost-policy.example.json`：
+
+```bash
+cp config/fly-telepost-policy.example.json ./telepost-policy.json
+# 编辑 channelId / reviewChatId / 两个审核开关
+./scripts/update_telepost_policy.sh <app> ./telepost-policy.json
+```
+
+频道策略会先完整校验、再作为 staged secrets 一次部署，因此只重启 Machine 一次，
+无需重建镜像，SQLite、PixivFlow 配置和 outbox 都保留。频道切换前应先处理完旧审核
+群里的 pending 项；pending 项在批准时会使用切换后的当前频道配置，否则旧稿可能
+误发到刚切换的新频道。
+
 每个 tag 的“昨日最热插画 + 小说”需要两条 target；tag 列表增加一项时，复制这
 一对 target，设置唯一 `id`，再把 id 加入对应 schedule 的 `targetIds`。模板使用
 `rankingDate: "YESTERDAY"`，会在每天实际执行前重新计算日期。
@@ -79,8 +109,10 @@ fly logs -a <app>
 fly machine status -a <app> <machine-id>   # 检查 OOM 事件
 ```
 
-`/health` 返回 Python/Node 各进程 RSS 和系统可用内存。建议正常空闲时至少留
-100 MiB 可用空间；下载峰值后持续低于 60 MiB 或出现 OOM 时升级到 1 GiB。
+`/health` 返回 Python/Node 各进程 RSS、系统可用内存、卷使用率、PixivFlow cache、
+delivery outbox 待处理文件数/大小、累计尝试次数、最老任务年龄和 API 临时上传大小。目录统计缓存 15 秒，避免
+Fly 健康探针频繁遍历文件。建议正常空闲时至少留 100 MiB 可用空间；下载峰值后
+持续低于 60 MiB 或出现 OOM 时升级到 1 GiB。
 
 ## 发布流程（Tag → GHCR 镜像 → GitHub Release）
 

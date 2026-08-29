@@ -1,76 +1,60 @@
-# TelePost - Telegram 投稿机器人
-# 基于 Python 3.11 slim 镜像
-FROM python:3.11-slim
+# syntax=docker/dockerfile:1.7
 
-# 代理参数（可选，构建时通过 --build-arg 传入）
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG INSTALL_PIXIVFLOW=false
+# Build Python wheels once, then keep compilers and headers out of production.
+FROM python:3.11-slim AS python-builder
+
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
+
+# The combined Fly profile needs Node and PixivFlow, but not npm at runtime.
+FROM node:20-bookworm-slim AS pixivflow-builder
+
 ARG PIXIVFLOW_VERSION=2.7.0
+RUN npm install --prefix /opt/pixivflow "pixivflow@${PIXIVFLOW_VERSION}" \
+    && npm cache clean --force
 
-# 设置工作目录
+
+FROM python:3.11-slim AS runtime-base
+
 WORKDIR /app
-
-# 设置环境变量
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     TZ=Asia/Shanghai \
-    HTTP_PROXY=${HTTP_PROXY} \
-    HTTPS_PROXY=${HTTPS_PROXY}
-
-# 安装系统依赖
-# gcc 和 python3-dev 用于编译 Whoosh 等 Python 包
-# 注意：apt-get 不使用代理，直接连接 Debian 源
-# 分步安装以减少内存占用
-RUN HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy="" apt-get update && \
-    HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy="" apt-get install -y --no-install-recommends \
-    tzdata && \
-    rm -rf /var/lib/apt/lists/*
-
-# Optional combined Fly image: one Node scheduler plus the existing TelePost
-# multi-bot supervisor. The normal TelePost release image stays Python-only.
-RUN if [ "$INSTALL_PIXIVFLOW" = "true" ]; then \
-      HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy="" apt-get update && \
-      HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy="" apt-get install -y --no-install-recommends nodejs npm && \
-      npm install -g "pixivflow@${PIXIVFLOW_VERSION}" && \
-      npm cache clean --force && \
-      rm -rf /var/lib/apt/lists/*; \
-    fi
-
-RUN HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy="" apt-get update && \
-    HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy="" apt-get install -y --no-install-recommends \
-    gcc \
-    g++ \
-    python3-dev && \
-    rm -rf /var/lib/apt/lists/*
-
-# 复制依赖文件并安装
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
-
-# 复制项目文件
-COPY . .
-
-# 创建必要的目录
-# data: 数据库和搜索索引
-# logs: 日志文件
-RUN mkdir -p logs data data/search_index
-
-# 设置目录权限
-RUN chmod -R 755 logs data
-
-# 清除代理环境变量（避免影响运行时）
-ENV HTTP_PROXY="" \
+    HTTP_PROXY="" \
     HTTPS_PROXY=""
 
-# 暴露端口（健康检查端口）
-EXPOSE 8080
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
 
-# 健康检查
-# 通过 HTTP 健康检查端点检查服务状态
+COPY requirements.txt .
+COPY --from=python-builder /wheels /wheels
+RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
+    && rm -rf /wheels
+
+COPY . .
+RUN mkdir -p logs data data/search_index \
+    && chmod -R 755 logs data
+
+EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health').read()" || exit 1
-
-# 运行机器人（run.py 自动分发：单 bot 直接运行；检测到 BOT1_TOKEN 则多 bot 模式）
 CMD ["python", "-u", "run.py"]
+
+
+# Fly's combined 512 MiB profile explicitly selects this stage.
+FROM runtime-base AS runtime-pixivflow
+
+COPY --from=pixivflow-builder /usr/local/bin/node /usr/local/bin/node
+COPY --from=pixivflow-builder /opt/pixivflow /opt/pixivflow
+RUN ln -s /opt/pixivflow/node_modules/.bin/pixivflow /usr/local/bin/pixivflow
+
+
+# Default Docker/GHCR builds remain the Python-only TelePost image.
+FROM runtime-base AS runtime

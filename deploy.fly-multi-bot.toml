@@ -6,9 +6,9 @@ primary_region = "sin"
 
 [build]
   dockerfile = "Dockerfile"
+  build-target = "runtime-pixivflow"
 
 [build.args]
-  INSTALL_PIXIVFLOW = "true"
   PIXIVFLOW_VERSION = "2.7.0"
 
 [env]

@@ -78,7 +78,7 @@ curl localhost:8080/health  # 健康检查
 ## 开发
 
 ```bash
-python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+python3 -m venv .venv && ./.venv/bin/pip install -r requirements-dev.txt
 ./.venv/bin/python -m pytest -q --no-cov
 ```
 
@@ -115,7 +115,8 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 - [aiosqlite](https://github.com/omnilib/aiosqlite) —— 异步 SQLite
 - [psutil](https://github.com/giampaolo/psutil) —— 进程与内存监控
 
-完整依赖见 [requirements.txt](requirements.txt)。
+生产依赖见 [requirements.txt](requirements.txt)，测试工具见
+[requirements-dev.txt](requirements-dev.txt)。
 
 ## 反馈与许可
 

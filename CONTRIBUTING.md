@@ -6,7 +6,7 @@
 
 ```bash
 git clone https://github.com/redtidev1918/TelePost.git && cd TelePost
-python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+python3 -m venv .venv && ./.venv/bin/pip install -r requirements-dev.txt
 cp config.ini.example config.ini   # 填入测试用 Token/频道
 ```
 

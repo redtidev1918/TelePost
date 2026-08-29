@@ -107,11 +107,16 @@ class TestRouterRelay:
             await bot_runner.cleanup()
 
     @pytest.mark.asyncio
-    async def test_health_endpoint(self):
+    async def test_health_endpoint(self, monkeypatch):
         from aiohttp import web
         from aiohttp.test_utils import TestServer
         import aiohttp
 
+        monkeypatch.setattr(
+            run_mod,
+            "storage_health_snapshot",
+            lambda: {"delivery_outbox": {"files": 2, "bytes": 42, "mb": 0.0}},
+        )
         router_app = run_mod.build_router_app([1])
         runner = web.AppRunner(router_app)
         await runner.setup()
@@ -123,5 +128,6 @@ class TestRouterRelay:
                     assert resp.status == 200
                     data = await resp.json()
                     assert data["status"] == "ok"
+                    assert data["storage"]["delivery_outbox"]["files"] == 2
         finally:
             await runner.cleanup()

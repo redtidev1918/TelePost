@@ -8,6 +8,8 @@ TelePost 启动器
 
 任一子进程异常退出时自动重启（5 秒退避）；SIGTERM/SIGINT 会转发给所有子进程。
 """
+import asyncio
+import json
 import os
 import re
 import shlex
@@ -33,6 +35,131 @@ OVERRIDABLE_KEYS = (
 #   路由进程占 WEBHOOK_PORT（默认 8080，对外 + Fly 健康检查）
 #   botN 子进程占 8080+N（仅本机回环可见），webhook 路径为 /webhook/botN
 ROUTER_DEFAULT_PORT = 8080
+_STORAGE_METRICS_CACHE = {"expires_at": 0.0, "value": None}
+
+
+def _directory_metrics(path: str, *, suffix: str | None = None) -> dict:
+    """Return bounded, symlink-safe file counts and bytes for one directory."""
+    total_bytes = 0
+    file_count = 0
+    if not os.path.isdir(path):
+        return {"files": 0, "bytes": 0, "mb": 0.0}
+    for root, _dirs, files in os.walk(path, followlinks=False):
+        for filename in files:
+            if suffix and not filename.endswith(suffix):
+                continue
+            try:
+                total_bytes += os.stat(
+                    os.path.join(root, filename), follow_symlinks=False
+                ).st_size
+                file_count += 1
+            except (FileNotFoundError, OSError):
+                continue
+    return {
+        "files": file_count,
+        "bytes": total_bytes,
+        "mb": round(total_bytes / 1048576, 3),
+    }
+
+
+def _outbox_metrics(path: str) -> dict:
+    """Summarize durable delivery manifests without exposing their contents."""
+    metrics = _directory_metrics(path, suffix=".json")
+    total_attempts = 0
+    failed_files = 0
+    oldest_mtime = None
+    if os.path.isdir(path):
+        for root, _dirs, files in os.walk(path, followlinks=False):
+            for filename in files:
+                if not filename.endswith(".json"):
+                    continue
+                manifest_path = os.path.join(root, filename)
+                try:
+                    stat = os.stat(manifest_path, follow_symlinks=False)
+                    oldest_mtime = (
+                        stat.st_mtime
+                        if oldest_mtime is None
+                        else min(oldest_mtime, stat.st_mtime)
+                    )
+                    with open(manifest_path, encoding="utf-8") as handle:
+                        manifest = json.load(handle)
+                    total_attempts += max(0, int(manifest.get("attempts", 0)))
+                    failed_files += int(bool(manifest.get("lastError")))
+                except (FileNotFoundError, OSError, ValueError, TypeError):
+                    continue
+    metrics.update({
+        "total_attempts": total_attempts,
+        "failed_files": failed_files,
+        "oldest_age_seconds": (
+            round(max(0.0, time.time() - oldest_mtime), 1)
+            if oldest_mtime is not None
+            else 0.0
+        ),
+    })
+    return metrics
+
+
+def storage_health_snapshot(env=None, *, force: bool = False) -> dict:
+    """Summarize the persistent volume and PixivFlow's transient storage."""
+    global _STORAGE_METRICS_CACHE
+    use_cache = env is None and not force
+    now = time.monotonic()
+    if use_cache and _STORAGE_METRICS_CACHE["expires_at"] > now:
+        return _STORAGE_METRICS_CACHE["value"]
+
+    values = env or os.environ
+    config_path = os.path.abspath(values.get(
+        "PIXIVFLOW_CONFIG", "/app/data/pixivflow/config.json"
+    ))
+    config_dir = os.path.dirname(config_path)
+    data_root = values.get("TELEPOST_DATA_ROOT")
+    if not data_root:
+        data_root = (
+            os.path.dirname(config_dir)
+            if os.path.basename(config_dir) == "pixivflow"
+            else "data"
+        )
+    data_root = os.path.abspath(data_root)
+
+    storage = {}
+    try:
+        with open(config_path, encoding="utf-8") as handle:
+            storage = (json.load(handle).get("storage") or {})
+    except (FileNotFoundError, OSError, ValueError, TypeError):
+        pass
+
+    def resolve_config_path(value: str, fallback: str) -> str:
+        candidate = value or fallback
+        return (
+            candidate
+            if os.path.isabs(candidate)
+            else os.path.join(config_dir, candidate)
+        )
+
+    cache_path = resolve_config_path(storage.get("downloadDirectory"), "cache")
+    database_path = resolve_config_path(storage.get("databasePath"), "pixivflow.db")
+    outbox_path = os.path.join(os.path.dirname(database_path), "delivery-outbox")
+    uploads_path = os.path.join(data_root, "api_uploads")
+
+    result = {
+        "pixivflow_cache": _directory_metrics(cache_path),
+        "delivery_outbox": _outbox_metrics(outbox_path),
+        "api_uploads": _directory_metrics(uploads_path),
+    }
+    try:
+        usage = shutil.disk_usage(data_root)
+        result["volume"] = {
+            "total_mb": round(usage.total / 1048576, 1),
+            "used_mb": round(usage.used / 1048576, 1),
+            "available_mb": round(usage.free / 1048576, 1),
+            "used_percent": round(usage.used * 100 / usage.total, 1),
+        }
+    except (FileNotFoundError, OSError, ZeroDivisionError):
+        pass
+
+    if use_cache:
+        _STORAGE_METRICS_CACHE = {"expires_at": now + 15.0, "value": result}
+    return result
 
 
 def pixivflow_enabled(env=None) -> bool:
@@ -49,7 +176,7 @@ def prepare_pixivflow_env(base: dict) -> tuple[list, dict]:
     )
     template_path = base.get(
         "PIXIVFLOW_CONFIG_TEMPLATE",
-        "/usr/local/lib/node_modules/pixivflow/config/fly-two-bots.example.json",
+        "/opt/pixivflow/node_modules/pixivflow/config/fly-two-bots.example.json",
     )
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
     if not os.path.exists(config_path):
@@ -173,6 +300,10 @@ def build_router_app(indices: list):
             payload["system_available_mb"] = round(
                 psutil.virtual_memory().available / 1048576, 1
             )
+        except Exception:
+            pass
+        try:
+            payload["storage"] = await asyncio.to_thread(storage_health_snapshot)
         except Exception:
             pass
         return web.json_response(payload)
