@@ -26,7 +26,9 @@ logger = logging.getLogger(__name__)
 
 API_VERSION = "1.0"
 MAX_FILE_BYTES = 50 * 1024 * 1024      # Telegram Bot API 单文件上限
-MAX_FILES = 10
+# 入站文件数上限（发布侧会按每组 ≤10 自动拆成多个 Telegram media group），
+# 放宽以支持多页插画/图集整本投稿（如 Pixiv 24 页作品）。
+MAX_FILES = 50
 API_CLIENT_MAX_BYTES = MAX_FILES * MAX_FILE_BYTES + 10 * 1024 * 1024
 _rate_cache = TTLCache(default_ttl=3600, max_size=4096)
 
