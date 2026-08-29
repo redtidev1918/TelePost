@@ -57,6 +57,9 @@
 
 ## 认证
 
+Polling 与 Webhook 模式都会启动相同的 HTTP API。多 Bot 部署通过父路由使用
+`/api/botN/v1/*`，因此切换 Telegram 更新模式时 PixivFlow 不需要修改投稿地址。
+
 所有 `/api/v1` 端点（除 health）都需要请求头：
 
 ```

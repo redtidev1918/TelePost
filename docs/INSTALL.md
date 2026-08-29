@@ -33,8 +33,8 @@ docker compose up -d --build
 ```
 
 - 镜像内置 `HEALTHCHECK`，每 30 秒请求 `http://localhost:8080/health`：
-  - **Polling 模式**：由 `health.py`（独立守护线程，默认 8080 端口）提供；
-  - **Webhook 模式**：由 `utils/webhook_server.py` 在同一端口提供 `/webhook` 与 `/health`。
+  - **Polling 模式**：由 `utils/polling_server.py` 在同一事件循环提供 `/health` 与 `/api/v1/*`；
+  - **Webhook 模式**：由 `utils/webhook_server.py` 在同一端口提供 `/webhook`、`/health` 与 `/api/v1/*`。
 - 默认 `RUN_MODE=AUTO`：配置有效公网 HTTPS `WEBHOOK_URL` 时使用 Webhook，否则自动使用 Polling；Webhook 注册失败也会安全回退 Polling。
 - 持久化：容器内 `data/`（数据库+索引）与 `logs/` 需要卷映射，参考 `docker-compose.yml`。
 

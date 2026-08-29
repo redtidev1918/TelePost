@@ -282,14 +282,16 @@ export RUN_MODE=POLLING
 
 ---
 
-## 多 bot 单机 Webhook（auto_stop 省钱形态）
+## 多 bot 单机统一路由
 
 设置 `BOT1_TOKEN`/`BOT2_TOKEN`/… 后，容器入口 `run.py` 会：
 
-1. 为每个 bot 派生独立子进程，webhook 端口自动错开（8081、8082、…）
-2. 在 `WEBHOOK_PORT`（默认 8080）启动**按路径转发的路由**：
+1. 为每个 bot 派生独立子进程，HTTP 端口自动错开（8081、8082、…）
+2. 无论 Polling 还是 Webhook，都在 `WEBHOOK_PORT`（默认 8080）启动**按路径转发的路由**：
    `/webhook/bot1` → bot1 子进程，`/webhook/bot2` → bot2 子进程
-3. 各 bot 以自己的 Secret Token 调用 `setWebhook`（Telegram 校验互不可见）
+   以及 `/api/bot1/v1/*`、`/api/bot2/v1/*` → 对应子进程 API
+3. Webhook 模式下，各 bot 以自己的 Secret Token 调用 `setWebhook`；Polling 模式
+   不要求公网入站，但 PixivFlow 仍可通过上述本地 API 地址投稿
 
 配合 `auto_stop_machines=true` + `min_machines_running=0`：
 空闲自动停机（计算费 0），任何频道的来消息都会自动唤醒机器（约 1-2 秒延迟）。
@@ -347,7 +349,8 @@ Status: 稳定运行
 **关键优化**:
 - ✅ 端口复用：Webhook 服务器同时处理 `/webhook` 和 `/health`
 - ✅ 内存优化：使用 `SEARCH_ANALYZER=simple` 节省 ~140MB
-- ✅ 无需额外端口：health.py 仅在 Polling 模式启动
+- ✅ 模式无关 API：Polling 使用 `polling_server.py`，Webhook 使用
+  `webhook_server.py`；两者都提供健康检查和 `/api/v1/*`
 
 **验证平台**:
 - ✅ PaaS 平台（256MB）

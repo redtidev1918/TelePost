@@ -15,7 +15,10 @@
 
 ## Docker 容器反复重启
 
-`HEALTHCHECK` 请求 8080 `/health` 失败即 unhealthy。Polling 模式依赖 `health.py`（已内置）；确认端口映射与 `WEBHOOK_PORT` 一致，日志查 `健康检查` 关键字。
+`HEALTHCHECK` 请求 8080 `/health` 失败即 unhealthy。Polling 模式由
+`utils/polling_server.py` 同时承载健康检查和投稿 API；确认端口映射，并在日志中查
+`Polling HTTP server started`。多 Bot 模式下父路由固定占 8080，子进程使用
+8081/8082/…。
 
 ## 搜索问题
 

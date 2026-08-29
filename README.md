@@ -14,7 +14,7 @@ Telegram 频道投稿机器人：媒体/文档投稿、全文搜索、热度统�
 - 标签云
 - 管理：黑名单、批量删帖（软删除，保留历史）
 - 多 bot：一台机器承载多个频道的投稿 bot，数据相互隔离
-- 网络自适应：`RUN_MODE=AUTO` 在有公网 HTTPS Webhook 地址时使用推送，否则自动回退轮询
+- 网络自适应：`RUN_MODE=AUTO` 在有公网 HTTPS Webhook 地址时使用推送，否则自动回退轮询；两种模式都保留健康检查与投稿 API
 - 可选审核队列：可分别控制 API 投稿、Telegram `/submit` 投稿是否进入私有审核群，由管理员点击通过/拒绝
 - 可选 PixivFlow 联合调度：同一 Fly Machine 中用一个 Node 进程运行多条 Pixiv 下载计划，缓存投递到 Bot1/Bot2，配置可通过 SSH 原子热更新
 

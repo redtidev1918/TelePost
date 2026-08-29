@@ -124,14 +124,6 @@ setup_logging()
 # 加载环境变量
 load_dotenv()
 
-# 健康检查服务器（用于 Fly.io 部署）
-try:
-    from health import start_health_server
-    HEALTH_SERVER_ENABLED = True
-except ImportError:
-    HEALTH_SERVER_ENABLED = False
-    logger.warning("health.py 未找到，健康检查服务器将不会启动")
-
 # 全局变量
 TIMEOUT_SECONDS = int(os.getenv("SESSION_TIMEOUT", "900"))  # 默认15分钟
 
@@ -270,24 +262,6 @@ async def main():
     logger.info(f"启动TelePost机器人。版本: {CONFIG.get('VERSION', 'unknown')}")
     logger.info(f"会话超时时间: {TIMEOUT_SECONDS}秒")
     
-    health_server_started = False
-
-    def ensure_polling_health_server():
-        nonlocal health_server_started
-        if not HEALTH_SERVER_ENABLED or health_server_started:
-            return
-        try:
-            start_health_server(port=int(os.getenv("HEALTH_PORT", "8080")))
-            health_server_started = True
-            logger.info("健康检查服务器已启动（Polling 模式）")
-        except Exception as e:
-            logger.warning(f"启动健康检查服务器失败: {e}")
-
-    # 启动健康检查服务器（仅在 Polling 模式下）
-    # Webhook 模式会使用 telegram 的内置服务器
-    if RUN_MODE == 'POLLING':
-        ensure_polling_health_server()
-    
     # 初始化数据库
     await init_db()
     # 初始化用户会话数据库
@@ -386,6 +360,18 @@ async def main():
     
     # 根据运行模式选择启动方式
     webhook_server = None
+    polling_server = None
+
+    async def ensure_polling_server():
+        nonlocal polling_server
+        if polling_server is not None:
+            return
+        from utils.polling_server import PollingApiServer
+        polling_server = PollingApiServer(
+            application=application,
+            port=int(os.getenv("HEALTH_PORT", "8080")),
+        )
+        await polling_server.start()
     
     if RUN_MODE == 'WEBHOOK':
         # Webhook 模式
@@ -434,7 +420,7 @@ async def main():
                 except Exception as e:
                     logger.warning(f"清理失败的 Webhook 服务时出错: {e}")
             webhook_server = None
-            ensure_polling_health_server()
+            await ensure_polling_server()
             await application.updater.start_polling(allowed_updates=[
                 "message",
                 "edited_message",
@@ -463,6 +449,7 @@ async def main():
     else:
         # Polling 模式（默认）
         logger.info("🔄 启动 Polling 模式...")
+        await ensure_polling_server()
         # 明确指定需要接收的更新类型，包括频道消息
         allowed_updates = [
             "message",           # 普通消息
@@ -480,7 +467,9 @@ async def main():
     stop_signals = (signal.SIGINT, signal.SIGTERM, signal.SIGABRT)
     for s in stop_signals:
         loop.add_signal_handler(
-            s, lambda s=s: asyncio.create_task(shutdown(application, s, loop, webhook_server))
+            s, lambda s=s: asyncio.create_task(
+                shutdown(application, s, loop, webhook_server, polling_server)
+            )
         )
         
     logger.info("机器人运行中，使用 Ctrl+C 停止")
@@ -491,7 +480,9 @@ async def main():
     logger.info("机器人已停止")
 
 
-async def shutdown(application, signal, loop, webhook_server=None):
+async def shutdown(
+    application, signal, loop, webhook_server=None, polling_server=None
+):
     """
     优雅地关闭机器人
     
@@ -518,6 +509,14 @@ async def shutdown(application, signal, loop, webhook_server=None):
             logger.info("Telegram Webhook 已删除")
         except Exception as e:
             logger.warning(f"删除 Webhook 失败: {e}")
+
+    if polling_server:
+        try:
+            logger.info("正在停止 Polling HTTP API 服务器...")
+            await polling_server.stop()
+            logger.info("Polling HTTP API 服务器已停止")
+        except Exception as e:
+            logger.warning(f"停止 Polling HTTP API 服务器失败: {e}")
     
     # 关闭机器人更新器
     # 注意：Webhook 模式下 Updater 从未通过 start_polling/start_webhook 启动，

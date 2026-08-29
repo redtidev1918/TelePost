@@ -243,8 +243,11 @@ def build_bot_env(index: int, base: dict) -> dict:
     # 数据目录默认按 bot 隔离，避免不同频道的用户/帖子数据混在一起
     env["DB_PATH"] = env.get("DB_PATH", f"data/bot{index}/submissions.db")
     env["SEARCH_INDEX_DIR"] = env.get("SEARCH_INDEX_DIR", f"data/bot{index}/search_index")
-    # 多进程共存时健康检查端口错开（8080/8081/…），避免端口冲突（仅 Polling 模式使用）
-    env["HEALTH_PORT"] = env.get("HEALTH_PORT", str(8079 + index))
+    # 父路由固定占 8080；子进程在两种模式下都使用 8081/8082/...，
+    # 这样 /api/botN/v1 路径可以在 Polling 与 Webhook 间保持不变。
+    env["HEALTH_PORT"] = env.get(
+        f"BOT{index}_HEALTH_PORT", str(bot_webhook_port(index))
+    )
 
     # 多 bot webhook 模式：每个 bot 独占一个内部端口与回调路径
     if env.get("RUN_MODE", "").upper() == "WEBHOOK":
@@ -269,7 +272,7 @@ def run_single():
 
 def build_router_app(indices: list):
     """
-    多 bot webhook 路由（aiohttp）：
+    多 bot HTTP 路由（aiohttp）：
     - GET /health        → 200（Fly 健康检查 / auto_stop 唤醒入口）
     - /webhook/botN(/**) → 转发到 127.0.0.1:(8080+N) 对应子进程
     """
@@ -364,7 +367,11 @@ def start_webhook_router(port: int, indices: list):
             await runner.setup()
             site = web.TCPSite(runner, "0.0.0.0", port)
             await site.start()
-            print(f"[router] webhook 路由已启动 :{port} → " + ", ".join(f"bot{i}:8080+i" for i in indices), flush=True)
+            print(
+                f"[router] HTTP 路由已启动 :{port} → "
+                + ", ".join(f"bot{i}:{bot_webhook_port(i)}" for i in indices),
+                flush=True,
+            )
             while True:
                 await __import__("asyncio").sleep(3600)
 
@@ -400,11 +407,10 @@ def run_multi(indices: list) -> None:
             if directory:
                 os.makedirs(directory, exist_ok=True)
 
-    # WEBHOOK 模式：启动按路径转发的路由（/webhook/botN → 子进程端口），
-    # 配合 Fly 的 auto_stop，空闲停机、来消息自动唤醒，最大限度省钱
-    if os.environ.get("RUN_MODE", "").upper() == "WEBHOOK":
-        router_port = int(os.environ.get("WEBHOOK_PORT", str(ROUTER_DEFAULT_PORT)))
-        start_webhook_router(router_port, indices)
+    # 两种 Telegram 更新模式都启动统一入口。Webhook 使用 /webhook/botN；
+    # Polling 不使用这些回调，但 PixivFlow 仍可稳定调用 /api/botN/v1。
+    router_port = int(os.environ.get("WEBHOOK_PORT", str(ROUTER_DEFAULT_PORT)))
+    start_webhook_router(router_port, indices)
 
     pixivflow_spec = None
     if pixivflow_enabled():

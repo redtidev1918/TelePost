@@ -36,6 +36,10 @@ def test_run_multi_spawns_both_bots_and_stops(monkeypatch):
     monkeypatch.setenv("BOT1_CHANNEL_ID", "@c1")
     monkeypatch.setenv("BOT2_TOKEN", "t2")
     monkeypatch.setenv("BOT2_CHANNEL_ID", "@c2")
+    routers = []
+    monkeypatch.setattr(
+        run, "start_webhook_router", lambda port, indices: routers.append((port, indices))
+    )
 
     ticks = {"n": 0}
 
@@ -58,6 +62,7 @@ def test_run_multi_spawns_both_bots_and_stops(monkeypatch):
     ]
     # 收到停止信号后所有子进程都被 terminate
     assert all(p.terminated for p in FakeProc.instances)
+    assert routers == [(8080, [1, 2])]
 
 
 def test_run_multi_supervises_pixivflow_without_exposing_bot_tokens(monkeypatch, tmp_path):
@@ -72,6 +77,7 @@ def test_run_multi_supervises_pixivflow_without_exposing_bot_tokens(monkeypatch,
     config.write_text('{"schedules": []}', encoding="utf-8")
     monkeypatch.setenv("PIXIVFLOW_CONFIG", str(config))
     monkeypatch.setenv("TELEPOST_BOT1_SUBMIT_TOKEN", "submit-1")
+    monkeypatch.setattr(run, "start_webhook_router", lambda _port, _indices: None)
 
     ticks = {"n": 0}
 

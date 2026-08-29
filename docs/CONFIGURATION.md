@@ -32,7 +32,7 @@
 | `SESSION_TIMEOUT` | `900` | 投稿会话不活动超时（秒），超时清理会话并提示 |
 | `HEALTH_PORT` | `8080` | Polling 模式健康检查端口（多 bot 时自动错开为 8081/8082/…） |
 | `DB_PATH` | `data/submissions.db` | 数据库文件路径（多 bot 时默认按 bot 隔离） |
-| `API_ENABLED` | `true` | 是否启用 HTTP API（/api/v1，供外部项目投稿） |
+| `API_ENABLED` | `true` | 是否启用 HTTP API（Polling/Webhook 均支持 `/api/v1`，供外部项目投稿） |
 | `API_REVIEW_REQUIRED` | `false` | HTTP API 投稿是否进入审核队列 |
 | `CHAT_REVIEW_REQUIRED` | `false` | Telegram `/submit` 投稿是否进入审核队列 |
 | `REVIEW_CHAT_ID` | 空 | 私有审核群 ID；任一审核开关为 `true` 时必填 |

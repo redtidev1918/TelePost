@@ -49,7 +49,7 @@ class TestBuildBotEnv:
         assert env["OWNER_ID"] == "111"
         assert env["DB_PATH"] == "data/bot1/submissions.db"
         assert env["SEARCH_INDEX_DIR"] == "data/bot1/search_index"
-        assert env["HEALTH_PORT"] == "8080"
+        assert env["HEALTH_PORT"] == "8081"
 
     def test_bot2_isolated(self):
         env = run.build_bot_env(2, self.base())
@@ -57,7 +57,7 @@ class TestBuildBotEnv:
         assert env["CHANNEL_ID"] == "@c2"
         assert env["OWNER_ID"] == "222"
         assert env["DB_PATH"] == "data/bot2/submissions.db"
-        assert env["HEALTH_PORT"] == "8081"
+        assert env["HEALTH_PORT"] == "8082"
 
     def test_strips_other_bot_tokens(self):
         env = run.build_bot_env(1, self.base())
@@ -78,6 +78,14 @@ class TestBuildBotEnv:
         assert out["API_REVIEW_REQUIRED"] == "true"
         assert out["CHAT_REVIEW_REQUIRED"] == "true"
         assert out["REVIEW_CHAT_ID"] == "-100123"
+
+    def test_health_ports_stay_isolated_from_parent_default(self):
+        env = self.base()
+        env["HEALTH_PORT"] = "8080"
+        env["BOT2_HEALTH_PORT"] = "9092"
+
+        assert run.build_bot_env(1, env)["HEALTH_PORT"] == "8081"
+        assert run.build_bot_env(2, env)["HEALTH_PORT"] == "9092"
 
     def test_base_env_not_mutated(self):
         base = self.base()

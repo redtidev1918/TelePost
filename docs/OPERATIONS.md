@@ -143,7 +143,7 @@ Docker 部署使用 `docker compose {up -d|restart|down}`；systemd 部署用 `s
 ## 日志
 
 - 位置：`logs/`；每天 03:00 自动清理过期日志（`main.py` 定时任务）。
-- `/health`：Polling 模式由 `health.py` 提供（8080 端口），Webhook 模式由 webhook 服务器提供。
+- `/health`：Polling 与 Webhook 都提供健康检查和投稿 API；多 Bot 父路由在两种模式下都保持 `/api/botN/v1/*` 地址不变。
 
 ## 数据库维护
 
