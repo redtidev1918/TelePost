@@ -33,7 +33,7 @@ class WebhookServer:
         
         logger.info(f"Webhook 服务器初始化: 端口={port}, 路径={path}")
         if not secret_token:
-            logger.info(f"已自动生成 Secret Token: {self.secret_token}")
+            logger.info("已自动生成 Webhook Secret Token（值不写入日志）")
     
     async def webhook_handler(self, request: web.Request) -> web.Response:
         """
@@ -185,7 +185,7 @@ async def setup_webhook(application, webhook_url: str, webhook_path: str, secret
         
         if success:
             logger.info(f"✅ Webhook 设置成功: {full_webhook_url}")
-            logger.info(f"✅ Secret Token: {secret_token}")
+            logger.info("✅ Secret Token: 已设置")
             logger.info(f"✅ Allowed Updates: {', '.join(allowed_updates)}")
             
             # 验证 webhook 信息
@@ -231,4 +231,3 @@ async def delete_webhook(application):
     except Exception as e:
         logger.error(f"❌ 删除 Webhook 时发生错误: {e}", exc_info=True)
         return False
-

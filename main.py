@@ -403,7 +403,7 @@ async def main():
         import secrets
         secret_token = WEBHOOK_SECRET_TOKEN or secrets.token_urlsafe(32)
         if not WEBHOOK_SECRET_TOKEN:
-            logger.info(f"已自动生成 Secret Token: {secret_token}")
+            logger.info("已自动生成 Webhook Secret Token（值不写入日志）")
         
         # 创建服务器并向 Telegram 注册。AUTO 模式会把监听端口、DNS、
         # TLS 或 Telegram API 侧的任何启动失败统一回退到 Polling。
@@ -458,7 +458,7 @@ async def main():
             logger.info(f"   监听地址: 0.0.0.0:{WEBHOOK_PORT}{WEBHOOK_PATH}")
             logger.info(f"   外部地址: {WEBHOOK_URL}{WEBHOOK_PATH}")
             logger.info(f"   健康检查: http://0.0.0.0:{WEBHOOK_PORT}/health")
-            logger.info(f"   Secret Token: {'已设置' if WEBHOOK_SECRET_TOKEN else f'{secret_token[:16]}...'}")
+            logger.info("   Secret Token: 已设置")
         
     else:
         # Polling 模式（默认）
