@@ -990,7 +990,9 @@ def _file_id_of(message):
     for attr in ("photo", "video", "animation", "audio", "document"):
         value = getattr(message, attr, None)
         if value:
-            if isinstance(value, list):
+            # python-telegram-bot exposes Message.photo as a tuple in current
+            # releases, while older releases and our stored mocks used lists.
+            if isinstance(value, (list, tuple)):
                 return value[-1].file_id
             return value.file_id
     return None

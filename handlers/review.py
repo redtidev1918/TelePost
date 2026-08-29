@@ -145,10 +145,12 @@ async def _stage_local_files(bot, files, caption: str, spoiler: bool, message_id
         message = await _send_local_preview(
             bot, item, caption if index == 0 else None, spoiler
         )
+        # Record the preview before extracting its file_id so an unexpected
+        # Telegram response can still be cleaned up by the caller.
+        message_ids.append(message.message_id)
         file_id = _file_id_of(message)
         if not file_id:
             raise RuntimeError("审核群预览未返回 Telegram file_id")
-        message_ids.append(message.message_id)
         if item["kind"] == "document":
             documents.append({"file_id": file_id, "filename": item["filename"]})
         else:
@@ -163,16 +165,17 @@ async def _stage_file_ids(bot, media, documents, caption: str, spoiler: bool, me
         message = await _send_file_id_preview(
             bot, item, caption if index == 0 else None, spoiler
         )
+        message_ids.append(message.message_id)
         file_id = _file_id_of(message)
         if not file_id:
             raise RuntimeError("审核群预览未返回 Telegram file_id")
         staged_media.append({"type": item["type"], "file_id": file_id})
-        message_ids.append(message.message_id)
         index += 1
     for item in documents:
         message = await _send_file_id_preview(
             bot, item, caption if index == 0 else None, spoiler, document=True
         )
+        message_ids.append(message.message_id)
         file_id = _file_id_of(message)
         if not file_id:
             raise RuntimeError("审核群预览未返回 Telegram file_id")
@@ -180,7 +183,6 @@ async def _stage_file_ids(bot, media, documents, caption: str, spoiler: bool, me
             "file_id": file_id,
             "filename": item.get("filename") or "file",
         })
-        message_ids.append(message.message_id)
         index += 1
     return staged_media, staged_documents
 

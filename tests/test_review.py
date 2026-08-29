@@ -20,6 +20,18 @@ def _photo_message(message_id=10, file_id="STAGED_PHOTO"):
     return message
 
 
+def test_file_id_extraction_accepts_tuple_photo_sizes():
+    from handlers.publish import _file_id_of
+
+    message = _photo_message()
+    message.photo = (
+        MagicMock(file_id="SMALL_PHOTO"),
+        MagicMock(file_id="LARGE_PHOTO"),
+    )
+
+    assert _file_id_of(message) == "LARGE_PHOTO"
+
+
 def _callback_update(data, user_id=123456789):
     update = MagicMock()
     update.effective_user.id = user_id
@@ -78,6 +90,28 @@ async def test_file_id_submission_is_durable_and_idempotent(review_db):
     assert row["status"] == "pending"
     assert json.loads(row["media_json"])[0]["file_id"] == "STAGED_PHOTO"
     assert row["control_message_id"] == 11
+
+
+@pytest.mark.asyncio
+async def test_failed_local_staging_deletes_uploaded_preview(review_db, tmp_path):
+    source = tmp_path / "preview.png"
+    source.write_bytes(b"not-a-real-image")
+    message = _photo_message(message_id=77)
+    message.photo = ()
+    bot = AsyncMock()
+    bot.send_photo.return_value = message
+
+    with pytest.raises(RuntimeError, match="file_id"):
+        await review.queue_review_from_files(
+            bot,
+            [{"kind": "photo", "path": str(source), "filename": "preview.png"}],
+            tags="#test",
+            user_id=7,
+            username="tester",
+        )
+
+    bot.delete_message.assert_awaited_once_with(chat_id=-100123, message_id=77)
+    assert not source.exists()
 
 
 @pytest.mark.asyncio
