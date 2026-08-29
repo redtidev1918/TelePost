@@ -51,6 +51,7 @@ cd TelePost
 
 ## 部署
 
+| 联合部署套件 | [redtidev1918/pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy) — PixivFlow + TelePost 一套 Compose 启动，支持国内/海外、有/无公网 IP 任意场景 |
 | 方式 | 文档 |
 |---|---|
 | quickstart.sh（快速体验） | [docs/INSTALL.md](docs/INSTALL.md) |
