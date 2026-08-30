@@ -170,6 +170,44 @@ async def init_db():
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_heat ON published_posts(is_deleted, heat_score DESC)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_publish_time ON published_posts(is_deleted, publish_time DESC)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_deleted ON published_posts(user_id, is_deleted)')
+
+            # published_posts 是频道现状，pending_reviews 是审核审计。频道消息被软删除时
+            # 同步把对应审核记录从“曾发布”推进到“已删除”，避免把历史终态误当成
+            # 当前仍在线的发布。触发器覆盖项目内所有软删除入口。
+            await conn.execute('''
+                CREATE TRIGGER IF NOT EXISTS trg_published_post_review_deleted
+                AFTER UPDATE OF is_deleted ON published_posts
+                WHEN NEW.is_deleted = 1 AND OLD.is_deleted IS NOT 1
+                BEGIN
+                    UPDATE pending_reviews
+                    SET status = 'deleted',
+                        updated_at = CAST(strftime('%s', 'now') AS REAL),
+                        error = CASE
+                            WHEN COALESCE(error, '') = '' THEN 'published message deleted'
+                            ELSE error
+                        END
+                    WHERE published_message_id = NEW.message_id
+                      AND status = 'published';
+                END
+            ''')
+
+            # 一次性修正触发器上线前已经出现的错位记录。保留 decided_at/decided_by，
+            # 因为它们仍表示当时的批准操作；只更新当前生命周期状态。
+            cursor = await conn.execute('''
+                UPDATE pending_reviews
+                SET status = 'deleted',
+                    updated_at = CAST(strftime('%s', 'now') AS REAL),
+                    error = CASE
+                        WHEN COALESCE(error, '') = '' THEN 'published message deleted'
+                        ELSE error
+                    END
+                WHERE status = 'published'
+                  AND published_message_id IN (
+                      SELECT message_id FROM published_posts WHERE is_deleted = 1
+                  )
+            ''')
+            if cursor.rowcount:
+                logger.info("已同步 %d 条已删除发布的审核状态", cursor.rowcount)
             
             await conn.commit()
             logger.info("数据库初始化完成")
@@ -198,7 +236,7 @@ async def cleanup_old_data():
             cutoff = datetime.now().timestamp() - TIMEOUT
             await c.execute("DELETE FROM submissions WHERE timestamp < ?", (cutoff,))
 
-        # 清理终态（拒绝/发布/失败/过期）且超过保留期的审核记录，避免表无限增长。
+        # 清理终态（拒绝/发布/已删除/失败/过期）且超过保留期的审核记录，避免表无限增长。
         # 只清理终态记录：pending 的投稿绝不能动。保留期默认 30 天。
         review_retention_days = int(os.getenv("REVIEW_RETENTION_DAYS", "30"))
         if review_retention_days > 0:
@@ -214,7 +252,7 @@ async def cleanup_old_data():
                     c = await conn.cursor()
                     await c.execute(
                         "DELETE FROM pending_reviews "
-                        "WHERE status IN ('rejected','published','failed','expired') AND updated_at < ?",
+                        "WHERE status IN ('rejected','published','deleted','failed','expired') AND updated_at < ?",
                         (review_cutoff,),
                     )
                     logger.info("已清理过期审核记录（保留 %d 天）", review_retention_days)

@@ -14,7 +14,8 @@
 1. `SELECT rowid AS post_id, message_id, related_message_ids, is_deleted ... WHERE message_id=?`（不存在/已删则提前返回）；
 2. 删除频道主消息与 `related_message_ids` 中的关联消息；"消息不存在/无法删除"视为已达目标；
 3. `search_engine.delete_post(message_id)` 移除索引（含关联消息；`SEARCH_ENABLED=false` 时跳过）；
-4. `UPDATE published_posts SET is_deleted=1 WHERE rowid=?`；
+4. `UPDATE published_posts SET is_deleted=1 WHERE rowid=?`；数据库触发器同步将关联
+   `pending_reviews.status` 从 `published` 改为 `deleted`；
 5. 汇总各步结果回复 OWNER。
 
 ## 已删除频帖的自动检测
@@ -25,6 +26,10 @@
 
 `published_posts`：`message_id`（频道消息 ID，主键）、`related_message_ids`（JSON 数组，多组媒体的其余消息）、`is_deleted`（0/1，默认 0）、`publish_time`（Unix REAL）。
 注意：表中没有 `id`/`created_at` 列——按库内 ID 查询用 `rowid`，时间用 `publish_time`。
+
+`pending_reviews`：`published_message_id` 关联频道主消息。`status=published`
+表示审核后发布且当前未软删除；频道消息软删除后为 `deleted`。
+`decided_at` / `decided_by` 保留原批准审核信息，不会被删除时间覆盖。
 
 ## 恢复
 

@@ -139,6 +139,7 @@ def _review_queue_metrics(values: dict) -> dict:
             "pending": pending,
             "failed": failed,
             "expired": int(counts.get("expired", 0)),
+            "deleted": int(counts.get("deleted", 0)),
         })
     return {
         "pending": total_pending,

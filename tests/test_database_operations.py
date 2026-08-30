@@ -256,6 +256,61 @@ class TestAsyncDatabaseOperations:
                 result = await cursor.fetchone()
                 assert result is None
 
+    @pytest.mark.database
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_deleted_post_syncs_review_status_and_backfills(self, temp_dir):
+        """频道软删除后审核记录应为 deleted，既要覆盖新删除，也要迁移旧错位数据。"""
+        db_path = os.path.join(temp_dir, 'review_delete_sync.db')
+
+        with patch('database.db_manager.DB_PATH', db_path):
+            from database.db_manager import get_db, init_db
+
+            await init_db()
+            now = time.time()
+            async with get_db() as conn:
+                await conn.executemany(
+                    """
+                    INSERT INTO pending_reviews (
+                        idempotency_key, status, user_id, review_chat_id,
+                        created_at, updated_at, published_message_id
+                    ) VALUES (?, 'published', 7, '-100123', ?, ?, ?)
+                    """,
+                    [
+                        ('triggered', now, now, 101),
+                        ('backfill', now, now, 102),
+                    ],
+                )
+                await conn.executemany(
+                    """
+                    INSERT INTO published_posts (message_id, publish_time, is_deleted)
+                    VALUES (?, ?, ?)
+                    """,
+                    [(101, now, 0), (102, now, 1)],
+                )
+                await conn.execute(
+                    "UPDATE published_posts SET is_deleted=1 WHERE message_id=101"
+                )
+
+            async with get_db() as conn:
+                rows = await (await conn.execute(
+                    "SELECT idempotency_key, status FROM pending_reviews ORDER BY id"
+                )).fetchall()
+            assert [(row['idempotency_key'], row['status']) for row in rows] == [
+                ('triggered', 'deleted'),
+                ('backfill', 'published'),
+            ]
+
+            await init_db()
+            async with get_db() as conn:
+                rows = await (await conn.execute(
+                    "SELECT idempotency_key, status FROM pending_reviews ORDER BY id"
+                )).fetchall()
+            assert [(row['idempotency_key'], row['status']) for row in rows] == [
+                ('triggered', 'deleted'),
+                ('backfill', 'deleted'),
+            ]
+
 
 class TestDatabaseConcurrency:
     """数据库并发测试"""
@@ -444,6 +499,7 @@ class TestDatabaseIntegrity:
                     """,
                     [
                         ("expired-old", "expired", review_old_timestamp, review_old_timestamp),
+                        ("deleted-old", "deleted", review_old_timestamp, review_old_timestamp),
                         ("pending-old", "pending", review_old_timestamp, review_old_timestamp),
                     ],
                 )

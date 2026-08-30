@@ -9,6 +9,16 @@
 
 ## [Unreleased]
 
+## [2.10.15] - 2026-08-31
+
+### 修复
+
+- 频道消息软删除（`published_posts.is_deleted=1`）时，同步将对应审核记录从
+  `published` 更新为 `deleted`；数据库初始化会自动回填旧版已经错位的历史数据。
+  `published` 现在只表示当前仍未标记删除的已发布审核结果。
+- `/health` 的 `storage.review_queue.by_bot` 增加 `deleted` 历史终态计数，
+  避免运维时把已删除稿误判为当前在线发布。
+
 ## [2.10.14] - 2026-08-31
 
 ### 改进

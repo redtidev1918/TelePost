@@ -142,7 +142,7 @@ def test_storage_health_snapshot_reports_cache_outbox_and_uploads(tmp_path):
         )
         conn.executemany(
             "INSERT INTO pending_reviews VALUES (?, ?)",
-            [("pending", 1), ("pending", 2), ("failed", 3), ("expired", 4)],
+            [("pending", 1), ("pending", 2), ("failed", 3), ("expired", 4), ("deleted", 5)],
         )
         conn.commit()
     finally:
@@ -177,7 +177,7 @@ def test_storage_health_snapshot_reports_cache_outbox_and_uploads(tmp_path):
     assert result["review_queue"]["pending"] == 2
     assert result["review_queue"]["failed"] == 1
     assert result["review_queue"]["by_bot"] == [
-        {"bot": 1, "pending": 2, "failed": 1, "expired": 1}
+        {"bot": 1, "pending": 2, "failed": 1, "expired": 1, "deleted": 1}
     ]
     assert result["review_queue"]["oldest_pending_age_seconds"] > 0
     assert result["volume"]["total_mb"] > 0
