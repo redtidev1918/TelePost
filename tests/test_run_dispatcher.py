@@ -44,6 +44,8 @@ class TestBuildBotEnv:
 
     def test_maps_prefixed_vars(self):
         env = run.build_bot_env(1, self.base())
+        assert env["TELEPOST_BOT_INDEX"] == "1"
+        assert env["TELEPOST_PRIMARY_BOT"] == "true"
         assert env["TOKEN"] == "t1"
         assert env["CHANNEL_ID"] == "@c1"
         assert env["OWNER_ID"] == "111"
@@ -53,6 +55,8 @@ class TestBuildBotEnv:
 
     def test_bot2_isolated(self):
         env = run.build_bot_env(2, self.base())
+        assert env["TELEPOST_BOT_INDEX"] == "2"
+        assert env["TELEPOST_PRIMARY_BOT"] == "false"
         assert env["TOKEN"] == "t2"
         assert env["CHANNEL_ID"] == "@c2"
         assert env["OWNER_ID"] == "222"

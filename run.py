@@ -225,6 +225,10 @@ def build_bot_env(index: int, base: dict) -> dict:
     WEBHOOK 模式下额外分配独立端口与回调路径（/webhook/botN）。
     """
     env = dict(base)
+    # Identify the primary child explicitly. Process-wide maintenance such as
+    # PixivFlow VACUUM must run once, not once per Bot against the same DB.
+    env["TELEPOST_BOT_INDEX"] = str(index)
+    env["TELEPOST_PRIMARY_BOT"] = "true" if index == 1 else "false"
     env["TOKEN"] = env.get(f"BOT{index}_TOKEN", "")
     env["CHANNEL_ID"] = env.get(f"BOT{index}_CHANNEL_ID", "")
 

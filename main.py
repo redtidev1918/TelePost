@@ -741,7 +741,13 @@ def setup_application(application):
             except Exception as exc:
                 logger.warning("PixivFlow 维护失败: %s", exc, exc_info=True)
 
-        job_queue.run_daily(pixivflow_maintain_job, time=datetime_time(hour=4, minute=0))
+        is_primary_bot = os.getenv("TELEPOST_PRIMARY_BOT", "true").strip().lower() in {
+            "1", "true", "yes", "on"
+        }
+        if is_primary_bot:
+            job_queue.run_daily(pixivflow_maintain_job, time=datetime_time(hour=4, minute=0))
+        else:
+            logger.info("跳过全局 PixivFlow 维护任务（仅主 Bot 注册）")
         
         # 添加帖子统计数据更新任务（默认每2小时执行一次，降低峰值）
         job_queue.run_repeating(update_post_stats, interval=7200, first=60)
