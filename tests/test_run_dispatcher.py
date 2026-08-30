@@ -3,6 +3,7 @@
 """
 import json
 import os
+import sqlite3
 
 import run
 
@@ -131,6 +132,21 @@ def test_storage_health_snapshot_reports_cache_outbox_and_uploads(tmp_path):
     cache_dir.mkdir(parents=True)
     outbox_dir.mkdir()
     uploads_dir.mkdir()
+    bot_dir = tmp_path / "bot1"
+    bot_dir.mkdir()
+    bot_db = bot_dir / "submissions.db"
+    conn = sqlite3.connect(bot_db)
+    try:
+        conn.execute(
+            "CREATE TABLE pending_reviews (status TEXT, created_at REAL)"
+        )
+        conn.executemany(
+            "INSERT INTO pending_reviews VALUES (?, ?)",
+            [("pending", 1), ("pending", 2), ("failed", 3), ("expired", 4)],
+        )
+        conn.commit()
+    finally:
+        conn.close()
     (cache_dir / "artwork.jpg").write_bytes(b"a" * 11)
     (outbox_dir / "pending.json").write_text(
         '{"attempts": 2, "lastError": "temporary"}', encoding="utf-8"
@@ -148,6 +164,8 @@ def test_storage_health_snapshot_reports_cache_outbox_and_uploads(tmp_path):
     result = run.storage_health_snapshot({
         "PIXIVFLOW_CONFIG": str(config),
         "TELEPOST_DATA_ROOT": str(tmp_path),
+        "BOT1_TOKEN": "token",
+        "BOT1_DB_PATH": str(bot_db),
     })
 
     assert result["pixivflow_cache"]["bytes"] == 11
@@ -156,4 +174,10 @@ def test_storage_health_snapshot_reports_cache_outbox_and_uploads(tmp_path):
     assert result["delivery_outbox"]["failed_files"] == 1
     assert result["delivery_outbox"]["oldest_age_seconds"] >= 0
     assert result["api_uploads"]["bytes"] == 7
+    assert result["review_queue"]["pending"] == 2
+    assert result["review_queue"]["failed"] == 1
+    assert result["review_queue"]["by_bot"] == [
+        {"bot": 1, "pending": 2, "failed": 1, "expired": 1}
+    ]
+    assert result["review_queue"]["oldest_pending_age_seconds"] > 0
     assert result["volume"]["total_mb"] > 0

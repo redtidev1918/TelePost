@@ -1,7 +1,7 @@
 """API/chat review queue and approval callbacks."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from telegram.error import RetryAfter
@@ -114,6 +114,63 @@ async def test_file_id_submission_is_durable_and_idempotent(review_db):
     assert row["status"] == "pending"
     assert json.loads(row["media_json"])[0]["file_id"] == "STAGED_PHOTO"
     assert row["control_message_id"] == 11
+
+
+@pytest.mark.asyncio
+async def test_stale_pending_reviews_expire_and_delete_review_messages(
+    review_db, monkeypatch
+):
+    now = 1_800_000_000.0
+    monkeypatch.setattr(review, "PENDING_REVIEW_RETENTION_DAYS", 7)
+    monkeypatch.setattr(review, "PENDING_REVIEW_CLEANUP_BATCH_SIZE", 100)
+    bot = AsyncMock()
+
+    async with db_manager.get_db() as conn:
+        await conn.executemany(
+            """
+            INSERT INTO pending_reviews (
+                idempotency_key, source, status, user_id, review_chat_id,
+                review_message_ids, control_message_id, created_at, updated_at
+            ) VALUES (?, 'api', 'pending', 7, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "old",
+                    str(review.REVIEW_CHAT_ID),
+                    json.dumps([101, 102]),
+                    103,
+                    now - 8 * 86400,
+                    now - 8 * 86400,
+                ),
+                (
+                    "fresh",
+                    str(review.REVIEW_CHAT_ID),
+                    json.dumps([201]),
+                    202,
+                    now - 6 * 86400,
+                    now - 6 * 86400,
+                ),
+            ],
+        )
+
+    expired = await review.expire_stale_reviews(bot, now=now)
+
+    assert expired == 1
+    assert bot.delete_message.await_args_list == [
+        call(chat_id=review.REVIEW_CHAT_ID, message_id=101),
+        call(chat_id=review.REVIEW_CHAT_ID, message_id=102),
+        call(chat_id=review.REVIEW_CHAT_ID, message_id=103),
+    ]
+    async with db_manager.get_db() as conn:
+        cursor = await conn.execute(
+            "SELECT idempotency_key, status, error FROM pending_reviews ORDER BY id"
+        )
+        rows = await cursor.fetchall()
+    assert [(row["idempotency_key"], row["status"]) for row in rows] == [
+        ("old", "expired"),
+        ("fresh", "pending"),
+    ]
+    assert "expired after 7 days" in rows[0]["error"]
 
 
 @pytest.mark.asyncio

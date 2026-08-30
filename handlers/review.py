@@ -50,6 +50,14 @@ REVIEW_PREVIEW_THREAD = str(
 # 一次性打包太多大图会让 bot 进程 RSS 飙升、健康检查失败甚至 OOM，512 MiB
 # 机型建议 4~5；相册发送失败时会自动降级为逐张发送兜底）。
 REVIEW_ALBUM_SIZE = max(1, min(10, int(os.getenv("REVIEW_ALBUM_SIZE", "5"))))
+# 待审核记录默认永久保留，保证升级后不意外删除部署者的既有队列。受限部署可显式
+# 设置天数；清理时只删除 Telegram 审核群预览并把记录标记为 expired，不直接抹掉审计。
+PENDING_REVIEW_RETENTION_DAYS = max(
+    0, int(os.getenv("PENDING_REVIEW_RETENTION_DAYS", "0"))
+)
+PENDING_REVIEW_CLEANUP_BATCH_SIZE = max(
+    1, min(200, int(os.getenv("PENDING_REVIEW_CLEANUP_BATCH_SIZE", "100")))
+)
 # Telegram 图片（含相册）单张上限 10 MiB，超过必须按文档发送。
 # 留 0.5 MiB 余量避免边界被拒。
 PHOTO_MAX_BYTES = int((10.0 - 0.5) * 1024 * 1024)
@@ -114,6 +122,73 @@ async def _delete_messages(bot, message_ids):
             await bot.delete_message(chat_id=REVIEW_CHAT_ID, message_id=message_id)
         except Exception:
             logger.debug("清理审核群预览消息失败: %s", message_id, exc_info=True)
+
+
+def _review_message_ids(row) -> list[int]:
+    """Return every Telegram message owned by a review, without duplicates."""
+    try:
+        message_ids = [int(value) for value in json.loads(row["review_message_ids"] or "[]")]
+    except (TypeError, ValueError, json.JSONDecodeError):
+        message_ids = []
+    control_message_id = row["control_message_id"]
+    if control_message_id:
+        message_ids.append(int(control_message_id))
+    return list(dict.fromkeys(message_ids))
+
+
+async def expire_stale_reviews(bot, *, now: Optional[float] = None) -> int:
+    """Expire stale pending reviews and remove their Telegram review messages.
+
+    The SQLite row is retained as a small audit record and is removed later by
+    ``REVIEW_RETENTION_DAYS``.  Claiming rows as ``expired`` before Telegram I/O
+    prevents a concurrent approval from publishing an item while it is being
+    cleaned up.
+    """
+    if PENDING_REVIEW_RETENTION_DAYS <= 0:
+        return 0
+
+    current_time = time.time() if now is None else now
+    cutoff = current_time - PENDING_REVIEW_RETENTION_DAYS * 86400
+    rows = []
+    async with get_db() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
+        cursor = await conn.execute(
+            "SELECT * FROM pending_reviews "
+            "WHERE status='pending' AND created_at < ? "
+            "ORDER BY created_at ASC LIMIT ?",
+            (cutoff, PENDING_REVIEW_CLEANUP_BATCH_SIZE),
+        )
+        candidates = await cursor.fetchall()
+        for row in candidates:
+            cursor = await conn.execute(
+                "UPDATE pending_reviews "
+                "SET status='expired', updated_at=?, decided_at=?, "
+                "error=? WHERE id=? AND status='pending'",
+                (
+                    current_time,
+                    current_time,
+                    f"pending review expired after {PENDING_REVIEW_RETENTION_DAYS} days",
+                    row["id"],
+                ),
+            )
+            if cursor.rowcount == 1:
+                rows.append(row)
+
+    for row in rows:
+        await _delete_messages(bot, _review_message_ids(row))
+        await _notify_chat_submitter(
+            bot,
+            row,
+            f"⌛ 你的投稿超过 {PENDING_REVIEW_RETENTION_DAYS} 天未审核，已自动过期。",
+        )
+
+    if rows:
+        logger.info(
+            "已过期并清理 %d 条待审核投稿（保留 %d 天）",
+            len(rows),
+            PENDING_REVIEW_RETENTION_DAYS,
+        )
+    return len(rows)
 
 
 def _cleanup_local_files(files):

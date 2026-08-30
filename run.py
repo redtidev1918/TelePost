@@ -15,6 +15,7 @@ import re
 import shlex
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -100,6 +101,57 @@ def _outbox_metrics(path: str) -> dict:
     return metrics
 
 
+def _review_queue_metrics(values: dict) -> dict:
+    """Summarize multi-Bot review queues without exposing submission content."""
+    bots = []
+    total_pending = 0
+    total_failed = 0
+    oldest_created_at = None
+    for index in bot_indices(values):
+        database_path = os.path.abspath(build_bot_env(index, values)["DB_PATH"])
+        try:
+            conn = sqlite3.connect(
+                f"file:{database_path}?mode=ro", uri=True, timeout=0.5
+            )
+            try:
+                counts = dict(conn.execute(
+                    "SELECT status, COUNT(*) FROM pending_reviews GROUP BY status"
+                ).fetchall())
+                oldest = conn.execute(
+                    "SELECT MIN(created_at) FROM pending_reviews WHERE status='pending'"
+                ).fetchone()[0]
+            finally:
+                conn.close()
+        except (OSError, sqlite3.Error):
+            continue
+        pending = int(counts.get("pending", 0))
+        failed = int(counts.get("failed", 0))
+        total_pending += pending
+        total_failed += failed
+        if oldest is not None:
+            oldest_created_at = (
+                float(oldest)
+                if oldest_created_at is None
+                else min(oldest_created_at, float(oldest))
+            )
+        bots.append({
+            "bot": index,
+            "pending": pending,
+            "failed": failed,
+            "expired": int(counts.get("expired", 0)),
+        })
+    return {
+        "pending": total_pending,
+        "failed": total_failed,
+        "oldest_pending_age_seconds": (
+            round(max(0.0, time.time() - oldest_created_at), 1)
+            if oldest_created_at is not None
+            else 0.0
+        ),
+        "by_bot": bots,
+    }
+
+
 def storage_health_snapshot(env=None, *, force: bool = False) -> dict:
     """Summarize the persistent volume and PixivFlow's transient storage."""
     global _STORAGE_METRICS_CACHE
@@ -146,6 +198,7 @@ def storage_health_snapshot(env=None, *, force: bool = False) -> dict:
         "pixivflow_cache": _directory_metrics(cache_path),
         "delivery_outbox": _outbox_metrics(outbox_path),
         "api_uploads": _directory_metrics(uploads_path),
+        "review_queue": _review_queue_metrics(values),
     }
     try:
         usage = shutil.disk_usage(data_root)

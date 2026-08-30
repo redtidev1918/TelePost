@@ -39,6 +39,9 @@
 | `REVIEW_PREVIEW_INTERVAL_SECONDS` | `0.75` | 多文件审核预览发送间隔；低配实例建议保持默认值以减少 Telegram flood |
 | `REVIEW_PREVIEW_TIMEOUT_SECONDS` | `120` | 单个审核预览上传/响应超时；大图、多页作品或慢网络不要设得过低 |
 | `REVIEW_PREVIEW_THREAD` | `1` | 审核群后续相册/文件/控制消息是否回复上一批（回复链）；置 `0` 取消回复关系 |
+| `PENDING_REVIEW_RETENTION_DAYS` | `0` | 待审核投稿自动过期天数；`0` 表示永久保留。过期会删除审核群预览并保留轻量审计记录；Telegram Bot API 仅保证删除 48 小时内消息，需要清群时建议设 `1` |
+| `PENDING_REVIEW_CLEANUP_BATCH_SIZE` | `100` | 每轮最多过期的待审核投稿数（1–200），避免集中调用 Telegram 删除接口 |
+| `REVIEW_RETENTION_DAYS` | `30` | 已发布、拒绝、失败或过期记录的数据库保留天数；不负责待审核队列过期 |
 | `PIXIVFLOW_ENABLED` | `false` | 多 Bot supervisor 是否同时监督 PixivFlow 子进程 |
 | `PIXIVFLOW_CONFIG` | `/app/data/pixivflow/config.json` | 持久化配置路径；支持文件监听热重载 |
 | `PIXIVFLOW_CONFIG_TEMPLATE` | npm 包内双 Bot 模板 | 首次启动时复制到持久卷的模板路径 |

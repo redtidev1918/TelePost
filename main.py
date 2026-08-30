@@ -59,6 +59,7 @@ from handlers.command_handlers import blacklist_add, blacklist_remove, blacklist
 
 # 投稿处理
 from handlers.publish import publish_submission
+from handlers.review import expire_stale_reviews
 
 # 不同投稿模式支持
 from handlers.mode_selection import submit, start, select_mode
@@ -700,11 +701,11 @@ def setup_application(application):
     try:
         logger.info("设置定期任务...")
         job_queue = application.job_queue
-        job_queue.run_repeating(
-            lambda context: asyncio.create_task(cleanup_old_data()), 
-            interval=300, 
-            first=10
-        )
+        async def cleanup_runtime_data(context):
+            await cleanup_old_data()
+            await expire_stale_reviews(context.bot)
+
+        job_queue.run_repeating(cleanup_runtime_data, interval=300, first=10)
         
         # 添加周期性清理日志任务
         def clean_logs_job(context):

@@ -198,7 +198,7 @@ async def cleanup_old_data():
             cutoff = datetime.now().timestamp() - TIMEOUT
             await c.execute("DELETE FROM submissions WHERE timestamp < ?", (cutoff,))
 
-        # 清理已决（拒绝/发布/失败）且超过保留期的审核记录，避免表无限增长。
+        # 清理终态（拒绝/发布/失败/过期）且超过保留期的审核记录，避免表无限增长。
         # 只清理终态记录：pending 的投稿绝不能动。保留期默认 30 天。
         review_retention_days = int(os.getenv("REVIEW_RETENTION_DAYS", "30"))
         if review_retention_days > 0:
@@ -214,7 +214,7 @@ async def cleanup_old_data():
                     c = await conn.cursor()
                     await c.execute(
                         "DELETE FROM pending_reviews "
-                        "WHERE status IN ('rejected','published','failed') AND updated_at < ?",
+                        "WHERE status IN ('rejected','published','failed','expired') AND updated_at < ?",
                         (review_cutoff,),
                     )
                     logger.info("已清理过期审核记录（保留 %d 天）", review_retention_days)

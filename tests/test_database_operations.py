@@ -418,7 +418,7 @@ class TestDatabaseIntegrity:
     @pytest.mark.database
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_cleanup_old_data(self, temp_dir):
+    async def test_cleanup_old_data(self, temp_dir, monkeypatch):
         """测试清理旧数据"""
         db_path = os.path.join(temp_dir, 'cleanup_test.db')
         
@@ -429,11 +429,26 @@ class TestDatabaseIntegrity:
             
             # 插入旧数据
             old_timestamp = time.time() - 10000  # 很久以前
+            review_old_timestamp = time.time() - 2 * 86400
             async with get_db() as conn:
                 await conn.execute(
                     "INSERT INTO submissions (user_id, timestamp) VALUES (?, ?)",
                     (99998, old_timestamp)
                 )
+                await conn.executemany(
+                    """
+                    INSERT INTO pending_reviews (
+                        idempotency_key, status, user_id, review_chat_id,
+                        created_at, updated_at
+                    ) VALUES (?, ?, 7, '-100123', ?, ?)
+                    """,
+                    [
+                        ("expired-old", "expired", review_old_timestamp, review_old_timestamp),
+                        ("pending-old", "pending", review_old_timestamp, review_old_timestamp),
+                    ],
+                )
+
+            monkeypatch.setenv("REVIEW_RETENTION_DAYS", "1")
             
             # 清理
             await cleanup_old_data()
@@ -445,6 +460,13 @@ class TestDatabaseIntegrity:
                 )
                 result = await cursor.fetchone()
                 assert result is None
+                cursor = await conn.execute(
+                    "SELECT idempotency_key, status FROM pending_reviews ORDER BY id"
+                )
+                reviews = await cursor.fetchall()
+                assert [(row["idempotency_key"], row["status"]) for row in reviews] == [
+                    ("pending-old", "pending")
+                ]
 
 
 class TestDatabaseMigration:
