@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from telegram.error import RetryAfter
+from telegram import InputFile
 
 from database import db_manager
 from handlers import review
@@ -451,6 +452,42 @@ async def test_album_local_files_keep_attach_uri(review_db, monkeypatch, tmp_pat
     # 序列化后 media 字段仍保留 attach:// 引用（否则 Telegram 无法解析）
     param = RequestParameter.from_input("media", group)
     assert "attach://" in param.json_value
+
+
+@pytest.mark.asyncio
+async def test_oversized_photo_stages_as_document(review_db, monkeypatch, tmp_path):
+    """超过 Telegram 图片上限（10 MiB）的页面自动按文档发送，投稿不失败。"""
+    small = tmp_path / "small.png"
+    small.write_bytes(b"x" * 1024)
+    big = tmp_path / "big.png"
+    big.write_bytes(b"y" * (2 * 1024 * 1024))
+    monkeypatch.setattr(review, "PHOTO_MAX_BYTES", 1024)  # 任何 >1KB 都算超限
+
+    bot = AsyncMock()
+    bot.send_photo.return_value = _photo_message(message_id=10, file_id="SMALL_PHOTO")
+    bot.send_document.return_value = _document_message(
+        message_id=20, file_id="BIG_DOC", filename="big.png"
+    )
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_INTERVAL_SECONDS", 0.0)
+
+    media, documents = await review._stage_local_files(
+        bot,
+        [
+            {"kind": "photo", "path": str(small), "filename": "small.png"},
+            {"kind": "photo", "path": str(big), "filename": "big.png"},
+        ],
+        "caption",
+        False,
+        [],
+    )
+
+    assert [m["file_id"] for m in media] == ["SMALL_PHOTO"]
+    assert len(documents) == 1 and documents[0]["filename"] == "big.png"
+    # 大图走 document 发送（InputFile 指向大图文件）
+    bot.send_document.assert_awaited_once()
+    sent = bot.send_document.await_args.kwargs["document"]
+    assert isinstance(sent, InputFile)
+    assert sent.filename == "big.png"
 
 
 @pytest.mark.asyncio

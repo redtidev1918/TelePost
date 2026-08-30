@@ -46,10 +46,13 @@ REVIEW_PREVIEW_MAX_ATTEMPTS = 5
 REVIEW_PREVIEW_THREAD = str(
     os.getenv("REVIEW_PREVIEW_THREAD", "1")
 ).strip().lower() in {"1", "true", "yes", "on"}
-# Telegram media group 每组最多 10 个媒体；可通过环境变量下调（小内存机器上
+# 审核群相册每组媒体数（Telegram 上限 10；可通过环境变量下调，小内存机器上
 # 一次性打包太多大图会让 bot 进程 RSS 飙升、健康检查失败甚至 OOM，512 MiB
 # 机型建议 4~5；相册发送失败时会自动降级为逐张发送兜底）。
 REVIEW_ALBUM_SIZE = max(1, min(10, int(os.getenv("REVIEW_ALBUM_SIZE", "5"))))
+# Telegram 图片（含相册）单张上限 10 MiB，超过必须按文档发送。
+# 留 0.5 MiB 余量避免边界被拒。
+PHOTO_MAX_BYTES = int((10.0 - 0.5) * 1024 * 1024)
 
 
 def _review_keyboard(review_id: int, link: str = "") -> InlineKeyboardMarkup:
@@ -359,7 +362,26 @@ async def _stage_items(bot, items, caption, spoiler, message_ids, *, local):
     (timeout / network / flood) automatically falls back to sending the chunk
     one file at a time, so a large Pixiv set never fails the whole submission
     and the RSS peak stays bounded by one file per request.
+
+    Oversized photos (> PHOTO_MAX_BYTES) are reclassified as documents before
+    partitioning: Telegram's photo uploads (single or media group) reject
+    files above 10 MiB, while documents accept up to 50 MiB. Without this a
+    single large original PNG page would fail the whole review staging.
     """
+    if local:
+        for item in items:
+            if item.get("kind") == "photo":
+                try:
+                    size = os.path.getsize(item["path"])
+                except OSError:
+                    size = 0
+                if size > PHOTO_MAX_BYTES:
+                    logger.info(
+                        "图片超过 %d 字节，按文档发送: %s (%d bytes)",
+                        PHOTO_MAX_BYTES, item.get("filename"), size,
+                    )
+                    item["kind"] = "document"
+
     staged_media: list = []
     staged_documents: list = []
 
