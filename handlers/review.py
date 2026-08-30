@@ -180,13 +180,21 @@ async def _send_local_preview_album(bot, chunk, caption, spoiler, *, reply_to_me
     async def _factory():
         # RetryAfter must create fresh InputFile objects and reopen every file;
         # reusing handles after an attempted upload can resend empty bodies.
+        # attach=True is REQUIRED for media groups: without it python-telegram-bot
+        # drops the "media" field of each InputMedia (no attach:// URI), and
+        # Telegram answers "Can't parse inputmedia: media not found".
         open_handles = []
         try:
             media_group = []
             for index, item in enumerate(chunk):
                 handle = open(item["path"], "rb")
                 open_handles.append(handle)
-                media = InputFile(handle, filename=item["filename"], read_file_handle=False)
+                media = InputFile(
+                    handle,
+                    filename=item["filename"],
+                    read_file_handle=False,
+                    attach=True,
+                )
                 media_group.append(
                     _make_media_item(
                         item["kind"], media,

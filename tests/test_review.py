@@ -418,6 +418,42 @@ async def test_album_message_count_mismatch_fails_instead_of_dropping_pages(revi
 
 
 @pytest.mark.asyncio
+async def test_album_local_files_keep_attach_uri(review_db, monkeypatch, tmp_path):
+    """相册里每个本地文件必须是 attach 模式，否则 InputMedia 的 media 字段
+    会被 python-telegram-bot 丢弃，Telegram 报 media not found。"""
+    from telegram.request._requestparameter import RequestParameter
+
+    files = []
+    for i in range(2):
+        p = tmp_path / f"page_{i}.png"
+        p.write_bytes(b"fake-image-bytes")
+        files.append({"kind": "photo", "path": str(p), "filename": p.name})
+
+    bot = AsyncMock()
+    bot.send_media_group.return_value = [
+        _photo_message(message_id=10, file_id="P0"),
+        _photo_message(message_id=11, file_id="P1"),
+    ]
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_INTERVAL_SECONDS", 0.0)
+
+    media, documents = await review._stage_local_files(
+        bot, files, "caption", False, []
+    )
+
+    assert len(media) == 2
+    kwargs = bot.send_media_group.await_args.kwargs
+    group = kwargs["media"]
+    assert len(group) == 2
+    # 每个 InputMedia 的 media 必须是带 attach_name 的 InputFile
+    for item in group:
+        assert item.media.attach_name is not None
+        assert item.media.attach_uri == f"attach://{item.media.attach_name}"
+    # 序列化后 media 字段仍保留 attach:// 引用（否则 Telegram 无法解析）
+    param = RequestParameter.from_input("media", group)
+    assert "attach://" in param.json_value
+
+
+@pytest.mark.asyncio
 async def test_album_failure_falls_back_to_single_sends(review_db, monkeypatch):
     """相册发送失败（小内存机器超时）时自动降级逐张发送，整份投稿不失败。"""
     bot = AsyncMock()

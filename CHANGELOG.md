@@ -9,6 +9,17 @@
 
 ## [Unreleased]
 
+## [2.10.10] - 2026-08-30
+
+### 修复
+
+- 审核群相册上传真正生效：此前相册里的本地文件 `InputFile` 未启用 `attach` 模式，
+  python-telegram-bot 会把每个 `InputMedia` 的 `media` 字段丢弃（没有 `attach://` URI），
+  Telegram 返回 `Can't parse inputmedia: media not found`，相册每次都会静默降级为
+  逐张发送——多页作品虽然能进审核群，但一直是一张一张的消息而不是相册。
+  现在 `attach=True` 保留 `attach://` 引用，5 张一组的小相册 + 组间回复链真正生效；
+  降级逐张逻辑仍作为相册发送失败时的兜底保留。
+
 ## [2.10.9] - 2026-08-30
 
 ### 修复
