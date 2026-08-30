@@ -215,7 +215,10 @@ class TestSpecialCharacters:
         for tag in unicode_tags:
             success, result = process_tags(tag)
             assert success is True
-            assert len(result) > 0
+            if tag == "🎉🎊🎈":
+                assert result == ""
+            else:
+                assert len(result) > 0
     
     @pytest.mark.boundary
     @pytest.mark.unit
@@ -413,13 +416,35 @@ class TestDataTypeHandling:
     @pytest.mark.boundary
     @pytest.mark.unit
     def test_process_tags_with_numbers(self):
-        """测试数字标签"""
+        """测试数字标签（保留 Pixiv 原始标签，不擅自改名）"""
         from utils.helper_functions import process_tags
-        
+
         numeric_tags = "123,456,789"
         success, result = process_tags(numeric_tags)
         assert success is True
         assert "#123" in result
+        assert "#456" in result
+
+    @pytest.mark.boundary
+    @pytest.mark.unit
+    def test_process_tags_sanitizes_telegram_illegal_chars(self):
+        """非法字符的标签要净化成可点击 hashtag（#r-18 不会被 Telegram 解析）"""
+        from utils.helper_functions import process_tags
+
+        ok, result = process_tags("r-18,R-18G,R 18,中文/中国語/chinese,カフカ(スターレイル),絵🎨")
+        assert ok is True
+        # r-18 / r-18g 归一
+        assert "#r18" in result
+        assert "#r18g" in result
+        # 不含 Telegram hashtag 无法解析的字符
+        assert "-" not in result
+        assert "/" not in result
+        assert "(" not in result and ")" not in result
+        assert "🎨" not in result
+        # 斜杠分隔的作品标签各自成词
+        assert "#中文" in result and "#中国語" in result and "#chinese" in result
+        # 括号被移除但标签保留
+        assert "#カフカスターレイル" in result
     
     @pytest.mark.boundary
     @pytest.mark.unit

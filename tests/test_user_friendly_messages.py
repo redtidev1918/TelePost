@@ -267,7 +267,7 @@ class TestSpecialCharacterHandling:
         # Emoji标签
         success, result = process_tags("🎉,🎊")
         assert success is True
-        assert len(result) > 0
+        assert result == ""
 
 
 class TestSessionTimeoutMessages:

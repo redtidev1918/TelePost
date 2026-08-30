@@ -4,6 +4,7 @@
 import re
 import json
 import html as _html
+import unicodedata
 import asyncio
 import logging
 from functools import lru_cache, wraps
@@ -16,12 +17,14 @@ from database.db_manager import get_db
 
 logger = logging.getLogger(__name__)
 
-# 标签分割正则表达式
-TAG_SPLIT_PATTERN = re.compile(r'[,\s，]+')
+# 标签分割正则表达式：逗号/空白/中文逗号，以及会让 Telegram hashtag 失效的斜杠
+TAG_SPLIT_PATTERN = re.compile(r'[,，\s/／]+')
+# Telegram hashtag 只接受 Unicode 字母/组合标记/数字/下划线；用 Unicode
+# category 判定，不能用一个宽泛的非 ASCII 范围（那会误收 emoji 与全角标点）。
 
 # 配置常量
 CONFIG = {
-    "VERSION": "2.10.6",
+    "VERSION": "2.10.7",
     "MAX_MEDIA_COUNT": 10,
     "MAX_DOCUMENT_COUNT": 10,
     "NET_TIMEOUT": 30,  # 网络超时时间（秒）
@@ -33,32 +36,57 @@ CONFIG = {
 def process_tags(raw_tags: str) -> tuple:
     """
     处理标签字符串
-    
+
+    Telegram 的 hashtag 规则：# 后只能跟字母、数字、下划线和非 ASCII 字母
+    （中文/日文假名/韩文/西里尔文等）。包含连字符、斜杠、括号等字符的
+    标签不会被客户端解析（#r-18 只会显示为 #r）。这里统一做：
+
+    1. 按逗号/空白/斜杠拆分（pixivflow 的 workTags 用逗号传入）；
+    2. 去掉开头的 # 与所有非法字符；
+    3. 常见 NSFW 标记归一（r-18/r18→r18，r-18g→r18g）；
+    4. 去重保序，统一补回 #。
+
     Args:
         raw_tags: 原始标签字符串
-        
+
     Returns:
         tuple: (成功标志, 处理后的标签字符串)
     """
     try:
-        # 使用预编译的正则表达式分割标签
-        tags = [t.strip().lower() for t in TAG_SPLIT_PATTERN.split(raw_tags) if t.strip()]
-        tags = tags[:ALLOWED_TAGS]
-        
-        # 移除标签前的所有#号，然后统一添加一个#
-        # 这样可以处理 ##tag, ###tag 等情况
+        # 先归一常见 NSFW 标记；必须在按空白分词前做，才能覆盖 "R 18"。
+        normalized = re.sub(
+            r'(?<!\w)r[\s_-]*18(g?)(?!\w)',
+            lambda match: 'r18g' if match.group(1) else 'r18',
+            str(raw_tags),
+            flags=re.IGNORECASE,
+        )
+        tags = [
+            t.strip().casefold()
+            for t in TAG_SPLIT_PATTERN.split(normalized)
+            if t.strip()
+        ]
+
+        def sanitize(part: str) -> str:
+            part = part.lstrip('#')
+            return ''.join(
+                char
+                for char in part
+                if char == '_' or unicodedata.category(char)[0] in {'L', 'M', 'N'}
+            )
+
         processed = []
         seen = set()
         for tag in tags:
-            # 移除开头的所有#号
-            clean_tag = tag.lstrip('#')
+            clean_tag = sanitize(tag)
             if clean_tag and clean_tag not in seen:  # 去重并保留来源顺序
                 seen.add(clean_tag)
                 processed.append(f"#{clean_tag}")
-        
-        # 处理标签长度超过30的情况
-        processed = [tag[:30] if len(tag) > 0 else tag for tag in processed]
-        
+                if len(processed) >= ALLOWED_TAGS:
+                    break
+
+        # 单个标签长度上限 30 字符（保留原有约束）
+        processed = [tag[:31] for tag in processed]
+
         # 使用空格拼接标签，得到正确的格式
         return True, ' '.join(processed)
     except Exception as e:

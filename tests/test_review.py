@@ -21,6 +21,28 @@ def _photo_message(message_id=10, file_id="STAGED_PHOTO"):
     return message
 
 
+def _document_message(message_id=30, file_id="STAGED_DOC", filename=None):
+    message = MagicMock()
+    message.message_id = message_id
+    message.photo = None
+    message.video = None
+    message.animation = None
+    message.audio = None
+    message.document = MagicMock(file_id=file_id, file_name=filename or "novel.txt")
+    return message
+
+
+def _animation_message(message_id=40, file_id="STAGED_ANIMATION"):
+    message = MagicMock()
+    message.message_id = message_id
+    message.photo = None
+    message.video = None
+    message.animation = MagicMock(file_id=file_id)
+    message.audio = None
+    message.document = None
+    return message
+
+
 def test_file_id_extraction_accepts_tuple_photo_sizes():
     from handlers.publish import _file_id_of
 
@@ -117,8 +139,9 @@ async def test_failed_local_staging_deletes_uploaded_preview(review_db, tmp_path
 
 @pytest.mark.asyncio
 async def test_multi_page_review_paces_preview_sends(review_db, monkeypatch):
+    """多页图片按每批 ≤10 打包成 media group（相册）发送。"""
     bot = AsyncMock()
-    bot.send_photo.side_effect = [
+    bot.send_media_group.return_value = [
         _photo_message(message_id=10, file_id="PAGE_1"),
         _photo_message(message_id=11, file_id="PAGE_2"),
     ]
@@ -140,20 +163,67 @@ async def test_multi_page_review_paces_preview_sends(review_db, monkeypatch):
 
     assert [item["file_id"] for item in media] == ["PAGE_1", "PAGE_2"]
     assert documents == []
-    sleep.assert_awaited_once_with(0.75)
+    bot.send_media_group.assert_awaited_once()
+    # 首个相册不产生组间间隔（只有 1 个 chunk，pace 在 index==0 时不 sleep）
+    sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_multi_album_review_threads_and_paces(review_db, monkeypatch):
+    """29 页作品拆成 3 个相册；后续相册回复上一相册的最后一条消息。"""
+    bot = AsyncMock()
+    # 3 个相册：10 + 10 + 9
+    bot.send_media_group.side_effect = [
+        [_photo_message(message_id=100 + i, file_id=f"P1_{i}") for i in range(10)],
+        [_photo_message(message_id=110 + i, file_id=f"P2_{i}") for i in range(10)],
+        [_photo_message(message_id=120 + i, file_id=f"P3_{i}") for i in range(9)],
+    ]
+    sleep = AsyncMock()
+    monkeypatch.setattr(review.asyncio, "sleep", sleep)
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_INTERVAL_SECONDS", 0.75)
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_THREAD", True)
+
+    media, documents = await review._stage_file_ids(
+        bot,
+        [{"type": "photo", "file_id": f"ID_{i}"} for i in range(29)],
+        [],
+        "caption",
+        True,
+        [],
+    )
+
+    assert len(media) == 29
+    assert documents == []
+    assert bot.send_media_group.await_count == 3
+    calls = [call.kwargs for call in bot.send_media_group.await_args_list]
+    # 第一个相册无 reply_to；第二、三个相册回复前一相册最后一条消息
+    assert calls[0].get("reply_to_message_id") is None
+    assert calls[1]["reply_to_message_id"] == 109
+    assert calls[2]["reply_to_message_id"] == 119
+    # caption 只挂在第一个相册；spoiler 打开
+    first_media = calls[0]["media"][0]
+    assert first_media.caption == "caption"
+    assert first_media.has_spoiler is True
+    assert calls[1]["media"][0].caption is None
 
 
 @pytest.mark.asyncio
 async def test_multi_page_review_threads_previews(review_db, monkeypatch):
-    """多页图集进入审核群时，后续每张预览应回复上一条消息（回复链）。"""
+    """同一批多个相册时，后续相册回复上一条消息（回复链）。"""
     bot = AsyncMock()
-    bot.send_photo.side_effect = [
-        _photo_message(message_id=10, file_id="PAGE_1"),
-        _photo_message(message_id=11, file_id="PAGE_2"),
-        _photo_message(message_id=12, file_id="PAGE_3"),
+    bot.send_media_group.side_effect = [
+        [
+            _photo_message(message_id=10, file_id="PAGE_1"),
+            _photo_message(message_id=11, file_id="PAGE_2"),
+        ],
+        [
+            _photo_message(message_id=12, file_id="PAGE_3"),
+            _photo_message(message_id=13, file_id="PAGE_4"),
+        ],
     ]
     monkeypatch.setattr(review, "REVIEW_PREVIEW_INTERVAL_SECONDS", 0.0)
     monkeypatch.setattr(review, "REVIEW_PREVIEW_THREAD", True)
+    monkeypatch.setattr(review, "REVIEW_ALBUM_SIZE", 2)
 
     await review._stage_file_ids(
         bot,
@@ -161,6 +231,7 @@ async def test_multi_page_review_threads_previews(review_db, monkeypatch):
             {"type": "photo", "file_id": "ORIGINAL_1"},
             {"type": "photo", "file_id": "ORIGINAL_2"},
             {"type": "photo", "file_id": "ORIGINAL_3"},
+            {"type": "photo", "file_id": "ORIGINAL_4"},
         ],
         [],
         "caption",
@@ -168,27 +239,35 @@ async def test_multi_page_review_threads_previews(review_db, monkeypatch):
         [],
     )
 
-    calls = [call.kwargs for call in bot.send_photo.await_args_list]
+    calls = [call.kwargs for call in bot.send_media_group.await_args_list]
     assert calls[0].get("reply_to_message_id") is None
-    assert calls[1]["reply_to_message_id"] == 10
-    assert calls[2]["reply_to_message_id"] == 11
+    assert calls[1]["reply_to_message_id"] == 11
 
 
 @pytest.mark.asyncio
 async def test_multi_page_review_can_disable_threading(review_db, monkeypatch):
     bot = AsyncMock()
-    bot.send_photo.side_effect = [
-        _photo_message(message_id=10, file_id="PAGE_1"),
-        _photo_message(message_id=11, file_id="PAGE_2"),
+    bot.send_media_group.side_effect = [
+        [
+            _photo_message(message_id=10, file_id="PAGE_1"),
+            _photo_message(message_id=11, file_id="PAGE_2"),
+        ],
+        [
+            _photo_message(message_id=12, file_id="PAGE_3"),
+            _photo_message(message_id=13, file_id="PAGE_4"),
+        ],
     ]
     monkeypatch.setattr(review, "REVIEW_PREVIEW_INTERVAL_SECONDS", 0.0)
     monkeypatch.setattr(review, "REVIEW_PREVIEW_THREAD", False)
+    monkeypatch.setattr(review, "REVIEW_ALBUM_SIZE", 2)
 
     await review._stage_file_ids(
         bot,
         [
             {"type": "photo", "file_id": "ORIGINAL_1"},
             {"type": "photo", "file_id": "ORIGINAL_2"},
+            {"type": "photo", "file_id": "ORIGINAL_3"},
+            {"type": "photo", "file_id": "ORIGINAL_4"},
         ],
         [],
         "caption",
@@ -196,8 +275,159 @@ async def test_multi_page_review_can_disable_threading(review_db, monkeypatch):
         [],
     )
 
-    calls = [call.kwargs for call in bot.send_photo.await_args_list]
+    calls = [call.kwargs for call in bot.send_media_group.await_args_list]
     assert all(call.get("reply_to_message_id") is None for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_novel_document_stages_with_caption_and_thread(review_db, monkeypatch):
+    """小说 .txt 作为 document 单条发送：带 caption，且回复前一条消息。"""
+    bot = AsyncMock()
+    bot.send_media_group.side_effect = [
+        [_photo_message(message_id=10 + i, file_id=f"P_{i}") for i in range(2)],
+    ]
+    bot.send_document.return_value = _document_message(message_id=30, file_id="NOVEL_TXT")
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_INTERVAL_SECONDS", 0.0)
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_THREAD", True)
+
+    media, documents = await review._stage_file_ids(
+        bot,
+        [
+            {"type": "photo", "file_id": "COVER_1"},
+            {"type": "photo", "file_id": "COVER_2"},
+        ],
+        [{"file_id": "NOVEL_ORIG", "filename": "123_novel.txt"}],
+        "caption",
+        True,
+        [],
+    )
+
+    assert len(media) == 2
+    assert len(documents) == 1 and documents[0]["filename"] == "123_novel.txt"
+    # document 单独一条发送，回复到相册最后一条
+    kwargs = bot.send_document.await_args.kwargs
+    assert kwargs["reply_to_message_id"] == 11
+    assert kwargs["document"] == "NOVEL_ORIG"
+
+
+@pytest.mark.asyncio
+async def test_animations_stay_standalone_and_threaded(review_db, monkeypatch):
+    """Telegram sendMediaGroup 不支持 animation；GIF 必须逐条发并串成回复链。"""
+    bot = AsyncMock()
+    bot.send_animation.side_effect = [
+        _animation_message(message_id=40, file_id="GIF_1"),
+        _animation_message(message_id=41, file_id="GIF_2"),
+    ]
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_INTERVAL_SECONDS", 0.0)
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_THREAD", True)
+
+    media, documents = await review._stage_file_ids(
+        bot,
+        [
+            {"type": "animation", "file_id": "ORIGINAL_GIF_1"},
+            {"type": "animation", "file_id": "ORIGINAL_GIF_2"},
+        ],
+        [],
+        "caption",
+        True,
+        [],
+    )
+
+    assert [item["file_id"] for item in media] == ["GIF_1", "GIF_2"]
+    assert documents == []
+    bot.send_media_group.assert_not_awaited()
+    calls = [call.kwargs for call in bot.send_animation.await_args_list]
+    assert calls[0].get("reply_to_message_id") is None
+    assert calls[1]["reply_to_message_id"] == 40
+
+
+@pytest.mark.asyncio
+async def test_album_message_count_mismatch_fails_instead_of_dropping_pages(review_db):
+    bot = AsyncMock()
+    bot.send_media_group.return_value = [
+        _photo_message(message_id=50, file_id="ONLY_ONE"),
+    ]
+
+    with pytest.raises(RuntimeError, match="消息数 1 与文件数 2"):
+        await review.queue_review_from_file_ids(
+            bot,
+            [
+                {"type": "photo", "file_id": "ORIGINAL_1"},
+                {"type": "photo", "file_id": "ORIGINAL_2"},
+            ],
+            [],
+            tags="#test",
+            user_id=7,
+        )
+
+    bot.delete_message.assert_awaited_once_with(chat_id=-100123, message_id=50)
+
+
+@pytest.mark.asyncio
+async def test_control_message_replies_to_last_album_item(review_db):
+    bot = AsyncMock()
+    bot.send_media_group.return_value = [
+        _photo_message(message_id=60, file_id="PAGE_1"),
+        _photo_message(message_id=61, file_id="PAGE_2"),
+    ]
+    control = MagicMock(message_id=62)
+    bot.send_message.return_value = control
+
+    await review.queue_review_from_file_ids(
+        bot,
+        [
+            {"type": "photo", "file_id": "ORIGINAL_1"},
+            {"type": "photo", "file_id": "ORIGINAL_2"},
+        ],
+        [],
+        tags="#test",
+        user_id=7,
+    )
+
+    assert bot.send_message.await_args.kwargs["reply_to_message_id"] == 61
+
+
+@pytest.mark.asyncio
+async def test_local_album_retry_reopens_files(review_db, monkeypatch, tmp_path):
+    first = tmp_path / "one.png"
+    second = tmp_path / "two.png"
+    first.write_bytes(b"one")
+    second.write_bytes(b"two")
+    bot = AsyncMock()
+    seen = []
+
+    async def send_media_group(**kwargs):
+        handle = kwargs["media"][0].media.input_file_content
+        seen.append((id(handle), handle.closed, handle.read()))
+        if len(seen) == 1:
+            raise RetryAfter(1)
+        return [
+            _photo_message(message_id=70, file_id="PAGE_1"),
+            _photo_message(message_id=71, file_id="PAGE_2"),
+        ]
+
+    bot.send_media_group.side_effect = send_media_group
+    sleep = AsyncMock()
+    monkeypatch.setattr(review.asyncio, "sleep", sleep)
+
+    media, _ = await review._stage_local_files(
+        bot,
+        [
+            {"kind": "photo", "path": str(first), "filename": first.name},
+            {"kind": "photo", "path": str(second), "filename": second.name},
+        ],
+        "caption",
+        False,
+        [],
+    )
+
+    assert len(media) == 2
+    assert [(closed, body) for _, closed, body in seen] == [
+        (False, b"one"),
+        (False, b"one"),
+    ]
+    assert seen[0][0] != seen[1][0]
+    sleep.assert_awaited_once_with(2.0)
 
 
 @pytest.mark.asyncio
@@ -208,7 +438,7 @@ async def test_review_preview_uses_large_upload_timeouts(review_db, monkeypatch,
     bot.send_photo.return_value = _photo_message()
     monkeypatch.setattr(review, "REVIEW_PREVIEW_TIMEOUT_SECONDS", 120.0)
 
-    await review._send_local_preview(
+    await review._send_local_preview_single(
         bot,
         {"kind": "photo", "path": str(source), "filename": source.name},
         "caption",

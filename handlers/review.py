@@ -15,7 +15,15 @@ from collections.abc import Awaitable, Callable
 from typing import Optional
 
 import aiosqlite
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputFile,
+    InputMediaAudio,
+    InputMediaDocument,
+    InputMediaPhoto,
+    InputMediaVideo,
+)
 from telegram.error import RetryAfter
 
 from config.settings import ADMIN_IDS, REVIEW_CHAT_ID
@@ -38,6 +46,8 @@ REVIEW_PREVIEW_MAX_ATTEMPTS = 5
 REVIEW_PREVIEW_THREAD = str(
     os.getenv("REVIEW_PREVIEW_THREAD", "1")
 ).strip().lower() in {"1", "true", "yes", "on"}
+# Telegram media group 每组最多 10 个媒体
+REVIEW_ALBUM_SIZE = 10
 
 
 def _review_keyboard(review_id: int, link: str = "") -> InlineKeyboardMarkup:
@@ -117,66 +127,162 @@ def _cleanup_local_files(files):
             pass
 
 
-async def _send_local_preview(
-    bot, item, caption: Optional[str], spoiler: bool, *, reply_to_message_id=None
-):
-    kind = item["kind"]
-    with open(item["path"], "rb") as file_handle:
-        media = InputFile(
-            file_handle,
-            filename=item["filename"],
-            read_file_handle=False,
-        )
-        common = {
-            "chat_id": REVIEW_CHAT_ID,
-            "caption": caption,
-            "parse_mode": "HTML" if caption else None,
-            # Telegram's short default timeout is too aggressive for large
-            # Pixiv pages on a small Fly Machine. Scope the larger timeout to
-            # review staging so ordinary bot interactions remain responsive.
-            "read_timeout": REVIEW_PREVIEW_TIMEOUT_SECONDS,
-            "write_timeout": REVIEW_PREVIEW_TIMEOUT_SECONDS,
-            "connect_timeout": min(REVIEW_PREVIEW_TIMEOUT_SECONDS, 30.0),
-            "pool_timeout": min(REVIEW_PREVIEW_TIMEOUT_SECONDS, 30.0),
-        }
-        if reply_to_message_id is not None:
-            common["reply_to_message_id"] = reply_to_message_id
-        if kind == "photo":
-            return await bot.send_photo(photo=media, has_spoiler=spoiler, **common)
-        if kind == "video":
-            return await bot.send_video(video=media, has_spoiler=spoiler, **common)
-        if kind == "animation":
-            return await bot.send_animation(animation=media, has_spoiler=spoiler, **common)
-        if kind == "audio":
-            return await bot.send_audio(audio=media, **common)
-        return await bot.send_document(document=media, **common)
-
-
-async def _send_file_id_preview(
-    bot, item, caption: Optional[str], spoiler: bool, *,
-    document=False, reply_to_message_id=None,
-):
-    common = {
-        "chat_id": REVIEW_CHAT_ID,
-        "caption": caption,
-        "parse_mode": "HTML" if caption else None,
+def _review_timeout_kwargs() -> dict:
+    return {
         "read_timeout": REVIEW_PREVIEW_TIMEOUT_SECONDS,
         "write_timeout": REVIEW_PREVIEW_TIMEOUT_SECONDS,
         "connect_timeout": min(REVIEW_PREVIEW_TIMEOUT_SECONDS, 30.0),
         "pool_timeout": min(REVIEW_PREVIEW_TIMEOUT_SECONDS, 30.0),
     }
+
+
+def _make_media_item(kind: str, media, *, caption=None, spoiler=False, filename=None):
+    """Build an InputMedia* for a media group (album).
+
+    - photo/video carry has_spoiler for the R-18 blur cover;
+    - documents/audio do not support spoilers;
+    - caption is attached to the first item of the first album only.
+    """
+    parse_mode = "HTML" if caption else None
+    if kind == "photo":
+        return InputMediaPhoto(media=media, caption=caption, parse_mode=parse_mode, has_spoiler=spoiler)
+    if kind == "video":
+        return InputMediaVideo(media=media, caption=caption, parse_mode=parse_mode, has_spoiler=spoiler)
+    if kind == "audio":
+        return InputMediaAudio(media=media, caption=caption, parse_mode=parse_mode)
+    if filename:
+        return InputMediaDocument(media=media, filename=filename, caption=caption, parse_mode=parse_mode)
+    return InputMediaDocument(media=media, caption=caption, parse_mode=parse_mode)
+
+
+def _album_family(kind: str) -> Optional[str]:
+    """Return the compatible Telegram media-group family for a kind.
+
+    Photos and videos may share one album. Audio and documents each require
+    their own homogeneous album. Animations are not accepted by
+    ``sendMediaGroup`` and therefore stay standalone.
+    """
+    if kind in {"photo", "video"}:
+        return "visual"
+    if kind in {"audio", "document"}:
+        return kind
+    return None
+
+
+async def _send_local_preview_album(bot, chunk, caption, spoiler, *, reply_to_message_id=None):
+    """Send a chunk of local files as one Telegram media group (album)."""
+    async def _factory():
+        # RetryAfter must create fresh InputFile objects and reopen every file;
+        # reusing handles after an attempted upload can resend empty bodies.
+        open_handles = []
+        try:
+            media_group = []
+            for index, item in enumerate(chunk):
+                handle = open(item["path"], "rb")
+                open_handles.append(handle)
+                media = InputFile(handle, filename=item["filename"], read_file_handle=False)
+                media_group.append(
+                    _make_media_item(
+                        item["kind"], media,
+                        caption=caption if index == 0 else None,
+                        spoiler=spoiler,
+                        filename=item["filename"],
+                    )
+                )
+            kwargs = dict(
+                chat_id=REVIEW_CHAT_ID,
+                media=media_group,
+                **_review_timeout_kwargs(),
+            )
+            if reply_to_message_id is not None:
+                kwargs["reply_to_message_id"] = reply_to_message_id
+            return await bot.send_media_group(**kwargs)
+        finally:
+            for handle in open_handles:
+                try:
+                    handle.close()
+                except Exception:
+                    logger.debug("关闭预览文件句柄失败", exc_info=True)
+
+    return await _send_preview_throttled(_factory)
+
+
+async def _send_local_preview_single(bot, item, caption, spoiler, *, reply_to_message_id=None):
+    """Send one local file as a standalone message (1-item fallback / odd file)."""
+    common = {"chat_id": REVIEW_CHAT_ID, **_review_timeout_kwargs()}
     if reply_to_message_id is not None:
         common["reply_to_message_id"] = reply_to_message_id
-    if document:
-        return await bot.send_document(document=item["file_id"], **common)
-    kind = item["type"]
+    kind = item["kind"]
+
+    async def _factory():
+        handle = open(item["path"], "rb")
+        try:
+            media = InputFile(handle, filename=item["filename"], read_file_handle=False)
+            if kind == "photo":
+                return await bot.send_photo(photo=media, caption=caption, parse_mode="HTML" if caption else None, has_spoiler=spoiler, **common)
+            if kind == "video":
+                return await bot.send_video(video=media, caption=caption, parse_mode="HTML" if caption else None, has_spoiler=spoiler, **common)
+            if kind == "animation":
+                return await bot.send_animation(animation=media, caption=caption, parse_mode="HTML" if caption else None, has_spoiler=spoiler, **common)
+            if kind == "audio":
+                return await bot.send_audio(audio=media, caption=caption, parse_mode="HTML" if caption else None, **common)
+            return await bot.send_document(document=media, filename=item.get("filename"), caption=caption, parse_mode="HTML" if caption else None, **common)
+        finally:
+            handle.close()
+
+    return await _send_preview_throttled(_factory)
+
+
+async def _send_file_id_preview_album(bot, chunk, caption, spoiler, *, reply_to_message_id=None):
+    """Send a chunk of existing file_ids as one Telegram media group (album)."""
+    media_group = []
+    for index, item in enumerate(chunk):
+        item_caption = caption if index == 0 else None
+        media_group.append(
+            _make_media_item(
+                item["kind"], item["file_id"],
+                caption=item_caption,
+                spoiler=spoiler,
+                filename=item.get("filename"),
+            )
+        )
+    kwargs = dict(chat_id=REVIEW_CHAT_ID, media=media_group, **_review_timeout_kwargs())
+    if reply_to_message_id is not None:
+        kwargs["reply_to_message_id"] = reply_to_message_id
+    return await _send_preview_throttled(lambda: bot.send_media_group(**kwargs))
+
+
+async def _send_file_id_preview_single(bot, item, caption, spoiler, *, reply_to_message_id=None):
+    """Send one existing file_id as a standalone message."""
+    common = {"chat_id": REVIEW_CHAT_ID, **_review_timeout_kwargs()}
+    if reply_to_message_id is not None:
+        common["reply_to_message_id"] = reply_to_message_id
+    kind = item["kind"]
+    item_caption = caption
+    parse_mode = "HTML" if item_caption else None
+    kw = dict(caption=item_caption, parse_mode=parse_mode, **common)
+
     if kind == "photo":
-        return await bot.send_photo(photo=item["file_id"], has_spoiler=spoiler, **common)
+        return await _send_preview_throttled(
+            lambda: bot.send_photo(photo=item["file_id"], has_spoiler=spoiler, **kw)
+        )
     if kind == "video":
-        return await bot.send_video(video=item["file_id"], has_spoiler=spoiler, **common)
+        return await _send_preview_throttled(
+            lambda: bot.send_video(video=item["file_id"], has_spoiler=spoiler, **kw)
+        )
     if kind == "animation":
-        return await bot.send_animation(animation=item["file_id"], has_spoiler=spoiler, **common)
-    return await bot.send_audio(audio=item["file_id"], **common)
+        return await _send_preview_throttled(
+            lambda: bot.send_animation(animation=item["file_id"], has_spoiler=spoiler, **kw)
+        )
+    if kind == "audio":
+        return await _send_preview_throttled(
+            lambda: bot.send_audio(audio=item["file_id"], **kw)
+        )
+    return await _send_preview_throttled(
+        lambda: bot.send_document(
+            document=item["file_id"], filename=item.get("filename"), **kw
+        )
+    )
 
 
 def _retry_after_seconds(exc: RetryAfter) -> float:
@@ -190,12 +296,12 @@ def _retry_after_seconds(exc: RetryAfter) -> float:
 
 
 async def _send_preview_throttled(send_factory: Callable[[], Awaitable]):
-    """Send one review preview with flood-control backoff.
+    """Send one review preview (album or message) with flood-control backoff.
 
-    Staging a multi-page album (e.g. a 24-page Pixiv work) sends many media
-    messages to the review chat in a row; without pacing, Telegram answers
-    with RetryAfter / flood control. Pause briefly between sends and wait
-    out RetryAfter explicitly.
+    Staging a multi-page album (e.g. a 24-page Pixiv work) sends media groups
+    to the review chat in a row; without pacing, Telegram answers with
+    RetryAfter / flood control. Pause briefly between sends and wait out
+    RetryAfter explicitly.
     """
     last_error = None
     for attempt in range(REVIEW_PREVIEW_MAX_ATTEMPTS):
@@ -225,74 +331,117 @@ async def _pace_review_preview(index: int) -> None:
     if index > 0 and REVIEW_PREVIEW_INTERVAL_SECONDS > 0:
         await asyncio.sleep(REVIEW_PREVIEW_INTERVAL_SECONDS)
 
-async def _stage_local_files(bot, files, caption: str, spoiler: bool, message_ids):
-    media, documents = [], []
-    previous_id = None
-    for index, item in enumerate(files):
-        await _pace_review_preview(index)
-        # 同一批（多页图集）的后续每张预览都回复上一条消息，形成回复链；
-        # 审核人在群内一眼就能看出这是一组投稿，而不是零散消息。
-        reply_to = previous_id if (REVIEW_PREVIEW_THREAD and previous_id is not None) else None
-        message = await _send_preview_throttled(
-            lambda item=item, index=index, reply_to=reply_to: _send_local_preview(
-                bot, item, caption if index == 0 else None, spoiler,
-                reply_to_message_id=reply_to,
-            )
-        )
-        # Record the preview before extracting its file_id so an unexpected
-        # Telegram response can still be cleaned up by the caller.
-        message_ids.append(message.message_id)
-        file_id = _file_id_of(message)
-        if not file_id:
-            raise RuntimeError("审核群预览未返回 Telegram file_id")
-        if item["kind"] == "document":
-            documents.append({"file_id": file_id, "filename": item["filename"]})
+
+async def _stage_items(bot, items, caption, spoiler, message_ids, *, local):
+    """Stage files as media-group albums with a reply chain between groups.
+
+    Items are partitioned by Telegram-compatible album families. Each run of
+    up to REVIEW_ALBUM_SIZE compatible files becomes one album; a run of one,
+    and every animation, is sent standalone (so a single novel keeps caption).
+    When REVIEW_PREVIEW_THREAD is on, every following album / standalone
+    message replies to the last sent message, forming one visual thread.
+    """
+    staged_media: list = []
+    staged_documents: list = []
+
+    # Partition into maximal compatible runs, chunked to Telegram's <=10 cap.
+    ordered_runs: list[tuple[Optional[str], list]] = []
+    for item in items:
+        kind = item["kind"] if local else item["type"]
+        family = _album_family(kind)
+        if (
+            family is not None
+            and ordered_runs
+            and ordered_runs[-1][0] == family
+            and len(ordered_runs[-1][1]) < REVIEW_ALBUM_SIZE
+        ):
+            ordered_runs[-1][1].append(item)
         else:
-            media.append({"type": item["kind"], "file_id": file_id})
-        previous_id = message.message_id
-    return media, documents
+            # None families (animations/unknowns) always become standalone.
+            ordered_runs.append((family, [item]))
+
+    chunks = ordered_runs
+    last_message_id = None
+    album_index = 0
+
+    for family, chunk in chunks:
+        await _pace_review_preview(album_index)
+        reply_to = last_message_id if (REVIEW_PREVIEW_THREAD and last_message_id is not None) else None
+        is_album = family is not None and len(chunk) > 1
+
+        if is_album:
+            if local:
+                messages = await _send_local_preview_album(
+                    bot, chunk, caption if album_index == 0 else None, spoiler,
+                    reply_to_message_id=reply_to,
+                )
+            else:
+                messages = await _send_file_id_preview_album(
+                    bot, chunk, caption if album_index == 0 else None, spoiler,
+                    reply_to_message_id=reply_to,
+                )
+        else:
+            single = chunk[0]
+            if local:
+                single_msg = await _send_local_preview_single(
+                    bot, single, caption if album_index == 0 else None,
+                    spoiler, reply_to_message_id=reply_to,
+                )
+            else:
+                single_msg = await _send_file_id_preview_single(
+                    bot, single, caption if album_index == 0 else None,
+                    spoiler, reply_to_message_id=reply_to,
+                )
+            messages = [single_msg]
+
+        for message in messages:
+            message_ids.append(message.message_id)
+        last_message_id = messages[-1].message_id
+        album_index += 1
+
+        # Extract file_ids for durable storage. send_media_group returns one
+        # Message per media item in the same order; map them back by index.
+        if len(messages) != len(chunk):
+            # Never persist a partial review: the caller deletes every known
+            # preview and temporary upload file on this exception.
+            raise RuntimeError(
+                f"审核相册返回消息数 {len(messages)} 与文件数 {len(chunk)} 不一致"
+            )
+
+        for message, item in zip(messages, chunk):
+            file_id = _file_id_of(message)
+            if not file_id:
+                raise RuntimeError("审核群预览未返回 Telegram file_id")
+            item_kind = item["kind"] if local else item["type"]
+            if item_kind == "document":
+                staged_documents.append({
+                    "file_id": file_id,
+                    "filename": item.get("filename") or "file",
+                })
+            else:
+                staged_media.append({"type": item_kind, "file_id": file_id})
+
+    return staged_media, staged_documents
+
+
+async def _stage_local_files(bot, files, caption: str, spoiler: bool, message_ids):
+    return await _stage_items(
+        bot, files, caption, spoiler, message_ids, local=True
+    )
 
 
 async def _stage_file_ids(bot, media, documents, caption: str, spoiler: bool, message_ids):
-    staged_media, staged_documents = [], []
-    index = 0
-    previous_id = None
+    items = []
     for item in media:
-        await _pace_review_preview(index)
-        reply_to = previous_id if (REVIEW_PREVIEW_THREAD and previous_id is not None) else None
-        message = await _send_preview_throttled(
-            lambda item=item, index=index, reply_to=reply_to: _send_file_id_preview(
-                bot, item, caption if index == 0 else None, spoiler,
-                reply_to_message_id=reply_to,
-            )
-        )
-        message_ids.append(message.message_id)
-        file_id = _file_id_of(message)
-        if not file_id:
-            raise RuntimeError("审核群预览未返回 Telegram file_id")
-        staged_media.append({"type": item["type"], "file_id": file_id})
-        previous_id = message.message_id
-        index += 1
+        items.append({"kind": item["type"], "type": item["type"], "file_id": item["file_id"]})
     for item in documents:
-        await _pace_review_preview(index)
-        reply_to = previous_id if (REVIEW_PREVIEW_THREAD and previous_id is not None) else None
-        message = await _send_preview_throttled(
-            lambda item=item, index=index, reply_to=reply_to: _send_file_id_preview(
-                bot, item, caption if index == 0 else None, spoiler,
-                document=True, reply_to_message_id=reply_to,
-            )
-        )
-        message_ids.append(message.message_id)
-        file_id = _file_id_of(message)
-        if not file_id:
-            raise RuntimeError("审核群预览未返回 Telegram file_id")
-        staged_documents.append({
-            "file_id": file_id,
-            "filename": item.get("filename") or "file",
+        items.append({
+            "kind": "document", "type": "document",
+            "file_id": item["file_id"], "filename": item.get("filename") or "file",
         })
-        previous_id = message.message_id
-        index += 1
-    return staged_media, staged_documents
+    return await _stage_items(
+        bot, items, caption, spoiler, message_ids, local=False
+    )
 
 
 async def _create_review(
@@ -362,7 +511,11 @@ async def _create_review(
         control = await bot.send_message(
             chat_id=REVIEW_CHAT_ID,
             text=control_text,
-            reply_to_message_id=review_message_ids[0] if review_message_ids else None,
+            reply_to_message_id=(
+                review_message_ids[-1]
+                if REVIEW_PREVIEW_THREAD and review_message_ids
+                else None
+            ),
             reply_markup=_review_keyboard(review_id, link),
             disable_web_page_preview=True,
         )
