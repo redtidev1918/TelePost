@@ -2,6 +2,7 @@
 数据库管理模块
 """
 import logging
+import os
 from datetime import datetime
 from contextlib import asynccontextmanager
 import aiosqlite
@@ -178,7 +179,7 @@ async def init_db():
 
 async def cleanup_old_data():
     """
-    清理过期的会话数据
+    清理过期的会话数据与已决审核记录
     """
     try:
         # 首先检查表是否存在
@@ -196,6 +197,26 @@ async def cleanup_old_data():
             c = await conn.cursor()
             cutoff = datetime.now().timestamp() - TIMEOUT
             await c.execute("DELETE FROM submissions WHERE timestamp < ?", (cutoff,))
-            logger.info("已清理过期数据")
+
+        # 清理已决（拒绝/发布/失败）且超过保留期的审核记录，避免表无限增长。
+        # 只清理终态记录：pending 的投稿绝不能动。保留期默认 30 天。
+        review_retention_days = int(os.getenv("REVIEW_RETENTION_DAYS", "30"))
+        if review_retention_days > 0:
+            async with aiosqlite.connect(DB_PATH) as conn:
+                c = await conn.cursor()
+                await c.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='pending_reviews'"
+                )
+                has_reviews = await c.fetchone()
+            if has_reviews:
+                review_cutoff = datetime.now().timestamp() - review_retention_days * 86400
+                async with get_db() as conn:
+                    c = await conn.cursor()
+                    await c.execute(
+                        "DELETE FROM pending_reviews "
+                        "WHERE status IN ('rejected','published','failed') AND updated_at < ?",
+                        (review_cutoff,),
+                    )
+                    logger.info("已清理过期审核记录（保留 %d 天）", review_retention_days)
     except Exception as e:
         logger.error(f"清理过期数据失败: {e}")

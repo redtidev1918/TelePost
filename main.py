@@ -714,6 +714,34 @@ def setup_application(application):
             
         # 每天凌晨3点执行一次日志清理
         job_queue.run_daily(clean_logs_job, time=datetime_time(hour=3, minute=0))
+
+        # 每天凌晨 4 点执行 PixivFlow 维护（清理缓存/日志/备份、优化 SQLite），
+        # 防止 deleteAfterDelivery=false 后下载缓存与 WAL 无限增长。
+        def pixivflow_maintain_job(context):
+            """定期执行 pixivflow maintain（子进程，非阻塞主循环）"""
+            import subprocess
+            try:
+                cfg = os.getenv("PIXIVFLOW_CONFIG", "")
+                cmd = ["pixivflow", "maintain"]
+                if cfg:
+                    cmd += ["--config", cfg]
+                logger.info("开始执行 PixivFlow 维护: %s", " ".join(cmd))
+                proc = subprocess.run(
+                    cmd,
+                    cwd="/app",
+                    timeout=900,
+                    capture_output=True,
+                    text=True,
+                )
+                tail = (proc.stdout or "")[-400:]
+                if proc.returncode == 0:
+                    logger.info("PixivFlow 维护完成")
+                else:
+                    logger.warning("PixivFlow 维护异常退出 %s: %s", proc.returncode, tail)
+            except Exception as exc:
+                logger.warning("PixivFlow 维护失败: %s", exc, exc_info=True)
+
+        job_queue.run_daily(pixivflow_maintain_job, time=datetime_time(hour=4, minute=0))
         
         # 添加帖子统计数据更新任务（默认每2小时执行一次，降低峰值）
         job_queue.run_repeating(update_post_stats, interval=7200, first=60)

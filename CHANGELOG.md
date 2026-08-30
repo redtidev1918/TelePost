@@ -9,6 +9,22 @@
 
 ## [Unreleased]
 
+## [2.10.12] - 2026-08-30
+
+### 修复
+
+- **`api_uploads` 目录泄漏**：上传会话清理原来依赖 aiohttp 任务 done-callback，
+  并非所有执行路径都会触发（实测多页大上传后残留 90MB 级孤儿目录）。
+  现在新增后台清扫器：每小时删除超过 `UPLOAD_SESSION_MAX_AGE_SECONDS`
+  （默认 1 小时）的孤儿会话目录，配合原有回调双保险，持久卷不再被慢速累积占满。
+
+### 改进
+
+- 定期清理扩展到 `pending_reviews`：已决（rejected/published/failed）且超过
+  `REVIEW_RETENTION_DAYS`（默认 30 天）的审核记录自动删除；pending 记录绝不动。
+- 每天 04:00 自动执行 `pixivflow maintain`（子进程）：清理日志/备份、VACUUM
+  优化 SQLite，配合 `deleteAfterDelivery=false` 的缓存保留策略控制存储增长。
+
 ## [2.10.11] - 2026-08-30
 
 ### 改进

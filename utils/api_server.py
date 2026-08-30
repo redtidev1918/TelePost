@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import shutil
+import time
 import uuid
 from datetime import datetime
 
@@ -23,6 +24,12 @@ from utils.api_tokens import authenticate
 from utils.cache import TTLCache
 
 logger = logging.getLogger(__name__)
+
+# 上传会话目录保留时长：超过该时长的孤儿目录由后台清扫器删除
+UPLOAD_SESSION_MAX_AGE_SECONDS = int(
+    os.getenv("UPLOAD_SESSION_MAX_AGE_SECONDS", "3600")
+)
+_upload_sweeper_started = False
 
 API_VERSION = "1.0"
 MAX_FILE_BYTES = 50 * 1024 * 1024      # Telegram Bot API 单文件上限
@@ -307,3 +314,48 @@ def add_api_routes(web_app, application) -> None:
     web_app.router.add_get("/api/v1/me", me)
     web_app.router.add_post("/api/v1/submissions", create_submission)
     logger.info("API 路由已注册: /api/v1/*")
+    _ensure_upload_sweeper()
+
+
+async def _sweep_old_upload_dirs() -> None:
+    """Periodically remove orphaned upload session dirs.
+
+    The per-request cleanup relies on an asyncio done-callback which is not
+    guaranteed to fire in every aiohttp execution path (observed leaks on
+    large multi-page uploads). This sweeper deletes any session dir older
+    than UPLOAD_SESSION_MAX_AGE_SECONDS, so failed/aborted requests can
+    never fill the persistent volume.
+    """
+    upload_dir = os.path.join("data", "api_uploads")
+    while True:
+        try:
+            if os.path.isdir(upload_dir):
+                cutoff = time.time() - UPLOAD_SESSION_MAX_AGE_SECONDS
+                removed = 0
+                for name in os.listdir(upload_dir):
+                    path = os.path.join(upload_dir, name)
+                    try:
+                        if os.path.isdir(path) and os.path.getmtime(path) < cutoff:
+                            shutil.rmtree(path, ignore_errors=True)
+                            removed += 1
+                    except OSError:
+                        logger.debug("扫描上传会话目录失败: %s", path, exc_info=True)
+                if removed:
+                    logger.info("清理 %d 个过期上传会话目录", removed)
+        except Exception:
+            logger.warning("上传会话目录清扫失败", exc_info=True)
+        await asyncio.sleep(3600)
+
+
+def _ensure_upload_sweeper() -> None:
+    """Start the background sweeper once per process."""
+    global _upload_sweeper_started
+    if _upload_sweeper_started:
+        return
+    _upload_sweeper_started = True
+    try:
+        asyncio.get_running_loop().create_task(_sweep_old_upload_dirs())
+    except RuntimeError:
+        # No running loop yet (startup phase) — safe to ignore; the next
+        # add_api_routes call will start it once the loop is active.
+        _upload_sweeper_started = False
