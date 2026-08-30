@@ -116,6 +116,59 @@ async def test_file_id_submission_is_durable_and_idempotent(review_db):
 
 
 @pytest.mark.asyncio
+async def test_rejected_review_does_not_block_same_key_resubmission(review_db, monkeypatch):
+    """同一 idempotency_key 的旧记录已被拒绝时，新投稿应创建新审核记录。"""
+    bot = AsyncMock()
+    bot.send_photo.return_value = _photo_message(message_id=1, file_id="A")
+    control = MagicMock(message_id=2)
+    bot.send_message.return_value = control
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_INTERVAL_SECONDS", 0.0)
+
+    first = await review.queue_review_from_file_ids(
+        bot,
+        [{"type": "photo", "file_id": "ORIG"}],
+        [],
+        tags="#a",
+        user_id=7,
+        username="u",
+        idempotency_key="reject-me",
+    )
+    assert first["status"] == "pending_review"
+
+    # 审核员拒绝该投稿
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "UPDATE pending_reviews SET status='rejected' WHERE id=?",
+            (first["review_id"],),
+        )
+
+    # 同一 key 再次投稿（例如 PixivFlow 次日又选中同一作品）
+    second = await review.queue_review_from_file_ids(
+        bot,
+        [{"type": "photo", "file_id": "ORIG"}],
+        [],
+        tags="#b",
+        user_id=7,
+        username="u",
+        idempotency_key="reject-me",
+    )
+
+    assert second["status"] == "pending_review"
+    assert second["review_id"] != first["review_id"]
+    async with db_manager.get_db() as conn:
+        cursor = await conn.execute("SELECT * FROM pending_reviews WHERE id=?", (second["review_id"],))
+        row = await cursor.fetchone()
+    assert row["tags"] == "#b"
+    # 旧记录被替换，同 key 只保留一行
+    async with db_manager.get_db() as conn:
+        cursor = await conn.execute(
+            "SELECT COUNT(*) FROM pending_reviews WHERE idempotency_key=?",
+            ("api:7:reject-me",),
+        )
+        assert (await cursor.fetchone())[0] == 1
+
+
+@pytest.mark.asyncio
 async def test_failed_local_staging_deletes_uploaded_preview(review_db, tmp_path):
     source = tmp_path / "preview.png"
     source.write_bytes(b"not-a-real-image")

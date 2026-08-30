@@ -93,9 +93,13 @@ def _source_label(source: str) -> str:
 
 
 async def _find_review(idempotency_key: str):
+    # 幂等只对仍在途的投稿生效：pending / failed（可重试）命中同一 key 时复用原记录；
+    # rejected / published 不再阻断——审核员拒绝或发布后，同一 idempotency_key 的
+    # 新投稿（例如 PixivFlow 定时任务再次选中同一作品）应能创建新审核记录。
     async with get_db() as conn:
         cursor = await conn.execute(
-            "SELECT * FROM pending_reviews WHERE idempotency_key=?",
+            "SELECT * FROM pending_reviews "
+            "WHERE idempotency_key=? AND status IN ('pending', 'failed')",
             (idempotency_key,),
         )
         return await cursor.fetchone()
@@ -495,42 +499,62 @@ async def _create_review(
     username,
 ):
     now = time.time()
-    try:
-        async with get_db() as conn:
-            cursor = await conn.execute(
-                """
-                INSERT INTO pending_reviews (
-                    idempotency_key, source, status, user_id, username, title, tags, note, link,
-                    anonymous, spoiler, media_json, documents_json, review_chat_id,
-                    review_message_ids, created_at, updated_at
-                ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    idempotency_key,
-                    source,
-                    user_id,
-                    username,
-                    title,
-                    tags,
-                    note,
-                    link,
-                    int(anonymous),
-                    int(spoiler),
-                    json.dumps(media),
-                    json.dumps(documents),
-                    str(REVIEW_CHAT_ID),
-                    json.dumps(review_message_ids),
-                    now,
-                    now,
-                ),
-            )
-            review_id = cursor.lastrowid
-    except aiosqlite.IntegrityError:
-        await _delete_messages(bot, review_message_ids)
-        existing = await _find_review(idempotency_key)
-        if existing is None:
-            raise
-        return _result_from_row(existing)
+    review_id = None
+    for _attempt in range(2):
+        try:
+            async with get_db() as conn:
+                cursor = await conn.execute(
+                    """
+                    INSERT INTO pending_reviews (
+                        idempotency_key, source, status, user_id, username, title, tags, note, link,
+                        anonymous, spoiler, media_json, documents_json, review_chat_id,
+                        review_message_ids, created_at, updated_at
+                    ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        idempotency_key,
+                        source,
+                        user_id,
+                        username,
+                        title,
+                        tags,
+                        note,
+                        link,
+                        int(anonymous),
+                        int(spoiler),
+                        json.dumps(media),
+                        json.dumps(documents),
+                        str(REVIEW_CHAT_ID),
+                        json.dumps(review_message_ids),
+                        now,
+                        now,
+                    ),
+                )
+                review_id = cursor.lastrowid
+            break
+        except aiosqlite.IntegrityError:
+            # 同 key 已存在：pending/failed 复用原记录（新预览随后被清理）；
+            # rejected/published 的历史记录不应阻断同一 idempotency_key 的新投稿——
+            # 删除旧记录与旧预览后重试插入，新预览消息继续保留复用。
+            async with get_db() as conn:
+                cursor = await conn.execute(
+                    "SELECT * FROM pending_reviews WHERE idempotency_key=?",
+                    (idempotency_key,),
+                )
+                existing = await cursor.fetchone()
+            if existing is None:
+                raise
+            if existing["status"] in ("pending", "failed"):
+                await _delete_messages(bot, review_message_ids)
+                return _result_from_row(existing)
+            await _delete_messages(bot, json.loads(existing["review_message_ids"] or "[]"))
+            if existing["control_message_id"]:
+                await _delete_messages(bot, [existing["control_message_id"]])
+            async with get_db() as conn:
+                await conn.execute("DELETE FROM pending_reviews WHERE id=?", (existing["id"],))
+            continue
+    if review_id is None:
+        raise RuntimeError("创建审核记录失败：幂等键冲突且无法覆盖旧记录")
 
     control_text = (
         f"🕵️ 投稿待审核 #{review_id}\n"
