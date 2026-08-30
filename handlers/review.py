@@ -46,8 +46,10 @@ REVIEW_PREVIEW_MAX_ATTEMPTS = 5
 REVIEW_PREVIEW_THREAD = str(
     os.getenv("REVIEW_PREVIEW_THREAD", "1")
 ).strip().lower() in {"1", "true", "yes", "on"}
-# Telegram media group 每组最多 10 个媒体
-REVIEW_ALBUM_SIZE = 10
+# Telegram media group 每组最多 10 个媒体；可通过环境变量下调（小内存机器上
+# 一次性打包太多大图会让 bot 进程 RSS 飙升、健康检查失败甚至 OOM，512 MiB
+# 机型建议 4~5；相册发送失败时会自动降级为逐张发送兜底）。
+REVIEW_ALBUM_SIZE = max(1, min(10, int(os.getenv("REVIEW_ALBUM_SIZE", "5"))))
 
 
 def _review_keyboard(review_id: int, link: str = "") -> InlineKeyboardMarkup:
@@ -340,11 +342,16 @@ async def _stage_items(bot, items, caption, spoiler, message_ids, *, local):
     and every animation, is sent standalone (so a single novel keeps caption).
     When REVIEW_PREVIEW_THREAD is on, every following album / standalone
     message replies to the last sent message, forming one visual thread.
+
+    Memory safety for small (512 MiB) machines: an album send that fails
+    (timeout / network / flood) automatically falls back to sending the chunk
+    one file at a time, so a large Pixiv set never fails the whole submission
+    and the RSS peak stays bounded by one file per request.
     """
     staged_media: list = []
     staged_documents: list = []
 
-    # Partition into maximal compatible runs, chunked to Telegram's <=10 cap.
+    # Partition into maximal compatible runs, chunked to the album cap.
     ordered_runs: list[tuple[Optional[str], list]] = []
     for item in items:
         kind = item["kind"] if local else item["type"]
@@ -360,53 +367,79 @@ async def _stage_items(bot, items, caption, spoiler, message_ids, *, local):
             # None families (animations/unknowns) always become standalone.
             ordered_runs.append((family, [item]))
 
-    chunks = ordered_runs
+    async def _send_album(chunk, album_caption, reply_to):
+        if local:
+            return await _send_local_preview_album(
+                bot, chunk, album_caption, spoiler, reply_to_message_id=reply_to
+            )
+        return await _send_file_id_preview_album(
+            bot, chunk, album_caption, spoiler, reply_to_message_id=reply_to
+        )
+
+    async def _send_single(item, item_caption, reply_to):
+        if local:
+            return await _send_local_preview_single(
+                bot, item, item_caption, spoiler, reply_to_message_id=reply_to
+            )
+        return await _send_file_id_preview_single(
+            bot, item, item_caption, spoiler, reply_to_message_id=reply_to
+        )
+
     last_message_id = None
     album_index = 0
 
-    for family, chunk in chunks:
-        await _pace_review_preview(album_index)
+    for family, chunk in ordered_runs:
         reply_to = last_message_id if (REVIEW_PREVIEW_THREAD and last_message_id is not None) else None
         is_album = family is not None and len(chunk) > 1
+        chunk_caption = caption if album_index == 0 else None
 
+        messages = None
         if is_album:
-            if local:
-                messages = await _send_local_preview_album(
-                    bot, chunk, caption if album_index == 0 else None, spoiler,
-                    reply_to_message_id=reply_to,
+            await _pace_review_preview(album_index)
+            try:
+                messages = await _send_album(chunk, chunk_caption, reply_to)
+            except Exception as exc:
+                # 相册一次性打包多张大图时，小内存机器可能超时/连接中断；
+                # 降级为逐张发送，RSS 峰值只与单张文件相关，整份投稿不失败。
+                logger.warning(
+                    "审核相册发送失败（%s），降级为逐张发送 %d 个文件",
+                    exc, len(chunk),
                 )
-            else:
-                messages = await _send_file_id_preview_album(
-                    bot, chunk, caption if album_index == 0 else None, spoiler,
-                    reply_to_message_id=reply_to,
-                )
-        else:
-            single = chunk[0]
-            if local:
-                single_msg = await _send_local_preview_single(
-                    bot, single, caption if album_index == 0 else None,
-                    spoiler, reply_to_message_id=reply_to,
-                )
-            else:
-                single_msg = await _send_file_id_preview_single(
-                    bot, single, caption if album_index == 0 else None,
-                    spoiler, reply_to_message_id=reply_to,
-                )
-            messages = [single_msg]
+                messages = None
 
-        for message in messages:
-            message_ids.append(message.message_id)
-        last_message_id = messages[-1].message_id
-        album_index += 1
-
-        # Extract file_ids for durable storage. send_media_group returns one
-        # Message per media item in the same order; map them back by index.
-        if len(messages) != len(chunk):
+        if messages is not None and len(messages) != len(chunk):
+            # Record the partial album first so the caller's cleanup deletes
+            # whatever Telegram actually received, then fail loudly.
+            for message in messages:
+                message_ids.append(message.message_id)
             # Never persist a partial review: the caller deletes every known
             # preview and temporary upload file on this exception.
             raise RuntimeError(
                 f"审核相册返回消息数 {len(messages)} 与文件数 {len(chunk)} 不一致"
             )
+
+        if messages is None:
+            # Fallback / standalone path: one message per file.
+            messages = []
+            for within, item in enumerate(chunk):
+                if is_album:
+                    # 降级逐张：每张之间按常规预览间隔限速
+                    await _pace_review_preview(1 if within > 0 else 0)
+                item_reply = reply_to if within == 0 else (
+                    last_message_id if (REVIEW_PREVIEW_THREAD and last_message_id is not None) else None
+                )
+                single_caption = chunk_caption if within == 0 else None
+                single_msg = await _send_single(item, single_caption, item_reply)
+                messages.append(single_msg)
+                for m in [single_msg]:
+                    message_ids.append(m.message_id)
+                last_message_id = single_msg.message_id
+        else:
+            for message in messages:
+                message_ids.append(message.message_id)
+            last_message_id = messages[-1].message_id
+
+        album_index += 1
 
         for message, item in zip(messages, chunk):
             file_id = _file_id_of(message)

@@ -182,6 +182,7 @@ async def test_multi_album_review_threads_and_paces(review_db, monkeypatch):
     monkeypatch.setattr(review.asyncio, "sleep", sleep)
     monkeypatch.setattr(review, "REVIEW_PREVIEW_INTERVAL_SECONDS", 0.75)
     monkeypatch.setattr(review, "REVIEW_PREVIEW_THREAD", True)
+    monkeypatch.setattr(review, "REVIEW_ALBUM_SIZE", 10)
 
     media, documents = await review._stage_file_ids(
         bot,
@@ -361,6 +362,71 @@ async def test_album_message_count_mismatch_fails_instead_of_dropping_pages(revi
         )
 
     bot.delete_message.assert_awaited_once_with(chat_id=-100123, message_id=50)
+
+
+@pytest.mark.asyncio
+async def test_album_failure_falls_back_to_single_sends(review_db, monkeypatch):
+    """相册发送失败（小内存机器超时）时自动降级逐张发送，整份投稿不失败。"""
+    bot = AsyncMock()
+    # 相册第一次抛异常；随后逐张发送成功
+    bot.send_media_group.side_effect = RuntimeError("timeout / memory pressure")
+    bot.send_photo.side_effect = [
+        _photo_message(message_id=70, file_id="SINGLE_1"),
+        _photo_message(message_id=71, file_id="SINGLE_2"),
+    ]
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_INTERVAL_SECONDS", 0.0)
+
+    media, documents = await review._stage_file_ids(
+        bot,
+        [
+            {"type": "photo", "file_id": "ORIGINAL_1"},
+            {"type": "photo", "file_id": "ORIGINAL_2"},
+        ],
+        [],
+        "caption",
+        False,
+        [],
+    )
+
+    # 降级后每张仍被暂存为可用的 file_id
+    assert [item["file_id"] for item in media] == ["SINGLE_1", "SINGLE_2"]
+    assert documents == []
+    # 相册尝试了 1 次，然后逐张 2 次
+    assert bot.send_media_group.await_count == 1
+    assert bot.send_photo.await_count == 2
+    # 第一张带 caption 且无 reply；第二张回复第一张
+    calls = [call.kwargs for call in bot.send_photo.await_args_list]
+    assert calls[0]["caption"] == "caption"
+    assert calls[0].get("reply_to_message_id") is None
+    assert calls[1].get("reply_to_message_id") == 70
+
+
+@pytest.mark.asyncio
+async def test_album_size_is_configurable(review_db, monkeypatch):
+    """REVIEW_ALBUM_SIZE 控制每组媒体数；最后不足一组的单张走独立消息。"""
+    bot = AsyncMock()
+    bot.send_media_group.return_value = [
+        _photo_message(message_id=80, file_id="P0"),
+        _photo_message(message_id=81, file_id="P1"),
+    ]
+    bot.send_photo.return_value = _photo_message(message_id=82, file_id="P2")
+    monkeypatch.setattr(review, "REVIEW_PREVIEW_INTERVAL_SECONDS", 0.0)
+    monkeypatch.setattr(review, "REVIEW_ALBUM_SIZE", 2)
+
+    media, _ = await review._stage_file_ids(
+        bot,
+        [{"type": "photo", "file_id": f"ID{i}"} for i in range(3)],
+        [],
+        "caption",
+        False,
+        [],
+    )
+
+    assert len(media) == 3
+    assert [item["file_id"] for item in media] == ["P0", "P1", "P2"]
+    # 第一组 2 张走相册；剩余 1 张独立发送
+    assert bot.send_media_group.await_count == 1
+    assert bot.send_photo.await_count == 1
 
 
 @pytest.mark.asyncio
