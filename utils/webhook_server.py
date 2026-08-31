@@ -3,6 +3,7 @@ Webhook 服务器模块
 用于接收 Telegram 的 Webhook 推送
 """
 import os
+import hmac
 import logging
 import secrets
 from aiohttp import web
@@ -46,9 +47,14 @@ class WebhookServer:
             web.Response: HTTP 响应
         """
         # 验证 Secret Token（如果设置）
+        # 使用恒定时间比较（compare_digest）避免普通 != 在逐字节比较时
+        # 因耗时差异泄露 token 前缀（时序侧信道）。
         if self.secret_token:
             request_token = request.headers.get('X-Telegram-Bot-Api-Secret-Token', '')
-            if request_token != self.secret_token:
+            if not hmac.compare_digest(
+                request_token.encode('utf-8'),
+                self.secret_token.encode('utf-8'),
+            ):
                 logger.warning(f"收到未授权的 Webhook 请求，Token 不匹配")
                 return web.Response(status=401, text="Unauthorized")
         
