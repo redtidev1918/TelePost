@@ -59,6 +59,12 @@ async def handle_callback_query(update: Update, context: CallbackContext):
         elif data.startswith("review_reject:"):
             from handlers.review import reject_review
             return await reject_review(update, context)
+        elif data.startswith("review_spoiler:"):
+            from handlers.review import toggle_review_spoiler
+            return await toggle_review_spoiler(update, context)
+        elif data.startswith("review_refetch:"):
+            from handlers.review import refetch_review
+            return await refetch_review(update, context)
 
         # 投稿确认相关
         elif data.startswith("submit_confirm_"):

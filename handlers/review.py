@@ -9,6 +9,8 @@ import asyncio
 import json
 import logging
 import os
+import re
+import subprocess
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -63,11 +65,33 @@ PENDING_REVIEW_CLEANUP_BATCH_SIZE = max(
 PHOTO_MAX_BYTES = int((10.0 - 0.5) * 1024 * 1024)
 
 
-def _review_keyboard(review_id: int, link: str = "") -> InlineKeyboardMarkup:
+def _review_keyboard(
+    review_id: int,
+    link: str = "",
+    *,
+    spoiler: bool = False,
+    source: str = "api",
+    pixiv_id: str = "",
+) -> InlineKeyboardMarkup:
     rows = [[
         InlineKeyboardButton("✅ 发布到频道", callback_data=f"review_approve:{review_id}"),
         InlineKeyboardButton("❌ 拒绝", callback_data=f"review_reject:{review_id}"),
     ]]
+    # 审核员可在发布前决定频道遮罩；初始值沿用投稿者设置。
+    rows.append([
+        InlineKeyboardButton(
+            f"🔇 遮罩：{'开' if spoiler else '关'}",
+            callback_data=f"review_spoiler:{review_id}",
+        ),
+    ])
+    # 仅 Pixiv 自动投稿（HTTP API + 携带 pixivId）提供"重抓/换一张"。
+    if source == "api" and pixiv_id:
+        rows[-1].append(
+            InlineKeyboardButton(
+                "🔄 重抓/换一张",
+                callback_data=f"review_refetch:{review_id}",
+            )
+        )
     if link:
         rows.append([InlineKeyboardButton("🔗 查看原链接", url=link)])
     return InlineKeyboardMarkup(rows)
@@ -101,6 +125,17 @@ def _result_from_row(row) -> dict:
 
 def _source_label(source: str) -> str:
     return "Telegram 聊天" if source == "chat" else "HTTP API"
+
+
+_PIXIV_ID_RE = re.compile(r"pixiv\.net/(?:artworks/|novel/show\.php\?id=)(\d+)")
+
+
+def _pixiv_id_from_link(link: str) -> str:
+    """Extract the Pixiv work id from a Pixiv link ('' if not a Pixiv link)."""
+    if not link:
+        return ""
+    m = _PIXIV_ID_RE.search(link)
+    return m.group(1) if m else ""
 
 
 async def _find_review(idempotency_key: str):
@@ -678,7 +713,13 @@ async def _create_review(
                 if REVIEW_PREVIEW_THREAD and review_message_ids
                 else None
             ),
-            reply_markup=_review_keyboard(review_id, link),
+            reply_markup=_review_keyboard(
+                review_id,
+                link,
+                spoiler=bool(spoiler),
+                source=source,
+                pixiv_id=_pixiv_id_from_link(link or ""),
+            ),
             disable_web_page_preview=True,
         )
         async with get_db() as conn:
@@ -834,6 +875,148 @@ async def _notify_chat_submitter(bot, row, text: str):
         )
 
 
+async def _load_review_for_action(query, review_id):
+    """Fetch a pending/failed review row for a reviewer action."""
+    async with get_db() as conn:
+        cursor = await conn.execute(
+            "SELECT * FROM pending_reviews WHERE id=?", (review_id,)
+        )
+        return await cursor.fetchone()
+
+
+async def toggle_review_spoiler(update, context):
+    """审核员在发布前翻转该投稿的频道遮罩（初始值沿用投稿者设置）。"""
+    query = update.callback_query
+    if update.effective_user.id not in ADMIN_IDS:
+        await _answer(query, "你没有审核权限", show_alert=True)
+        return
+
+    try:
+        review_id = int(query.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await _answer(query, "无效的审核记录", show_alert=True)
+        return
+
+    async with get_db() as conn:
+        cursor = await conn.execute(
+            """
+            UPDATE pending_reviews SET spoiler = 1 - COALESCE(spoiler, 0), updated_at=?
+            WHERE id=? AND status IN ('pending', 'failed')
+            """,
+            (time.time(), review_id),
+        )
+        flipped = cursor.rowcount == 1
+        cursor = await conn.execute(
+            "SELECT spoiler, link, source FROM pending_reviews WHERE id=?",
+            (review_id,),
+        )
+        row = await cursor.fetchone()
+
+    if row is None:
+        await _answer(query, "审核记录不存在", show_alert=True)
+        return
+    if not flipped:
+        await _answer(query, "该投稿已处理，无法修改遮罩", show_alert=True)
+        return
+
+    new_spoiler = bool(row["spoiler"])
+    await _answer(query, f"遮罩已{'开启' if new_spoiler else '关闭'}")
+    try:
+        await query.edit_message_reply_markup(
+            reply_markup=_review_keyboard(
+                review_id,
+                row["link"],
+                spoiler=new_spoiler,
+                source=row["source"],
+                pixiv_id=_pixiv_id_from_link(row["link"] or ""),
+            )
+        )
+    except Exception:
+        logger.debug("刷新审核键盘失败（遮罩已入库）: review_id=%s", review_id)
+
+
+def _run_pixivflow_refetch() -> subprocess.CompletedProcess:
+    """触发 PixivFlow 立即跑一轮所有计划；已下载作品自动跳过并选取下一张。"""
+    config_path = os.getenv("PIXIVFLOW_CONFIG", "")
+    command = ["pixivflow", "scheduler", "run"]
+    if config_path:
+        command += ["--config", config_path]
+    logger.info("审核群触发 PixivFlow 重抓: %s", " ".join(command))
+    return subprocess.run(
+        command, cwd="/app", timeout=1500, capture_output=True, text=True
+    )
+
+
+async def refetch_review(update, context):
+    """审核员点"重抓/换一张"：后台触发 PixivFlow 重跑，新作品会作为新审核稿进入队列。"""
+    query = update.callback_query
+    if update.effective_user.id not in ADMIN_IDS:
+        await _answer(query, "你没有审核权限", show_alert=True)
+        return
+
+    try:
+        review_id = int(query.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await _answer(query, "无效的审核记录", show_alert=True)
+        return
+
+    if os.getenv("PIXIVFLOW_ENABLED", "false").strip().lower() not in {
+        "true",
+        "1",
+        "yes",
+    }:
+        await _answer(query, "PixivFlow 未启用，无法重抓", show_alert=True)
+        return
+
+    row = await _load_review_for_action(query, review_id)
+    if row is None:
+        await _answer(query, "审核记录不存在", show_alert=True)
+        return
+
+    # 立刻给审核员反馈，下载在后台进行（最长约 25 分钟），完成后新稿会自行进队列。
+    await _answer(
+        query,
+        "已触发重抓，新作品下载投递后会作为新审核稿进入本群（已发布的旧稿不受影响）。",
+        show_alert=True,
+    )
+    try:
+        await context.bot.send_message(
+            chat_id=REVIEW_CHAT_ID,
+            text=f"🔄 审核 #{review_id} 由管理员触发重抓，PixivFlow 正在后台重新下载，请稍候……",
+        )
+    except Exception:
+        logger.debug("发送重抓提示失败", exc_info=True)
+
+    async def _do_refetch():
+        try:
+            proc = await asyncio.to_thread(_run_pixivflow_refetch)
+            if proc.returncode == 0:
+                tail = (proc.stdout or "")[-300:]
+                logger.info("PixivFlow 重抓完成: %s", tail)
+                await context.bot.send_message(
+                    chat_id=REVIEW_CHAT_ID,
+                    text="✅ 重抓完成，新投稿已进入审核队列（无新作品时会提示空结果）。",
+                )
+            else:
+                tail = ((proc.stderr or "") + (proc.stdout or ""))[-300:]
+                logger.warning("PixivFlow 重抓失败 code=%s: %s", proc.returncode, tail)
+                await context.bot.send_message(
+                    chat_id=REVIEW_CHAT_ID,
+                    text=f"⚠️ 重抓异常退出（{proc.returncode}）：{tail[:200]}",
+                )
+        except Exception as exc:
+            logger.warning("PixivFlow 重抓任务异常: %s", exc, exc_info=True)
+            try:
+                await context.bot.send_message(
+                    chat_id=REVIEW_CHAT_ID,
+                    text=f"⚠️ 重抓任务出错：{str(exc)[:200]}",
+                )
+            except Exception:
+                pass
+
+    asyncio.create_task(_do_refetch())
+
+
 async def approve_review(update, context):
     query = update.callback_query
     if update.effective_user.id not in ADMIN_IDS:
@@ -890,7 +1073,13 @@ async def approve_review(update, context):
             )
         await query.edit_message_text(
             f"⚠️ 审核 #{review_id} 发布失败，可重试：\n{str(error)[:200]}",
-            reply_markup=_review_keyboard(review_id, row["link"]),
+            reply_markup=_review_keyboard(
+                review_id,
+                row["link"],
+                spoiler=bool(row["spoiler"]),
+                source=row["source"],
+                pixiv_id=_pixiv_id_from_link(row["link"] or ""),
+            ),
         )
         return
 

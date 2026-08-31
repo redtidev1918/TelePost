@@ -869,3 +869,40 @@ async def test_single_file_id_uses_send_photo_not_media_group(monkeypatch):
     assert result["message_id"] == 55
     bot.send_photo.assert_awaited_once()
     bot.send_media_group.assert_not_called()
+
+
+def _keyboard_buttons(markup):
+    return [btn for row in markup.inline_keyboard for btn in row]
+
+
+def test_review_keyboard_spoiler_toggle_reflects_state():
+    off = review._review_keyboard(1, "https://www.pixiv.net/artworks/123", spoiler=False)
+    on = review._review_keyboard(1, "https://www.pixiv.net/artworks/123", spoiler=True)
+    off_btn = [b for b in _keyboard_buttons(off) if b.callback_data == "review_spoiler:1"]
+    on_btn = [b for b in _keyboard_buttons(on) if b.callback_data == "review_spoiler:1"]
+    assert off_btn and off_btn[0].text == "🔇 遮罩：关"
+    assert on_btn and on_btn[0].text == "🔇 遮罩：开"
+
+
+def test_review_keyboard_refetch_only_for_pixiv_api_submissions():
+    # HTTP API + Pixiv link -> refetch button present
+    api = review._review_keyboard(
+        2, "https://www.pixiv.net/novel/show.php?id=999",
+        source="api", pixiv_id="999",
+    )
+    assert any(b.callback_data == "review_refetch:2" for b in _keyboard_buttons(api))
+    # chat source -> no refetch
+    chat = review._review_keyboard(
+        3, "https://www.pixiv.net/artworks/123", source="chat"
+    )
+    assert not any(b.callback_data and b.callback_data.startswith("review_refetch:") for b in _keyboard_buttons(chat))
+    # api but non-pixiv link -> no refetch
+    nonpixiv = review._review_keyboard(4, "https://example.com/x", source="api")
+    assert not any(b.callback_data and b.callback_data.startswith("review_refetch:") for b in _keyboard_buttons(nonpixiv))
+
+
+def test_pixiv_id_extraction():
+    assert review._pixiv_id_from_link("https://www.pixiv.net/artworks/149075080") == "149075080"
+    assert review._pixiv_id_from_link("https://www.pixiv.net/novel/show.php?id=29004386") == "29004386"
+    assert review._pixiv_id_from_link("https://example.com") == ""
+    assert review._pixiv_id_from_link("") == ""
