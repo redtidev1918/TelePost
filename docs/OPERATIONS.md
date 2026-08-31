@@ -170,7 +170,15 @@ python3 -m utils.index_manager optimize   # 合并索引段
 | 过期投稿清理 | 每 5 分钟 | 删除 `TIMEOUT`（默认 300s）前的 submissions |
 | 帖子统计更新 | 每 2 小时 | 拉取浏览/转发并计算热度 |
 | 已删除消息检查 | 每 30 分钟 | 转发探测（需配置 `OWNER_ID`），自动标记 |
-| 日志清理 | 每天 03:00 | |
+| 日志清理 | 每天 03:00（`TZ`） | 仅主 Bot 注册；文件操作在线程中执行，不阻塞更新处理 |
+| PixivFlow 维护 | 每天 04:00（`TZ`） | 仅主 Bot 注册；子进程在线程中等待，最长 15 分钟 |
+
+JobQueue 会 `await` 所有回调，因此定时任务入口必须是 `async def`。耗时的同步文件或
+子进程操作应通过工作线程执行；否则会出现 `NoneType can't be used in 'await'`
+或阻塞 Telegram 更新处理。多 Bot supervisor 通过 `TELEPOST_PRIMARY_BOT` 保证全局
+维护只注册一次。
+维护时间是带时区的 wall-clock 时间，默认 `Asia/Shanghai`；不会再被 JobQueue 当作
+UTC 而在北京时间 11:00/12:00 执行。无效 `TZ` 会记录警告并回退到 UTC。
 
 ## 迁移与配置工具
 

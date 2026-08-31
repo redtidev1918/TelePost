@@ -9,6 +9,16 @@
 
 ## [Unreleased]
 
+### 修复
+
+- 修正 JobQueue 每天 03:00 执行同步日志清理回调时产生的
+  `TypeError: object NoneType can't be used in 'await' expression`；日志清理与
+  04:00 PixivFlow 维护现均为真正的异步回调，阻塞文件/子进程操作移到工作线程。
+- 多 Bot 模式只由主 Bot 注册日志清理和 PixivFlow 维护，避免同一目录被重复清理；
+  每个 Bot 自己的审核队列清理仍保持独立运行。
+- 03:00/04:00 维护时间显式使用 `TZ`（默认 `Asia/Shanghai`）。此前无时区的时间被
+  JobQueue 按 UTC 解释，东八区实际会延后到 11:00/12:00；无效 `TZ` 现安全回退 UTC。
+
 ## [2.10.15] - 2026-08-31
 
 ### 修复

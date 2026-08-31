@@ -9,7 +9,7 @@ import asyncio
 import platform
 import logging
 import os
-from datetime import datetime, time as datetime_time
+from datetime import datetime
 from telegram import Update, BotCommand
 from telegram.ext import (
     Application,
@@ -42,8 +42,9 @@ from utils.database import (
 )
 
 # 工具函数导入
-from utils.logging_config import setup_logging, cleanup_old_logs
+from utils.logging_config import setup_logging
 from utils.helper_functions import CONFIG
+from utils.maintenance_jobs import clean_logs_job, pixivflow_maintain_job, scheduled_time
 
 # 处理程序导入 - 按功能分组
 # 基础命令
@@ -707,48 +708,15 @@ def setup_application(application):
 
         job_queue.run_repeating(cleanup_runtime_data, interval=300, first=10)
         
-        # 添加周期性清理日志任务
-        def clean_logs_job(context):
-            """定期清理日志文件"""
-            logger.info("执行定期日志清理任务")
-            cleanup_old_logs("logs")
-            
-        # 每天凌晨3点执行一次日志清理
-        job_queue.run_daily(clean_logs_job, time=datetime_time(hour=3, minute=0))
-
-        # 每天凌晨 4 点执行 PixivFlow 维护（清理缓存/日志/备份、优化 SQLite），
-        # 防止 deleteAfterDelivery=false 后下载缓存与 WAL 无限增长。
-        def pixivflow_maintain_job(context):
-            """定期执行 pixivflow maintain（子进程，非阻塞主循环）"""
-            import subprocess
-            try:
-                cfg = os.getenv("PIXIVFLOW_CONFIG", "")
-                cmd = ["pixivflow", "maintain"]
-                if cfg:
-                    cmd += ["--config", cfg]
-                logger.info("开始执行 PixivFlow 维护: %s", " ".join(cmd))
-                proc = subprocess.run(
-                    cmd,
-                    cwd="/app",
-                    timeout=900,
-                    capture_output=True,
-                    text=True,
-                )
-                tail = (proc.stdout or "")[-400:]
-                if proc.returncode == 0:
-                    logger.info("PixivFlow 维护完成")
-                else:
-                    logger.warning("PixivFlow 维护异常退出 %s: %s", proc.returncode, tail)
-            except Exception as exc:
-                logger.warning("PixivFlow 维护失败: %s", exc, exc_info=True)
-
         is_primary_bot = os.getenv("TELEPOST_PRIMARY_BOT", "true").strip().lower() in {
             "1", "true", "yes", "on"
         }
         if is_primary_bot:
-            job_queue.run_daily(pixivflow_maintain_job, time=datetime_time(hour=4, minute=0))
+            # 全局文件/子进程维护只注册一次；回调本身为 async，并把阻塞工作放入线程。
+            job_queue.run_daily(clean_logs_job, time=scheduled_time(hour=3))
+            job_queue.run_daily(pixivflow_maintain_job, time=scheduled_time(hour=4))
         else:
-            logger.info("跳过全局 PixivFlow 维护任务（仅主 Bot 注册）")
+            logger.info("跳过全局日志/PixivFlow 维护任务（仅主 Bot 注册）")
         
         # 添加帖子统计数据更新任务（默认每2小时执行一次，降低峰值）
         job_queue.run_repeating(update_post_stats, interval=7200, first=60)
