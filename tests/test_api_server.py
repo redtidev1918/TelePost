@@ -30,6 +30,7 @@ def _make_app(monkeypatch, authenticate_return):
 
     application = MagicMock()
     application.bot = AsyncMock()
+    application.bot.send_message.return_value = MagicMock(message_id=321)
     app = web.Application()
     api_server.add_api_routes(app, application)
     return app, publish_mock
@@ -250,6 +251,35 @@ class TestSubmission:
             queue_mock.assert_awaited_once()
             assert queue_mock.call_args.kwargs["idempotency_key"] == "pixiv:123"
             publish_mock.assert_not_called()
+        finally:
+            await client.close()
+
+
+class TestNotification:
+    @pytest.mark.asyncio
+    async def test_sends_idempotent_review_chat_notice(self, monkeypatch):
+        monkeypatch.setattr(api_server, "REVIEW_CHAT_ID", -100123)
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            headers = {"Authorization": "Bearer tp_ok"}
+            payload = {"text": "PixivFlow 没有候选", "idempotency_key": "empty:today"}
+            first = await client.post("/api/v1/notifications", headers=headers, json=payload)
+            second = await client.post("/api/v1/notifications", headers=headers, json=payload)
+            assert first.status == 201
+            assert (await first.json())["data"]["status"] == "notified"
+            assert second.status == 201
+            assert (await second.json())["data"]["status"] == "duplicate"
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_notification_requires_auth(self, monkeypatch):
+        monkeypatch.setattr(api_server, "REVIEW_CHAT_ID", -100123)
+        app, _ = _make_app(monkeypatch, None)
+        client = await _client(app)
+        try:
+            assert (await client.post("/api/v1/notifications", json={"text": "x"})).status == 401
         finally:
             await client.close()
 

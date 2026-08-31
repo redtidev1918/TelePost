@@ -9,6 +9,15 @@
 
 ## [Unreleased]
 
+## [2.10.18] - 2026-08-31
+
+### 新增
+
+- 新增鉴权端点 `POST /api/v1/notifications`，供 PixivFlow 等自动化在没有候选时
+  向当前 Bot 的 `REVIEW_CHAT_ID` 发送纯文本运维通知，不创建空投稿或频道消息。
+- 支持最长 240 字符的 `idempotency_key`；同一进程 24 小时内的网络重试返回
+  `duplicate`，避免审核群重复提示。通知复用投稿 Bearer Token，Bot Token 不外泄。
+
 ## [2.10.17] - 2026-08-31
 
 ### 安全

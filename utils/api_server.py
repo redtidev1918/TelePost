@@ -18,6 +18,7 @@ from aiohttp import web
 from config.settings import (
     API_REVIEW_REQUIRED,
     CHAT_REVIEW_REQUIRED,
+    REVIEW_CHAT_ID,
     SUBMIT_LIMIT_PER_HOUR,
 )
 from utils.api_tokens import authenticate
@@ -310,9 +311,48 @@ def add_api_routes(web_app, application) -> None:
         )
         return _ok(result, status=201)
 
+    async def create_notification(request):
+        token_row = await authenticate(_bearer(request) or "")
+        if token_row is None:
+            return _error(401, "invalid_token", "token 无效或已吊销")
+        if not REVIEW_CHAT_ID:
+            return _error(409, "review_chat_not_configured", "未配置审核群")
+        if not (request.content_type or "").startswith("application/json"):
+            return _error(400, "invalid_content_type", "请使用 application/json")
+        try:
+            payload = await request.json()
+        except Exception:
+            return _error(400, "invalid_json", "JSON 解析失败")
+        if not isinstance(payload, dict):
+            return _error(400, "invalid_json", "JSON body 必须是对象")
+        text = str(payload.get("text", "")).strip()[:2000]
+        if not text:
+            return _error(400, "missing_text", "text 不能为空")
+        key = _fields_idempotency_key(payload)
+        cache_key = f"notification:{token_row['telegram_user_id']}:{key}"
+        if key and _rate_cache.get(cache_key):
+            return _ok({"status": "duplicate"}, status=201)
+        try:
+            message = await bot.send_message(
+                chat_id=REVIEW_CHAT_ID,
+                text=text,
+                disable_web_page_preview=True,
+            )
+        except Exception as exc:
+            logger.error("API 审核群通知失败: %s", exc, exc_info=True)
+            return _error(502, "notification_failed", f"审核群通知失败: {str(exc)[:200]}")
+        if key:
+            _rate_cache.set(cache_key, True, ttl=86400)
+        logger.info(
+            "API 审核群通知已发送: user=%s message_id=%s",
+            token_row["telegram_user_id"], message.message_id,
+        )
+        return _ok({"status": "notified", "message_id": message.message_id}, status=201)
+
     web_app.router.add_get("/api/v1/health", health)
     web_app.router.add_get("/api/v1/me", me)
     web_app.router.add_post("/api/v1/submissions", create_submission)
+    web_app.router.add_post("/api/v1/notifications", create_notification)
     logger.info("API 路由已注册: /api/v1/*")
     _ensure_upload_sweeper()
 

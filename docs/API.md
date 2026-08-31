@@ -119,6 +119,19 @@ Authorization: Bearer tp_xxxxxxxx
 }
 ```
 
+### POST /api/v1/notifications
+
+向当前 Bot 配置的审核群发送自动化状态通知，不创建待审核投稿。使用与投稿相同的 Bearer Token，JSON body：
+
+```json
+{
+  "text": "PixivFlow 本次没有符合条件的候选",
+  "idempotency_key": "pixivflow:no-match:daily-cn:2026-08-30"
+}
+```
+
+`text` 必填，最长 2000 字符；`idempotency_key` 可选，24 小时内重复请求返回 `duplicate`，避免网络重试产生重复通知。该端点只向 `REVIEW_CHAT_ID` 发消息，不会发布到频道。
+
 ### GET /api/v1/health
 
 无需认证。返回服务与版本信息，可用于探活。
