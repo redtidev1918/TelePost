@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import CallbackContext
-from telegram.error import BadRequest, TelegramError
 from whoosh.query import DateRange
 
 from config.settings import CHANNEL_ID, OWNER_ID
@@ -693,7 +692,6 @@ async def search_by_user(update: Update, context: CallbackContext):
         update: Telegram 更新对象
         context: 回调上下文
     """
-    from config.settings import OWNER_ID
     from utils.blacklist import is_owner
     
     # 仅管理员可用（使用is_owner函数确保正确比较）
@@ -792,7 +790,6 @@ async def delete_posts_batch(update: Update, context: CallbackContext):
         update: Telegram 更新对象
         context: 回调上下文
     """
-    from config.settings import OWNER_ID
     from utils.blacklist import is_owner
     
     user_id = update.effective_user.id

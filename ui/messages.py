@@ -261,17 +261,6 @@ class MessageFormatter:
         
         return msg
     
-    @staticmethod
-    def tag_cloud_header(total_tags: int) -> str:
-        """标签云标题"""
-        return f"""
-🏷️ <b>热门标签云</b>
-
-共有 <b>{total_tags}</b> 个标签
-
-<i>点击标签查看相关内容</i>
-━━━━━━━━━━━━━━━━
-"""
     
     @staticmethod
     def admin_stats(stats: Dict[str, Any]) -> str:
@@ -304,27 +293,6 @@ class MessageFormatter:
 <i>最后更新：{datetime.now().strftime("%Y-%m-%d %H:%M")}</i>
 """
     
-    @staticmethod
-    def blacklist_user_info(user_info: Dict[str, Any]) -> str:
-        """黑名单用户信息"""
-        user_id = user_info.get('user_id', 'Unknown')
-        username = user_info.get('username', '无用户名')
-        reason = user_info.get('reason', '无')
-        added_at = user_info.get('added_at', '未知')
-        post_count = user_info.get('post_count', 0)
-        
-        return f"""
-🚫 <b>黑名单用户详情</b>
-
-<b>用户信息：</b>
-• ID: <code>{user_id}</code>
-• 用户名: @{username}
-• 投稿数: {post_count}
-
-<b>封禁信息：</b>
-• 原因: {reason}
-• 时间: {added_at}
-"""
     
     @staticmethod
     def error_message(error_type: str = "general") -> str:

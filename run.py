@@ -383,7 +383,8 @@ def build_router_app(indices: list):
         return web.json_response(payload)
 
     # The router never buffers submission bodies. The explicit size ceiling is
-    # still useful for malformed clients and matches TelePost's 10 x 50 MiB API.
+    # still useful for malformed clients and matches TelePost's 500 MiB API cap
+    # (up to 50 files, 50 MiB each).
     app = web.Application(client_max_size=ROUTER_CLIENT_MAX_BYTES)
     app.cleanup_ctx.append(client_session_context)
     app.router.add_get("/health", health)

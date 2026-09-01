@@ -8,7 +8,7 @@ import asyncio
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import CallbackContext
-from telegram.error import BadRequest, TelegramError
+from telegram.error import BadRequest
 
 from config.settings import CHANNEL_ID, OWNER_ID
 from database.db_manager import get_db
@@ -17,37 +17,6 @@ from utils.heat_calculator import calculate_multi_message_heat, get_quality_metr
 logger = logging.getLogger(__name__)
 
 
-def calculate_heat_score(views, forwards, reactions, publish_time):
-    """
-    计算帖子热度分数
-    
-    算法考虑因素：
-    1. 浏览数（权重0.3）
-    2. 转发数（权重0.4，互动更重要）
-    3. 反应数（权重0.3）
-    4. 时间衰减（越新的帖子权重越高）
-    
-    Args:
-        views: 浏览数
-        forwards: 转发数
-        reactions: 反应数
-        publish_time: 发布时间戳
-    
-    Returns:
-        float: 热度分数
-    """
-    # 基础分数
-    base_score = (views * 0.3) + (forwards * 10 * 0.4) + (reactions * 5 * 0.3)
-    
-    # 时间衰减因子（使用半衰期算法）
-    now = datetime.now().timestamp()
-    age_days = (now - publish_time) / 86400  # 转换为天数
-    time_decay = 2 ** (-age_days / 7)  # 7天半衰期
-    
-    # 最终热度分数
-    heat_score = base_score * time_decay
-    
-    return heat_score
 
 
 async def get_post_statistics(context: CallbackContext, message_id: int):

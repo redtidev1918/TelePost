@@ -11,7 +11,6 @@ from ui.messages import MessageFormatter
 from database.db_manager import get_db
 from models.state import STATE
 from utils.blacklist import remove_from_blacklist, is_owner
-from config.settings import OWNER_ID
 from handlers.publish import publish_submission
 from handlers.stats_handlers import get_hot_posts, update_post_stats
 from handlers.search_handlers import search_posts_by_tag
@@ -492,19 +491,30 @@ async def handle_user_info(update: Update, context: CallbackContext):
 
 
 async def handle_pagination(update: Update, context: CallbackContext):
-    """处理分页"""
+    """处理分页：按存储的查询上下文 (user_data['pg']) 重新渲染指定页。"""
     query = update.callback_query
-    
+
     if query.data == "page_info":
         await _safe_answer(query)
         return
-    
-    # 提取页码
+
     page = int(query.data.split("_")[-1])
     context.user_data['current_page'] = page
-    
-    # 根据上下文重新加载数据
-    # 这需要根据具体场景实现
+    pg = context.user_data.get('pg') or {}
+
+    # 按上下文类型分发给对应的渲染器；两者都支持回调内编辑原消息。
+    if pg.get('kind') == 'search':
+        from handlers.search_handlers import render_search_page
+        if await render_search_page(update, context, page):
+            await _safe_answer(query)
+            return
+    elif pg.get('kind') == 'hot':
+        from handlers.stats_handlers import get_hot_posts
+        await get_hot_posts(update, context, edit_message=True, page=page)
+        await _safe_answer(query)
+        return
+
+    # 无可用上下文（例如上下文已过期）：仅提示，不报错。
     await _safe_answer(query, f"跳转到第 {page} 页")
 
 

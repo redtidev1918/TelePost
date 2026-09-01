@@ -1,11 +1,8 @@
 """
 命令处理器模块
 """
-import json
 import logging
-import asyncio
 from datetime import datetime
-from typing import Dict, List, Any
 from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import ConversationHandler, CallbackContext
 
@@ -15,13 +12,12 @@ from utils.blacklist import (
     add_to_blacklist, 
     remove_from_blacklist, 
     get_blacklist, 
-    is_blacklisted,
     _blacklist
 )
-from config.settings import OWNER_ID, NOTIFY_OWNER, TIMEOUT
+from config.settings import TIMEOUT
 from ui.keyboards import Keyboards
 from ui.messages import MessageFormatter
-from utils.database import get_user_state, get_all_user_states
+from utils.database import get_all_user_states
 
 logger = logging.getLogger(__name__)
 
@@ -60,30 +56,6 @@ async def cancel(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 
-async def cancel_callback(update: Update, context: CallbackContext) -> int:
-    """处理回调按钮触发的取消动作，兼容内联键盘。"""
-    logger.info(f"收到回调取消操作，user_id: {update.effective_user.id}")
-    query = update.callback_query
-    user_id = update.effective_user.id
-    try:
-        async with get_db() as conn:
-            c = await conn.cursor()
-            await c.execute("DELETE FROM submissions WHERE user_id=?", (user_id,))
-    except Exception as e:
-        logger.error(f"取消(回调)时删除数据错误: {e}")
-    try:
-        await query.answer("已取消")
-    except Exception:
-        pass
-    try:
-        await query.edit_message_text("❌ 投稿已取消")
-    except Exception:
-        # 如果编辑失败，改为新发一条消息
-        try:
-            await query.message.reply_text("❌ 投稿已取消")
-        except Exception:
-            pass
-    return ConversationHandler.END
 
 async def help_command(update: Update, context: CallbackContext):
     """

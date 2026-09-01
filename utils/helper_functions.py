@@ -8,7 +8,6 @@ import unicodedata
 import asyncio
 import logging
 from functools import lru_cache, wraps
-from datetime import datetime
 from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import ConversationHandler, CallbackContext
 
@@ -24,7 +23,7 @@ TAG_SPLIT_PATTERN = re.compile(r'[,，\s/／]+')
 
 # 配置常量
 CONFIG = {
-    "VERSION": "2.10.21",
+    "VERSION": "2.10.22",
     "MAX_MEDIA_COUNT": 10,
     "MAX_DOCUMENT_COUNT": 10,
     "NET_TIMEOUT": 30,  # 网络超时时间（秒）
@@ -538,70 +537,3 @@ async def enhanced_safe_send(send_func, *args, **kwargs):
     # 所有重试都失败
     logger.error(f"发送失败，已达到最大重试次数: {last_error}")
     return None
-
-# 安全消息发送函数
-async def send_message_safe(context, chat_id, text, **kwargs):
-    """
-    安全发送文本消息
-    
-    Args:
-        context: 上下文对象
-        chat_id: 聊天ID
-        text: 消息文本
-        kwargs: 其他参数
-        
-    Returns:
-        发送的消息对象或None
-    """
-    return await enhanced_safe_send(context.bot.send_message, chat_id=chat_id, text=text, **kwargs)
-
-async def reply_text_safe(message, text, **kwargs):
-    """
-    安全回复文本消息
-    
-    Args:
-        message: 消息对象
-        text: 回复文本
-        kwargs: 其他参数
-        
-    Returns:
-        回复的消息对象或None
-    """
-    return await enhanced_safe_send(message.reply_text, text=text, **kwargs)
-
-async def send_media_group_safe(context, chat_id, media, **kwargs):
-    """
-    安全发送媒体组
-    
-    Args:
-        context: 上下文对象
-        chat_id: 聊天ID
-        media: 媒体列表
-        kwargs: 其他参数
-        
-    Returns:
-        发送的媒体消息列表或None
-    """
-    return await enhanced_safe_send(context.bot.send_media_group, chat_id=chat_id, media=media, **kwargs)
-
-async def edit_message_text_safe(context, chat_id, message_id, text, **kwargs):
-    """
-    安全编辑消息文本
-    
-    Args:
-        context: 上下文对象
-        chat_id: 聊天ID
-        message_id: 消息ID
-        text: 新文本
-        kwargs: 其他参数
-        
-    Returns:
-        编辑后的消息对象或None
-    """
-    return await enhanced_safe_send(
-        context.bot.edit_message_text,
-        chat_id=chat_id,
-        message_id=message_id,
-        text=text,
-        **kwargs
-    )

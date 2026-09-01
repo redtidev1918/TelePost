@@ -11,7 +11,6 @@ import os
 import shutil
 from datetime import datetime
 from typing import Optional
-from whoosh.writing import CLEAR
 
 from config.settings import DB_PATH
 from utils.search_engine import get_search_engine, PostDocument

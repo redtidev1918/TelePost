@@ -10,9 +10,9 @@ import shutil
 
 from whoosh import index
 from whoosh.fields import Schema, TEXT, ID, DATETIME, NUMERIC
-from whoosh.qparser import QueryParser, MultifieldParser
+from whoosh.qparser import MultifieldParser
 from whoosh.writing import IndexWriter
-from whoosh.query import Term, Or, DateRange, NumericRange, And, Wildcard, FuzzyTerm
+from whoosh.query import Term, Or, DateRange, And, Wildcard
 import whoosh.highlight as highlight
 from config.settings import SEARCH_ANALYZER, SEARCH_HIGHLIGHT
 import re
@@ -289,16 +289,6 @@ class PostSearchEngine:
                 writer.add_document(**post.as_dict())
         logger.debug(f"添加帖子到索引: {post.message_id}")
     
-    def update_post(self, post: PostDocument):
-        """
-        更新帖子索引
-        
-        Args:
-            post: 帖子文档
-        """
-        with self.ix.writer() as writer:
-            writer.update_document(**post.as_dict())
-        logger.debug(f"更新帖子索引: {post.message_id}")
     
     def delete_post(self, message_id: int):
         """

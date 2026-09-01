@@ -5,7 +5,6 @@ import os
 import time
 import glob
 import logging
-from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 
 class TimeoutMessageFilter(logging.Filter):

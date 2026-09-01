@@ -3,13 +3,11 @@ Telegram 投稿机器人主程序
 支持媒体和文档投稿
 """
 import sys
-import json
 import signal
 import asyncio
 import platform
 import logging
 import os
-from datetime import datetime
 from telegram import Update, BotCommand
 from telegram.ext import (
     Application,
@@ -27,15 +25,13 @@ from dotenv import load_dotenv
 
 # 配置相关导入
 from config.settings import (
-    TOKEN, TIMEOUT, BOT_MODE, MODE_MEDIA, MODE_DOCUMENT, MODE_MIXED,
-    RUN_MODE, RUN_MODE_REQUESTED, WEBHOOK_URL, WEBHOOK_PORT, WEBHOOK_PATH,
-    WEBHOOK_SECRET_TOKEN,
-    CHANNEL_ID, DB_PATH
+    TOKEN, RUN_MODE, RUN_MODE_REQUESTED, WEBHOOK_URL, WEBHOOK_PORT, WEBHOOK_PATH,
+    WEBHOOK_SECRET_TOKEN, DB_PATH
 )
 from models.state import STATE
 
 # 数据库相关导入
-from database.db_manager import init_db, cleanup_old_data, get_db
+from database.db_manager import init_db, cleanup_old_data
 from utils.database import (
     is_blacklisted, 
     initialize_database
@@ -49,9 +45,7 @@ from utils.maintenance_jobs import clean_logs_job, pixivflow_maintain_job, sched
 # 处理程序导入 - 按功能分组
 # 基础命令
 from handlers import (
-    start, help_command, cancel, settings, settings_callback,
-    handle_text, collect_extra, handle_image, done_image,
-    handle_document, done_document, switch_to_doc_mode
+    start, help_command, cancel, settings, switch_to_doc_mode
 )
 
 # 黑名单管理
@@ -63,7 +57,7 @@ from handlers.publish import publish_submission
 from handlers.review import expire_stale_reviews
 
 # 不同投稿模式支持
-from handlers.mode_selection import submit, start, select_mode
+from handlers.mode_selection import submit, select_mode
 from handlers.document_handlers import handle_doc, done_doc, prompt_doc
 from handlers.media_handlers import handle_media, done_media, skip_media, prompt_media
 from handlers.submit_handlers import (
@@ -84,7 +78,6 @@ from handlers.api_commands import gen_token, tokens as api_tokens_command, revok
 
 # 发布前预览与快速编辑
 from handlers.preview_handlers import (
-    show_submission_preview,
     handle_edit_field_callback,
     handle_toggle_anon,
     handle_toggle_spoiler,
@@ -277,7 +270,6 @@ async def main():
         from config.settings import SEARCH_INDEX_DIR, SEARCH_ENABLED
         if SEARCH_ENABLED:
             # 初始化搜索引擎（内置兼容性检查和自动重建）
-            from utils.search_engine import get_search_engine
             search_engine = init_search_engine(index_dir=SEARCH_INDEX_DIR, from_scratch=False)
             logger.info(f"搜索引擎初始化完成，索引目录: {SEARCH_INDEX_DIR}")
             
@@ -641,14 +633,8 @@ def setup_application(application):
                     MessageHandler(filters.Document.ALL, handle_doc),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, prompt_doc)
                 ],
-                
-                # 其他状态
-                STATE.get('TEXT', 10): [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)],
-                STATE.get('IMAGE', 11): [
-                    MessageHandler(filters.PHOTO | filters.CAPTION, handle_image),
-                    CommandHandler("done_img", done_image)
-                ],
-                STATE.get('EXTRA', 12): [MessageHandler(filters.TEXT & ~filters.COMMAND, collect_extra)],
+
+                # 发布前快速编辑状态
                 STATE.get('PUBLISH', 13): [
                     CallbackQueryHandler(publish_submission, pattern="^publish$"),
                     CallbackQueryHandler(cancel, pattern="^cancel$"),

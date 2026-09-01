@@ -2,8 +2,7 @@
 黑名单管理模块
 """
 import logging
-import aiosqlite
-from typing import List, Set, Optional
+from typing import List, Set
 
 from database.db_manager import get_db
 from config.settings import OWNER_ID

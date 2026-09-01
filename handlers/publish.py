@@ -18,7 +18,6 @@ from telegram.ext import ConversationHandler, CallbackContext
 from config.settings import (
     CHANNEL_ID,
     CHAT_REVIEW_REQUIRED,
-    NET_TIMEOUT,
     NOTIFY_OWNER,
     OWNER_ID,
 )

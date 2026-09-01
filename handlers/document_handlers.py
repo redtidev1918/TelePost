@@ -3,7 +3,6 @@
 """
 import json
 import logging
-import asyncio
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ConversationHandler, CallbackContext

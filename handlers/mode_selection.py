@@ -6,7 +6,7 @@ from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
 from telegram.ext import ConversationHandler, CallbackContext
 
-from config.settings import BOT_MODE, MODE_MEDIA, MODE_DOCUMENT, MODE_MIXED, ALLOWED_FILE_TYPES, SUBMIT_LIMIT_PER_HOUR
+from config.settings import BOT_MODE, MODE_MEDIA, MODE_DOCUMENT, ALLOWED_FILE_TYPES, SUBMIT_LIMIT_PER_HOUR
 from utils.file_validator import create_file_validator
 from models.state import STATE
 from database.db_manager import get_db, cleanup_old_data

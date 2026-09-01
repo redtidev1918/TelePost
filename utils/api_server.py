@@ -7,11 +7,9 @@ HTTP API（/api/v1）—— 供外部项目自动化投稿
 import asyncio
 import logging
 import os
-import re
 import shutil
 import time
 import uuid
-from datetime import datetime
 
 from aiohttp import web
 

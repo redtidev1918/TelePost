@@ -3,6 +3,7 @@ API 令牌管理命令（仅 OWNER 可生成，用户只能查看和吊销自己
 """
 import html
 import logging
+from datetime import datetime
 
 from telegram import Update
 from telegram.ext import CallbackContext, ConversationHandler
