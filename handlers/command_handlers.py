@@ -100,6 +100,7 @@ async def help_command(update: Update, context: CallbackContext):
 /blacklist_remove &lt;ID&gt; - 移除黑名单
 /blacklist_list - 查看黑名单列表
 /searchuser &lt;ID&gt; - 查询用户投稿
+/botconfig - 热更新当前 Bot 的频道、审核群和署名策略
 """
     
     footer = """

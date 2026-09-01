@@ -51,6 +51,7 @@ from handlers import (
 # 黑名单管理
 from utils.blacklist import manage_blacklist, init_blacklist, blacklist_filter
 from handlers.command_handlers import blacklist_add, blacklist_remove, blacklist_list, catch_all, debug, handle_menu_shortcuts
+from handlers.botconfig import botconfig, botconfig_callback
 
 # 投稿处理
 from handlers.publish import publish_submission
@@ -541,6 +542,7 @@ def setup_application(application):
         application.add_handler(CommandHandler('blacklist_add', blacklist_add), group=-998)
         application.add_handler(CommandHandler('blacklist_remove', blacklist_remove), group=-998)
         application.add_handler(CommandHandler('blacklist_list', blacklist_list), group=-998)
+        application.add_handler(CommandHandler('botconfig', botconfig), group=-998)
         # 不再注册高优先级的cancel命令，只在ConversationHandler的fallbacks中注册
         # application.add_handler(CommandHandler('cancel', cancel), group=-998)  # 注释掉这行
         logger.info("高优先级命令处理器注册完成")
@@ -681,6 +683,9 @@ def setup_application(application):
         logger.error(f"注册会话处理器失败: {e}", exc_info=True)
     
     # 添加回调查询处理器（统一处理所有回调）
+    application.add_handler(
+        CallbackQueryHandler(botconfig_callback, pattern="^botconfig:"), group=3
+    )
     from handlers.callback_handlers import handle_callback_query
     application.add_handler(CallbackQueryHandler(handle_callback_query), group=3)
     

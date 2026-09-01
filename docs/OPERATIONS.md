@@ -97,6 +97,31 @@ cp config/fly-telepost-policy.example.json ./telepost-policy.json
 群里的 pending 项；pending 项在批准时会使用切换后的当前频道配置，否则旧稿可能
 误发到刚切换的新频道。
 
+### 在 Telegram 中更新当前 Bot
+
+只有该 Bot 的 `OWNER_ID` 可以使用：
+
+```text
+/botconfig
+/botconfig channel @频道用户名
+/botconfig channel -1001234567890
+/botconfig review here
+/botconfig review -1001234567890
+/botconfig api_review on|off
+/botconfig chat_review on|off
+/botconfig show_submitter on|off
+/botconfig reset
+```
+
+`/botconfig` 面板也可直接切换三个布尔开关，或把当前群设为审核群。频道和群组会先
+通过 Telegram 校验类型、Bot 管理员身份及频道发帖权限；切频道、切审核群或恢复部署
+配置时，如果仍有 pending 投稿会拒绝操作。策略原子写入当前 Bot 的持久数据目录，
+随后只重载该 Bot 子进程，通常约 6 秒恢复，不重启另一个 Bot、PixivFlow 或 Fly Machine。
+
+这里的 `show_submitter off` 表示所有投稿都不显示投稿人；保持为 `on` 时，投稿者仍可
+在发布预览中逐稿打开“匿名”。Bot Token、Owner、管理员列表和 Webhook 密钥故意不允许
+从 Telegram 修改。
+
 每个 tag 的“昨日最热插画 + 小说”需要两条 target；tag 列表增加一项时，复制这
 一对 target，设置唯一 `id`，再把 id 加入对应 schedule 的 `targetIds`。模板使用
 `rankingDate: "YESTERDAY"`，会在每天实际执行前重新计算日期。

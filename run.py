@@ -23,6 +23,7 @@ import threading
 import time
 
 from utils.run_mode import resolve_run_mode
+from utils.runtime_policy import load_runtime_policy
 
 # 子进程可按 BOT{n}_<KEY> 覆盖的配置项
 OVERRIDABLE_KEYS = (
@@ -329,6 +330,15 @@ def build_bot_env(index: int, base: dict) -> dict:
     # 数据目录默认按 bot 隔离，避免不同频道的用户/帖子数据混在一起
     env["DB_PATH"] = env.get("DB_PATH", f"data/bot{index}/submissions.db")
     env["SEARCH_INDEX_DIR"] = env.get("SEARCH_INDEX_DIR", f"data/bot{index}/search_index")
+    policy_path = env.get(f"BOT{index}_RUNTIME_POLICY_PATH") or os.path.join(
+        os.path.dirname(env["DB_PATH"]) or ".", "runtime-policy.json"
+    )
+    env["RUNTIME_POLICY_PATH"] = policy_path
+    env["TELEPOST_MANAGED_RESTART"] = "true"
+    try:
+        env.update(load_runtime_policy(policy_path))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"[supervisor] bot{index} 忽略无效运行策略: {exc}", flush=True)
     # 父路由固定占 8080；子进程在两种模式下都使用 8081/8082/...，
     # 这样 /api/botN/v1 路径可以在 Polling 与 Webhook 间保持不变。
     env["HEALTH_PORT"] = env.get(
@@ -353,7 +363,17 @@ def build_bot_env(index: int, base: dict) -> dict:
 
 def run_single():
     """单 bot：原地替换为 main.py（信号直达主进程）"""
-    os.execv(sys.executable, [sys.executable, "-u", "main.py"])
+    env = dict(os.environ)
+    policy_path = env.get("RUNTIME_POLICY_PATH") or os.path.join(
+        os.path.dirname(env.get("DB_PATH", "data/submissions.db")) or ".",
+        "runtime-policy.json",
+    )
+    env["RUNTIME_POLICY_PATH"] = policy_path
+    try:
+        env.update(load_runtime_policy(policy_path))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"[launcher] 忽略无效运行策略: {exc}", flush=True)
+    os.execve(sys.executable, [sys.executable, "-u", "main.py"], env)
 
 
 def build_router_app(indices: list):

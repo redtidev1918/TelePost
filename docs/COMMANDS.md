@@ -1,6 +1,6 @@
 # 命令参考
 
-> 与 `main.py` 中实际注册的处理器一一对应。最后更新：2026-08
+> 与 `main.py` 中实际注册的处理器一一对应。最后更新：2026-09
 
 ## 用户命令
 
@@ -33,6 +33,22 @@
 | `/optimize_index` | 合并索引段（优化） |
 | `/debug` | 调试信息 |
 
+## 所有者运行配置（仅 `OWNER_ID`）
+
+| 命令 | 说明 |
+|---|---|
+| `/botconfig` | 显示当前 Bot 的配置面板 |
+| `/botconfig channel @频道或-100ID` | 修改投稿频道；存在 pending 时拒绝切换 |
+| `/botconfig review here` | 将当前群设为审核群 |
+| `/botconfig review -100ID` | 按 ID 修改审核群；存在 pending 时拒绝切换 |
+| `/botconfig api_review on\|off` | API 投稿审核开关 |
+| `/botconfig chat_review on\|off` | Telegram 聊天投稿审核开关 |
+| `/botconfig show_submitter on\|off` | 频道是否显示投稿人；关闭相当于全部匿名 |
+| `/botconfig reset` | 删除运行时覆盖并恢复部署配置 |
+
+`/botconfig` 只允许修改非敏感运行策略；Token、Owner、管理员列表和 Webhook 密钥不开放。
+多 Bot supervisor 会只重载当前 Bot，通常约 6 秒恢复。
+
 ## 投稿流程内命令（仅会话中有效）
 
 | 命令 | 所处阶段 | 说明 |
@@ -54,4 +70,4 @@
 每用户每小时默认最多发起 **10** 次投稿（`SUBMIT_LIMIT_PER_HOUR` 可调，0 关闭），超限收到友好提示。
 
 ---
-最后更新：2026-08
+最后更新：2026-09

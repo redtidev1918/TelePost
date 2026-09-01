@@ -16,6 +16,7 @@ Telegram 频道投稿机器人：媒体/文档投稿、全文搜索、热度统�
 - 多 bot：一台机器承载多个频道的投稿 bot，数据相互隔离
 - 网络自适应：`RUN_MODE=AUTO` 在有公网 HTTPS Webhook 地址时使用推送，否则自动回退轮询；两种模式都保留健康检查与投稿 API
 - 可选审核队列：可分别控制 API 投稿、Telegram `/submit` 投稿是否进入私有审核群，由管理员点击通过/拒绝
+- Owner-only `/botconfig`：从 Telegram 修改当前 Bot 的频道、审核群、审核与署名策略，持久化后只重载该 Bot
 - 可选 PixivFlow 联合调度：同一 Fly Machine 中用一个 Node 进程运行多条 Pixiv 下载计划，缓存投递到 Bot1/Bot2，配置可通过 SSH 原子热更新
 
 ## 快速开始
@@ -44,6 +45,7 @@ cd TelePost
 | `/hot` | 热门排行榜 |
 | `/myposts`、`/mystats` | 我的投稿、我的统计 |
 | `/help` | 完整帮助 |
+| `/botconfig` | Owner-only 运行配置面板 |
 
 管理员命令（`/blacklist_add`、`/delete_posts`、`/rebuild_index` 等）见 [docs/COMMANDS.md](docs/COMMANDS.md)。
 
@@ -51,9 +53,9 @@ cd TelePost
 
 ## 部署
 
-| 联合部署套件 | [redtidev1918/pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy) — PixivFlow + TelePost 一套 Compose 启动，支持国内/海外、有/无公网 IP 任意场景 |
 | 方式 | 文档 |
 |---|---|
+| 联合部署套件 | [redtidev1918/pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy) — PixivFlow + TelePost 一套 Compose 启动，支持国内/海外、有/无公网 IP 任意场景 |
 | quickstart.sh（快速体验） | [docs/INSTALL.md](docs/INSTALL.md) |
 | install.sh + systemd（VPS） | [docs/INSTALL.md](docs/INSTALL.md) |
 | Docker / Compose | [docs/INSTALL.md](docs/INSTALL.md) |

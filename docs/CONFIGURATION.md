@@ -32,6 +32,7 @@
 | `SESSION_TIMEOUT` | `900` | 投稿会话不活动超时（秒），超时清理会话并提示 |
 | `HEALTH_PORT` | `8080` | Polling 模式健康检查端口（多 bot 时自动错开为 8081/8082/…） |
 | `DB_PATH` | `data/submissions.db` | 数据库文件路径（多 bot 时默认按 bot 隔离） |
+| `RUNTIME_POLICY_PATH` | 与数据库同目录的 `runtime-policy.json` | `/botconfig` 保存的非敏感运行策略；多 bot 自动隔离，优先于部署环境变量 |
 | `API_ENABLED` | `true` | 是否启用 HTTP API（Polling/Webhook 均支持 `/api/v1`，供外部项目投稿） |
 | `API_REVIEW_REQUIRED` | `false` | HTTP API 投稿是否进入审核队列 |
 | `CHAT_REVIEW_REQUIRED` | `false` | Telegram `/submit` 投稿是否进入审核队列 |
@@ -52,6 +53,10 @@
 
 设置 `BOT1_TOKEN` 即进入多 bot 模式：容器入口 `run.py` 会为每个 bot 派生独立子进程，
 数据目录自动隔离为 `data/botN/`（数据库与搜索索引互不干扰）。
+
+每个子进程的 `/botconfig` 策略默认保存在 `data/botN/runtime-policy.json`。修改后只让
+当前 Bot 子进程退出并由 supervisor 拉起，另一个 Bot 和 PixivFlow 不受影响；使用
+`/botconfig reset` 可删除覆盖并恢复部署环境变量。
 
 每个 bot 可用 `BOT{n}_<KEY>` 覆盖以下全局项：
 
