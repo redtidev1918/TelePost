@@ -34,8 +34,8 @@
   持续增长，通常表示进程被强制终止，应检查 OOM/平台关机日志。
 - 索引写入仅在 `SEARCH_ENABLED=true` 时进行；禁用搜索的部署不会在磁盘产生索引目录。
 - Docker 使用多阶段构建：编译器、Python 头文件、npm 与测试工具只存在于构建阶段；
-  默认镜像不含 Node，Fly 联合档显式选择 `runtime-pixivflow`，仅额外复制 Node 运行时
-  和 PixivFlow 安装目录。
+  默认镜像不含 Node，Fly 联合档显式选择 `runtime-pixivflow`，仅额外复制 Node 24 LTS
+  运行时和固定版本的 PixivFlow 安装目录。
 - 生产依赖安装自 `requirements.txt`；开发和测试环境使用 `requirements-dev.txt`。
 
 ## 磁盘与 outbox 观测

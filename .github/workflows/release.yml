@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: 设置 Python
         uses: actions/setup-python@v5
         with:
@@ -37,7 +37,7 @@ jobs:
     needs: test
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # GHCR 镜像名必须全小写，而 github.repository 保留原大小写
       - name: 计算小写镜像名
@@ -86,7 +86,7 @@ jobs:
     needs: [test, docker]
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 从 CHANGELOG 提取发布说明
         run: |

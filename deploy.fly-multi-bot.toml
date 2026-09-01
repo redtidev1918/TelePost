@@ -9,7 +9,7 @@ primary_region = "sin"
   build-target = "runtime-pixivflow"
 
 [build.args]
-  PIXIVFLOW_VERSION = "2.8.0"
+  PIXIVFLOW_VERSION = "2.10.21"
 
 [env]
   PYTHONUNBUFFERED = "1"
