@@ -124,6 +124,22 @@ class TestPixivFlowWorker:
         assert env["TELEPOST_BOT1_SUBMIT_TOKEN"] == "submission-secret"
 
 
+def test_process_rss_snapshot_recognizes_node_by_cmdline(tmp_path):
+    python_proc = tmp_path / "655"
+    node_proc = tmp_path / "657"
+    python_proc.mkdir()
+    node_proc.mkdir()
+    (python_proc / "status").write_text("Name:\tpython\nVmRSS:\t1024 kB\n")
+    (python_proc / "cmdline").write_bytes(b"python\0-u\0main.py\0")
+    (node_proc / "status").write_text("Name:\tMainThread\nVmRSS:\t97896 kB\n")
+    (node_proc / "cmdline").write_bytes(b"node\0/usr/local/bin/pixivflow\0scheduler\0")
+
+    assert run._process_rss_snapshot(str(tmp_path)) == [
+        {"name": "node", "rss_mb": 95.6},
+        {"name": "python", "rss_mb": 1.0},
+    ]
+
+
 def test_storage_health_snapshot_reports_cache_outbox_and_uploads(tmp_path):
     pixiv_dir = tmp_path / "pixivflow"
     cache_dir = pixiv_dir / "cache"

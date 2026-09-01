@@ -9,6 +9,17 @@
 
 ## [Unreleased]
 
+## [2.10.23] - 2026-09-01
+
+### 修复
+
+- `/health` 不再因 Node.js 24 把 Linux 线程名显示为 `MainThread` 而漏报
+  PixivFlow RSS；采集器会用进程 cmdline 识别 Node，512 MiB 内存余量重新可信。
+
+### 测试
+
+- 新增 Node 进程名变化的 `/proc` RSS 采集回归测试。
+
 ## [2.10.22] - 2026-09-01
 
 ### 修复

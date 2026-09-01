@@ -9,6 +9,7 @@ TelePost 启动器
 任一子进程异常退出时自动重启（5 秒退避）；SIGTERM/SIGINT 会转发给所有子进程。
 """
 import asyncio
+import glob
 import json
 import os
 import re
@@ -38,6 +39,32 @@ OVERRIDABLE_KEYS = (
 ROUTER_DEFAULT_PORT = 8080
 ROUTER_CLIENT_MAX_BYTES = 510 * 1024 * 1024
 _STORAGE_METRICS_CACHE = {"expires_at": 0.0, "value": None}
+
+
+def _process_rss_snapshot(proc_root: str = "/proc") -> list[dict]:
+    """Report Python and Node RSS even when a runtime changes its thread name."""
+    processes = []
+    for status_path in glob.glob(os.path.join(proc_root, "[0-9]*", "status")):
+        name = rss = None
+        try:
+            with open(status_path, encoding="utf-8") as status:
+                for line in status:
+                    if line.startswith("Name:"):
+                        name = line.split(":", 1)[1].strip()
+                    elif line.startswith("VmRSS:"):
+                        rss = int(line.split()[1])
+            if name not in {"python", "node"}:
+                with open(
+                    os.path.join(os.path.dirname(status_path), "cmdline"), "rb"
+                ) as command:
+                    executable = command.read().split(b"\0", 1)[0]
+                if os.path.basename(os.fsdecode(executable)) == "node":
+                    name = "node"
+        except (FileNotFoundError, OSError, UnicodeError, ValueError):
+            continue
+        if rss and name in {"python", "node"}:
+            processes.append({"name": name, "rss_mb": round(rss / 1024.0, 1)})
+    return sorted(processes, key=lambda item: item["rss_mb"], reverse=True)
 
 
 def _directory_metrics(path: str, *, suffix: str | None = None) -> dict:
@@ -352,21 +379,9 @@ def build_router_app(indices: list):
     async def health(request):
         payload = {"status": "ok", "service": "telepost", "bots": indices}
         try:
-            import glob
             import psutil
-            procs = []
-            for f in glob.glob("/proc/[0-9]*/status"):
-                name = rss = None
-                for line in open(f):
-                    if line.startswith("Name:"):
-                        name = line.split(":", 1)[1].strip()
-                    elif line.startswith("VmRSS:"):
-                        rss = int(line.split()[1])
-                if rss and name in {"python", "node"}:
-                    procs.append({"name": name, "rss_mb": round(rss / 1024.0, 1)})
-            payload["process_rss"] = sorted(
-                procs, key=lambda item: item["rss_mb"], reverse=True
-            )
+            procs = _process_rss_snapshot()
+            payload["process_rss"] = procs
             payload["python_rss_mb"] = sorted(
                 (item["rss_mb"] for item in procs if item["name"] == "python"),
                 reverse=True,
