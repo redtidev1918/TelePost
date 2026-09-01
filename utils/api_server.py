@@ -23,6 +23,11 @@ from config.settings import (
 )
 from utils.api_tokens import authenticate
 from utils.cache import TTLCache
+from database.db_manager import (
+    claim_api_notification,
+    mark_api_notification_sent,
+    release_api_notification,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +126,7 @@ def add_api_routes(web_app, application) -> None:
         row = await authenticate(_bearer(request) or "")
         if row is None:
             return _error(401, "invalid_token", "token 无效或已吊销")
-        used = _rate_cache.get(f"api:{row['id']}") or 0
+        used = _rate_cache.get(f"api:{row['telegram_user_id']}") or 0
         return _ok({
             "telegram_user_id": row["telegram_user_id"],
             "name": row["name"],
@@ -329,9 +334,15 @@ def add_api_routes(web_app, application) -> None:
         if not text:
             return _error(400, "missing_text", "text 不能为空")
         key = _fields_idempotency_key(payload)
-        cache_key = f"notification:{token_row['telegram_user_id']}:{key}"
-        if key and _rate_cache.get(cache_key):
-            return _ok({"status": "duplicate"}, status=201)
+        user_id = token_row["telegram_user_id"]
+        if key:
+            try:
+                claimed = await claim_api_notification(user_id, key)
+            except Exception:
+                logger.error("API 通知幂等状态持久化失败", exc_info=True)
+                return _error(503, "notification_state_failed", "通知状态暂时不可用，请稍后重试")
+            if not claimed:
+                return _ok({"status": "duplicate"}, status=201)
         try:
             message = await bot.send_message(
                 chat_id=REVIEW_CHAT_ID,
@@ -339,10 +350,19 @@ def add_api_routes(web_app, application) -> None:
                 disable_web_page_preview=True,
             )
         except Exception as exc:
+            if key:
+                try:
+                    await release_api_notification(user_id, key)
+                except Exception:
+                    logger.error("API 通知失败后释放幂等键失败", exc_info=True)
             logger.error("API 审核群通知失败: %s", exc, exc_info=True)
             return _error(502, "notification_failed", f"审核群通知失败: {str(exc)[:200]}")
         if key:
-            _rate_cache.set(cache_key, True, ttl=86400)
+            try:
+                await mark_api_notification_sent(user_id, key, message.message_id)
+            except Exception:
+                # Telegram 已经接收成功；不向调用方谎报失败并触发立即重发。
+                logger.error("API 通知已发送，但持久化完成状态失败", exc_info=True)
         logger.info(
             "API 审核群通知已发送: user=%s message_id=%s",
             token_row["telegram_user_id"], message.message_id,

@@ -123,6 +123,25 @@ async def init_db():
                 'CREATE INDEX IF NOT EXISTS idx_pending_reviews_status_created '
                 'ON pending_reviews(status, created_at DESC)'
             )
+
+            # API 运维通知的持久幂等记录。不同 token 所绑定的用户可以复用同一业务键；
+            # 同一用户在 Bot 重启后仍不会重复发送同一条通知。
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS api_notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    telegram_user_id INTEGER NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    message_id INTEGER,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    UNIQUE(telegram_user_id, idempotency_key)
+                )
+            ''')
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_api_notifications_updated '
+                'ON api_notifications(updated_at)'
+            )
             
             # 已发布帖子表（用于热度统计和搜索）
             await conn.execute('''
@@ -256,5 +275,71 @@ async def cleanup_old_data():
                         (review_cutoff,),
                     )
                     logger.info("已清理过期审核记录（保留 %d 天）", review_retention_days)
+
+                async with get_db() as conn:
+                    await conn.execute(
+                        "DELETE FROM api_notifications WHERE updated_at < ?",
+                        (review_cutoff,),
+                    )
+                    logger.info("已清理过期 API 通知幂等记录（保留 %d 天）", review_retention_days)
     except Exception as e:
         logger.error(f"清理过期数据失败: {e}")
+
+
+async def claim_api_notification(telegram_user_id: int, idempotency_key: str) -> bool:
+    """Atomically claim a notification key, surviving process restarts.
+
+    A stale pending claim can be reclaimed after five minutes. This covers a
+    process crash between the database claim and the Telegram request while
+    suppressing ordinary concurrent duplicates.
+    """
+    now = datetime.now().timestamp()
+    async with get_db() as conn:
+        cursor = await conn.execute(
+            """
+            INSERT OR IGNORE INTO api_notifications (
+                telegram_user_id, idempotency_key, status, created_at, updated_at
+            ) VALUES (?, ?, 'pending', ?, ?)
+            """,
+            (telegram_user_id, idempotency_key, now, now),
+        )
+        if cursor.rowcount == 1:
+            return True
+        cursor = await conn.execute(
+            """
+            UPDATE api_notifications
+            SET updated_at = ?
+            WHERE telegram_user_id = ? AND idempotency_key = ?
+              AND status = 'pending' AND updated_at < ?
+            """,
+            (now, telegram_user_id, idempotency_key, now - 300),
+        )
+        return cursor.rowcount == 1
+
+
+async def mark_api_notification_sent(
+    telegram_user_id: int,
+    idempotency_key: str,
+    message_id: int,
+) -> None:
+    async with get_db() as conn:
+        await conn.execute(
+            """
+            UPDATE api_notifications
+            SET status = 'sent', message_id = ?, updated_at = ?
+            WHERE telegram_user_id = ? AND idempotency_key = ?
+            """,
+            (message_id, datetime.now().timestamp(), telegram_user_id, idempotency_key),
+        )
+
+
+async def release_api_notification(telegram_user_id: int, idempotency_key: str) -> None:
+    """Release a failed pre-send claim so the caller's durable retry can proceed."""
+    async with get_db() as conn:
+        await conn.execute(
+            """
+            DELETE FROM api_notifications
+            WHERE telegram_user_id = ? AND idempotency_key = ? AND status = 'pending'
+            """,
+            (telegram_user_id, idempotency_key),
+        )

@@ -257,7 +257,10 @@ class TestSubmission:
 
 class TestNotification:
     @pytest.mark.asyncio
-    async def test_sends_idempotent_review_chat_notice(self, monkeypatch):
+    async def test_sends_idempotent_review_chat_notice(self, monkeypatch, tmp_path):
+        from database import db_manager
+        monkeypatch.setattr(db_manager, "DB_PATH", str(tmp_path / "notifications.db"))
+        await db_manager.init_db()
         monkeypatch.setattr(api_server, "REVIEW_CHAT_ID", -100123)
         app, _ = _make_app(monkeypatch, _TOKEN_ROW)
         client = await _client(app)
@@ -280,6 +283,27 @@ class TestNotification:
         client = await _client(app)
         try:
             assert (await client.post("/api/v1/notifications", json={"text": "x"})).status == 401
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_notification_state_failure_is_structured(self, monkeypatch):
+        monkeypatch.setattr(api_server, "REVIEW_CHAT_ID", -100123)
+        monkeypatch.setattr(
+            api_server,
+            "claim_api_notification",
+            AsyncMock(side_effect=RuntimeError("database busy")),
+        )
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            response = await client.post(
+                "/api/v1/notifications",
+                headers={"Authorization": "Bearer tp_ok"},
+                json={"text": "x", "idempotency_key": "busy"},
+            )
+            assert response.status == 503
+            assert (await response.json())["error"]["code"] == "notification_state_failed"
         finally:
             await client.close()
 

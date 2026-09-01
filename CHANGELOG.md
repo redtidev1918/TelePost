@@ -9,6 +9,22 @@
 
 ## [Unreleased]
 
+## [2.10.20] - 2026-09-01
+
+### 改进
+
+- `POST /api/v1/notifications` 的幂等键由进程内存改为 SQLite 原子占位：
+  Bot 重启后仍可识别重复通知，发送失败会释放占位供 PixivFlow outbox
+  重试；异常中断的 pending 占位 5 分钟后可恢复。
+- 通知幂等记录与已决审核记录共用 `REVIEW_RETENTION_DAYS`
+  的定期清理周期，避免 SQLite 表无限增长。
+- 修正 `GET /api/v1/me` 查询限额时使用 token ID，而投稿计数使用
+  Telegram user ID 的键不一致问题。
+
+### 测试
+
+- 新增 API 通知跨重启幂等、失败释放与过期清理回归测试。
+
 ## [2.10.19] - 2026-08-31
 
 ### 新增

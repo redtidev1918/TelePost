@@ -130,7 +130,10 @@ Authorization: Bearer tp_xxxxxxxx
 }
 ```
 
-`text` 必填，最长 2000 字符；`idempotency_key` 可选，24 小时内重复请求返回 `duplicate`，避免网络重试产生重复通知。该端点只向 `REVIEW_CHAT_ID` 发消息，不会发布到频道。
+`text` 必填，最长 2000 字符；`idempotency_key` 可选。带键请求会先在
+SQLite 原子占位，同一 Telegram 用户的重复键返回 `duplicate`，Bot 重启后
+仍然有效；发送失败则释放占位，便于上游持久 outbox 重试。完成记录按
+`REVIEW_RETENTION_DAYS` 清理。该端点只向 `REVIEW_CHAT_ID` 发消息，不会发布到频道。
 
 ### GET /api/v1/health
 
@@ -186,6 +189,8 @@ Authorization: Bearer tp_xxxx
 | 429 | `rate_limited` | 超过每小时投稿限额 |
 | 502 | `publish_failed` | 频道发布失败（网络或 Telegram 侧错误） |
 | 502 | `review_queue_failed` | 审核群上传或审核记录持久化失败 |
+| 502 | `notification_failed` | 审核群状态通知发送失败，上游可安全重试 |
+| 503 | `notification_state_failed` | 通知幂等状态暂时无法写入 SQLite |
 
 ## 投稿审核来源选择
 

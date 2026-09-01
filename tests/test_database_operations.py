@@ -524,6 +524,29 @@ class TestDatabaseIntegrity:
                     ("pending-old", "pending")
                 ]
 
+    @pytest.mark.database
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_api_notification_claim_survives_restart(self, temp_dir):
+        db_path = os.path.join(temp_dir, 'notification_claim.db')
+        with patch('database.db_manager.DB_PATH', db_path):
+            from database.db_manager import (
+                claim_api_notification,
+                init_db,
+                mark_api_notification_sent,
+                release_api_notification,
+            )
+
+            await init_db()
+            assert await claim_api_notification(7, 'empty:2026-09-01') is True
+            assert await claim_api_notification(7, 'empty:2026-09-01') is False
+            await mark_api_notification_sent(7, 'empty:2026-09-01', 321)
+            assert await claim_api_notification(7, 'empty:2026-09-01') is False
+
+            assert await claim_api_notification(7, 'retryable') is True
+            await release_api_notification(7, 'retryable')
+            assert await claim_api_notification(7, 'retryable') is True
+
 
 class TestDatabaseMigration:
     """数据库迁移测试"""

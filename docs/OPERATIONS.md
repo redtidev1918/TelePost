@@ -147,6 +147,11 @@ Docker 部署使用 `docker compose {up -d|restart|down}`；systemd 部署用 `s
 
 ## 数据库维护
 
+`cleanup_old_data()` 只删除过期会话、超过 `REVIEW_RETENTION_DAYS` 的
+已决审核记录和 API 通知幂等记录；未决 `pending` 审核稿由
+`PENDING_REVIEW_RETENTION_DAYS` 单独控制。通知表不保存媒体，通常只占用少量 SQLite
+页面。
+
 - **备份**：先 `sqlite3 data/submissions.db "PRAGMA wal_checkpoint(FULL);"`，再拷贝 `submissions.db`（连同 `-wal`/`-shm` 更稳妥）。
 - **优化**：`python3 optimize_database.py`（VACUUM/ANALYZE）。
 - **重复数据清理**：`python3 cleanup_duplicates.py`（先 `--help` 核对参数）。

@@ -73,7 +73,7 @@ Webhook 模式下回调路径自动分配为 `/webhook/botN`（详见 [WEBHOOK_M
 
 ## 数据库
 
-- `data/submissions.db`（WAL 模式）：`submissions`（进行中的聊天投稿会话）、`pending_reviews`（API/聊天审核记录与 Telegram `file_id`）与 `published_posts`（已发布帖子）。`published_posts.is_deleted=1` 时，关联审核状态会同步为 `deleted`；`published` 不再包含已删除帖子。
+- `data/submissions.db`（WAL 模式）：`submissions`（进行中的聊天投稿会话）、`pending_reviews`（API/聊天审核记录与 Telegram `file_id`）、`api_notifications`（可跨重启的通知幂等记录）与 `published_posts`（已发布帖子）。`published_posts.is_deleted=1` 时，关联审核状态会同步为 `deleted`；`published` 不再包含已删除帖子。
 - 备份时请连同 `-wal`/`-shm` 文件或先执行 checkpoint。
 
 ## 常见误区
