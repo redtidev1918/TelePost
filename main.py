@@ -83,7 +83,9 @@ from handlers.preview_handlers import (
     handle_toggle_anon,
     handle_toggle_spoiler,
     handle_edit_tag,
+    handle_edit_title,
     handle_edit_note,
+    handle_edit_link,
     handle_edit_media,
 )
 
@@ -637,7 +639,7 @@ def setup_application(application):
                     CallbackQueryHandler(cancel, pattern="^cancel$"),
                     CallbackQueryHandler(handle_toggle_anon, pattern="^toggle_anon$"),
                     CallbackQueryHandler(handle_toggle_spoiler, pattern="^toggle_spoiler$"),
-                    CallbackQueryHandler(handle_edit_field_callback, pattern="^edit_(tag|note|media)$"),
+                    CallbackQueryHandler(handle_edit_field_callback, pattern="^edit_(tag|title|note|link|media)$"),
                 ],
 
                 # 发布前快速编辑状态
@@ -646,6 +648,12 @@ def setup_application(application):
                 ],
                 STATE.get('EDIT_NOTE', 15): [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_note)
+                ],
+                STATE.get('EDIT_TITLE', 17): [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_title)
+                ],
+                STATE.get('EDIT_LINK', 18): [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_link)
                 ],
                 STATE.get('EDIT_MEDIA', 16): [
                     MessageHandler(filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.AUDIO |

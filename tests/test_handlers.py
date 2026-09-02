@@ -259,6 +259,33 @@ class TestSubmitHandlers:
 
     @pytest.mark.asyncio
     @pytest.mark.unit
+    async def test_mixed_submit_accepts_upload_without_mode_selection(
+        self, mock_telegram_update, mock_telegram_context
+    ):
+        from contextlib import asynccontextmanager
+        from models.state import STATE as _STATE
+
+        mock_cursor = AsyncMock()
+        mock_conn = MagicMock()
+        mock_conn.cursor = AsyncMock(return_value=mock_cursor)
+        mock_conn.commit = AsyncMock()
+
+        @asynccontextmanager
+        async def _fake_get_db():
+            yield mock_conn
+
+        with patch('handlers.mode_selection.BOT_MODE', 'MIXED'), \
+             patch('handlers.mode_selection.cleanup_old_data', new=AsyncMock()), \
+             patch('handlers.mode_selection.is_blacklisted', return_value=False), \
+             patch('handlers.mode_selection.get_db', _fake_get_db):
+            from handlers.mode_selection import submit
+            result = await submit(mock_telegram_update, mock_telegram_context)
+
+        assert result == _STATE['MEDIA']
+        assert "直接上传" in mock_telegram_update.message.reply_text.await_args.args[0]
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
     async def test_submit_rate_limit(self, mock_telegram_update, mock_telegram_context):
         """测试投稿频率限制：超过限额的 /submit 应被拒绝"""
         from contextlib import asynccontextmanager
@@ -374,6 +401,41 @@ class TestMediaHandlers:
 
         assert result == _STATE['MEDIA']
         mock_telegram_update.message.reply_text.assert_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_mixed_mode_routes_document_to_file_handler(
+        self, mock_telegram_update, mock_telegram_context
+    ):
+        from contextlib import asynccontextmanager
+        from models.state import STATE as _STATE
+
+        mock_telegram_update.message.photo = None
+        mock_telegram_update.message.video = None
+        mock_telegram_update.message.animation = None
+        mock_telegram_update.message.audio = None
+        mock_telegram_update.message.document.mime_type = "application/pdf"
+        row = {"mode": "mixed", "timestamp": 1.0}
+        cursor = AsyncMock()
+        cursor.fetchone = AsyncMock(return_value=row)
+        conn = MagicMock()
+        conn.cursor = AsyncMock(return_value=cursor)
+
+        @asynccontextmanager
+        async def _fake_get_db():
+            yield conn
+
+        route = AsyncMock(return_value=_STATE['MEDIA'])
+        with patch('handlers.media_handlers.get_db', _fake_get_db), \
+             patch('utils.helper_functions.get_db', _fake_get_db), \
+             patch('handlers.document_handlers._handle_doc', route):
+            from handlers.media_handlers import handle_media
+            result = await handle_media(mock_telegram_update, mock_telegram_context)
+
+        assert result == _STATE['MEDIA']
+        route.assert_awaited_once_with(
+            mock_telegram_update, mock_telegram_context, _STATE['MEDIA']
+        )
     
     @pytest.mark.asyncio
     @pytest.mark.unit

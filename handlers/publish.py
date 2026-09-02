@@ -20,6 +20,7 @@ from config.settings import (
     OWNER_ID,
 )
 from database.db_manager import get_db, cleanup_old_data
+from models.state import STATE
 from utils.helper_functions import build_caption, safe_send
 from utils.search_engine import get_search_engine, PostDocument
 
@@ -215,6 +216,13 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
         if not data:
             await _reply_to_user("❌ 数据异常，请重新发送 /start")
             return ConversationHandler.END
+
+        if not (data["tags"] or "").strip():
+            if is_callback:
+                await update.callback_query.answer("请先填写标签", show_alert=True)
+            else:
+                await _reply_to_user("⚠️ 发布前必须填写标签")
+            return STATE['PUBLISH']
 
         caption = build_caption(data)
         

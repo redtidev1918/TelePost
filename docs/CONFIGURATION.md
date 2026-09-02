@@ -14,7 +14,7 @@
 | `CHANNEL_ID` | 无（必填） | 目标频道，`@用户名` 或 `-100…` 数字 ID；兼容别名 `CHANNEL` |
 | `OWNER_ID` | 无 | 所有者 User ID（整数），自动并入管理员列表 |
 | `ADMIN_IDS` | 空 | 管理员 ID 列表，逗号分隔 |
-| `BOT_MODE` | `MIXED` | `MEDIA` / `DOCUMENT` / `MIXED` |
+| `BOT_MODE` | `MIXED` | `MEDIA` / `DOCUMENT` / `MIXED`；混合模式自动区分媒体和附件文件 |
 | `ALLOWED_FILE_TYPES` | `*` | 文档模式允许的类型（扩展名或 MIME，逗号分隔） |
 | `SHOW_SUBMITTER` | `true` | 发布的帖子是否显示投稿人 |
 | `NOTIFY_OWNER` | `true` | 发布完成后是否私聊通知所有者；不会转发审核群或频道原帖 |

@@ -2,7 +2,7 @@
 发布前预览与快速编辑
 
 投稿流程在剧透确认后不再直接发布，而是进入 PUBLISH 预览页：
-用户可以确认发布、快速修改标签/简介、补充媒体，或取消。
+用户可以确认发布、快速修改字段、补充媒体，或取消。
 """
 import json
 import logging
@@ -49,7 +49,10 @@ def _build_preview_text(row) -> str:
     lines.append(f"🔞 剧透：{'是' if (row['spoiler'] or '') == 'true' else '否'}")
     lines.append(f"🕵️ 匿名：{'是（频道内不显示投稿人）' if is_anonymous else '否（显示投稿人）'}")
     lines.append("")
-    lines.append("确认无误请点击下方按钮发布，或先快速修改。")
+    if row["tags"]:
+        lines.append("确认无误请点击下方按钮发布，或先快速修改。")
+    else:
+        lines.append("⚠️ 发布前必须填写标签；其余字段均可留空。")
     return "\n".join(lines)
 
 
@@ -61,11 +64,19 @@ def _build_preview_keyboard(row=None) -> InlineKeyboardMarkup:
             is_anonymous = (row["anonymous"] or "false") == "true"
         if "spoiler" in row.keys():
             is_spoiler = (row["spoiler"] or "false") == "true"
+    has_tags = bool(row and hasattr(row, "keys") and "tags" in row.keys() and row["tags"])
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ 确认发布", callback_data="publish")],
+        [InlineKeyboardButton(
+            "✅ 确认发布" if has_tags else "🏷️ 填写标签后发布",
+            callback_data="publish" if has_tags else "edit_tag",
+        )],
         [
             InlineKeyboardButton("🏷️ 改标签", callback_data="edit_tag"),
+            InlineKeyboardButton("🔖 改标题", callback_data="edit_title"),
+        ],
+        [
             InlineKeyboardButton("📝 改简介", callback_data="edit_note"),
+            InlineKeyboardButton("🔗 改链接", callback_data="edit_link"),
         ],
         [
             InlineKeyboardButton("📎 补充媒体", callback_data="edit_media"),
@@ -112,15 +123,17 @@ async def show_submission_preview(update: Update, context: CallbackContext) -> i
 
 async def handle_edit_field_callback(update: Update, context: CallbackContext) -> int:
     """
-    处理预览页的 edit_tag / edit_note / edit_media 按钮，
+    处理预览页的字段编辑按钮，
     切换到对应的快速编辑状态。
     """
     query = update.callback_query
-    field = query.data  # edit_tag / edit_note / edit_media
+    field = query.data
 
     prompts = {
         "edit_tag": "🏷️ 请发送新的标签（用逗号分隔，直接覆盖原标签）：",
+        "edit_title": "🔖 请发送新的标题（回复\"无\"清空，上限 100 字）：",
         "edit_note": "📝 请发送新的简介（回复\"无\"清空，上限 600 字）：",
+        "edit_link": "🔗 请发送新的链接（回复\"无\"清空，须以 http:// 或 https:// 开头）：",
         "edit_media": "📎 请直接发送要补充的媒体文件（可多次发送，完成后点击\"✅ 确认发布\"）：",
     }
     prompt = prompts.get(field)
@@ -132,12 +145,13 @@ async def handle_edit_field_callback(update: Update, context: CallbackContext) -
     except Exception:
         pass
 
-    if field == "edit_tag":
-        next_state = STATE['EDIT_TAG']
-    elif field == "edit_note":
-        next_state = STATE['EDIT_NOTE']
-    else:
-        next_state = STATE['EDIT_MEDIA']
+    next_state = {
+        "edit_tag": STATE['EDIT_TAG'],
+        "edit_title": STATE['EDIT_TITLE'],
+        "edit_note": STATE['EDIT_NOTE'],
+        "edit_link": STATE['EDIT_LINK'],
+        "edit_media": STATE['EDIT_MEDIA'],
+    }[field]
 
     try:
         await query.edit_message_text(prompt)
@@ -219,6 +233,34 @@ async def handle_edit_note(update: Update, context: CallbackContext) -> int:
                         (note_to_store, datetime.now().timestamp(), user_id))
 
     await update.message.reply_text("✅ 简介已更新")
+    return await show_submission_preview(update, context)
+
+
+async def handle_edit_title(update: Update, context: CallbackContext) -> int:
+    """快速编辑：覆盖标题后回到预览"""
+    title = update.message.text.strip()
+    title = "" if title.lower() == "无" else title[:100]
+    async with get_db() as conn:
+        c = await conn.cursor()
+        await c.execute("UPDATE submissions SET title=?, timestamp=? WHERE user_id=?",
+                        (title, datetime.now().timestamp(), update.effective_user.id))
+    await update.message.reply_text("✅ 标题已更新")
+    return await show_submission_preview(update, context)
+
+
+async def handle_edit_link(update: Update, context: CallbackContext) -> int:
+    """快速编辑：覆盖链接后回到预览"""
+    link = update.message.text.strip()
+    if link.lower() == "无":
+        link = ""
+    elif not link.startswith(("http://", "https://")):
+        await update.message.reply_text("⚠️ 链接须以 http:// 或 https:// 开头，或回复\"无\"清空")
+        return STATE['EDIT_LINK']
+    async with get_db() as conn:
+        c = await conn.cursor()
+        await c.execute("UPDATE submissions SET link=?, timestamp=? WHERE user_id=?",
+                        (link, datetime.now().timestamp(), update.effective_user.id))
+    await update.message.reply_text("✅ 链接已更新")
     return await show_submission_preview(update, context)
 
 

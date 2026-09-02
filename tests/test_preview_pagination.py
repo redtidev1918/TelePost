@@ -52,6 +52,7 @@ def _submission_row():
         "title": "标题",
         "note": "简介",
         "spoiler": "false",
+        "anonymous": "false",
         "timestamp": 1.0,
     }
 
@@ -71,6 +72,14 @@ class TestSubmissionPreview:
         kwargs = update.effective_message.reply_text.call_args.kwargs
         assert kwargs.get("reply_markup") is not None
 
+    @pytest.mark.unit
+    def test_missing_tags_routes_primary_button_to_tag_editor(self):
+        from handlers.preview_handlers import _build_preview_keyboard
+
+        row = _submission_row() | {"tags": ""}
+        button = _build_preview_keyboard(row).inline_keyboard[0][0]
+        assert button.callback_data == "edit_tag"
+
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_preview_expired_session(self):
@@ -82,6 +91,41 @@ class TestSubmissionPreview:
             result = await show_submission_preview(update, None)
 
         assert result == ConversationHandler.END
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_done_media_opens_preview(self):
+        from handlers.media_handlers import done_media
+
+        update = _make_update()
+        row = _submission_row() | {"mode": "media"}
+        with (
+            patch("handlers.media_handlers.get_db", _FakeDB(row)),
+            patch("handlers.preview_handlers.get_db", _FakeDB(row)),
+        ):
+            result = await done_media.__wrapped__(update, None)
+
+        assert result == STATE["PUBLISH"]
+        assert "发布预览" in update.effective_message.reply_text.await_args.args[0]
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_mixed_document_only_opens_preview(self):
+        from handlers.media_handlers import done_media
+
+        update = _make_update()
+        row = _submission_row() | {
+            "mode": "mixed",
+            "image_id": "[]",
+            "document_id": '["document:file:work.pdf"]',
+        }
+        with (
+            patch("handlers.media_handlers.get_db", _FakeDB(row)),
+            patch("handlers.preview_handlers.get_db", _FakeDB(row)),
+        ):
+            result = await done_media.__wrapped__(update, None)
+
+        assert result == STATE["PUBLISH"]
 
 
 class TestQuickEdit:
@@ -126,6 +170,16 @@ class TestQuickEdit:
 
         assert result == STATE["PUBLISH"]
 
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_edit_link_rejects_invalid_url(self):
+        from handlers.preview_handlers import handle_edit_link
+
+        update = _make_update()
+        update.message.text = "example.com"
+        result = await handle_edit_link(update, None)
+        assert result == STATE["EDIT_LINK"]
+
 
 class TestEditButtons:
     @pytest.mark.asyncio
@@ -135,13 +189,33 @@ class TestEditButtons:
 
         for data, expected in [
             ("edit_tag", STATE["EDIT_TAG"]),
+            ("edit_title", STATE["EDIT_TITLE"]),
             ("edit_note", STATE["EDIT_NOTE"]),
+            ("edit_link", STATE["EDIT_LINK"]),
             ("edit_media", STATE["EDIT_MEDIA"]),
         ]:
             update = _make_update(is_callback=True)
             update.callback_query.data = data
             result = await handle_edit_field_callback(update, None)
             assert result == expected, data
+
+
+class TestPublishRequirements:
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_publish_without_tags_stays_in_preview(self):
+        from handlers.publish import publish_submission
+
+        update = _make_update(is_callback=True)
+        row = _submission_row() | {"tags": ""}
+        with (
+            patch("handlers.publish.get_db", _FakeDB(row)),
+            patch("handlers.publish.cleanup_old_data", AsyncMock()),
+        ):
+            result = await publish_submission(update, MagicMock())
+
+        assert result == STATE["PUBLISH"]
+        update.callback_query.answer.assert_awaited_once_with("请先填写标签", show_alert=True)
 
 
 class TestPagination:

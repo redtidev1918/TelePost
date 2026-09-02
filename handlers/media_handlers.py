@@ -66,6 +66,10 @@ async def handle_media(update: Update, context: CallbackContext) -> int:
                     mode = row["mode"] if row and "mode" in row.keys() else None
                     
                     logger.info(f"用户当前模式: {mode}, user_id: {user_id}")
+
+                    if row and mode == "mixed":
+                        from handlers.document_handlers import _handle_doc
+                        return await _handle_doc(update, context, STATE['MEDIA'])
                     
                     if row and mode == "media":
                         logger.info(f"用户在媒体模式下发送了文件附件，user_id: {user_id}, 文件名: {update.message.document.file_name}")
@@ -134,6 +138,11 @@ async def handle_media(update: Update, context: CallbackContext) -> int:
                     f"✅ 已接收媒体，共计 {len(media_list)} 个。\n"
                     f"继续发送媒体文件，或发送 /done_media 完成上传。"
                 )
+            elif mode == "mixed":
+                await update.message.reply_text(
+                    f"✅ 已接收媒体，共计 {len(media_list)} 个。\n"
+                    f"继续上传文件或媒体，完成后发送 /done_media。"
+                )
             else:
                 await update.message.reply_text(
                     f"✅ 已接收媒体，共计 {len(media_list)} 个。\n"
@@ -164,7 +173,7 @@ async def done_media(update: Update, context: CallbackContext) -> int:
     try:
         async with get_db() as conn:
             c = await conn.cursor()
-            await c.execute("SELECT image_id, mode FROM submissions WHERE user_id=?", (user_id,))
+            await c.execute("SELECT image_id, document_id, mode FROM submissions WHERE user_id=?", (user_id,))
             row = await c.fetchone()
             
             if not row:
@@ -172,16 +181,19 @@ async def done_media(update: Update, context: CallbackContext) -> int:
             
             # 检查媒体文件是否存在，使用统一的解析函数
             media_list = parse_json_list(row["image_id"])
+            doc_list = parse_json_list(row["document_id"])
             mode = get_submission_mode(row)
             
             # 仅媒体模式下要求至少有一个媒体文件
             if mode == "media" and not media_list:
                 await update.message.reply_text("⚠️ 请至少发送一个媒体文件")
                 return STATE['MEDIA']
+            if mode == "mixed" and not media_list and not doc_list:
+                await update.message.reply_text("⚠️ 请至少上传一个媒体或文件")
+                return STATE['MEDIA']
                 
-        # 媒体验证通过，进入标签阶段
-        await update.message.reply_text("✅ 媒体接收完成，请发送标签（必选，最多30个，用逗号分隔，例如：明日方舟，原神）")
-        return STATE['TAG']
+        from handlers.preview_handlers import show_submission_preview
+        return await show_submission_preview(update, context)
         
     except Exception as e:
         logger.error(f"检索媒体错误: {e}")
@@ -220,9 +232,8 @@ async def skip_media(update: Update, context: CallbackContext) -> int:
                 await update.message.reply_text("⚠️ 在媒体投稿模式下，媒体文件是必选项。请上传至少一个媒体文件。")
                 return STATE['MEDIA']
                 
-        # 非媒体模式可以跳过
-        await update.message.reply_text("✅ 已跳过媒体上传，请发送标签（必选，最多30个，用逗号分隔，例如：明日方舟，原神）")
-        return STATE['TAG']
+        from handlers.preview_handlers import show_submission_preview
+        return await show_submission_preview(update, context)
         
     except Exception as e:
         logger.error(f"检查模式错误: {e}")

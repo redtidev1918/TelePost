@@ -82,32 +82,12 @@ async def submit(update: Update, context: CallbackContext) -> int:
                 return STATE['DOC']
                 
             else:  # 混合模式
-                # 先创建数据库记录
                 logger.info(f"使用混合模式，user_id: {user_id}")
                 await c.execute("INSERT INTO submissions (user_id, timestamp, mode, image_id, document_id, username) VALUES (?, ?, ?, ?, ?, ?)",
                           (user_id, datetime.now().timestamp(), "mixed", "[]", "[]", username))
                 await conn.commit()
-                
-                # 显示模式选择键盘
-                media_button = '📷 媒体投稿'
-                doc_button = '📄 文档投稿'
-                keyboard = [[KeyboardButton(media_button), KeyboardButton(doc_button)]]
-                markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-                logger.info(f"创建选择键盘，按钮: '{media_button}', '{doc_button}'")
-                
-                await update.message.reply_text(
-                    "📮 欢迎使用投稿机器人！请选择投稿类型：\n\n"
-                    "- 📷 媒体投稿：用于提交图片、视频、GIF等媒体文件\n"
-                    "  适用场景：直接通过Telegram选择相册中的图片/视频发送\n"
-                    "  注意：媒体模式不支持作为文档附件发送的文件\n\n"
-                    "- 📄 文档投稿：用于提交压缩包、PDF、DOC等文档文件\n"
-                    "  适用场景：通过文件附件方式发送各类压缩包资源、文档或原始媒体文件\n"
-                    "  注意：如果您需要以文件附件形式上传媒体，请选择此模式\n\n"
-                    "⏱️ 操作超时提醒：如果5分钟内没有操作，会话将自动结束，需要重新发送 /submit。",
-                    reply_markup=markup
-                )
-                logger.info(f"已发送模式选择提示，切换到START_MODE状态，user_id: {user_id}")
-                return STATE['START_MODE']
+                await show_mixed_welcome(update)
+                return STATE['MEDIA']
     except Exception as e:
         logger.error(f"初始化数据错误: {e}", exc_info=True)
         await update.message.reply_text("❌ 初始化失败，请稍后再试")
@@ -241,7 +221,7 @@ async def show_media_welcome(update):
         update: Telegram 更新对象
     """
     await update.message.reply_text(
-        "📮 欢迎使用媒体投稿功能！请按照以下步骤提交：\n\n"
+        "📮 欢迎使用媒体投稿功能！\n\n"
         "1️⃣ 发送媒体文件（必选）：\n"
         "   - 支持图片、视频、GIF、音频等，最多上传50个文件。\n"
         "   - 📱 请直接发送媒体（非文件附件形式）：\n"
@@ -250,19 +230,24 @@ async def show_media_welcome(update):
         "   - ⚠️ 不支持以文件附件方式发送的媒体文件\n"
         "   - ⚠️ 如需以文件附件形式上传媒体，请使用文档投稿模式\n"
         "   - 上传完毕后，请发送 /done_media。\n\n"
-        "2️⃣ 发送标签（必选）：\n"
-        "   - 最多30个标签，用逗号分隔（例如：明日方舟，原神）。\n\n"
-        "3️⃣ 发送链接（可选）：\n"
-        "   - 如需附加链接，请确保以 http:// 或 https:// 开头；不需要请回复 \"无\" 或发送 /skip_optional 跳过后面的所有可选项。\n\n"
-        "4️⃣ 发送标题（可选）：\n"
-        "   - 如不需要标题，请回复 \"无\" 或发送 /skip_optional 跳过后面的所有可选项。\n\n"
-        "5️⃣ 发送简介（可选）：\n"
-        "   - 如不需要简介，请回复 \"无\" 或发送 /skip_optional 跳过后面的所有可选项。\n\n"
-        "6️⃣ 是否将所有媒体设为剧透（点击查看）？\n"
-        "   - 请回复 \"否\" 或 \"是\"。\n\n"
+        "2️⃣ 在预览面板填写标签并按需编辑标题、简介和链接。\n"
+        "   - 仅标签必填；匿名和剧透可一键切换，默认均关闭。\n\n"
         "⏱️ 操作超时提醒：\n"
         "   - 如果5分钟内没有操作，会话将自动结束，需要重新发送 /start。\n\n"
         "随时发送 /cancel 取消投稿。"
+    )
+
+
+async def show_mixed_welcome(update):
+    """混合模式直接接收上传，并按 Telegram 消息类型自动归类。"""
+    await update.message.reply_text(
+        "📮 请直接上传内容：\n\n"
+        "• 相册图片、视频、GIF、音频会归为媒体\n"
+        "• 以附件发送的图片、压缩包、PDF 等会归为文件\n"
+        "• 可以混合上传，完成后发送 /done_media 打开预览\n\n"
+        "预览页仅标签必填；匿名和剧透默认关闭。\n"
+        "随时发送 /cancel 取消投稿。",
+        reply_markup=ReplyKeyboardRemove(),
     )
 
 async def show_document_welcome(update):
@@ -289,16 +274,8 @@ async def show_document_welcome(update):
         "     • 从相册选择后直接发送\n"
         "     • 直接发送视频/GIF\n"
         "   - 上传完毕后，请发送 /done_media，或发送 /skip_media 跳过此步骤。\n\n"
-        "3️⃣ 发送标签（必选）：\n"
-        "   - 最多30个标签，用逗号分隔（例如：教程，资料，软件）。\n\n"
-        "4️⃣ 发送链接（可选）：\n"
-        "   - 如需附加链接，请确保以 http:// 或 https:// 开头；不需要请回复 \"无\" 或发送 /skip_optional 跳过后面的所有可选项。\n\n"
-        "5️⃣ 发送标题（可选）：\n"
-        "   - 如不需要标题，请回复 \"无\" 或发送 /skip_optional 跳过后面的所有可选项。\n\n"
-        "6️⃣ 发送简介（可选）：\n"
-        "   - 如不需要简介，请回复 \"无\" 或发送 /skip_optional 跳过后面的所有可选项。\n\n"
-        "7️⃣ 是否将内容设为剧透（点击查看）？\n"
-        "   - 请回复 \"否\" 或 \"是\"。\n\n"
+        "3️⃣ 在预览面板填写标签并按需编辑标题、简介和链接。\n"
+        "   - 仅标签必填；匿名和剧透可一键切换，默认均关闭。\n\n"
         "⏱️ 操作超时提醒：\n"
         "   - 如果5分钟内没有操作，会话将自动结束，需要重新发送 /start。\n\n"
         "随时发送 /cancel 取消投稿。"

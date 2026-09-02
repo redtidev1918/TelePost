@@ -23,7 +23,9 @@ STATE = {
     # 发布前快速编辑状态
     'EDIT_TAG': 14,   # 重新输入标签
     'EDIT_NOTE': 15,  # 重新输入简介
-    'EDIT_MEDIA': 16  # 补充媒体
+    'EDIT_MEDIA': 16, # 补充媒体
+    'EDIT_TITLE': 17, # 重新输入标题
+    'EDIT_LINK': 18   # 重新输入链接
 }
 
 # 流程模式定义

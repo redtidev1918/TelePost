@@ -18,8 +18,7 @@ logger = logging.getLogger(__name__)
 # 创建全局文件类型验证器
 file_validator = create_file_validator(ALLOWED_FILE_TYPES)
 
-@validate_state(STATE['DOC'])
-async def handle_doc(update: Update, context: CallbackContext) -> int:
+async def _handle_doc(update: Update, context: CallbackContext, next_state: int) -> int:
     """
     处理文档文件上传
     
@@ -47,7 +46,7 @@ async def handle_doc(update: Update, context: CallbackContext) -> int:
             f"• 选择文件或文档\n\n"
             f"✅ 允许的文件类型：\n{allowed_types_desc}"
         )
-        return STATE['DOC']
+        return next_state
     
     doc = update.message.document
     
@@ -56,7 +55,7 @@ async def handle_doc(update: Update, context: CallbackContext) -> int:
     if not is_valid:
         logger.warning(f"文件类型验证失败: user_id={user_id}, file={doc.file_name}, mime={doc.mime_type}")
         await safe_send(update.message.reply_text, error_msg)
-        return STATE['DOC']
+        return next_state
     
     logger.info(f"文件类型验证通过: user_id={user_id}, file={doc.file_name}, mime={doc.mime_type}")
     # 存储格式：document:file_id:filename
@@ -83,7 +82,7 @@ async def handle_doc(update: Update, context: CallbackContext) -> int:
             # 限制文档数量为10个
             if len(doc_list) >= 10:
                 await safe_send(update.message.reply_text, "⚠️ 已达到文档上传上限（10个）")
-                return STATE['DOC']
+                return next_state
                 
             doc_list.append(new_doc)
             await c.execute("UPDATE submissions SET document_id=?, timestamp=? WHERE user_id=?",
@@ -94,7 +93,9 @@ async def handle_doc(update: Update, context: CallbackContext) -> int:
         # 使用安全发送，避免网络超时导致异常
         result = await safe_send(
             update.message.reply_text,
-            f"✅ 已接收文档，共计 {len(doc_list)} 个。\n继续发送文档文件，或发送 /done_doc 完成上传。"
+            f"✅ 已接收文件，共计 {len(doc_list)} 个。\n"
+            + ("继续上传文件或媒体，完成后发送 /done_media。" if next_state == STATE['MEDIA']
+               else "继续发送文档文件，或发送 /done_doc 完成上传。")
         )
         
         if result is None:
@@ -114,7 +115,12 @@ async def handle_doc(update: Update, context: CallbackContext) -> int:
             
         return ConversationHandler.END
         
-    return STATE['DOC']
+    return next_state
+
+
+@validate_state(STATE['DOC'])
+async def handle_doc(update: Update, context: CallbackContext) -> int:
+    return await _handle_doc(update, context, STATE['DOC'])
 
 @validate_state(STATE['DOC'])
 async def done_doc(update: Update, context: CallbackContext) -> int:
