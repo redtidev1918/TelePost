@@ -148,11 +148,9 @@ async def handle_menu_shortcuts(update: Update, context: CallbackContext) -> Non
             from handlers.search_handlers import handle_search_input
             await handle_search_input(update, context)
             return
-        # 开始投稿
-        if text.endswith("开始投稿"):
-            from handlers.mode_selection import submit
-            await submit(update, context)
-            return
+        # 开始投稿：已由 ConversationHandler 的 entry（Regex「开始投稿」）接管，
+        # 这里不再直接调 submit——直接调只建 DB 会话、不建立状态机内存状态，
+        # 用户随后发的媒体会掉出状态机而静默无响应。
         # 我的统计
         if text.endswith("我的统计"):
             from handlers.stats_handlers import get_user_stats

@@ -23,7 +23,7 @@ TAG_SPLIT_PATTERN = re.compile(r'[,，\s/／]+')
 
 # 配置常量
 CONFIG = {
-    "VERSION": "2.10.29",
+    "VERSION": "2.10.30",
     "MAX_MEDIA_COUNT": 10,
     "MAX_DOCUMENT_COUNT": 10,
     "NET_TIMEOUT": 30,  # 网络超时时间（秒）
@@ -314,6 +314,12 @@ def validate_state(expected_state: int):
                     await c.execute("SELECT timestamp FROM submissions WHERE user_id=?", (user_id,))
                     result = await c.fetchone()
                     if not result:
+                        # 埋点：会话外触发受保护 handler 是"无响应/已过期"高发路径，
+                        # 记录来源函数，避免靠猜。
+                        logger.info(
+                            "会话外触发 %s(user_id=%s)，无 submissions 行 -> 已过期",
+                            getattr(func, "__name__", "?"), user_id,
+                        )
                         await update.message.reply_text("❌ 会话已过期，请重新发送 /start")
                         return ConversationHandler.END
             except Exception as e:
@@ -343,7 +349,11 @@ async def end_conversation_with_message(update: Update, message: str, clear_keyb
             await update.message.reply_text(message)
     except Exception as e:
         logger.error(f"发送终止消息失败: {e}")
-    
+    logger.info(
+        "会话终止 user_id=%s: %s",
+        getattr(getattr(update, "effective_user", None), "id", "?"),
+        message,
+    )
     return ConversationHandler.END
 
 

@@ -207,6 +207,43 @@ async def check_conversation_timeout(update: Update, context: CallbackContext) -
 
     return
 
+# 会话外媒体兜底：状态机丢失（重启/超时/按钮路径）时用户直接发媒体，给明确提示
+_orphan_media_cache = None
+
+async def orphan_media_guard(update: Update, context: CallbackContext) -> None:
+    if update.channel_post or update.edited_channel_post:
+        return
+    if not update.message or not update.effective_user:
+        return
+    chat_type = getattr(getattr(update.message, "chat", None), "type", None)
+    if chat_type != "private":
+        return
+    user_id = update.effective_user.id
+    try:
+        async with get_db() as conn:
+            c = await conn.cursor()
+            await c.execute("SELECT 1 FROM submissions WHERE user_id=?", (user_id,))
+            if await c.fetchone():
+                return  # 有活跃会话，交给 ConversationHandler
+    except Exception:
+        return
+
+    global _orphan_media_cache
+    if _orphan_media_cache is None:
+        from utils.cache import TTLCache
+        _orphan_media_cache = TTLCache(default_ttl=600, max_size=4096)
+    key = f"orphan-media:{user_id}"
+    if _orphan_media_cache.get(key):
+        return
+    _orphan_media_cache.set(key, "1", ttl=600)
+    try:
+        await update.message.reply_text(
+            "⚠️ 当前没有进行中的投稿。请先发送 /submit 开始投稿，再上传媒体或文件。"
+        )
+    except Exception as e:
+        logger.warning("发送会话外媒体提示失败: %s", e)
+    return ApplicationHandlerStop()
+
 # 添加全局更新记录器
 async def log_all_updates(update: Update, context: CallbackContext) -> None:
     """记录所有接收到的更新"""
@@ -606,7 +643,15 @@ def setup_application(application):
         logger.info("注册会话处理器...")
         conv_handler = ConversationHandler(
             entry_points=[
-                CommandHandler("submit", submit)
+                CommandHandler("submit", submit),
+                # 底部菜单按钮"📝 开始投稿"（ReplyKeyboard 文本）必须作为 entry 进入
+                # 状态机，否则 handle_menu_shortcuts 直接调 submit 只建 DB 会话、
+                # 不建立 ConversationHandler 内存状态，用户随后发的媒体会掉出
+                # 状态机而静默无响应。
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND & filters.Regex(r"开始投稿\s*$"),
+                    submit,
+                ),
             ],
             states={
                 # 模式选择状态
@@ -721,6 +766,15 @@ def setup_application(application):
     # 不再捕获任意文本的“取消”，以免误触
     # 搜索模式下的自然语言输入处理（在更低优先级，避免干扰其他文本处理）
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search_input), group=999)
+    # 会话外的媒体/文档兜底：状态机因重启/超时/按钮路径丢失时，用户直接发媒体
+    # 不再石沉大海——明确提示先 /submit（有活跃会话时不打扰，交给流程处理）。
+    application.add_handler(
+        MessageHandler(
+            filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.AUDIO | filters.Document.ALL,
+            orphan_media_guard,
+        ),
+        group=997,
+    )
     # 添加未处理消息的捕获处理器 (最低优先级组)
     application.add_handler(MessageHandler(filters.ALL, catch_all), group=1000)
     
