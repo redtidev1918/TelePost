@@ -95,7 +95,7 @@ Authorization: Bearer tp_xxxxxxxx
 | `files` | file，可重复 | 是 | 1–50 个文件；图片/视频/GIF/音频按媒体发布，其余按文档发布 |
 | `tags` | text | 是 | 逗号分隔，最多 30 个，发布时自动加 # 前缀 |
 | `title` | text | 否 | ≤100 字符 |
-| `note` | text | 否 | ≤600 字符 |
+| `note` | text | 否 | ≤600 字符；支持真实换行，也兼容配置模板传来的字面量 `\\n`/`\\r\\n` |
 | `link` | text | 否 | http(s) 链接 |
 | `anonymous` | text | 否 | `true` 时频道内不显示投稿人 |
 | `spoiler` | text | 否 | `true` 时媒体加剧透遮罩 |

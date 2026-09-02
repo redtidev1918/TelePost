@@ -251,33 +251,3 @@ class Keyboards:
     def remove_keyboard():
         """移除键盘"""
         return ReplyKeyboardRemove()
-
-
-class QuickReplies:
-    """快捷回复"""
-    
-    @staticmethod
-    def submission_templates():
-        """投稿模板快捷回复"""
-        keyboard = [
-            [KeyboardButton("📰 新闻资讯")],
-            [KeyboardButton("💡 技巧分享")],
-            [KeyboardButton("❓ 问题求助")],
-            [KeyboardButton("🎉 活动公告")],
-            [KeyboardButton("💬 日常闲聊")],
-            [KeyboardButton("🔙 返回主菜单")]
-        ]
-        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-    
-    @staticmethod
-    def common_tags():
-        """常用标签快捷回复"""
-        keyboard = [
-            [KeyboardButton("#技术"), KeyboardButton("#教程")],
-            [KeyboardButton("#新闻"), KeyboardButton("#资讯")],
-            [KeyboardButton("#分享"), KeyboardButton("#推荐")],
-            [KeyboardButton("#问答"), KeyboardButton("#讨论")],
-            [KeyboardButton("✅ 完成"), KeyboardButton("❌ 取消")]
-        ]
-        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-

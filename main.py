@@ -120,18 +120,6 @@ load_dotenv()
 # 全局变量
 TIMEOUT_SECONDS = int(os.getenv("SESSION_TIMEOUT", "900"))  # 默认15分钟
 
-# 黑名单过滤函数包装器
-def check_blacklist(handler_func):
-    """黑名单过滤函数包装器"""
-    async def wrapper(update, context):
-        # 先进行黑名单检查
-        if not blacklist_filter(update):
-            # 如果在黑名单中，直接返回
-            return
-        # 不在黑名单中，调用原始处理函数
-        return await handler_func(update, context)
-    return wrapper
-
 # 会话超时检查函数
 async def check_conversation_timeout(update: Update, context: CallbackContext) -> None:
     """

@@ -66,12 +66,20 @@ def _fields_tags(payload) -> str:
     return tags if ok else ""
 
 
+def _fields_text(payload, key: str, limit: int) -> str:
+    """Read text fields and accept escaped newlines from config-driven clients."""
+    return (str(payload.get(key, ""))
+            .replace("\\r\\n", "\n")
+            .replace("\\n", "\n")
+            .replace("\\r", "\n"))[:limit]
+
+
 def _fields_title(payload) -> str:
-    return str(payload.get("title", ""))[:100]
+    return _fields_text(payload, "title", 100)
 
 
 def _fields_note(payload) -> str:
-    return str(payload.get("note", ""))[:600]
+    return _fields_text(payload, "note", 600)
 
 
 def _fields_link(payload) -> str:

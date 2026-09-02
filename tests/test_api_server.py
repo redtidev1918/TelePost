@@ -94,7 +94,8 @@ class TestSubmission:
             form = __import__("aiohttp").FormData()
             form.add_field("files", b"fake-image-bytes", filename="photo.jpg", content_type="image/jpeg")
             form.add_field("tags", "测试, API")
-            form.add_field("title", "标题")
+            form.add_field("title", r"标题\n副标题")
+            form.add_field("note", r"第一行\r\n第二行\n第三行")
             form.add_field("anonymous", "true")
             resp = await client.post(
                 "/api/v1/submissions", data=form,
@@ -114,7 +115,8 @@ class TestSubmission:
             assert list((tmp_path / "data" / "api_uploads").iterdir()) == []
             assert files[0]["kind"] == "photo"
             assert kwargs["tags"].startswith("#")
-            assert kwargs["title"] == "标题"
+            assert kwargs["title"] == "标题\n副标题"
+            assert kwargs["note"] == "第一行\n第二行\n第三行"
             assert kwargs["anonymous"] is True
         finally:
             await client.close()
