@@ -338,15 +338,10 @@ class TestPublishHandlers:
     
     @pytest.mark.asyncio
     @pytest.mark.unit
-    @patch('handlers.publish.safe_send')
-    async def test_publish_to_channel(
-        self, 
-        mock_safe_send,
-        mock_telegram_context
-    ):
-        """测试发布到频道（单条媒体走 handle_media_publish）"""
+    async def test_publish_to_channel(self, mock_telegram_context):
+        """测试发布到频道（单条媒体走 handle_media_publish → 统一投递）"""
         sent_message = MagicMock(message_id=12345)
-        mock_safe_send.return_value = sent_message
+        mock_telegram_context.bot.send_photo = AsyncMock(return_value=sent_message)
 
         from handlers.publish import handle_media_publish
 
@@ -360,7 +355,7 @@ class TestPublishHandlers:
         # 主消息与消息ID列表应被正确返回
         assert main_msg is not None
         assert 12345 in all_ids
-        mock_safe_send.assert_called_once()
+        mock_telegram_context.bot.send_photo.assert_awaited_once()
 
 
 class TestMediaHandlers:

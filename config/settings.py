@@ -205,6 +205,27 @@ if (API_REVIEW_REQUIRED or CHAT_REVIEW_REQUIRED) and not REVIEW_CHAT_ID:
         "但 REVIEW_CHAT_ID 未设置"
     )
 
+# 审核群绝不能与投稿频道是同一个会话：否则审核预览相册、控制消息和
+# PixivFlow 空结果/失败通知都会以"回复/散帖"形式出现在频道里，
+# 造成用户看到的"主贴后面莫名跟着几条奇怪回复"。
+if REVIEW_CHAT_ID is not None:
+    _chan = str(CHANNEL_ID).strip()
+    _review = str(REVIEW_CHAT_ID).strip()
+    if _chan == _review:
+        raise ValueError(
+            "❌ REVIEW_CHAT_ID 不能等于 CHANNEL_ID：审核群与投稿频道必须是"
+            "两个不同的会话，否则预览/通知会混进频道"
+        )
+    if _chan.lstrip('-').isdigit() and _review.lstrip('-').isdigit():
+        try:
+            if int(_chan) == int(_review):
+                raise ValueError(
+                    "❌ REVIEW_CHAT_ID 不能等于 CHANNEL_ID：审核群与投稿频道"
+                    "必须是两个不同的会话，否则预览/通知会混进频道"
+                )
+        except ValueError:
+            pass
+
 # 模式常量定义
 MODE_MEDIA = 'MEDIA'      # 仅媒体上传
 MODE_DOCUMENT = 'DOCUMENT'  # 仅文档上传

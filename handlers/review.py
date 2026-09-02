@@ -30,7 +30,12 @@ from telegram.error import RetryAfter
 
 from config.settings import ADMIN_IDS, REVIEW_CHAT_ID
 from database.db_manager import get_db
-from handlers.publish import _file_id_of, publish_from_file_ids
+from handlers.publish import (
+    _file_id_of,
+    publish_from_file_ids,
+    reclassify_oversized_photos,
+    PHOTO_MAX_BYTES as _PHOTO_MAX_BYTES,
+)
 from utils.helper_functions import build_caption
 
 
@@ -60,9 +65,9 @@ PENDING_REVIEW_RETENTION_DAYS = max(
 PENDING_REVIEW_CLEANUP_BATCH_SIZE = max(
     1, min(200, int(os.getenv("PENDING_REVIEW_CLEANUP_BATCH_SIZE", "100")))
 )
-# Telegram 图片（含相册）单张上限 10 MiB，超过必须按文档发送。
-# 留 0.5 MiB 余量避免边界被拒。
-PHOTO_MAX_BYTES = int((10.0 - 0.5) * 1024 * 1024)
+# Telegram 图片单张上限（含相册）10 MiB，超过按文档发送；与频道发布共用同一阈值
+# （handlers.publish.PHOTO_MAX_BYTES），保留别名供本模块其余处引用。
+PHOTO_MAX_BYTES = _PHOTO_MAX_BYTES
 
 
 def _review_keyboard(
@@ -478,19 +483,12 @@ async def _stage_items(bot, items, caption, spoiler, message_ids, *, local):
     files above 10 MiB, while documents accept up to 50 MiB. Without this a
     single large original PNG page would fail the whole review staging.
     """
+    # 超大原图（>9.5 MiB）Telegram 无法作为照片发送，改按文档投递；
+    # 与频道发布共用 handlers.publish.reclassify_oversized_photos。
     if local:
-        for item in items:
-            if item.get("kind") == "photo":
-                try:
-                    size = os.path.getsize(item["path"])
-                except OSError:
-                    size = 0
-                if size > PHOTO_MAX_BYTES:
-                    logger.info(
-                        "图片超过 %d 字节，按文档发送: %s (%d bytes)",
-                        PHOTO_MAX_BYTES, item.get("filename"), size,
-                    )
-                    item["kind"] = "document"
+        items[:] = reclassify_oversized_photos(
+            items, max_bytes=PHOTO_MAX_BYTES
+        )
 
     staged_media: list = []
     staged_documents: list = []

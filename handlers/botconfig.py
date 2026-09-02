@@ -99,6 +99,20 @@ async def _validated_chat_id(context: CallbackContext, raw: str, kind: str) -> s
         raise ValueError("请先把 Bot 设为目标频道/群组管理员")
     if kind == "channel" and getattr(member, "can_post_messages", True) is False:
         raise ValueError("Bot 没有频道发帖权限")
+
+    # 审核群与投稿频道必须是两个不同的会话：否则审核预览、控制消息和
+    # PixivFlow 通知会以"回复/散帖"形式出现在频道里。
+    other = CHANNEL_ID if kind == "review" else REVIEW_CHAT_ID
+    if other is not None:
+        try:
+            resolved = await context.bot.get_chat(other)
+            if resolved.id == chat.id:
+                raise ValueError("审核群不能与投稿频道是同一个会话")
+        except ValueError:
+            raise
+        except Exception:
+            # 解析当前配置失败时交给启动校验兜底，不在面板处误伤
+            pass
     return str(chat.id)
 
 

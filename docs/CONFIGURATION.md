@@ -36,7 +36,7 @@
 | `API_ENABLED` | `true` | 是否启用 HTTP API（Polling/Webhook 均支持 `/api/v1`，供外部项目投稿） |
 | `API_REVIEW_REQUIRED` | `false` | HTTP API 投稿是否进入审核队列 |
 | `CHAT_REVIEW_REQUIRED` | `false` | Telegram `/submit` 投稿是否进入审核队列 |
-| `REVIEW_CHAT_ID` | 空 | 私有审核群 ID；任一审核开关为 `true` 时必填 |
+| `REVIEW_CHAT_ID` | 空 | 私有审核群 ID；任一审核开关为 `true` 时必填。**不能等于 `CHANNEL_ID`**：审核预览、控制消息与 PixivFlow 通知会以"回复/散帖"混进频道，启动时会直接报错拒绝该配置 |
 | `REVIEW_PREVIEW_INTERVAL_SECONDS` | `0.75` | 多文件审核预览发送间隔；低配实例建议保持默认值以减少 Telegram flood |
 | `REVIEW_PREVIEW_TIMEOUT_SECONDS` | `120` | 单个审核预览上传/响应超时；大图、多页作品或慢网络不要设得过低 |
 | `REVIEW_PREVIEW_THREAD` | `1` | 审核群后续相册/文件/控制消息是否回复上一批（回复链）；置 `0` 取消回复关系 |

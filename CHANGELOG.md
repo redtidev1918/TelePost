@@ -7,7 +7,34 @@
 
 ---
 
-## [Unreleased]
+## [2.10.28] - 2026-09-02
+
+### 修复
+- **API 直发（`API_REVIEW_REQUIRED=false`）媒体/文档全部丢失**：`publish_from_files`
+  构造 `InputFile` 时漏传 `attach=True`，python-telegram-bot 序列化媒体组时
+  丢掉每个 `InputMedia` 的 `media` 字段（无 `attach://` 引用），Telegram 回
+  `media not found`——表现为 API 直投的插画相册发不出去/图片不可见、小说
+  `.txt` 文档组同样失败。审核路径（`queue_review_from_files`）此前已有
+  同名修复，但直发路径一直漏修。现在两条路径一致使用 `attach=True`。
+
+### 重构（层级统一）
+- **频道发布与审核群预览共用一套主贴/回复层级**：此前"聊天投稿直发、
+  API 本地文件直发、API file_id 直发、审核群暂存"四处各写一份相册分组/
+  caption/回复链逻辑，规则互相打架（相册成员混入 GIF、文档组 caption 位置
+  不一致、组大小阈值不同）。现统一到 `handlers.publish` 的
+  `deliver_items_to_chat` / `_run_item_batches`，规则唯一：
+  1) photo/video 每 10 个一组相册；
+  2) GIF/音频不能进相册，逐条发送；
+  3) document（小说 .txt、ugoira .zip、超 10 MiB 图片页）按文档相册发送，
+     投稿含媒体时整段作为主贴的回复；
+  4) caption 只挂整条投递的第一条消息（`build_caption` 已按 1024 上限
+     截断，不再单独发"文本头"造成多余主贴/回复）；
+  5) 各段之间按回复链串联；相册失败自动降级逐条。
+- 聊天投稿/直发/审核共用的"超 10 MiB 图片自动改按文档发送"逻辑提取为
+  `handlers.publish.reclassify_oversized_photos`，阈值单一来源。
+- **启动防呆**：`REVIEW_CHAT_ID` 若等于 `CHANNEL_ID`（审核预览、控制消息、
+  PixivFlow 通知会以"奇怪回复/散帖"混进频道），启动直接报错拒绝；
+  `/botconfig` 面板也拒绝把审核群切到频道。
 
 ## [2.10.27] - 2026-09-02
 

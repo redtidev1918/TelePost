@@ -4,6 +4,7 @@
 import json
 import logging
 import asyncio
+import os
 from datetime import datetime
 from telegram import (
     Update,
@@ -21,7 +22,7 @@ from config.settings import (
 )
 from database.db_manager import get_db, cleanup_old_data
 from models.state import STATE
-from utils.helper_functions import build_caption, safe_send
+from utils.helper_functions import build_caption
 from utils.search_engine import get_search_engine, PostDocument
 
 logger = logging.getLogger(__name__)
@@ -294,27 +295,19 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
             publish_success = True
             return ConversationHandler.END
         
-        # 处理媒体文件
-        if media_list:
-            sent_message, all_message_ids = await handle_media_publish(context, media_list, caption, spoiler_flag)
-        
-        # 处理文档文件
-        if doc_list:
-            if sent_message:
-                # 如果已经发送了媒体，则文档作为回复
-                doc_msg = await handle_document_publish(
-                    context, 
-                    doc_list, 
-                    None,  # 不需要重复发送说明，回复到主贴即可
-                    sent_message.message_id
+        # 媒体 + 文档统一投递：内部按"相册→GIF/音频→文档组"回复链串联，
+        # caption 只挂在整条投递的第一条消息。
+        chat_items = _normalize_chat_items(media_list, doc_list)
+        if chat_items:
+            try:
+                sent_messages, sent_message = await deliver_items_to_chat(
+                    context.bot, CHANNEL_ID, chat_items,
+                    caption=caption, spoiler=spoiler_flag,
                 )
-                if doc_msg:
-                    all_message_ids.append(doc_msg.message_id)
-            else:
-                # 如果只有文档，直接发送
-                sent_message = await handle_document_publish(context, doc_list, caption)
-                if sent_message:
-                    all_message_ids.append(sent_message.message_id)
+                all_message_ids = [m.message_id for m in sent_messages]
+            except Exception as e:
+                logger.error("发布到频道失败: %s", e, exc_info=True)
+                sent_message, all_message_ids = None, []
         
         # 处理结果
         if not sent_message:
@@ -426,302 +419,278 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
 
     return ConversationHandler.END
 
-async def handle_media_publish(context, media_list, caption, spoiler_flag):
+# ---- 统一投递布局（频道发布与审核群预览共用同一套层级规则）----
+#
+# 主贴/回复层级（媒体在前、文档在后，每一段都回复前一条形成一条链）：
+#   1) photo/video 按每 10 个组成相册（Telegram 相册上限）；
+#   2) animation(GIF)/audio 不能进相册，逐条单独发送；
+#   3) document（小说 .txt、ugoira .zip、超 10 MiB 的图片页）按每 10 个成组，
+#      若投稿里有媒体则作为媒体主贴的回复，否则独立成主贴；
+#   4) caption 永远只放在"整条投递的第一条消息"上；
+#   5) 相册发送失败自动降级为逐条发送（小内存机型超时兜底），RSS 峰值只与
+#      单文件相关，整条投稿不因一个相册超时而失败。
+# 本地文件必须带 attach=True（否则 PTB 序列化时丢掉 media 字段，
+# Telegram 报 media not found，图片/文档发不出去）。
+CHANNEL_ALBUM_SIZE = 10
+# Telegram 图片（含相册）单张上限 10 MiB，超过必须按文档发送。
+PHOTO_MAX_BYTES = int((10.0 - 0.5) * 1024 * 1024)
+
+
+def _is_local_item(item: dict) -> bool:
+    return bool(item.get("path"))
+
+
+def _local_input_file(path: str, filename: str):
+    from telegram import InputFile
+    return InputFile(open(path, "rb"), filename=filename,
+                     read_file_handle=False, attach=True)
+
+
+def _close_item_handle(media):
+    """关闭本地文件句柄（发送完成后；file_id 是字符串，无句柄可关）。"""
+    handle = getattr(media, "input_file_content", None)
+    if handle and hasattr(handle, "close"):
+        try:
+            handle.close()
+        except Exception:
+            pass
+
+
+def reclassify_oversized_photos(items: list, *, max_bytes: int = PHOTO_MAX_BYTES) -> list:
+    """本地图片超过 max_bytes 时改按文档发送（Telegram 照片上限 10 MiB，
+    文档上限 50 MiB）；file_id 已是 Telegram 托管资源，不受此限。返回新列表。"""
+    out = []
+    for item in items:
+        it = dict(item)
+        if it.get("kind") == "photo" and it.get("path"):
+            try:
+                if os.path.getsize(it["path"]) > max_bytes:
+                    logger.info("图片超过 %d 字节，按文档发送: %s",
+                                max_bytes, it.get("filename"))
+                    it["kind"] = "document"
+            except OSError:
+                pass
+        out.append(it)
+    return out
+
+
+def _media_kwargs(item: dict, caption) -> dict:
+    """单条消息（非相册）的发送参数，按类型映射到 send_* 方法。"""
+    kind = item["kind"]
+    media = _local_input_file(item["path"], item["filename"]) if _is_local_item(item) else item["file_id"]
+    kw = {"caption": caption, "parse_mode": "HTML" if caption else None}
+    if kind == "photo":
+        return {"method": "send_photo", "photo": media, **kw, "has_spoiler": item.get("spoiler", False)}
+    if kind == "video":
+        return {"method": "send_video", "video": media, **kw, "has_spoiler": item.get("spoiler", False)}
+    if kind == "animation":
+        return {"method": "send_animation", "animation": media, **kw, "has_spoiler": item.get("spoiler", False)}
+    if kind == "audio":
+        return {"method": "send_audio", "audio": media, **kw}
+    return {"method": "send_document", "document": media,
+            "filename": item.get("filename") or "file", **kw}
+
+
+def _album_input_media(item: dict, caption):
+    """相册成员（仅 photo/video/document 能进相册）。本地文件必须 attach=True。"""
+    kind = item["kind"]
+    media = _local_input_file(item["path"], item["filename"]) if _is_local_item(item) else item["file_id"]
+    parse = "HTML" if caption else None
+    if kind == "photo":
+        return InputMediaPhoto(media=media, caption=caption, parse_mode=parse,
+                               has_spoiler=item.get("spoiler", False))
+    if kind == "video":
+        return InputMediaVideo(media=media, caption=caption, parse_mode=parse,
+                               has_spoiler=item.get("spoiler", False))
+    return InputMediaDocument(media=media, caption=caption, parse_mode=parse,
+                              filename=item.get("filename") or "file")
+
+
+def _item_batches(items: list, album_size: int):
+    """按固定相册族顺序切片：photo/video 相册 → animation/audio 逐条 →
+    document 相册。同族内保持原顺序；每族连续段不超过 album_size
+    （animation/audio 永远逐条）。"""
+    def family(kind):
+        if kind in ("photo", "video"):
+            return "visual"
+        return kind  # animation / audio / document 各自独立成族
+
+    order = {"visual": 0, "animation": 1, "audio": 2, "document": 3}
+    ordered = sorted(items, key=lambda item: order.get(family(item["kind"]), 9))
+
+    runs = []
+    for item in ordered:
+        fam = family(item["kind"])
+        if runs and runs[-1][0] == fam and fam in ("visual", "document") \
+                and len(runs[-1][1]) < album_size:
+            runs[-1][1].append(item)
+        else:
+            runs.append((fam, [item]))
+    return runs
+
+
+async def _run_item_batches(items, *, caption, album_size,
+                            send_one, send_album, fallback_single=True, anchor_id=None):
+    """共享的投递编排（不绑定 bot/chat）：
+
+    统一"主贴+回复链"层级，频道发布与审核群预览共用同一套规则，
+    不再各写一份分组/排序/串联逻辑：
+      - 顺序：photo/video 相册 → GIF/音频逐条 → document 相册；
+      - 每批回复上一批（第一条回复 anchor_id）；
+      - caption 只挂在整条投递的第一条消息；
+      - 相册失败自动降级逐条（send_one）。
+
+    send_one(item, caption, reply_to) -> Message
+    send_album(media_built_list, reply_to, caption) -> [Message]
+        （media 构造交给调用方，因为审核群 RetryAfter 需要重建 InputFile）
+    返回 (sent_messages, main_message)。
     """
-    处理媒体发布
-    
-    Args:
-        context: 回调上下文
-        media_list: 媒体列表
-        caption: 说明文本
-        spoiler_flag: 是否剧透标志
-        
-    Returns:
-        tuple: (主消息对象, 所有消息ID列表) 或 (None, [])
-    """
-    # 检查caption长度，如果过长先单独发送
-    caption_message = None
-    
-    # 强制检查caption长度，保证媒体组发送的可靠性
-    # 不管SHOW_SUBMITTER如何设置，当caption超过850字符时都单独发送
-    # 使用较小的阈值（850而不是1000）来确保足够的安全边际
-    if caption and len(caption) > 850:
-        logger.info(f"Caption过长 ({len(caption)} 字符)，单独发送caption")
-        try:
-            caption_message = await safe_send(
-                context.bot.send_message,
-                chat_id=CHANNEL_ID,
-                text=caption,
-                parse_mode='HTML'
-            )
-            if caption_message:
-                caption = None
-            else:
-                logger.warning("长 caption 单独发送失败，回退到媒体 caption")
-        except Exception as e:
-            logger.error(f"发送长caption失败: {e}")
-            # 保留 caption，继续随媒体发送。
+    sent_messages = []
+    previous_id = None
+    main_message = None
 
-    # 单个媒体处理
-    if len(media_list) == 1:
-        typ, file_id = media_list[0].split(":", 1)
-        try:
-            # 如果已经单独发送了caption，则不再添加到媒体
-            media_caption = None if caption_message else caption
-            
-            if typ == "photo":
-                sent_message = await safe_send(
-                    context.bot.send_photo,
-                    chat_id=CHANNEL_ID,
-                    photo=file_id,
-                    caption=media_caption,
-                    parse_mode='HTML' if media_caption else None,
-                    has_spoiler=spoiler_flag,
-                    reply_to_message_id=caption_message.message_id if caption_message else None
-                )
-            elif typ == "video":
-                sent_message = await safe_send(
-                    context.bot.send_video,
-                    chat_id=CHANNEL_ID,
-                    video=file_id,
-                    caption=media_caption,
-                    parse_mode='HTML' if media_caption else None,
-                    has_spoiler=spoiler_flag,
-                    reply_to_message_id=caption_message.message_id if caption_message else None
-                )
-            elif typ == "animation":
-                sent_message = await safe_send(
-                    context.bot.send_animation,
-                    chat_id=CHANNEL_ID,
-                    animation=file_id,
-                    caption=media_caption,
-                    parse_mode='HTML' if media_caption else None,
-                    has_spoiler=spoiler_flag,
-                    reply_to_message_id=caption_message.message_id if caption_message else None
-                )
-            elif typ == "audio":
-                sent_message = await safe_send(
-                    context.bot.send_audio,
-                    chat_id=CHANNEL_ID,
-                    audio=file_id,
-                    caption=media_caption,
-                    parse_mode='HTML' if media_caption else None,
-                    reply_to_message_id=caption_message.message_id if caption_message else None
-                )
-            
-            # 收集所有消息ID
-            main_msg = caption_message or sent_message
-            all_ids = []
-            if caption_message:
-                all_ids.append(caption_message.message_id)
-            if sent_message:
-                all_ids.append(sent_message.message_id)
-            return (main_msg, all_ids)
-        except Exception as e:
-            logger.error(f"发送单条媒体失败: {e}")
-            if caption_message:
-                return (caption_message, [caption_message.message_id])
-            return (None, [])
-    
-    # 多个媒体处理 - 将媒体分组，每组最多10个
-    else:
-        media_kinds = {item.split(":", 1)[0] for item in media_list}
-        supported_kinds = {"photo", "video", "animation", "audio"}
-        if not media_kinds <= supported_kinds:
-            logger.error("媒体列表包含不支持的类型: %s", media_kinds - supported_kinds)
-            return (None, [])
+    for fam, batch in _item_batches(items, album_size):
+        can_album = fam in ("visual", "document") and len(batch) > 1
+        reply_to = previous_id if previous_id is not None else anchor_id
+        batch_caption = caption if main_message is None else None
+        messages = None
 
-        # Telegram 相册只支持 photo/video；GIF 和音频逐条发送并串成回复链。
-        if not media_kinds <= {"photo", "video"}:
-            sent_messages = []
-            first_message = caption_message
-            previous_message = caption_message
-            for item in media_list:
-                typ, file_id = item.split(":", 1)
-                media_caption = caption if first_message is None else None
-                common = {
-                    "chat_id": CHANNEL_ID,
-                    "caption": media_caption,
-                    "parse_mode": "HTML" if media_caption else None,
-                    "reply_to_message_id": (
-                        previous_message.message_id if previous_message else None
-                    ),
-                }
-                if typ == "photo":
-                    sent = await safe_send(
-                        context.bot.send_photo, photo=file_id,
-                        has_spoiler=spoiler_flag, **common,
-                    )
-                elif typ == "video":
-                    sent = await safe_send(
-                        context.bot.send_video, video=file_id,
-                        has_spoiler=spoiler_flag, **common,
-                    )
-                elif typ == "animation":
-                    sent = await safe_send(
-                        context.bot.send_animation, animation=file_id,
-                        has_spoiler=spoiler_flag, **common,
-                    )
-                else:
-                    sent = await safe_send(
-                        context.bot.send_audio, audio=file_id, **common,
-                    )
-
-                if not sent:
-                    logger.error("媒体发送中断，回滚已知的频道消息")
-                    known = ([caption_message] if caption_message else []) + sent_messages
-                    for message in reversed(known):
-                        try:
-                            await context.bot.delete_message(
-                                chat_id=CHANNEL_ID, message_id=message.message_id
-                            )
-                        except Exception:
-                            logger.warning(
-                                "回滚频道消息失败: %s", message.message_id,
-                                exc_info=True,
-                            )
-                    return (None, [])
-
-                if first_message is None:
-                    first_message = sent
-                previous_message = sent
-                sent_messages.append(sent)
-
-            ids = ([caption_message.message_id] if caption_message else [])
-            ids.extend(message.message_id for message in sent_messages)
-            return (first_message, ids)
-
-        all_sent_messages = []
-        first_message = caption_message
-        previous_message = caption_message
-        try:
-            for chunk_index in range(0, len(media_list), 10):
-                media_chunk = media_list[chunk_index:chunk_index + 10]
-                media_group = []
-                for i, item in enumerate(media_chunk):
-                    typ, file_id = item.split(":", 1)
-                    use_caption = caption if first_message is None and i == 0 else None
-                    factory = InputMediaPhoto if typ == "photo" else InputMediaVideo
-                    media_group.append(factory(
-                        media=file_id,
-                        caption=use_caption,
-                        parse_mode="HTML" if use_caption else None,
-                        has_spoiler=spoiler_flag,
-                    ))
-
-                reply_to = previous_message.message_id if previous_message else None
-                if len(media_group) == 1:
-                    typ, file_id = media_chunk[0].split(":", 1)
-                    common = {
-                        "chat_id": CHANNEL_ID,
-                        "caption": caption if first_message is None else None,
-                        "parse_mode": "HTML" if first_message is None and caption else None,
-                        "has_spoiler": spoiler_flag,
-                        "reply_to_message_id": reply_to,
-                    }
-                    method = (
-                        context.bot.send_photo if typ == "photo"
-                        else context.bot.send_video
-                    )
-                    sent = await safe_send(
-                        method, **({"photo": file_id} if typ == "photo" else {"video": file_id}),
-                        **common,
-                    )
-                    sent_messages = [sent] if sent else []
-                else:
-                    sent_messages = await asyncio.wait_for(
-                        context.bot.send_media_group(
-                            chat_id=CHANNEL_ID,
-                            media=media_group,
-                            reply_to_message_id=reply_to,
-                        ),
-                        timeout=60,
-                    )
-
-                if len(sent_messages) != len(media_chunk):
+        if can_album:
+            media_group = None
+            try:
+                media_group = [
+                    _album_input_media(item, batch_caption if i == 0 else None)
+                    for i, item in enumerate(batch)
+                ]
+                messages = await send_album(media_group, reply_to)
+                if messages is not None and len(messages) != len(batch):
                     raise RuntimeError(
-                        f"频道返回消息数 {len(sent_messages)} 与媒体数 {len(media_chunk)} 不一致"
+                        f"返回消息数 {len(messages)} 与文件数 {len(batch)} 不一致"
                     )
-                if first_message is None:
-                    first_message = sent_messages[0]
-                previous_message = sent_messages[-1]
-                all_sent_messages.extend(sent_messages)
+                for member in media_group:
+                    _close_item_handle(member.media)
+            except Exception as exc:
+                if media_group:
+                    for member in media_group:
+                        _close_item_handle(member.media)
+                logger.warning("相册发送失败（%s），降级为逐条发送 %d 个文件",
+                               exc, len(batch))
+                messages = None
+            if messages is None and fallback_single:
+                messages = []
+                for index, item in enumerate(batch):
+                    item_caption = batch_caption if index == 0 else None
+                    item_reply = reply_to if index == 0 else previous_id
+                    messages.append(await send_one(item, item_caption, item_reply))
 
-            ids = ([caption_message.message_id] if caption_message else [])
-            ids.extend(message.message_id for message in all_sent_messages)
-            return (first_message, ids)
-        except Exception as e:
-            logger.error("发送媒体组失败，回滚已知的频道消息: %s", e)
-            known = ([caption_message] if caption_message else []) + all_sent_messages
-            for message in reversed(known):
-                try:
-                    await context.bot.delete_message(
-                        chat_id=CHANNEL_ID, message_id=message.message_id
-                    )
-                except Exception:
-                    logger.warning(
-                        "回滚频道消息失败: %s", message.message_id, exc_info=True
-                    )
-            return (None, [])
+        if messages is None:
+            messages = []
+            for index, item in enumerate(batch):
+                item_caption = batch_caption if index == 0 else None
+                item_reply = reply_to if index == 0 else previous_id
+                messages.append(await send_one(item, item_caption, item_reply))
+
+        for message in messages:
+            sent_messages.append(message)
+            if main_message is None:
+                main_message = message
+            previous_id = message.message_id
+
+    return sent_messages, main_message
+
+
+def _normalize_chat_items(media_list, doc_list):
+    """聊天会话的紧凑格式 "kind:file_id[:filename]" → 统一 item dict。"""
+    items = []
+    for entry in media_list:
+        kind, file_id = entry.split(":", 1)
+        items.append({"kind": kind, "file_id": file_id, "spoiler_key": kind in ("photo", "video", "animation")})
+    for entry in doc_list:
+        parts = entry.split(":", 2)
+        file_id = parts[1] if len(parts) >= 2 else parts[0]
+        filename = parts[2] if len(parts) >= 3 else "file"
+        items.append({"kind": "document", "file_id": file_id, "filename": filename})
+    return items
+
+
+async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
+                                album_size=CHANNEL_ALBUM_SIZE, timeout_kwargs=None,
+                                reply_to_message_id=None):
+    # reply_to_message_id 作为整条链的锚点：媒体在前会自然成为主贴，
+    # 只有当整条投递全是文档且外部指定锚点时才会回复它。
+    """统一投递入口（频道发布与审核群预览共用）。
+
+    items: [{"kind": photo|video|animation|audio|document,
+             本地文件加 "path"+"filename"；Telegram 资源加 "file_id"(+"filename")}]
+    caption 只挂在整条投递的第一条消息；每批回复上一批，形成一条主贴回复链。
+    返回 (sent_messages[list], main_message)。
+    """
+    timeout_kwargs = timeout_kwargs or {}
+
+    async def _album(media_group, reply_to):
+        kwargs = dict(chat_id=chat_id, media=media_group,
+                      reply_to_message_id=reply_to, **timeout_kwargs)
+        return await bot.send_media_group(**kwargs)
+
+    async def _single(item, cap, reply_to):
+        kw = _media_kwargs(item, cap)
+        method = getattr(bot, kw.pop("method"))
+        try:
+            return await method(chat_id=chat_id, reply_to_message_id=reply_to,
+                                **timeout_kwargs, **kw)
+        finally:
+            # kw 里的本地 InputFile 句柄发送后关闭；file_id 是字符串无需关闭
+            for value in kw.values():
+                _close_item_handle(value)
+
+    return await _run_item_batches(
+        items, caption=caption, album_size=album_size,
+        send_one=_single, send_album=_album,
+        anchor_id=reply_to_message_id,
+    )
+
+
+async def handle_media_publish(context, media_list, caption, spoiler_flag):
+    """聊天投稿：发布媒体（file_id 列表 "kind:file_id"）到频道。
+
+    统一走 deliver_items_to_chat；caption 直接挂在第一条消息（build_caption 已按
+    1024 上限硬截断，不再单独发文本头消息）。
+    Returns: (主消息对象, 所有消息ID列表) 或 (None, [])
+    """
+    items = [{"kind": e.split(":", 1)[0], "file_id": e.split(":", 1)[1],
+              "spoiler": spoiler_flag} for e in media_list]
+    try:
+        sent, main = await deliver_items_to_chat(
+            context.bot, CHANNEL_ID, items, caption=caption, spoiler=spoiler_flag
+        )
+    except Exception as e:
+        logger.error("发送媒体失败: %s", e, exc_info=True)
+        return (None, [])
+    if not sent:
+        return (None, [])
+    return (main, [m.message_id for m in sent])
+
 
 async def handle_document_publish(context, doc_list, caption=None, reply_to_message_id=None):
+    """聊天投稿：发布文档（"document:file_id[:filename]"）到频道。
+
+    Returns: 主消息对象或 None。
     """
-    处理文档发布
-    
-    Args:
-        context: 回调上下文
-        doc_list: 文档列表
-        caption: 说明文本，如果为None则不添加说明
-        reply_to_message_id: 回复的消息ID，如果为None则创建新消息
-        
-    Returns:
-        发送的消息对象或None
-    """
-    if len(doc_list) == 1:
-        # 单个文档处理
-        parts = doc_list[0].split(":", 2)
+    items = []
+    for entry in doc_list:
+        parts = entry.split(":", 2)
         file_id = parts[1] if len(parts) >= 2 else parts[0]
-        try:
-            return await safe_send(
-                context.bot.send_document,
-                chat_id=CHANNEL_ID,
-                document=file_id,
-                caption=caption,
-                parse_mode='HTML' if caption else None,
-                reply_to_message_id=reply_to_message_id
-            )
-        except Exception as e:
-            logger.error(f"发送单个文档失败: {e}")
-            return None
-    else:
-        # 多个文档处理，使用文档组
-        try:
-            doc_media_group = []
-            for i, doc_item in enumerate(doc_list):
-                # 新格式：document:file_id:filename 或 旧格式：document:file_id
-                parts = doc_item.split(":", 2)
-                file_id = parts[1] if len(parts) >= 2 else parts[0]
-                # 只在最后一个文档添加说明，且caption不为None
-                caption_to_use = caption if (i == len(doc_list) - 1 and caption is not None) else None
-                doc_media_group.append(InputMediaDocument(
-                    media=file_id,
-                    caption=caption_to_use,
-                    parse_mode='HTML' if caption_to_use else None
-                ))
-            
-            sent_docs = await safe_send(
-                context.bot.send_media_group,
-                chat_id=CHANNEL_ID,
-                media=doc_media_group,
-                reply_to_message_id=reply_to_message_id
-            )
-            
-            if sent_docs and len(sent_docs) > 0:
-                return sent_docs[0]
-            return None
-        except Exception as e:
-            logger.error(f"发送文档组失败: {e}")
-            return None
+        filename = parts[2] if len(parts) >= 3 else "file"
+        items.append({"kind": "document", "file_id": file_id, "filename": filename})
+    try:
+        sent, main = await deliver_items_to_chat(
+            context.bot, CHANNEL_ID, items, caption=caption,
+            reply_to_message_id=reply_to_message_id,
+        )
+    except Exception as e:
+        logger.error("发送文档失败: %s", e, exc_info=True)
+        return None
+    return main
 
 
 async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
@@ -746,67 +715,26 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
     }
     caption = build_caption(data)
 
-    media_files = [f for f in files if f["kind"] != "document"]
-    doc_files = [f for f in files if f["kind"] == "document"]
+    # 超大原图（>9.5 MiB）Telegram 无法作为照片发送，自动改按文档投递。
+    items = reclassify_oversized_photos(
+        [{"kind": f["kind"], "path": f["path"], "filename": f["filename"],
+          "spoiler": spoiler} for f in files]
+    )
 
-    all_message_ids = []
     media_list, doc_list = [], []
-    main_message = None
-
-    # 媒体组：每组最多 10 个，caption 只放在第一组第一项
-    for chunk_index in range(0, len(media_files), 10):
-        chunk = media_files[chunk_index:chunk_index + 10]
-        with ExitStack() as handles:
-            group = []
-            for i, f in enumerate(chunk):
-                cap = caption if (chunk_index == 0 and i == 0) else None
-                kw = {"caption": cap, "parse_mode": "HTML" if cap else None}
-                if f["kind"] in ("photo", "video", "animation"):
-                    kw["has_spoiler"] = spoiler
-                fh = handles.enter_context(open(f["path"], "rb"))
-                upload = InputFile(
-                    fh, filename=f["filename"], read_file_handle=False
-                )
-                if f["kind"] == "photo":
-                    from telegram import InputMediaPhoto
-                    group.append(InputMediaPhoto(media=upload, **kw))
-                elif f["kind"] == "video":
-                    from telegram import InputMediaVideo
-                    group.append(InputMediaVideo(media=upload, **kw))
-                elif f["kind"] == "animation":
-                    from telegram import InputMediaAnimation
-                    group.append(InputMediaAnimation(media=upload, **kw))
-                else:
-                    from telegram import InputMediaAudio
-                    group.append(InputMediaAudio(media=upload, **kw))
-            sent = await bot.send_media_group(chat_id=CHANNEL_ID, media=group)
-        all_message_ids.extend(m.message_id for m in sent)
-        if main_message is None:
-            main_message = sent[0]
-        for m, f in zip(sent, chunk):
-            media_list.append(f"{f['kind']}:{_file_id_of(m)}")
-
-    # 文档：有媒体时作为媒体主贴的回复，否则单独成组
-    for chunk_index in range(0, len(doc_files), 10):
-        chunk = doc_files[chunk_index:chunk_index + 10]
-        with ExitStack() as handles:
-            group = []
-            for i, f in enumerate(chunk):
-                cap = caption if (not media_files and chunk_index == 0 and i == len(chunk) - 1) else None
-                fh = handles.enter_context(open(f["path"], "rb"))
-                group.append(InputMediaDocumentFactory(fh, f["filename"], cap))
-            sent = await bot.send_media_group(
-                chat_id=CHANNEL_ID, media=group,
-                reply_to_message_id=main_message.message_id if main_message else None,
-            )
-        all_message_ids.extend(m.message_id for m in sent)
-        if main_message is None:
-            main_message = sent[0]
-        for m, f in zip(sent, chunk):
-            doc_list.append(f"document:{_file_id_of(m)}:{f['filename']}")
-
+    sent_messages, main_message = await deliver_items_to_chat(
+        bot, CHANNEL_ID, items, caption=caption, spoiler=spoiler
+    )
     if main_message is None:
         raise RuntimeError("所有消息发送失败")
+
+    all_message_ids = [m.message_id for m in sent_messages]
+    for message, item in zip(sent_messages, items):
+        file_id = _file_id_of(message)
+        if item["kind"] == "document":
+            doc_list.append(f"document:{file_id}:{item.get('filename', 'file')}")
+        else:
+            media_list.append(f"{item['kind']}:{file_id}")
 
     await save_published_post(user_id, main_message.message_id, data, media_list, doc_list, all_message_ids)
 
@@ -856,109 +784,24 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="", not
     }
     caption = build_caption(data)
 
-    all_message_ids = []
-    media_list = [f"{m['type']}:{m['file_id']}" for m in media]
-    doc_list = [f"document:{d['file_id']}:{d.get('filename', 'file')}" for d in documents]
+    items = [
+        {"kind": m["type"], "file_id": m["file_id"], "spoiler": spoiler}
+        for m in media
+    ] + [
+        {"kind": "document", "file_id": d["file_id"],
+         "filename": d.get("filename") or "file"}
+        for d in documents
+    ]
 
-    from telegram import InputMediaPhoto, InputMediaVideo, InputMediaDocument
-    input_factories = {
-        "photo": InputMediaPhoto,
-        "video": InputMediaVideo,
-        "document": InputMediaDocument,
-    }
-
-    main_message = None
-
-    async def send_single_media(item, cap):
-        common = {
-            "chat_id": CHANNEL_ID,
-            "caption": cap,
-            "parse_mode": "HTML" if cap else None,
-        }
-        kind = item["type"]
-        if kind == "photo":
-            return await bot.send_photo(
-                photo=item["file_id"], has_spoiler=spoiler, **common
-            )
-        if kind == "video":
-            return await bot.send_video(
-                video=item["file_id"], has_spoiler=spoiler, **common
-            )
-        if kind == "animation":
-            return await bot.send_animation(
-                animation=item["file_id"], has_spoiler=spoiler, **common
-            )
-        return await bot.send_audio(audio=item["file_id"], **common)
-
-    # photo/video 只有在 2-10 项时才能使用 send_media_group。
-    # GIF/animation 不是 Bot API media group 支持的成员，单独发送。
-    for chunk_index in range(0, len(media), 10):
-        chunk = media[chunk_index:chunk_index + 10]
-        can_group = len(chunk) >= 2 and all(
-            item["type"] in ("photo", "video") for item in chunk
-        )
-        if can_group:
-            group = []
-            for i, item in enumerate(chunk):
-                factory = input_factories[item["type"]]
-                cap = caption if main_message is None and i == 0 else None
-                group.append(factory(
-                    media=item["file_id"],
-                    caption=cap,
-                    parse_mode="HTML" if cap else None,
-                    has_spoiler=spoiler,
-                ))
-            sent = await bot.send_media_group(chat_id=CHANNEL_ID, media=group)
-            all_message_ids.extend(m.message_id for m in sent)
-            if main_message is None:
-                main_message = sent[0]
-        else:
-            for item in chunk:
-                sent_message = await send_single_media(
-                    item, caption if main_message is None else None
-                )
-                all_message_ids.append(sent_message.message_id)
-                if main_message is None:
-                    main_message = sent_message
-
-    # 文档组（≤10 个一组；有媒体时作为媒体主贴的回复）
-    for chunk_index in range(0, len(documents), 10):
-        chunk = documents[chunk_index:chunk_index + 10]
-        reply_to = main_message.message_id if main_message and media else None
-        if len(chunk) == 1:
-            item = chunk[0]
-            cap = caption if main_message is None else None
-            sent_message = await bot.send_document(
-                chat_id=CHANNEL_ID,
-                document=item["file_id"],
-                filename=item.get("filename") or None,
-                caption=cap,
-                parse_mode="HTML" if cap else None,
-                reply_to_message_id=reply_to,
-            )
-            all_message_ids.append(sent_message.message_id)
-            if main_message is None:
-                main_message = sent_message
-        else:
-            group = []
-            for i, item in enumerate(chunk):
-                cap = caption if main_message is None and i == 0 else None
-                group.append(InputMediaDocument(
-                    media=item["file_id"],
-                    caption=cap,
-                    parse_mode="HTML" if cap else None,
-                    filename=item.get("filename") or None,
-                ))
-            sent = await bot.send_media_group(
-                chat_id=CHANNEL_ID, media=group,
-                reply_to_message_id=reply_to,
-            )
-            all_message_ids.extend(m.message_id for m in sent)
-            if main_message is None:
-                main_message = sent[0]
-
+    sent_messages, main_message = await deliver_items_to_chat(
+        bot, CHANNEL_ID, items, caption=caption, spoiler=spoiler
+    )
     if main_message is None:
         raise RuntimeError("没有可发布的媒体或文档")
+
+    all_message_ids = [m.message_id for m in sent_messages]
+    media_list = [f"{m['type']}:{m['file_id']}" for m in media]
+    doc_list = [f"document:{d['file_id']}:{d.get('filename', 'file')}" for d in documents]
 
     await save_published_post(user_id, main_message.message_id, data, media_list, doc_list, all_message_ids)
 
@@ -983,9 +826,11 @@ def _file_id_of(message):
 
 
 def InputMediaDocumentFactory(file_handle, filename, caption):
+    """兼容旧调用：本地文档文件 → InputMediaDocument（attach 模式）。"""
     from telegram import InputMediaDocument, InputFile
-    kw = {"caption": caption, "parse_mode": "HTML" if caption else None}
     return InputMediaDocument(
-        media=InputFile(file_handle, filename=filename, read_file_handle=False),
-        **kw,
+        media=InputFile(file_handle, filename=filename,
+                        read_file_handle=False, attach=True),
+        caption=caption, parse_mode="HTML" if caption else None,
+        filename=filename,
     )
