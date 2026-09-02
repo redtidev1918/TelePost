@@ -53,20 +53,8 @@ from utils.blacklist import manage_blacklist, init_blacklist
 from handlers.command_handlers import blacklist_add, blacklist_remove, blacklist_list, catch_all, debug, handle_menu_shortcuts
 from handlers.botconfig import botconfig, botconfig_callback
 
-# 投稿处理
-from handlers.publish import publish_submission
+# 投稿处理（状态机由 handlers.conversation 构建）
 from handlers.review import expire_stale_reviews
-
-# 投稿会话：入口 + 上传 + 预览
-from handlers.mode_selection import submit
-from handlers.upload import handle_upload, done_upload, skip_upload, prompt_upload
-from handlers.preview_handlers import (
-    show_submission_preview,
-    handle_edit_field_callback,
-    handle_edit_input,
-    handle_toggle_anon,
-    handle_toggle_spoiler,
-)
 
 # 错误处理
 from handlers.error_handler import error_handler
@@ -626,53 +614,8 @@ def setup_application(application):
         
         # 添加会话处理器
         logger.info("注册会话处理器...")
-        conv_handler = ConversationHandler(
-            entry_points=[
-                CommandHandler("submit", submit),
-                # 底部菜单按钮"📝 开始投稿"（ReplyKeyboard 文本）必须作为 entry 进入
-                # 状态机，否则 handle_menu_shortcuts 直接调 submit 只建 DB 会话、
-                # 不建立 ConversationHandler 内存状态，用户随后发的媒体会掉出
-                # 状态机而静默无响应。
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND & filters.Regex(r"开始投稿\s*$"),
-                    submit,
-                ),
-            ],
-            states={
-                # 上传阶段：媒体与文档统一归类（handlers.upload）
-                STATE["UPLOAD"]: [
-                    CommandHandler("done_media", done_upload),
-                    CommandHandler("skip_media", skip_upload),
-                    MessageHandler(
-                        filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.AUDIO
-                        | filters.Document.ALL,
-                        handle_upload,
-                    ),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, prompt_upload),
-                ],
-                # 预览面板
-                STATE["PREVIEW"]: [
-                    CallbackQueryHandler(publish_submission, pattern="^publish$"),
-                    CallbackQueryHandler(cancel, pattern="^cancel$"),
-                    CallbackQueryHandler(handle_toggle_anon, pattern="^toggle_anon$"),
-                    CallbackQueryHandler(handle_toggle_spoiler, pattern="^toggle_spoiler$"),
-                    CallbackQueryHandler(handle_edit_field_callback, pattern="^edit_(tag|title|note|link|media)$"),
-                ],
-                # 快速编辑单个字段（user_data['edit_field'] 区分）
-                STATE["EDIT"]: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_input),
-                    MessageHandler(
-                        filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.AUDIO
-                        | filters.Document.ALL,
-                        handle_edit_input,
-                    ),
-                ],
-            },
-            fallbacks=[CommandHandler("cancel", cancel)],
-            name="submission_conversation",
-            persistent=True,
-        )
-        
+        from handlers.conversation import build_submission_conversation
+        conv_handler = build_submission_conversation()
         application.add_handler(conv_handler, group=2)
         logger.info("会话处理器注册完成")
     except Exception as e:

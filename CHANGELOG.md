@@ -7,6 +7,20 @@
 
 ---
 
+## [2.10.32] - 2026-09-03
+
+### 修复（投稿状态机从未真正注册——"半套流程"最终根因）
+- **ConversationHandler `persistent=True` 但 Application 未配置 persistence**：
+  PTB 直接抛 `ValueError`，被 `setup_application` 的 try/except 吞掉，导致
+  投稿状态机**从未成功注册**。这是"点开始投稿按钮只建 DB 会话、发媒体
+  掉出状态机静默无响应/会话已过期"的最终根因。现移除 `persistent=True`
+  （此前无 persistence 时它一直无效且致命）。
+- 状态机构建抽到 `handlers/conversation.py`（`build_submission_conversation`），
+  生产与测试复用同一份注册。
+- 新增**端到端集成测试** `tests/test_conversation_flow.py`：用真实
+  ConversationHandler + 真实 DB 跑 `/submit → 媒体 → 文档 → /done_media →
+  编辑标签 → 发布` 全链路；432 项测试全过。
+
 ## [2.10.31] - 2026-09-03
 
 ### 重构（投稿流程收敛，消除双轨状态与重复归类）
