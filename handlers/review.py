@@ -936,9 +936,13 @@ async def toggle_review_spoiler(update, context):
 
 
 def _run_pixivflow_refetch() -> subprocess.CompletedProcess:
-    """触发 PixivFlow 立即跑一轮所有计划；已下载作品自动跳过并选取下一张。"""
+    """触发 PixivFlow 立即跑一轮所有计划；已下载作品自动跳过并选取下一张。
+
+    使用 `run-once`（一次性命令，跑完全部启用计划即退出），而不是
+    `scheduler run`（守护进程别名，永不退出，会在这里 1500s 超时）。
+    """
     config_path = os.getenv("PIXIVFLOW_CONFIG", "")
-    command = ["pixivflow", "scheduler", "run"]
+    command = ["pixivflow", "run-once"]
     if config_path:
         command += ["--config", config_path]
     logger.info("审核群触发 PixivFlow 重抓: %s", " ".join(command))

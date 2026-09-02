@@ -23,7 +23,7 @@ TAG_SPLIT_PATTERN = re.compile(r'[,，\s/／]+')
 
 # 配置常量
 CONFIG = {
-    "VERSION": "2.10.25",
+    "VERSION": "2.10.26",
     "MAX_MEDIA_COUNT": 10,
     "MAX_DOCUMENT_COUNT": 10,
     "NET_TIMEOUT": 30,  # 网络超时时间（秒）
