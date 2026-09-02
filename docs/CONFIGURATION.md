@@ -1,6 +1,6 @@
 # 配置参考
 
-> 本文档与 `config/settings.py`、`config.ini.example` 逐项对齐。最后更新：2026-08
+> 本文档与 `config/settings.py`、`config.ini.example` 逐项对齐。最后更新：2026-09
 
 ## 优先级
 
@@ -88,4 +88,4 @@ Webhook 模式下回调路径自动分配为 `/webhook/botN`（详见 [WEBHOOK_M
 - `jieba` 未安装时搜索引擎自动退回 `simple` 分词（整词匹配中文），见 [PERFORMANCE](PERFORMANCE.md)。
 
 ---
-最后更新：2026-08
+最后更新：2026-09

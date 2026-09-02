@@ -1,6 +1,6 @@
 # 运维手册
 
-> 最后更新：2026-08
+> 最后更新：2026-09
 
 ## 多 bot 部署（一台机承载多个频道）
 
@@ -156,6 +156,20 @@ Fly 健康探针频繁遍历文件。建议正常空闲时至少留 100 MiB 可�
 `docker-compose.yml` 已内置 `image: ghcr.io/redtidev1918/telepost:latest`，
 不想本地构建的用户删掉 `build:` 段即可直接拉镜像运行。
 
+### 一键部署（推荐）
+
+Fly.io / Docker Compose 部署与升级可用跨平台一键工具
+`pixivflow-telepost-deploy/deploy.py`（Python 3.8+ 标准库，macOS/Linux/Windows）：
+
+```bash
+python3 deploy.py tp 2.10.33   # 升级 TelePost 到 2.10.33 并部署
+python3 deploy.py tp latest    # 升级到最新并部署
+python3 deploy.py status       # 状态/健康
+python3 deploy.py doctor       # 环境自检
+```
+
+见 [pixivflow-telepost-deploy README](https://github.com/redtidev1918/pixivflow-telepost-deploy#一键部署工具deploypy)。
+
 ## 启动 / 停止 / 重启
 
 ```bash
@@ -215,4 +229,4 @@ UTC 而在北京时间 11:00/12:00 执行。无效 `TZ` 会记录警告并回退
 `migrate_to_search.py` / `migrate_add_filename.py` / `migrate_extract_filenames.py`（一次性迁移）、`check_config.py`（配置自检）、`setup_wizard.py`（交互式配置）、`scripts/crawl_channel_history.py`（频道历史抓取）。
 
 ---
-最后更新：2026-08
+最后更新：2026-09
