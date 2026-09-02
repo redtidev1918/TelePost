@@ -7,6 +7,21 @@
 
 ---
 
+## [2.10.29] - 2026-09-02
+
+### 修复（实机压测暴露）
+- **审核"控制消息"裸 send_message 导致整条投稿偶发回滚**：控制消息紧跟在
+  媒体相册之后发送，正落在 Telegram flood 窗口内；此前未走限流包装、用 PTB
+  默认 5s read 超时，Telegram 慢回复（flood 排队/网络抖动）时 ReadTimeout，
+  `_create_review` 把已全部发出的预览相册删除并回滚，API 返回 502
+  `review_queue_failed: Timed out`。现控制消息与预览相册一样走
+  `_send_preview_throttled`（RetryAfter 感知 + 指数退避重试），并给足
+  `REVIEW_PREVIEW_TIMEOUT_SECONDS` 超时。
+- **审核预览限流退避指数化**：Telegram flood 窗口较长时（如多投稿并发涌入，
+  `Retry after 18 seconds`），此前每次只等 `retry_after+1s`、固定 5 次仍会被
+  拒。现按 `retry_after × 2^attempt` 退避（上限 60s/次），长 flood 窗口可自愈。
+- 新增回归测试：控制消息遇 RetryAfter 自动重试且不误删预览（430 项全过）。
+
 ## [2.10.28] - 2026-09-02
 
 ### 修复

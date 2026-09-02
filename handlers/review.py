@@ -432,8 +432,9 @@ async def _send_preview_throttled(send_factory: Callable[[], Awaitable]):
 
     Staging a multi-page album (e.g. a 24-page Pixiv work) sends media groups
     to the review chat in a row; without pacing, Telegram answers with
-    RetryAfter / flood control. Pause briefly between sends and wait out
-    RetryAfter explicitly.
+    RetryAfter / flood control. Wait out RetryAfter with exponential backoff
+    (cap 60 s per pause) so a longer flood window still recovers instead of
+    failing the whole submission.
     """
     last_error = None
     for attempt in range(REVIEW_PREVIEW_MAX_ATTEMPTS):
@@ -443,8 +444,14 @@ async def _send_preview_throttled(send_factory: Callable[[], Awaitable]):
             return await send_factory()
         except RetryAfter as exc:
             last_error = exc
-            wait = _retry_after_seconds(exc) + 1.0
-            logger.warning("审核预览触发 Telegram 限流，等待 %.1fs 后重试", wait)
+            wait = min(
+                (_retry_after_seconds(exc) * (2 ** attempt)) + 1.0,
+                60.0,
+            )
+            logger.warning(
+                "审核预览触发 Telegram 限流，等待 %.1fs 后重试（第 %d/%d 次）",
+                wait, attempt + 1, REVIEW_PREVIEW_MAX_ATTEMPTS,
+            )
         except Exception as exc:
             msg = str(exc).lower()
             if not any(k in msg for k in ("flood", "retry after", "too many")):
@@ -703,22 +710,29 @@ async def _create_review(
         f"文件：{len(media)} 个媒体 / {len(documents)} 个文档"
     )
     try:
-        control = await bot.send_message(
-            chat_id=REVIEW_CHAT_ID,
-            text=control_text,
-            reply_to_message_id=(
-                review_message_ids[-1]
-                if REVIEW_PREVIEW_THREAD and review_message_ids
-                else None
-            ),
-            reply_markup=_review_keyboard(
-                review_id,
-                link,
-                spoiler=bool(spoiler),
-                source=source,
-                pixiv_id=_pixiv_id_from_link(link or ""),
-            ),
-            disable_web_page_preview=True,
+        # 控制消息同样走限流退避包装：它是紧跟在媒体相册后的文本发送，
+        # 恰好落在 Telegram flood 窗口内；裸 send_message 用 PTB 默认 5s
+        # read 超时，Telegram 慢回复（flood 排队/网络抖动）会 ReadTimeout
+        # 导致整条投稿回滚（预览已全部发出却被删），客户端只见 502。
+        control = await _send_preview_throttled(
+            lambda: bot.send_message(
+                chat_id=REVIEW_CHAT_ID,
+                text=control_text,
+                reply_to_message_id=(
+                    review_message_ids[-1]
+                    if REVIEW_PREVIEW_THREAD and review_message_ids
+                    else None
+                ),
+                reply_markup=_review_keyboard(
+                    review_id,
+                    link,
+                    spoiler=bool(spoiler),
+                    source=source,
+                    pixiv_id=_pixiv_id_from_link(link or ""),
+                ),
+                disable_web_page_preview=True,
+                **_review_timeout_kwargs(),
+            )
         )
         async with get_db() as conn:
             await conn.execute(

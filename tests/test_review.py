@@ -726,6 +726,40 @@ async def test_retry_after_creates_a_fresh_send_coroutine(review_db, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_control_message_retries_on_flood(review_db, monkeypatch):
+    """审核控制消息紧跟在媒体相册后，正落在 Telegram flood 窗口内；
+    裸 send_message 的 5s 默认 read 超时会导致整条投稿回滚。
+    控制消息必须同样走 RetryAfter 退避重试。"""
+    bot = AsyncMock()
+    bot.send_photo.return_value = _photo_message(message_id=60, file_id="P1")
+    control = MagicMock()
+    control.message_id = 70
+    # 第一次触发 flood（RetryAfter 3s），第二次成功
+    bot.send_message.side_effect = [
+        RetryAfter(3),
+        control,
+    ]
+    sleep = AsyncMock()
+    monkeypatch.setattr(review.asyncio, "sleep", sleep)
+
+    queued = await review.queue_review_from_file_ids(
+        bot,
+        [{"type": "photo", "file_id": "P1"}],
+        [],
+        tags="#pixiv",
+        user_id=7,
+        username="pixivflow",
+        idempotency_key="pixiv:control-retry",
+    )
+
+    assert queued["status"] == "pending_review"
+    assert bot.send_message.await_count == 2
+    # RetryAfter(3) → 指数退避第 1 次等待 3*1+1=4s
+    assert 4.0 in [c.args[0] for c in sleep.await_args_list]
+    bot.delete_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_owner_can_approve_once(review_db):
     bot = AsyncMock()
     bot.send_photo.return_value = _photo_message()
