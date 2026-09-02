@@ -17,7 +17,7 @@
 | `BOT_MODE` | `MIXED` | `MEDIA` / `DOCUMENT` / `MIXED` |
 | `ALLOWED_FILE_TYPES` | `*` | 文档模式允许的类型（扩展名或 MIME，逗号分隔） |
 | `SHOW_SUBMITTER` | `true` | 发布的帖子是否显示投稿人 |
-| `NOTIFY_OWNER` | `true` | 新投稿是否私聊通知所有者 |
+| `NOTIFY_OWNER` | `true` | 发布完成后是否私聊通知所有者；不会转发审核群或频道原帖 |
 | `SUBMIT_LIMIT_PER_HOUR` | `10` | 每用户每小时投稿次数上限，`0` 关闭 |
 | `RUN_MODE` | `AUTO` | `AUTO` / `POLLING` / `WEBHOOK`；AUTO 有有效公网 HTTPS URL 时选 Webhook，否则 Polling |
 | `WEBHOOK_URL` | 空 | Webhook 公网入口，如 `https://app.fly.dev`；AUTO 模式下可留空 |

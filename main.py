@@ -88,7 +88,7 @@ from handlers.preview_handlers import (
 )
 
 # 统计和搜索功能
-from handlers.stats_handlers import get_hot_posts, get_user_stats, update_post_stats
+from handlers.stats_handlers import get_hot_posts, get_user_stats
 from handlers.search_handlers import (
     search_posts, 
     get_tag_cloud, 
@@ -98,10 +98,7 @@ from handlers.search_handlers import (
     handle_search_input
 )
 # 频道消息监听器
-from handlers.channel_listener import (
-    handle_channel_message,
-    check_deleted_messages_periodic
-)
+from handlers.channel_listener import handle_channel_message
 from handlers.index_handlers import (
     rebuild_index_command,
     sync_index_command,
@@ -435,7 +432,7 @@ async def main():
             sys.exit(1)
 
         if success:
-            logger.info(f"✅ Webhook 模式已启动")
+            logger.info("✅ Webhook 模式已启动")
             logger.info(f"   监听地址: 0.0.0.0:{WEBHOOK_PORT}{WEBHOOK_PATH}")
             logger.info(f"   外部地址: {WEBHOOK_URL}{WEBHOOK_PATH}")
             logger.info(f"   健康检查: http://0.0.0.0:{WEBHOOK_PORT}/health")
@@ -457,26 +454,41 @@ async def main():
         await application.updater.start_polling(allowed_updates=allowed_updates)
         logger.info("✅ Polling 模式已启动")
     
-    # 添加事件处理器以便优雅关闭
+    # 信号回调只唤醒主协程；由主协程完成 shutdown，避免后台任务被
+    # asyncio.run() 提前取消，也避免 loop.stop() 造成非零退出。
     loop = asyncio.get_running_loop()
+    stop_signal = loop.create_future()
+
+    def request_stop(received):
+        if not stop_signal.done():
+            stop_signal.set_result(received)
+
     stop_signals = (signal.SIGINT, signal.SIGTERM, signal.SIGABRT)
-    for s in stop_signals:
-        loop.add_signal_handler(
-            s, lambda s=s: asyncio.create_task(
-                shutdown(application, s, loop, webhook_server, polling_server)
+    try:
+        for s in stop_signals:
+            loop.add_signal_handler(s, request_stop, s)
+    except NotImplementedError:  # Windows event loop
+        for s in stop_signals:
+            signal.signal(
+                s,
+                lambda signum, _frame: loop.call_soon_threadsafe(
+                    request_stop, signal.Signals(signum)
+                ),
             )
-        )
         
     logger.info("机器人运行中，使用 Ctrl+C 停止")
     
     # 保持应用程序运行
-    await asyncio.Event().wait()
+    received_signal = await stop_signal
+    await shutdown(
+        application, received_signal, webhook_server, polling_server
+    )
     
     logger.info("机器人已停止")
 
 
 async def shutdown(
-    application, signal, loop, webhook_server=None, polling_server=None
+    application, signal, webhook_server=None, polling_server=None
 ):
     """
     优雅地关闭机器人
@@ -484,7 +496,6 @@ async def shutdown(
     Args:
         application: telegram.ext.Application 实例
         signal: 信号类型
-        loop: 事件循环
         webhook_server: Webhook 服务器实例（可选，预留参数）
     """
     logger.info(f"收到信号 {signal.name}，正在关闭...")
@@ -524,10 +535,6 @@ async def shutdown(
     await application.stop()
     await application.shutdown()
     
-    # 结束事件循环
-    loop.stop()
-
-
 def setup_application(application):
     """
     初始化和配置应用程序
@@ -709,16 +716,7 @@ def setup_application(application):
         else:
             logger.info("跳过全局日志/PixivFlow 维护任务（仅主 Bot 注册）")
         
-        # 添加帖子统计数据更新任务（默认每2小时执行一次，降低峰值）
-        job_queue.run_repeating(update_post_stats, interval=7200, first=60)
-        
-        # 添加定期检查已删除消息的任务（每30分钟检查一次）
-        job_queue.run_repeating(
-            check_deleted_messages_periodic,
-            interval=1800,  # 30分钟
-            first=300  # 启动后5分钟开始第一次检查
-        )
-        logger.info("定期任务设置完成（包括统计数据更新和删除消息检查）")
+        logger.info("定期任务设置完成")
     except Exception as e:
         logger.error(f"设置定期任务失败: {e}", exc_info=True)
     

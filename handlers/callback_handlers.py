@@ -12,7 +12,7 @@ from database.db_manager import get_db
 from models.state import STATE
 from utils.blacklist import remove_from_blacklist, is_owner
 from handlers.publish import publish_submission
-from handlers.stats_handlers import get_hot_posts, update_post_stats
+from handlers.stats_handlers import get_hot_posts
 from handlers.search_handlers import search_posts_by_tag
 
 logger = logging.getLogger(__name__)
@@ -269,10 +269,7 @@ async def handle_hot_refresh(update: Update, context: CallbackContext):
     
     await _safe_answer(query, "🔄 正在刷新...")
     
-    # 更新统计数据
-    await update_post_stats(context)
-    
-    # 重新获取热门帖子
+    # Bot API 无法无副作用读取任意频道帖统计；这里只重新读取本地记录。
     await get_hot_posts(update, context, edit_message=True)
 
 

@@ -1,6 +1,6 @@
 # TelePost
 
-Telegram 频道投稿机器人：媒体/文档投稿、全文搜索、热度统计、标签体系。
+Telegram 频道投稿机器人：媒体/文档投稿、全文搜索、本地热榜、标签体系。
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org)
@@ -10,7 +10,7 @@ Telegram 频道投稿机器人：媒体/文档投稿、全文搜索、热度统�
 
 - 媒体/文档投稿：引导式流程，发布前可预览和修改，支持匿名选项
 - 全文搜索：关键词、#标签、文件名、时间范围筛选
-- 热度统计：自动采集浏览/转发数据，生成排行榜
+- 本地热榜：按数据库中已有统计生成排行榜；Bot API 不支持无副作用回读任意频道帖统计
 - 标签云
 - 管理：黑名单、批量删帖（软删除，保留历史）
 - 多 bot：一台机器承载多个频道的投稿 bot，数据相互隔离

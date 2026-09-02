@@ -166,11 +166,11 @@ class PostSearchEngine:
                 
                 # 检查索引兼容性
                 if not self._check_index_compatibility():
-                    logger.warning(f"索引不兼容当前配置，将自动重建")
+                    logger.warning("索引不兼容当前配置，将自动重建")
                     self._rebuild_incompatible_index()
             except Exception as e:
                 logger.error(f"打开索引失败: {e}")
-                logger.info(f"尝试重建索引...")
+                logger.info("尝试重建索引...")
                 self._rebuild_incompatible_index()
         else:
             self.ix = index.create_in(str(self.index_dir), PostDocument.get_schema(), self.index_name)
@@ -264,15 +264,18 @@ class PostSearchEngine:
             
         except Exception as e:
             logger.error(f"重建索引失败: {e}", exc_info=True)
-            # 如果重建失败，尝试恢复备份
-            if backup_dir and backup_dir.exists() and not self.index_dir.exists():
+            # 移除残缺的新目录后恢复备份；保留一个可工作的旧索引。
+            if backup_dir and backup_dir.exists():
                 try:
+                    if self.index_dir.exists():
+                        shutil.rmtree(self.index_dir)
                     shutil.move(str(backup_dir), str(self.index_dir))
+                    self.ix = index.open_dir(str(self.index_dir), self.index_name)
                     logger.info("已恢复旧索引")
-                except:
-                    logger.error("恢复旧索引失败")
-            # 不抛出异常，允许程序继续运行（搜索功能降级）
-            logger.warning("索引重建失败，搜索功能可能不可用")
+                    return
+                except Exception:
+                    logger.error("恢复旧索引失败", exc_info=True)
+            raise
     
     def add_post(self, post: PostDocument, writer: Optional[IndexWriter] = None):
         """
@@ -510,4 +513,3 @@ def init_search_engine(index_dir: str = "search_index", from_scratch: bool = Fal
 
 # 向后兼容别名：历史代码从 utils.search_engine 导入 SearchEngine
 SearchEngine = PostSearchEngine
-

@@ -798,135 +798,6 @@ async def delete_channel_post_from_db(message_id: int, context: CallbackContext 
         return False
 
 
-async def check_and_handle_deleted_message(message_id: int, context: CallbackContext):
-    """
-    检查消息是否被删除，如果被删除则标记为已删除（保留历史数据）
-    
-    通过尝试转发消息来检查消息是否存在。如果消息不存在（被删除），
-    会抛出异常，此时标记为已删除（is_deleted = 1），保留历史数据。
-    
-    Args:
-        message_id: 频道消息ID
-        context: 回调上下文
-        
-    Returns:
-        bool: 如果消息被删除并成功标记为已删除，返回 True；否则返回 False
-    """
-    try:
-        from config.settings import CHANNEL_ID, OWNER_ID
-        from telegram.error import BadRequest, TelegramError
-
-        # 转发目标不能是机器人自己：Telegram 禁止 bot 向 bot（包括自身）发消息，
-        # 必然 Forbidden，导致本检查成为永远失败的空转。
-        # 改为转发到 OWNER 的私聊（不可见噪音最小）；未配置 OWNER 时无法检查。
-        if not OWNER_ID:
-            logger.debug("未配置 OWNER_ID，跳过消息存在性检查")
-            return False
-
-        # 尝试通过转发消息来检查消息是否存在
-        # 如果消息不存在（被删除），会抛出 BadRequest 异常
-        try:
-            forwarded_msg = await context.bot.forward_message(
-                chat_id=OWNER_ID,
-                from_chat_id=CHANNEL_ID,
-                message_id=message_id
-            )
-
-            # 如果成功转发，说明消息存在，立即删除转发的消息以减少副作用
-            try:
-                await context.bot.delete_message(
-                    chat_id=OWNER_ID,
-                    message_id=forwarded_msg.message_id
-                )
-            except Exception as e:
-                # 删除失败不影响检查结果，只记录警告
-                logger.debug(f"删除检查用的转发消息失败: {e}")
-
-            # 消息存在，返回 False
-            return False
-
-        except BadRequest as e:
-            error_msg = str(e).lower()
-
-            # 只有明确表明"消息不存在"的错误才能判定为已删除。
-            # 注意排除 "chat not found"（OWNER_ID 错误/未启动机器人）
-            # 与 "bot was blocked" 等环境问题——这些情况下绝不能批量标记删除。
-            message_missing = (
-                'message to forward not found' in error_msg
-                or ('message not found' in error_msg and 'chat not found' not in error_msg)
-                or 'message id invalid' in error_msg
-            )
-            if message_missing:
-                logger.info(f"检测到频道消息 {message_id} 已被删除，开始标记为已删除")
-                return await delete_channel_post_from_db(message_id, context)
-            else:
-                # 其他 BadRequest 错误（可能是权限问题等），记录但不删除
-                logger.debug(f"检查消息 {message_id} 时出错（可能是权限问题）: {error_msg}")
-                return False
-
-        except TelegramError as e:
-            # 其他 Telegram 错误（网络问题等），记录但不删除
-            logger.debug(f"检查消息 {message_id} 时出错（可能是网络问题）: {e}")
-            return False
-
-    except Exception as e:
-        logger.error(f"检查删除消息时出错 (message_id: {message_id}): {e}", exc_info=True)
-        return False
-
-
-async def check_deleted_messages_periodic(context: CallbackContext):
-    """
-    定期检查数据库中的消息是否仍然存在于频道中
-    如果消息已被删除，则标记为已删除（保留历史数据）并从搜索索引中删除
-    
-    Args:
-        context: 回调上下文
-    """
-    try:
-        from database.db_manager import get_db
-        
-        logger.info("开始定期检查已删除的频道消息...")
-        
-        async with get_db() as conn:
-            cursor = await conn.cursor()
-            
-            # 获取所有未删除的消息ID（限制检查数量，避免一次性检查太多）
-            await cursor.execute(
-                "SELECT message_id FROM published_posts WHERE is_deleted = 0 ORDER BY rowid DESC LIMIT 100"
-            )
-            rows = await cursor.fetchall()
-            
-            if not rows:
-                logger.debug("没有需要检查的消息")
-                return
-            
-            logger.info(f"检查 {len(rows)} 条消息是否存在...")
-            deleted_count = 0
-            
-            for row in rows:
-                message_id = row['message_id']
-                try:
-                    # 检查消息是否被删除
-                    deleted = await check_and_handle_deleted_message(message_id, context)
-                    if deleted:
-                        deleted_count += 1
-                    
-                    # 添加小延迟，避免请求过快
-                    await asyncio.sleep(0.5)
-                    
-                except Exception as e:
-                    logger.warning(f"检查消息 {message_id} 时出错: {e}")
-                    continue
-            
-            if deleted_count > 0:
-                logger.info(f"定期检查完成：发现并标记了 {deleted_count} 条已删除的消息")
-            else:
-                logger.debug("定期检查完成：未发现已删除的消息")
-                
-    except Exception as e:
-        logger.error(f"定期检查已删除消息时出错: {e}", exc_info=True)
-
-
 async def handle_channel_message(update: Update, context: CallbackContext):
     """
     处理频道消息
@@ -1011,18 +882,6 @@ async def handle_channel_message(update: Update, context: CallbackContext):
             
             logger.info(f"收到频道消息: {message_id}")
             
-            # 如果是编辑消息，先检查消息是否仍然存在（防止消息被删除后仍收到编辑事件）
-            if update.edited_channel_post:
-                try:
-                    # 检查消息是否被删除
-                    deleted = await check_and_handle_deleted_message(message_id, context)
-                    if deleted:
-                        logger.info(f"编辑消息 {message_id} 已被删除，已从数据库清除")
-                        return
-                except Exception as e:
-                    logger.warning(f"检查编辑消息 {message_id} 是否被删除时出错: {e}")
-                    # 继续处理，不因检查失败而中断
-            
             # 提取消息信息
             message_info = await extract_message_info(message)
             
@@ -1061,4 +920,3 @@ async def handle_channel_message(update: Update, context: CallbackContext):
         if message_id:
             async with _processing_lock:
                 _processing_messages.discard(message_id)
-

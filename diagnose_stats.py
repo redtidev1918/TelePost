@@ -8,7 +8,7 @@
 import asyncio
 import logging
 from telegram import Bot
-from config.settings import TOKEN, CHANNEL_ID, OWNER_ID
+from config.settings import TOKEN, CHANNEL_ID
 from database.db_manager import get_db
 
 logging.basicConfig(
@@ -30,14 +30,7 @@ async def diagnose():
     print("1️⃣  检查配置...")
     print(f"   TOKEN: {'✅ 已配置' if TOKEN else '❌ 未配置'}")
     print(f"   CHANNEL_ID: {CHANNEL_ID if CHANNEL_ID else '❌ 未配置'}")
-    print(f"   OWNER_ID: {OWNER_ID if OWNER_ID else '❌ 未配置 (统计功能需要)'}")
     print()
-    
-    if not OWNER_ID:
-        print("⚠️  警告: OWNER_ID 未配置!")
-        print("   统计功能需要 OWNER_ID 才能工作")
-        print("   请在 config.ini 中设置 OWNER_ID")
-        print()
     
     # 2. 检查 Bot 权限
     print("2️⃣  检查 Bot 权限...")
@@ -112,88 +105,17 @@ async def diagnose():
         print(f"   ❌ 数据库检查失败: {e}")
     print()
     
-    # 4. 测试获取统计
-    if OWNER_ID and total_posts > 0:
-        print("4️⃣  测试获取统计...")
-        try:
-            bot = Bot(TOKEN)
-            
-            # 获取最新一个帖子的 message_id
-            async with get_db() as conn:
-                cursor = await conn.cursor()
-                await cursor.execute(
-                    "SELECT message_id FROM published_posts ORDER BY publish_time DESC LIMIT 1"
-                )
-                row = await cursor.fetchone()
-                test_message_id = row['message_id']
-            
-            print(f"   测试消息 ID: {test_message_id}")
-            
-            # 尝试转发消息到所有者
-            try:
-                forwarded = await bot.forward_message(
-                    chat_id=OWNER_ID,
-                    from_chat_id=CHANNEL_ID,
-                    message_id=test_message_id
-                )
-                
-                views = getattr(forwarded, 'views', 0) or 0
-                forwards = getattr(forwarded, 'forwards', 0) or 0
-                
-                print(f"   ✅ 成功获取统计:")
-                print(f"   - 浏览量: {views}")
-                print(f"   - 转发量: {forwards}")
-                
-                # 删除测试消息
-                try:
-                    await bot.delete_message(chat_id=OWNER_ID, message_id=forwarded.message_id)
-                    print("   ✅ 已清理测试消息")
-                except:
-                    pass
-                    
-            except Exception as e:
-                print(f"   ❌ 获取统计失败: {e}")
-                print("   可能原因:")
-                print("   - Bot 不是频道管理员")
-                print("   - OWNER_ID 不正确")
-                print("   - 频道是私有的且 Bot 权限不足")
-                
-        except Exception as e:
-            print(f"   ❌ 测试失败: {e}")
-        print()
-    
-    # 5. 给出建议
+    # 4. 给出建议
     print("=" * 70)
     print("💡 诊断建议")
     print("=" * 70)
     print()
     
-    if not OWNER_ID:
-        print("❗ 关键问题: OWNER_ID 未配置")
-        print("   解决方法:")
-        print("   1. 向 @userinfobot 发送任意消息获取您的 User ID")
-        print("   2. 在 config.ini 中设置: OWNER_ID = 您的数字ID")
-        print("   3. 重启机器人")
-        print()
-    
     if posts_with_views == 0 and total_posts > 0:
         print("❗ 所有帖子浏览量为 0")
-        print("   可能原因:")
-        print("   1. 统计更新任务还未执行（每小时执行一次）")
-        print("   2. Bot 不是频道管理员")
-        print("   3. OWNER_ID 未配置或不正确")
+        print("   Telegram Bot API 不支持无副作用回读任意频道帖统计。")
+        print("   /hot 只展示数据库中已有的统计，不会转发频道消息探测数据。")
         print()
-        print("   解决方法:")
-        print("   1. 确保 Bot 是频道管理员")
-        print("   2. 配置正确的 OWNER_ID")
-        print("   3. 手动触发更新: 在机器人中发送 /hot 然后点击'🔄 刷新'")
-        print()
-    
-    print("📚 更多信息:")
-    print("   - 统计更新频率: 每小时一次")
-    print("   - 统计范围: 最近30天的帖子")
-    print("   - 查看日志: logs/bot.log")
-    print()
 
 
 if __name__ == '__main__':
@@ -203,4 +125,3 @@ if __name__ == '__main__':
         print("\n\n已取消诊断")
     except Exception as e:
         logger.error(f"诊断过程出错: {e}", exc_info=True)
-

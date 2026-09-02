@@ -18,9 +18,11 @@
    `pending_reviews.status` 从 `published` 改为 `deleted`；
 5. 汇总各步结果回复 OWNER。
 
-## 已删除频帖的自动检测
+## 频道外部删帖限制
 
-`check_deleted_messages_periodic`（每 30 分钟，首延迟 5 分钟）：对近期帖子调用 `check_and_handle_deleted_message`，通过 `forward_message` 转发到 **OWNER 私聊**探测消息是否仍存在（机器人不能向自己转发，历史实现因此空转，已修复）；未配置 `OWNER_ID` 时跳过检查。仅当错误明确为"消息不存在"类（`message to forward not found` / `message id invalid`）才判定删除，`chat not found`/`blocked` 等环境错误绝不误标。频道编辑消息路径（`edited_channel_post`）同样接入该检查。
+Telegram Bot API 不提供无副作用读取任意频道消息或接收频道删帖事件的接口，因此不再通过
+“转发给 OWNER 后立即删除”探测消息是否存在。由 TelePost 的删除入口执行时会正常软删除；若在
+Telegram 客户端直接删除频道消息，数据库不会自动感知，可用 `/delete_posts` 同步软删除记录。
 
 ## 表结构相关列
 

@@ -568,4 +568,4 @@ Bot Application
 **适用版本**: TelePost.1+
 
 
-> 2026-08 更正：环境变量统一为 `TOKEN`（兼容 `BOT_TOKEN` / `TELEGRAM_BOT_TOKEN`）；帖子统计更新周期为每 2 小时。
+> 2026-09 更正：环境变量统一为 `TOKEN`（兼容 `BOT_TOKEN` / `TELEGRAM_BOT_TOKEN`）；不再用临时转发探测频道帖子统计。

@@ -535,4 +535,4 @@ cp ~/TelePost/data/submissions.db ~/backups/submissions_$(date +%Y%m%d).db
 - ✅ Webhook 信息正确
 - ✅ 机器人响应正常（< 1 秒）
 
-> 2026-08 更正：环境变量统一为 `TOKEN`（兼容 `BOT_TOKEN` / `TELEGRAM_BOT_TOKEN`）；帖子统计更新周期为每 2 小时。
+> 2026-09 更正：环境变量统一为 `TOKEN`（兼容 `BOT_TOKEN` / `TELEGRAM_BOT_TOKEN`）；不再用临时转发探测频道帖子统计。
