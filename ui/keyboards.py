@@ -37,24 +37,6 @@ class Keyboards:
         return Keyboards.main_menu()
     
     @staticmethod
-    def submission_confirm(session_id: int):
-        """投稿确认键盘"""
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ 确认发布", callback_data=f"submit_confirm_{session_id}"),
-                InlineKeyboardButton("✏️ 修改内容", callback_data=f"submit_edit_{session_id}")
-            ],
-            [
-                InlineKeyboardButton("🏷️ 添加标签", callback_data=f"submit_addtag_{session_id}"),
-                InlineKeyboardButton("📎 添加媒体", callback_data=f"submit_media_{session_id}")
-            ],
-            [
-                InlineKeyboardButton("❌ 取消投稿", callback_data=f"submit_cancel_{session_id}")
-            ]
-        ]
-        return InlineKeyboardMarkup(keyboard)
-    
-    @staticmethod
     def hot_posts_filter():
         """热门帖子筛选键盘"""
         keyboard = [

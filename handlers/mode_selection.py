@@ -1,282 +1,103 @@
 """
-模式选择处理模块
+入口处理：/start、/submit 与投稿模式提示。
+
+会话状态只有 UPLOAD → PREVIEW → EDIT（见 models.state）。
+上传阶段统一收媒体/文档（归类和限制见 handlers.upload），不再有
+MEDIA/DOCUMENT 两套状态互转。
 """
 import logging
 from datetime import datetime
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
+
+from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import ConversationHandler, CallbackContext
 
-from config.settings import BOT_MODE, MODE_MEDIA, MODE_DOCUMENT, ALLOWED_FILE_TYPES, SUBMIT_LIMIT_PER_HOUR
-from utils.file_validator import create_file_validator
+from config.settings import BOT_MODE, MODE_MEDIA, MODE_DOCUMENT, SUBMIT_LIMIT_PER_HOUR
 from models.state import STATE
-from database.db_manager import get_db, cleanup_old_data
 from utils.blacklist import is_blacklisted
-from ui.keyboards import Keyboards
+from utils.submission import create_session
 
 logger = logging.getLogger(__name__)
 
+
 async def submit(update: Update, context: CallbackContext) -> int:
-    """
-    处理 /submit 命令，开始投稿流程
-    
-    Args:
-        update: Telegram 更新对象
-        context: 回调上下文
-        
-    Returns:
-        int: 下一个会话状态
-    """
-    logger.info(f"收到 /submit 命令，user_id: {update.effective_user.id}")
-    await cleanup_old_data()
+    """开始新投稿：建会话 → 进入上传阶段。"""
+    logger.info(f"收到 /submit，user_id: {update.effective_user.id}")
     user_id = update.effective_user.id
-
-    # 获取用户名信息
     user = update.effective_user
-    username = user.username or f"user{user.id}"
+    username = user.username or user.first_name or f"user{user.id}"
 
-    # 检查用户是否在黑名单中
     if is_blacklisted(user_id):
-        logger.warning(f"黑名单用户尝试使用机器人，user_id: {user_id}")
-        await update.message.reply_text("⚠️ 您已被列入黑名单，无法使用投稿功能。如有疑问，请联系管理员。")
+        await update.message.reply_text("⚠️ 您已被列入黑名单，无法投稿。")
         return ConversationHandler.END
 
-    # 投稿频率限制：滑动窗口统计（内存态，重启即清零）
+    # 投稿频率限制（内存滑动窗口，重启清零）
     if SUBMIT_LIMIT_PER_HOUR > 0:
-        import time as _time
-        now = _time.time()
-        history = context.bot_data.setdefault('submit_times', {}).setdefault(user_id, [])
+        import time as _t
+        now = _t.time()
+        history = context.bot_data.setdefault("submit_times", {}).setdefault(user_id, [])
         history[:] = [t for t in history if now - t < 3600]
         if len(history) >= SUBMIT_LIMIT_PER_HOUR:
-            logger.warning(f"用户触发投稿频率限制，user_id: {user_id}")
             await update.message.reply_text(
                 f"⚠️ 投稿过于频繁（每小时最多 {SUBMIT_LIMIT_PER_HOUR} 次），请稍后再试。"
             )
             return ConversationHandler.END
         history.append(now)
-    
+
     try:
-        async with get_db() as conn:
-            c = await conn.cursor()
-            # 清除旧会话记录
-            await c.execute("DELETE FROM submissions WHERE user_id=?", (user_id,))
-            
-            # 根据配置决定模式
-            if BOT_MODE == MODE_MEDIA:
-                mode = "media"
-                logger.info(f"使用媒体模式，user_id: {user_id}")
-                await c.execute("INSERT INTO submissions (user_id, timestamp, mode, image_id, document_id, username) VALUES (?, ?, ?, ?, ?, ?)",
-                          (user_id, datetime.now().timestamp(), mode, "[]", "[]", username))
-                await conn.commit()
-                await show_media_welcome(update)
-                logger.info(f"已发送媒体欢迎信息，切换到MEDIA状态，user_id: {user_id}")
-                return STATE['MEDIA']
-                
-            elif BOT_MODE == MODE_DOCUMENT:
-                mode = "document"
-                logger.info(f"使用文档模式，user_id: {user_id}")
-                await c.execute("INSERT INTO submissions (user_id, timestamp, mode, image_id, document_id, username) VALUES (?, ?, ?, ?, ?, ?)",
-                          (user_id, datetime.now().timestamp(), mode, "[]", "[]", username))
-                await conn.commit()
-                await show_document_welcome(update)
-                logger.info(f"已发送文档欢迎信息，切换到DOC状态，user_id: {user_id}")
-                return STATE['DOC']
-                
-            else:  # 混合模式
-                logger.info(f"使用混合模式，user_id: {user_id}")
-                await c.execute("INSERT INTO submissions (user_id, timestamp, mode, image_id, document_id, username) VALUES (?, ?, ?, ?, ?, ?)",
-                          (user_id, datetime.now().timestamp(), "mixed", "[]", "[]", username))
-                await conn.commit()
-                await show_mixed_welcome(update)
-                return STATE['MEDIA']
+        await create_session(user_id, username, BOT_MODE.lower())
     except Exception as e:
-        logger.error(f"初始化数据错误: {e}", exc_info=True)
+        logger.error(f"初始化会话失败: {e}", exc_info=True)
         await update.message.reply_text("❌ 初始化失败，请稍后再试")
         return ConversationHandler.END
 
+    await update.message.reply_text(_upload_hint(BOT_MODE), reply_markup=ReplyKeyboardRemove())
+    return STATE["UPLOAD"]
+
+
+def _upload_hint(mode: str) -> str:
+    common = "\n\n预览页仅标签必填；匿名和剧透默认关闭。\n随时发送 /cancel 取消投稿。"
+    if mode == MODE_MEDIA:
+        return (
+            "📮 请直接上传媒体：\n"
+            "• 相册图片、视频、GIF、音频会归为媒体\n"
+            "• 最多 50 个；上传完成后发送 /done_media 打开预览" + common
+        )
+    if mode == MODE_DOCUMENT:
+        return (
+            "📮 请上传文档：\n"
+            "• 以附件发送的图片、压缩包、PDF 等会归为文件\n"
+            "• 最多 10 个；上传完成后发送 /done_media 打开预览" + common
+        )
+    return (
+        "📮 请直接上传内容：\n"
+        "• 相册图片、视频、GIF、音频会归为媒体\n"
+        "• 以附件发送的图片、压缩包、PDF 等会归为文件\n"
+        "• 可以混合上传，完成后发送 /done_media 打开预览" + common
+    )
+
+
 async def start(update: Update, context: CallbackContext) -> int:
-    """
-    处理 /start 命令，显示欢迎信息和可用操作
-    
-    Args:
-        update: Telegram 更新对象
-        context: 回调上下文
-        
-    Returns:
-        int: 结束会话
-    """
-    logger.info(f"收到 /start 命令，user_id: {update.effective_user.id}")
-    await cleanup_old_data()
-    user_id = update.effective_user.id
-    
-    # 获取用户名信息
+    """/start：显示欢迎与命令清单（不进投稿会话）。"""
+    logger.info(f"收到 /start，user_id: {update.effective_user.id}")
     user = update.effective_user
     username = user.username or user.first_name or f"user{user.id}"
-    
-    # 检查用户是否在黑名单中
-    if is_blacklisted(user_id):
-        logger.warning(f"黑名单用户尝试使用机器人，user_id: {user_id}")
-        await update.message.reply_text("⚠️ 您已被列入黑名单，无法使用投稿功能。如有疑问，请联系管理员。")
+
+    if is_blacklisted(user.id):
+        await update.message.reply_text("⚠️ 您已被列入黑名单，无法使用。")
         return ConversationHandler.END
-    
-    # 显示欢迎信息和可用操作
-    welcome_message = f"👋 你好 {username}！欢迎使用投稿机器人！\n\n"
-    welcome_message += "🤖 **我能做什么？**\n\n"
-    welcome_message += "📮 **投稿功能**\n"
-    welcome_message += "• /submit - 开始新投稿\n"
-    welcome_message += "  支持媒体投稿（图片/视频）和文档投稿（压缩包/PDF等）\n\n"
-    
-    welcome_message += "📊 **查询功能**\n"
-    welcome_message += "• /search - 搜索历史投稿\n"
-    welcome_message += "• /mystats - 查看我的投稿统计\n"
-    welcome_message += "• /myposts - 查看我的投稿列表\n\n"
-    
-    welcome_message += "🔥 **热门排行**\n"
-    welcome_message += "• /hot - 查看热门投稿排行榜\n"
-    welcome_message += "• /tags - 查看热门标签云\n\n"
-    
-    welcome_message += "❓ **帮助**\n"
-    welcome_message += "• /help - 查看完整帮助信息\n"
-    welcome_message += "• /cancel - 取消当前投稿\n\n"
-    
-    welcome_message += "💡 **快速开始**\n"
-    welcome_message += "想要投稿？直接发送 /submit 命令即可开始！"
-    
-    # 根据身份显示不同菜单
+
+    welcome = (
+        f"👋 你好 {username}！欢迎使用投稿机器人！\n\n"
+        "📮 **投稿**：发送 /submit 开始（图片/视频/压缩包/PDF 等）\n"
+        "📊 **查询**：/search 搜索 · /mystats 统计 · /myposts 我的投稿\n"
+        "🔥 **热门**：/hot 排行 · /tags 标签云\n"
+        "❓ /help 完整帮助 · /cancel 取消投稿\n\n"
+        "💡 想要投稿？直接发送 /submit 即可开始！"
+    )
     try:
+        from ui.keyboards import Keyboards
         reply_markup = Keyboards.main_menu()
     except Exception:
         reply_markup = ReplyKeyboardRemove()
-    await update.message.reply_text(
-        welcome_message,
-        parse_mode='Markdown',
-        reply_markup=reply_markup
-    )
-    logger.info(f"已发送欢迎信息，user_id: {user_id}")
+    await update.message.reply_text(welcome, reply_markup=reply_markup)
     return ConversationHandler.END
-
-async def select_mode(update: Update, context: CallbackContext) -> int:
-    """
-    处理用户模式选择
-    
-    Args:
-        update: Telegram 更新对象
-        context: 回调上下文
-        
-    Returns:
-        int: 下一个会话状态
-    """
-    user_id = update.effective_user.id
-    text = update.message.text
-    
-    # 增加调试日志
-    logger.info(f"处理模式选择，用户输入: '{text}'，user_id: {user_id}")
-    
-    try:
-        async with get_db() as conn:
-            c = await conn.cursor()
-            
-            # 使用更灵活的匹配方式
-            if "媒体" in text or "📷" in text:
-                # 选择媒体投稿模式
-                logger.info(f"用户选择媒体模式，user_id: {user_id}")
-                await c.execute("UPDATE submissions SET mode=?, image_id=?, document_id=? WHERE user_id=?", 
-                                ("media", "[]", "[]", user_id))
-                await conn.commit()
-                await update.message.reply_text("✅ 已选择媒体投稿模式", reply_markup=ReplyKeyboardRemove())
-                await show_media_welcome(update)
-                return STATE['MEDIA']
-                
-            elif "文档" in text or "📄" in text:
-                # 选择文档投稿模式
-                logger.info(f"用户选择文档模式，user_id: {user_id}")
-                await c.execute("UPDATE submissions SET mode=?, image_id=?, document_id=? WHERE user_id=?", 
-                                ("document", "[]", "[]", user_id))
-                await conn.commit()
-                await update.message.reply_text("✅ 已选择文档投稿模式", reply_markup=ReplyKeyboardRemove())
-                await show_document_welcome(update)
-                return STATE['DOC']
-                
-            else:
-                # 无效选择
-                logger.warning(f"无效的模式选择: '{text}'，user_id: {user_id}")
-                media_button = '📷 媒体投稿'
-                doc_button = '📄 文档投稿'
-                keyboard = [[KeyboardButton(media_button), KeyboardButton(doc_button)]]
-                markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-                await update.message.reply_text(
-                    "⚠️ 请选择有效的投稿类型：",
-                    reply_markup=markup
-                )
-                return STATE['START_MODE']
-    except Exception as e:
-        logger.error(f"模式选择错误: {e}", exc_info=True)
-        await update.message.reply_text("❌ 模式选择失败，请稍后再试", reply_markup=ReplyKeyboardRemove())
-        return ConversationHandler.END
-
-async def show_media_welcome(update):
-    """
-    显示媒体投稿欢迎信息
-    
-    Args:
-        update: Telegram 更新对象
-    """
-    await update.message.reply_text(
-        "📮 欢迎使用媒体投稿功能！\n\n"
-        "1️⃣ 发送媒体文件（必选）：\n"
-        "   - 支持图片、视频、GIF、音频等，最多上传50个文件。\n"
-        "   - 📱 请直接发送媒体（非文件附件形式）：\n"
-        "     • 从相册选择后直接发送\n"
-        "     • 直接发送视频/GIF\n"
-        "   - ⚠️ 不支持以文件附件方式发送的媒体文件\n"
-        "   - ⚠️ 如需以文件附件形式上传媒体，请使用文档投稿模式\n"
-        "   - 上传完毕后，请发送 /done_media。\n\n"
-        "2️⃣ 在预览面板填写标签并按需编辑标题、简介和链接。\n"
-        "   - 仅标签必填；匿名和剧透可一键切换，默认均关闭。\n\n"
-        "⏱️ 操作超时提醒：\n"
-        "   - 如果5分钟内没有操作，会话将自动结束，需要重新发送 /start。\n\n"
-        "随时发送 /cancel 取消投稿。"
-    )
-
-
-async def show_mixed_welcome(update):
-    """混合模式直接接收上传，并按 Telegram 消息类型自动归类。"""
-    await update.message.reply_text(
-        "📮 请直接上传内容：\n\n"
-        "• 相册图片、视频、GIF、音频会归为媒体\n"
-        "• 以附件发送的图片、压缩包、PDF 等会归为文件\n"
-        "• 可以混合上传，完成后发送 /done_media 打开预览\n\n"
-        "预览页仅标签必填；匿名和剧透默认关闭。\n"
-        "随时发送 /cancel 取消投稿。",
-        reply_markup=ReplyKeyboardRemove(),
-    )
-
-async def show_document_welcome(update):
-    """
-    显示文档投稿欢迎信息
-    
-    Args:
-        update: Telegram 更新对象
-    """
-    file_validator = create_file_validator(ALLOWED_FILE_TYPES)
-    allowed_types_desc = file_validator.get_allowed_types_description()
-    await update.message.reply_text(
-        "📮 欢迎使用文档投稿功能！请按照以下步骤提交：\n\n"
-        "1️⃣ 发送文档文件（必选）：\n"
-        "   - 至少上传1个文件，最多上传10个文件。\n"
-        "   - 📎 请以文件附件形式发送：\n"
-        "     • 点击聊天输入框旁的📎图标\n"
-        "     • 选择文件或文档\n"
-        f"   - ✅ 允许的文件类型：\n{allowed_types_desc}\n"
-        "   - 上传完毕后，请发送 /done_doc。\n\n"
-        "2️⃣ 发送媒体文件（可选）：\n"
-        "   - 支持图片、视频、GIF、音频等，最多上传10个文件。\n"
-        "   - 📱 请直接发送媒体（非文件附件形式）：\n"
-        "     • 从相册选择后直接发送\n"
-        "     • 直接发送视频/GIF\n"
-        "   - 上传完毕后，请发送 /done_media，或发送 /skip_media 跳过此步骤。\n\n"
-        "3️⃣ 在预览面板填写标签并按需编辑标题、简介和链接。\n"
-        "   - 仅标签必填；匿名和剧透可一键切换，默认均关闭。\n\n"
-        "⏱️ 操作超时提醒：\n"
-        "   - 如果5分钟内没有操作，会话将自动结束，需要重新发送 /start。\n\n"
-        "随时发送 /cancel 取消投稿。"
-    )

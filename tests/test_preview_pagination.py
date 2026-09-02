@@ -1,5 +1,5 @@
 """
-发布前预览/快速编辑 与 分页导航 测试
+发布前预览/快速编辑 与 分页导航 测试（重构后：UPLOAD→PREVIEW→EDIT）
 """
 from unittest.mock import MagicMock, AsyncMock, patch
 
@@ -8,24 +8,14 @@ import pytest
 from models.state import STATE
 
 
-class _FakeDB:
-    """模拟 get_db()：支持 async with get_db() as conn，fetchone 固定返回 row"""
+class _FakeSession:
+    """模拟 get_session()：返回固定 row 或 None"""
 
     def __init__(self, row):
         self._row = row
 
-    def __call__(self):
-        return self
-
-    async def __aenter__(self):
-        cursor = AsyncMock()
-        cursor.fetchone = AsyncMock(return_value=self._row)
-        self._conn = MagicMock()
-        self._conn.cursor = AsyncMock(return_value=cursor)
-        return self._conn
-
-    async def __aexit__(self, *args):
-        return False
+    async def __call__(self, user_id):
+        return self._row
 
 
 def _make_update(is_callback=False):
@@ -60,14 +50,14 @@ def _submission_row():
 class TestSubmissionPreview:
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_preview_returns_publish_state(self):
+    async def test_preview_returns_preview_state(self):
         from handlers.preview_handlers import show_submission_preview
 
         update = _make_update()
-        with patch("handlers.preview_handlers.get_db", _FakeDB(_submission_row())):
+        with patch("handlers.preview_handlers.get_session", _FakeSession(_submission_row())):
             result = await show_submission_preview(update, None)
 
-        assert result == STATE["PUBLISH"]
+        assert result == STATE["PREVIEW"]
         update.effective_message.reply_text.assert_called_once()
         kwargs = update.effective_message.reply_text.call_args.kwargs
         assert kwargs.get("reply_markup") is not None
@@ -87,7 +77,7 @@ class TestSubmissionPreview:
         from telegram.ext import ConversationHandler
 
         update = _make_update()
-        with patch("handlers.preview_handlers.get_db", _FakeDB(None)):
+        with patch("handlers.preview_handlers.get_session", _FakeSession(None)):
             result = await show_submission_preview(update, None)
 
         assert result == ConversationHandler.END
@@ -95,23 +85,21 @@ class TestSubmissionPreview:
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_done_media_opens_preview(self):
-        from handlers.media_handlers import done_media
+        from handlers.upload import done_upload
 
         update = _make_update()
         row = _submission_row() | {"mode": "media"}
-        with (
-            patch("handlers.media_handlers.get_db", _FakeDB(row)),
-            patch("handlers.preview_handlers.get_db", _FakeDB(row)),
-        ):
-            result = await done_media.__wrapped__(update, None)
+        with patch("handlers.upload.get_session", _FakeSession(row)), \
+             patch("handlers.preview_handlers.get_session", _FakeSession(row)):
+            result = await done_upload(update, None)
 
-        assert result == STATE["PUBLISH"]
+        assert result == STATE["PREVIEW"]
         assert "发布预览" in update.effective_message.reply_text.await_args.args[0]
 
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_mixed_document_only_opens_preview(self):
-        from handlers.media_handlers import done_media
+        from handlers.upload import done_upload
 
         update = _make_update()
         row = _submission_row() | {
@@ -119,85 +107,86 @@ class TestSubmissionPreview:
             "image_id": "[]",
             "document_id": '["document:file:work.pdf"]',
         }
-        with (
-            patch("handlers.media_handlers.get_db", _FakeDB(row)),
-            patch("handlers.preview_handlers.get_db", _FakeDB(row)),
-        ):
-            result = await done_media.__wrapped__(update, None)
+        with patch("handlers.upload.get_session", _FakeSession(row)), \
+             patch("handlers.preview_handlers.get_session", _FakeSession(row)):
+            result = await done_upload(update, None)
 
-        assert result == STATE["PUBLISH"]
+        assert result == STATE["PREVIEW"]
 
 
 class TestQuickEdit:
+    def _ctx(self, field):
+        ctx = MagicMock()
+        ctx.user_data = {"edit_field": field}
+        return ctx
+
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_edit_tag_updates_and_returns_publish(self):
-        from handlers.preview_handlers import handle_edit_tag
+    async def test_edit_tag_updates_and_returns_preview(self):
+        from handlers.preview_handlers import handle_edit_input
 
         update = _make_update()
         update.message.text = "#新标签, 另一个"
 
-        with patch("handlers.preview_handlers.get_db", _FakeDB(_submission_row())):
-            result = await handle_edit_tag(update, None)
+        with patch("handlers.preview_handlers.update_fields", new=AsyncMock()), \
+             patch("handlers.preview_handlers.get_session", _FakeSession(_submission_row())):
+            result = await handle_edit_input(update, self._ctx("edit_tag"))
 
-        assert result == STATE["PUBLISH"]
+        assert result == STATE["PREVIEW"]
         calls = [str(c) for c in update.message.reply_text.call_args_list]
         assert any("已更新" in t for t in calls)
 
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_edit_tag_invalid_keeps_state(self):
-        from handlers.preview_handlers import handle_edit_tag
+        from handlers.preview_handlers import handle_edit_input
 
         update = _make_update()
         update.message.text = "   "
 
-        with patch("handlers.preview_handlers.get_db", _FakeDB(_submission_row())):
-            result = await handle_edit_tag(update, None)
+        result = await handle_edit_input(update, self._ctx("edit_tag"))
 
-        assert result == STATE["EDIT_TAG"]
+        assert result == STATE["EDIT"]
 
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_edit_note_updates_and_returns_publish(self):
-        from handlers.preview_handlers import handle_edit_note
+    async def test_edit_note_updates_and_returns_preview(self):
+        from handlers.preview_handlers import handle_edit_input
 
         update = _make_update()
         update.message.text = "新的简介内容"
 
-        with patch("handlers.preview_handlers.get_db", _FakeDB(_submission_row())):
-            result = await handle_edit_note(update, None)
+        with patch("handlers.preview_handlers.update_fields", new=AsyncMock()), \
+             patch("handlers.preview_handlers.get_session", _FakeSession(_submission_row())):
+            result = await handle_edit_input(update, self._ctx("edit_note"))
 
-        assert result == STATE["PUBLISH"]
+        assert result == STATE["PREVIEW"]
 
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_edit_link_rejects_invalid_url(self):
-        from handlers.preview_handlers import handle_edit_link
+        from handlers.preview_handlers import handle_edit_input
 
         update = _make_update()
         update.message.text = "example.com"
-        result = await handle_edit_link(update, None)
-        assert result == STATE["EDIT_LINK"]
+        result = await handle_edit_input(update, self._ctx("edit_link"))
+        assert result == STATE["EDIT"]
 
 
 class TestEditButtons:
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_edit_field_callback_routes_states(self):
+    async def test_edit_field_callback_routes_to_edit_state(self):
         from handlers.preview_handlers import handle_edit_field_callback
 
-        for data, expected in [
-            ("edit_tag", STATE["EDIT_TAG"]),
-            ("edit_title", STATE["EDIT_TITLE"]),
-            ("edit_note", STATE["EDIT_NOTE"]),
-            ("edit_link", STATE["EDIT_LINK"]),
-            ("edit_media", STATE["EDIT_MEDIA"]),
-        ]:
+        for data in ("edit_tag", "edit_title", "edit_note", "edit_link", "edit_media"):
             update = _make_update(is_callback=True)
             update.callback_query.data = data
-            result = await handle_edit_field_callback(update, None)
-            assert result == expected, data
+            ctx = MagicMock()
+            ctx.user_data = {}
+            result = await handle_edit_field_callback(update, ctx)
+            assert result == STATE["EDIT"], data
+            assert ctx.user_data.get("edit_field") == data
 
 
 class TestPublishRequirements:
@@ -208,13 +197,26 @@ class TestPublishRequirements:
 
         update = _make_update(is_callback=True)
         row = _submission_row() | {"tags": ""}
-        with (
-            patch("handlers.publish.get_db", _FakeDB(row)),
-            patch("handlers.publish.cleanup_old_data", AsyncMock()),
-        ):
+
+        class _FakeDB:
+            def __call__(self):
+                return self
+
+            async def __aenter__(self):
+                cursor = AsyncMock()
+                cursor.fetchone = AsyncMock(return_value=row)
+                conn = MagicMock()
+                conn.cursor = AsyncMock(return_value=cursor)
+                return conn
+
+            async def __aexit__(self, *a):
+                return False
+
+        with patch("handlers.publish.get_db", _FakeDB()), \
+             patch("handlers.publish.cleanup_old_data", AsyncMock()):
             result = await publish_submission(update, MagicMock())
 
-        assert result == STATE["PUBLISH"]
+        assert result == STATE["PREVIEW"]
         update.callback_query.answer.assert_awaited_once_with("请先填写标签", show_alert=True)
 
 

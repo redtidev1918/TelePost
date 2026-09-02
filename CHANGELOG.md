@@ -7,6 +7,27 @@
 
 ---
 
+## [2.10.31] - 2026-09-03
+
+### 重构（投稿流程收敛，消除双轨状态与重复归类）
+- **状态机收敛为三态**：`UPLOAD`（上传）→ `PREVIEW`（预览面板）→ `EDIT`
+  （快速编辑，`context.user_data['edit_field']` 区分字段）。删除
+  `START_MODE/DOC/DONE_MEDIA/TAG/LINK/TITLE/NOTE/SPOILER/TEXT/IMAGE/EXTRA`
+  及 5 个 `EDIT_*` 状态号——此前 0–18 共十余个状态里大半是死状态，
+  且与 DB `submissions.mode` 双轨漂移导致"半套流程"（按钮只建 DB 行、
+  不进状态机）。
+- **媒体/文档合一**：`media_handlers`/`document_handlers` 的互转逻辑合并为
+  `handlers/upload.py` 的 `handle_upload`；删除 `submit_handlers.py`
+  （老"标签→链接→标题→简介"逐项问答，已被预览面板取代）。
+- **归类单一实现**：消息→`type:file_id` 的归类收敛到
+  `utils.submission.classify_message`，新增会话读写
+  `get_session/create_session/append_entry/update_fields`，替代散落在
+  4 个文件里的重复 SQL。
+- **删除死代码**：`select_mode`、`show_*_welcome` 多分支、
+  `Keyboards.submission_confirm` 及 `handle_submit_*` 回调（旧投稿确认流程）。
+- 测试同步收敛：新增 `tests/test_upload.py`，重写 `test_preview_pagination`/
+  `test_handlers`/`test_logic_flow`；431 项全过。
+
 ## [2.10.30] - 2026-09-03
 
 ### 修复（聊天投稿"发媒体无响应"）

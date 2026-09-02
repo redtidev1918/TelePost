@@ -9,9 +9,7 @@ from telegram.constants import ParseMode
 from ui.keyboards import Keyboards
 from ui.messages import MessageFormatter
 from database.db_manager import get_db
-from models.state import STATE
 from utils.blacklist import remove_from_blacklist, is_owner
-from handlers.publish import publish_submission
 from handlers.stats_handlers import get_hot_posts
 from handlers.search_handlers import search_posts_by_tag
 
@@ -65,18 +63,7 @@ async def handle_callback_query(update: Update, context: CallbackContext):
             from handlers.review import refetch_review
             return await refetch_review(update, context)
 
-        # 投稿确认相关
-        elif data.startswith("submit_confirm_"):
-            await handle_submit_confirm(update, context)
-        elif data.startswith("submit_edit_"):
-            await handle_submit_edit(update, context)
-        elif data.startswith("submit_addtag_"):
-            await handle_submit_addtag(update, context)
-        elif data.startswith("submit_media_"):
-            await handle_submit_media(update, context)
-        elif data.startswith("submit_cancel_"):
-            await handle_submit_cancel(update, context)
-        
+        # 投稿确认相关（旧流程回调，已由预览面板取代，无调用方）
         # 热门帖子筛选
         elif data.startswith("hot_filter_"):
             await handle_hot_filter(update, context)
@@ -157,83 +144,6 @@ async def handle_callback_query(update: Update, context: CallbackContext):
             )
         except:
             pass
-
-
-async def handle_submit_confirm(update: Update, context: CallbackContext):
-    """处理投稿确认"""
-    query = update.callback_query
-    await _safe_answer(query)
-    
-    await query.edit_message_text("⏳ 正在发布投稿...")
-    
-    # 调用发布函数
-    result = await publish_submission(update, context)
-    
-    return result
-
-
-async def handle_submit_edit(update: Update, context: CallbackContext):
-    """处理编辑投稿内容"""
-    query = update.callback_query
-    await _safe_answer(query)
-    
-    await query.edit_message_text(
-        "✏️ 编辑功能开发中...\n\n当前请取消后重新开始投稿。",
-        reply_markup=None
-    )
-
-
-async def handle_submit_addtag(update: Update, context: CallbackContext):
-    """处理添加标签"""
-    query = update.callback_query
-    await _safe_answer(query)
-    
-    await query.edit_message_text(
-        "🏷️ 请发送要添加的标签（用逗号分隔）：",
-        reply_markup=None
-    )
-    
-    return STATE.get('TAG', 4)
-
-
-async def handle_submit_media(update: Update, context: CallbackContext):
-    """处理添加媒体"""
-    query = update.callback_query
-    await _safe_answer(query)
-    
-    await query.edit_message_text(
-        "📎 请发送要添加的媒体文件：",
-        reply_markup=None
-    )
-    
-    return STATE.get('MEDIA', 2)
-
-
-async def handle_submit_cancel(update: Update, context: CallbackContext):
-    """处理取消投稿"""
-    query = update.callback_query
-    user_id = update.effective_user.id
-    await _safe_answer(query)
-    
-    try:
-        async with get_db() as conn:
-            c = await conn.cursor()
-            await c.execute("DELETE FROM submissions WHERE user_id=?", (user_id,))
-            await conn.commit()
-        
-        await query.edit_message_text(
-            "❌ 投稿已取消",
-            reply_markup=None
-        )
-        
-        return ConversationHandler.END
-        
-    except Exception as e:
-        logger.error(f"取消投稿时出错: {e}")
-        await query.edit_message_text(
-            MessageFormatter.error_message("general")
-        )
-        return ConversationHandler.END
 
 
 async def handle_hot_filter(update: Update, context: CallbackContext):

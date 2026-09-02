@@ -45,7 +45,7 @@ from utils.maintenance_jobs import clean_logs_job, pixivflow_maintain_job, sched
 # 处理程序导入 - 按功能分组
 # 基础命令
 from handlers import (
-    start, help_command, cancel, settings, switch_to_doc_mode
+    start, help_command, cancel, settings
 )
 
 # 黑名单管理
@@ -57,18 +57,15 @@ from handlers.botconfig import botconfig, botconfig_callback
 from handlers.publish import publish_submission
 from handlers.review import expire_stale_reviews
 
-# 不同投稿模式支持
-from handlers.mode_selection import submit, select_mode
-from handlers.document_handlers import handle_doc, done_doc, prompt_doc
-from handlers.media_handlers import handle_media, done_media, skip_media, prompt_media
-from handlers.submit_handlers import (
-    handle_tag,
-    handle_link,
-    handle_title,
-    handle_note,
-    skip_optional_link,
-    skip_optional_title,
-    skip_optional_note
+# 投稿会话：入口 + 上传 + 预览
+from handlers.mode_selection import submit
+from handlers.upload import handle_upload, done_upload, skip_upload, prompt_upload
+from handlers.preview_handlers import (
+    show_submission_preview,
+    handle_edit_field_callback,
+    handle_edit_input,
+    handle_toggle_anon,
+    handle_toggle_spoiler,
 )
 
 # 错误处理
@@ -76,18 +73,6 @@ from handlers.error_handler import error_handler
 
 # API 令牌管理
 from handlers.api_commands import gen_token, tokens as api_tokens_command, revoke_token as revoke_token_command
-
-# 发布前预览与快速编辑
-from handlers.preview_handlers import (
-    handle_edit_field_callback,
-    handle_toggle_anon,
-    handle_toggle_spoiler,
-    handle_edit_tag,
-    handle_edit_title,
-    handle_edit_note,
-    handle_edit_link,
-    handle_edit_media,
-)
 
 # 统计和搜索功能
 from handlers.stats_handlers import get_hot_posts, get_user_stats
@@ -654,70 +639,33 @@ def setup_application(application):
                 ),
             ],
             states={
-                # 模式选择状态
-                STATE.get('START_MODE', 0): [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, select_mode)
+                # 上传阶段：媒体与文档统一归类（handlers.upload）
+                STATE["UPLOAD"]: [
+                    CommandHandler("done_media", done_upload),
+                    CommandHandler("skip_media", skip_upload),
+                    MessageHandler(
+                        filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.AUDIO
+                        | filters.Document.ALL,
+                        handle_upload,
+                    ),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, prompt_upload),
                 ],
-                
-                # 文档和媒体处理状态 - 优先处理skip_media命令
-                STATE.get('MEDIA', 2): [
-                    CommandHandler('done_media', done_media),
-                    CommandHandler('skip_media', skip_media),
-                    MessageHandler(filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.AUDIO |
-                                 filters.Document.Category("animation") | filters.Document.AUDIO, 
-                                 handle_media),
-                    # 在媒体状态下也检查文档类型
-                    MessageHandler(filters.Document.ALL, handle_media),
-                    # 添加媒体模式切换回调
-                    CallbackQueryHandler(switch_to_doc_mode, pattern="^switch_to_doc$"),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, prompt_media)
-                ],
-                STATE.get('DOC', 1): [
-                    CommandHandler('done_doc', done_doc),
-                    MessageHandler(filters.Document.ALL, handle_doc),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, prompt_doc)
-                ],
-
-                # 发布前快速编辑状态
-                STATE.get('PUBLISH', 13): [
+                # 预览面板
+                STATE["PREVIEW"]: [
                     CallbackQueryHandler(publish_submission, pattern="^publish$"),
                     CallbackQueryHandler(cancel, pattern="^cancel$"),
                     CallbackQueryHandler(handle_toggle_anon, pattern="^toggle_anon$"),
                     CallbackQueryHandler(handle_toggle_spoiler, pattern="^toggle_spoiler$"),
                     CallbackQueryHandler(handle_edit_field_callback, pattern="^edit_(tag|title|note|link|media)$"),
                 ],
-
-                # 发布前快速编辑状态
-                STATE.get('EDIT_TAG', 14): [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_tag)
-                ],
-                STATE.get('EDIT_NOTE', 15): [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_note)
-                ],
-                STATE.get('EDIT_TITLE', 17): [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_title)
-                ],
-                STATE.get('EDIT_LINK', 18): [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_link)
-                ],
-                STATE.get('EDIT_MEDIA', 16): [
-                    MessageHandler(filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.AUDIO |
-                                 filters.Document.ALL, handle_edit_media)
-                ],
-                
-                # 投稿处理状态
-                STATE.get('TAG', 4): [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_tag)],
-                STATE.get('LINK', 5): [
-                    CommandHandler('skip_optional', skip_optional_link),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link)
-                ],
-                STATE.get('TITLE', 6): [
-                    CommandHandler('skip_optional', skip_optional_title),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_title)
-                ],
-                STATE.get('NOTE', 7): [
-                    CommandHandler('skip_optional', skip_optional_note),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_note)
+                # 快速编辑单个字段（user_data['edit_field'] 区分）
+                STATE["EDIT"]: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_input),
+                    MessageHandler(
+                        filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.AUDIO
+                        | filters.Document.ALL,
+                        handle_edit_input,
+                    ),
                 ],
             },
             fallbacks=[CommandHandler("cancel", cancel)],

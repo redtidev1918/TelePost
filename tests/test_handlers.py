@@ -16,8 +16,7 @@ class TestCommandHandlers:
 
         mock_telegram_update.message.reply_text = AsyncMock()
 
-        with patch('handlers.mode_selection.cleanup_old_data', new=AsyncMock()), \
-             patch('handlers.mode_selection.is_blacklisted', return_value=False):
+        with patch('handlers.mode_selection.is_blacklisted', return_value=False):
             await start(mock_telegram_update, mock_telegram_context)
 
         # 验证回复被调用
@@ -227,34 +226,19 @@ class TestSubmitHandlers:
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_submit_command_start(self, mock_telegram_update, mock_telegram_context):
-        """测试开始投稿（实现为 mode_selection.submit，媒体模式）"""
+        """测试开始投稿（mode_selection.submit，媒体模式进入 UPLOAD）"""
         from models.state import STATE as _STATE
 
         mock_telegram_update.message.reply_text = AsyncMock()
 
-        # 模拟数据库：submit 会清理旧记录并插入新会话行
-        from contextlib import asynccontextmanager
-
-        @asynccontextmanager
-        async def _fake_get_db():
-            yield mock_conn
-
-        mock_cursor = AsyncMock()
-        mock_conn = MagicMock()
-        mock_conn.cursor = AsyncMock(return_value=mock_cursor)
-        mock_conn.commit = AsyncMock()
-
         with patch('handlers.mode_selection.BOT_MODE', 'MEDIA'), \
-             patch('handlers.mode_selection.cleanup_old_data', new=AsyncMock()), \
              patch('handlers.mode_selection.is_blacklisted', return_value=False), \
-             patch('handlers.mode_selection.get_db', _fake_get_db):
+             patch('handlers.mode_selection.create_session', new=AsyncMock()):
             from handlers.mode_selection import submit
             result = await submit(mock_telegram_update, mock_telegram_context)
 
-        # 媒体模式下应进入 MEDIA 状态
-        assert result == _STATE['MEDIA']
-
-        # 应该发送欢迎/提示信息
+        # 上传阶段统一为 UPLOAD
+        assert result == _STATE['UPLOAD']
         mock_telegram_update.message.reply_text.assert_called()
 
     @pytest.mark.asyncio
@@ -262,26 +246,15 @@ class TestSubmitHandlers:
     async def test_mixed_submit_accepts_upload_without_mode_selection(
         self, mock_telegram_update, mock_telegram_context
     ):
-        from contextlib import asynccontextmanager
         from models.state import STATE as _STATE
 
-        mock_cursor = AsyncMock()
-        mock_conn = MagicMock()
-        mock_conn.cursor = AsyncMock(return_value=mock_cursor)
-        mock_conn.commit = AsyncMock()
-
-        @asynccontextmanager
-        async def _fake_get_db():
-            yield mock_conn
-
         with patch('handlers.mode_selection.BOT_MODE', 'MIXED'), \
-             patch('handlers.mode_selection.cleanup_old_data', new=AsyncMock()), \
              patch('handlers.mode_selection.is_blacklisted', return_value=False), \
-             patch('handlers.mode_selection.get_db', _fake_get_db):
+             patch('handlers.mode_selection.create_session', new=AsyncMock()):
             from handlers.mode_selection import submit
             result = await submit(mock_telegram_update, mock_telegram_context)
 
-        assert result == _STATE['MEDIA']
+        assert result == _STATE['UPLOAD']
         assert "直接上传" in mock_telegram_update.message.reply_text.await_args.args[0]
 
     @pytest.mark.asyncio
@@ -299,9 +272,8 @@ class TestSubmitHandlers:
             yield MagicMock()
 
         with patch('handlers.mode_selection.SUBMIT_LIMIT_PER_HOUR', 2), \
-             patch('handlers.mode_selection.cleanup_old_data', new=AsyncMock()), \
              patch('handlers.mode_selection.is_blacklisted', return_value=False), \
-             patch('handlers.mode_selection.get_db', _fake_get_db):
+             patch('handlers.mode_selection.create_session', new=AsyncMock()):
             from handlers.mode_selection import submit
             r1 = await submit(mock_telegram_update, mock_telegram_context)
             r2 = await submit(mock_telegram_update, mock_telegram_context)
@@ -356,114 +328,6 @@ class TestPublishHandlers:
         assert main_msg is not None
         assert 12345 in all_ids
         mock_telegram_context.bot.send_photo.assert_awaited_once()
-
-
-class TestMediaHandlers:
-    """媒体处理器测试"""
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_handle_photo(self, mock_telegram_update, mock_telegram_context):
-        """测试处理照片（实现为 media_handlers.handle_media）"""
-        from types import SimpleNamespace
-        from models.state import STATE as _STATE
-
-        # 模拟照片消息
-        photo = MagicMock()
-        photo.file_id = 'test_file_id'
-        mock_telegram_update.message.photo = [photo]
-        mock_telegram_update.message.reply_text = AsyncMock()
-
-        # 模拟数据库：返回包含空媒体列表的会话行
-        # 注意：handle_media 被 utils.helper_functions.validate_state 装饰，
-        # 该装饰器也会通过自己的 get_db 查询会话，因此两处都需要 patch
-        from contextlib import asynccontextmanager
-
-        row = {"image_id": "[]", "mode": "media", "timestamp": 1.0}
-        mock_cursor = AsyncMock()
-        mock_cursor.fetchone = AsyncMock(return_value=row)
-        mock_conn = MagicMock()
-        mock_conn.cursor = AsyncMock(return_value=mock_cursor)
-
-        @asynccontextmanager
-        async def _fake_get_db():
-            yield mock_conn
-
-        with patch('handlers.media_handlers.get_db', _fake_get_db), \
-             patch('utils.helper_functions.get_db', _fake_get_db):
-            from handlers.media_handlers import handle_media
-            result = await handle_media(mock_telegram_update, mock_telegram_context)
-
-        assert result == _STATE['MEDIA']
-        mock_telegram_update.message.reply_text.assert_called()
-
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_mixed_mode_routes_document_to_file_handler(
-        self, mock_telegram_update, mock_telegram_context
-    ):
-        from contextlib import asynccontextmanager
-        from models.state import STATE as _STATE
-
-        mock_telegram_update.message.photo = None
-        mock_telegram_update.message.video = None
-        mock_telegram_update.message.animation = None
-        mock_telegram_update.message.audio = None
-        mock_telegram_update.message.document.mime_type = "application/pdf"
-        row = {"mode": "mixed", "timestamp": 1.0}
-        cursor = AsyncMock()
-        cursor.fetchone = AsyncMock(return_value=row)
-        conn = MagicMock()
-        conn.cursor = AsyncMock(return_value=cursor)
-
-        @asynccontextmanager
-        async def _fake_get_db():
-            yield conn
-
-        route = AsyncMock(return_value=_STATE['MEDIA'])
-        with patch('handlers.media_handlers.get_db', _fake_get_db), \
-             patch('utils.helper_functions.get_db', _fake_get_db), \
-             patch('handlers.document_handlers._handle_doc', route):
-            from handlers.media_handlers import handle_media
-            result = await handle_media(mock_telegram_update, mock_telegram_context)
-
-        assert result == _STATE['MEDIA']
-        route.assert_awaited_once_with(
-            mock_telegram_update, mock_telegram_context, _STATE['MEDIA']
-        )
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_handle_video(self, mock_telegram_update, mock_telegram_context):
-        """测试处理视频（实现为 media_handlers.handle_media）"""
-        from types import SimpleNamespace
-        from models.state import STATE as _STATE
-
-        # 模拟视频消息
-        video = MagicMock()
-        video.file_id = 'test_video_id'
-        mock_telegram_update.message.video = video
-        mock_telegram_update.message.reply_text = AsyncMock()
-
-        from contextlib import asynccontextmanager
-
-        row = {"image_id": "[]", "mode": "media", "timestamp": 1.0}
-        mock_cursor = AsyncMock()
-        mock_cursor.fetchone = AsyncMock(return_value=row)
-        mock_conn = MagicMock()
-        mock_conn.cursor = AsyncMock(return_value=mock_cursor)
-
-        @asynccontextmanager
-        async def _fake_get_db():
-            yield mock_conn
-
-        with patch('handlers.media_handlers.get_db', _fake_get_db), \
-             patch('utils.helper_functions.get_db', _fake_get_db):
-            from handlers.media_handlers import handle_media
-            result = await handle_media(mock_telegram_update, mock_telegram_context)
-
-        assert result == _STATE['MEDIA']
-        mock_telegram_update.message.reply_text.assert_called()
 
 
 class TestBlacklistHandlers:

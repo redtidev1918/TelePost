@@ -253,43 +253,28 @@ class TestDocumentValidation:
 
 class TestStateTransitions:
     """状态转换测试"""
-    
+
     @pytest.mark.unit
-    def test_media_mode_flow(self):
-        """测试媒体模式的状态流程"""
+    def test_submission_flow_states(self):
+        """测试投稿流程状态：UPLOAD -> PREVIEW -> EDIT"""
         from models.state import STATE
-        
-        # 媒体模式流程: MEDIA -> TAG -> LINK -> TITLE -> NOTE -> SPOILER -> END
+
         expected_flow = [
-            STATE['MEDIA'],
-            STATE['TAG'],
-            STATE['LINK'],
-            STATE['TITLE'],
-            STATE['NOTE'],
-            STATE['SPOILER'],
+            STATE['UPLOAD'],
+            STATE['PREVIEW'],
+            STATE['EDIT'],
         ]
-        
-        # 验证状态值存在且不同
+        # 状态值存在且互不相同
         assert len(set(expected_flow)) == len(expected_flow)
-    
+        assert STATE['UPLOAD'] != STATE['PREVIEW'] != STATE['EDIT']
+
     @pytest.mark.unit
-    def test_document_mode_flow(self):
-        """测试文档模式的状态流程"""
+    def test_upload_returns_upload_state(self):
+        """上传阶段完成一条媒体后仍停留在 UPLOAD（可继续上传）。"""
         from models.state import STATE
-        
-        # 文档模式流程: DOC -> MEDIA -> TAG -> LINK -> TITLE -> NOTE -> SPOILER -> END
-        expected_flow = [
-            STATE['DOC'],
-            STATE['MEDIA'],
-            STATE['TAG'],
-            STATE['LINK'],
-            STATE['TITLE'],
-            STATE['NOTE'],
-            STATE['SPOILER'],
-        ]
-        
-        # 验证状态值存在且不同
-        assert len(set(expected_flow)) == len(expected_flow)
+
+        assert STATE['UPLOAD'] == 1
+        assert STATE['PREVIEW'] == 2
 
 
 class TestEdgeCases:

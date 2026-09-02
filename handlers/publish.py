@@ -223,7 +223,7 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                 await update.callback_query.answer("请先填写标签", show_alert=True)
             else:
                 await _reply_to_user("⚠️ 发布前必须填写标签")
-            return STATE['PUBLISH']
+            return STATE['PREVIEW']
 
         caption = build_caption(data)
         
