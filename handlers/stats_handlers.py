@@ -34,8 +34,6 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
         update: Telegram 更新对象
         context: 回调上下文
     """
-    user_id = update.effective_user.id
-    
     try:
         # 解析参数
         args = context.args

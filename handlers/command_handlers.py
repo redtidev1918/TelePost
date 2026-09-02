@@ -202,8 +202,6 @@ async def settings(update: Update, context: CallbackContext):
     """
     logger.info(f"设置命令被调用: 用户ID={update.effective_user.id}")
     
-    user_id = update.effective_user.id
-    
     try:
         from config.settings import CHANNEL_ID, BOT_MODE, SHOW_SUBMITTER, TIMEOUT, ALLOWED_TAGS
         

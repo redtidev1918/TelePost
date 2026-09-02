@@ -49,7 +49,7 @@ from handlers import (
 )
 
 # 黑名单管理
-from utils.blacklist import manage_blacklist, init_blacklist, blacklist_filter
+from utils.blacklist import manage_blacklist, init_blacklist
 from handlers.command_handlers import blacklist_add, blacklist_remove, blacklist_list, catch_all, debug, handle_menu_shortcuts
 from handlers.botconfig import botconfig, botconfig_callback
 

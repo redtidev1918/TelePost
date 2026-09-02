@@ -162,7 +162,6 @@ async def handle_callback_query(update: Update, context: CallbackContext):
 async def handle_submit_confirm(update: Update, context: CallbackContext):
     """处理投稿确认"""
     query = update.callback_query
-    user_id = update.effective_user.id
     await _safe_answer(query)
     
     await query.edit_message_text("⏳ 正在发布投稿...")
