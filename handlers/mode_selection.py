@@ -88,9 +88,9 @@ async def start(update: Update, context: CallbackContext) -> int:
 
     welcome = (
         f"👋 你好 {username}！欢迎使用投稿机器人！\n\n"
-        "📮 **投稿**：发送 /submit 开始（图片/视频/压缩包/PDF 等）\n"
-        "📊 **查询**：/search 搜索 · /mystats 统计 · /myposts 我的投稿\n"
-        "🔥 **热门**：/hot 排行 · /tags 标签云\n"
+        "📮 投稿：发送 /submit 开始（图片/视频/压缩包/PDF 等）\n"
+        "📊 查询：/search 搜索 · /mystats 统计 · /myposts 我的投稿\n"
+        "🔥 热门：/hot 排行 · /tags 标签云\n"
         "❓ /help 完整帮助 · /cancel 取消投稿\n\n"
         "💡 想要投稿？直接发送 /submit 即可开始！"
     )
