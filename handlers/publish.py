@@ -456,18 +456,62 @@ def _close_item_handle(media):
             pass
 
 
+def _compress_photo(src_path: str, max_bytes: int) -> bool:
+    """把本地图片原地压缩到 <= max_bytes（转 JPEG，逐级降尺寸/质量）。
+
+    返回是否成功；失败时调用方降级为 document 兜底。Pillow 缺失或图片
+    无法解码时视为失败，不影响投稿（只回退到旧行为）。
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return False
+    import io
+
+    try:
+        im = Image.open(src_path)
+        try:
+            if im.mode not in ("RGB", "L"):
+                im = im.convert("RGB")
+            # 尺寸先缩到 Telegram 常见上限，再逐级降 JPEG 质量
+            if max(im.size) > 4096:
+                im.thumbnail((4096, 4096), Image.LANCZOS)
+            for quality in (92, 85, 78, 70, 60):
+                buf = io.BytesIO()
+                im.save(buf, "JPEG", quality=quality, optimize=True, progressive=True)
+                if buf.tell() <= max_bytes:
+                    tmp = src_path + ".compressed"
+                    with open(tmp, "wb") as fh:
+                        fh.write(buf.getvalue())
+                    os.replace(tmp, src_path)
+                    return True
+            return False
+        finally:
+            im.close()
+    except Exception as e:
+        logger.warning("图片压缩失败，回退为文档发送: %s", e)
+        return False
+
+
 def reclassify_oversized_photos(items: list, *, max_bytes: int = PHOTO_MAX_BYTES) -> list:
-    """本地图片超过 max_bytes 时改按文档发送（Telegram 照片上限 10 MiB，
-    文档上限 50 MiB）；file_id 已是 Telegram 托管资源，不受此限。返回新列表。"""
+    """本地图片超过 max_bytes 时先压缩到可发范围（保持 photo，频道内直接看图）；
+    压缩失败才改按文档发送（Telegram 照片上限 10 MiB，文档上限 50 MiB）。
+    file_id 已是 Telegram 托管资源，不受此限。返回新列表。"""
     out = []
     for item in items:
         it = dict(item)
         if it.get("kind") == "photo" and it.get("path"):
             try:
                 if os.path.getsize(it["path"]) > max_bytes:
-                    logger.info("图片超过 %d 字节，按文档发送: %s",
-                                max_bytes, it.get("filename"))
-                    it["kind"] = "document"
+                    if _compress_photo(it["path"], max_bytes):
+                        logger.info("图片压缩到 %d 字节内，仍按图片发送: %s",
+                                    max_bytes, it.get("filename"))
+                        base = os.path.splitext(it.get("filename"))[0]
+                        it["filename"] = f"{base}.jpg"
+                    else:
+                        logger.info("图片超过 %d 字节且无法压缩，按文档发送: %s",
+                                    max_bytes, it.get("filename"))
+                        it["kind"] = "document"
             except OSError:
                 pass
         out.append(it)

@@ -126,3 +126,24 @@ async def test_publish_animation_goes_standalone_not_album(monkeypatch, tmp_path
     )
     assert result["status"] == "published"
     assert result["media_count"] == 1
+
+
+@pytest.mark.unit
+def test_oversized_photo_is_compressed_not_demoted(tmp_path):
+    """超大本地图片应压缩到可发范围、保持 photo（频道直接看图），
+    而不是降级成 document 文件。Pillow 缺失时跳过。"""
+    PIL = pytest.importorskip("PIL")
+    from PIL import Image
+
+    src = tmp_path / "huge.bmp"
+    img = Image.effect_noise((2200, 2200), 128).convert("RGB")
+    img.save(src, "BMP")  # BMP 无压缩，2200*2200*3 ≈ 14.5MB > 阈值
+    assert src.stat().st_size > publish.PHOTO_MAX_BYTES, "测试图应超过阈值"
+
+    items = publish.reclassify_oversized_photos(
+        [{"kind": "photo", "path": str(src), "filename": "huge.bmp"}]
+    )
+
+    assert items[0]["kind"] == "photo"
+    assert items[0]["filename"] == "huge.jpg"
+    assert src.stat().st_size <= publish.PHOTO_MAX_BYTES
