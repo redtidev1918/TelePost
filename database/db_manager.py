@@ -119,6 +119,14 @@ async def init_db():
                 logger.info("已添加 source 字段到 pending_reviews 表")
             except Exception:
                 pass  # 字段已存在
+            try:
+                await conn.execute(
+                    "ALTER TABLE pending_reviews "
+                    "ADD COLUMN target_id TEXT NOT NULL DEFAULT ''"
+                )
+                logger.info("已添加 target_id 字段到 pending_reviews 表")
+            except Exception:
+                pass  # 字段已存在
             await conn.execute(
                 'CREATE INDEX IF NOT EXISTS idx_pending_reviews_status_created '
                 'ON pending_reviews(status, created_at DESC)'

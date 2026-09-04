@@ -90,6 +90,10 @@ def _fields_idempotency_key(payload) -> str:
     return str(payload.get("idempotency_key", "")).strip()[:240]
 
 
+def _fields_target_id(payload) -> str:
+    return str(payload.get("target_id", "")).strip()[:120]
+
+
 def _fields_bool(payload, key: str) -> bool:
     return str(payload.get(key, "false")).lower() in ("true", "1", "yes")
 
@@ -197,6 +201,7 @@ def add_api_routes(web_app, application) -> None:
                     "spoiler": _fields_bool(payload, "spoiler"),
                     "user_id": user_id,
                     "username": username,
+                    "target_id": _fields_target_id(payload),
                 }
                 if API_REVIEW_REQUIRED:
                     from handlers.review import queue_review_from_file_ids
@@ -300,6 +305,7 @@ def add_api_routes(web_app, application) -> None:
                 "spoiler": spoiler,
                 "user_id": user_id,
                 "username": username,
+                "target_id": _fields_target_id(fields),
             }
             if API_REVIEW_REQUIRED:
                 from handlers.review import queue_review_from_files

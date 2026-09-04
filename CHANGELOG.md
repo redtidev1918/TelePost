@@ -7,6 +7,14 @@
 
 ---
 
+## [2.10.38] - 2026-09-04
+
+### 优化
+- **「重抓/换一张」只重跑单个 target**：投稿新增 `target_id` 字段（由 PixivFlow 通过
+  `{{targetId}}` 传递），`pending_reviews` 增加 `target_id` 列；审核员点「重抓」时
+  只重跑产生该审核的那一个 target（`pixivflow run-once --target <id>`），从全量
+  schedule（最坏 2×30 分钟）压到单 target（秒级～分钟级）。
+
 ## [2.10.37] - 2026-09-04
 
 ### 修复

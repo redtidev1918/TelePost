@@ -655,6 +655,7 @@ async def _create_review(
     spoiler,
     user_id,
     username,
+    target_id="",
 ):
     now = time.time()
     review_id = None
@@ -666,8 +667,8 @@ async def _create_review(
                     INSERT INTO pending_reviews (
                         idempotency_key, source, status, user_id, username, title, tags, note, link,
                         anonymous, spoiler, media_json, documents_json, review_chat_id,
-                        review_message_ids, created_at, updated_at
-                    ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        review_message_ids, target_id, created_at, updated_at
+                    ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         idempotency_key,
@@ -684,6 +685,7 @@ async def _create_review(
                         json.dumps(documents),
                         str(REVIEW_CHAT_ID),
                         json.dumps(review_message_ids),
+                        target_id,
                         now,
                         now,
                     ),
@@ -799,6 +801,7 @@ async def queue_review_from_files(
     username="",
     idempotency_key="",
     source="api",
+    target_id="",
 ) -> dict:
     """Stage multipart API files and create a durable pending review."""
     key = _normalized_idempotency_key(user_id, idempotency_key, source)
@@ -831,6 +834,7 @@ async def queue_review_from_files(
             spoiler=spoiler,
             user_id=user_id,
             username=username,
+            target_id=target_id,
         )
     except Exception:
         await _delete_messages(bot, preview_ids)
@@ -854,6 +858,7 @@ async def queue_review_from_file_ids(
     username="",
     idempotency_key="",
     source="api",
+    target_id="",
 ) -> dict:
     """Stage an API file_id submission and create a durable pending review."""
     key = _normalized_idempotency_key(user_id, idempotency_key, source)
@@ -885,6 +890,7 @@ async def queue_review_from_file_ids(
             spoiler=spoiler,
             user_id=user_id,
             username=username,
+            target_id=target_id,
         )
     except Exception:
         await _delete_messages(bot, preview_ids)
@@ -970,16 +976,19 @@ async def toggle_review_spoiler(update, context):
         logger.debug("刷新审核键盘失败（遮罩已入库）: review_id=%s", review_id)
 
 
-def _run_pixivflow_refetch() -> subprocess.CompletedProcess:
-    """触发 PixivFlow 立即跑一轮所有计划；已下载作品自动跳过并选取下一张。
+def _run_pixivflow_refetch(target_id: str = "") -> subprocess.CompletedProcess:
+    """触发 PixivFlow 立即重跑；已下载作品自动跳过并选取下一张。
 
-    使用 `run-once`（一次性命令，跑完全部启用计划即退出），而不是
-    `scheduler run`（守护进程别名，永不退出，会在这里 1500s 超时）。
+    使用 `run-once`（一次性命令，跑完即退出），而不是 `scheduler run`（守护进程
+    别名，永不退出，会在这里超时）。指定 target_id 时只重跑产生该审核的那一个
+    target（"换一张"秒级），否则重跑全部启用计划。
     """
     config_path = os.getenv("PIXIVFLOW_CONFIG", "")
     command = ["pixivflow", "run-once"]
     if config_path:
         command += ["--config", config_path]
+    if target_id:
+        command += ["--target", target_id]
     logger.info("审核群触发 PixivFlow 重抓: %s", " ".join(command))
     return subprocess.run(
         command, cwd="/app", timeout=REFETCH_TIMEOUT_SECONDS, capture_output=True, text=True
@@ -1012,7 +1021,9 @@ async def refetch_review(update, context):
         await _answer(query, "审核记录不存在", show_alert=True)
         return
 
-    # 立刻给审核员反馈，下载在后台进行（最长约 25 分钟），完成后新稿会自行进队列。
+    target_id = (row["target_id"] or "").strip() if "target_id" in row.keys() else ""
+
+    # 立刻给审核员反馈，下载在后台进行，完成后新稿会自行进队列。
     await _answer(
         query,
         "已触发重抓，新作品下载投递后会作为新审核稿进入本群（已发布的旧稿不受影响）。",
@@ -1028,7 +1039,7 @@ async def refetch_review(update, context):
 
     async def _do_refetch():
         try:
-            proc = await asyncio.to_thread(_run_pixivflow_refetch)
+            proc = await asyncio.to_thread(_run_pixivflow_refetch, target_id)
             if proc.returncode == 0:
                 tail = (proc.stdout or "")[-300:]
                 logger.info("PixivFlow 重抓完成: %s", tail)
