@@ -98,8 +98,23 @@ check_python() {
             exit 1
         }
     fi
-    
+
     log_success "pip3 已安装"
+
+    # 检查 venv 模块（Debian/Ubuntu 的 python3 不含 venv，需单独装 python3-venv）
+    if ! python3 -c 'import venv' &>/dev/null; then
+        if [ -f /etc/debian_version ]; then
+            log_warning "缺少 venv 模块，尝试安装 python3-venv ..."
+            sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv || {
+                log_error "python3-venv 安装失败，请手动执行：sudo apt install python3-venv"
+                exit 1
+            }
+        else
+            log_error "缺少 venv 模块。Debian/Ubuntu: sudo apt install python3-venv；CentOS/RHEL: sudo yum install python3"
+            exit 1
+        fi
+    fi
+    log_success "venv 模块可用"
 }
 
 # 创建目录结构
