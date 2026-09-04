@@ -92,8 +92,8 @@ jobs:
             asset: telepost-linux-x64
           - os: windows-latest
             asset: telepost-windows-x64
-          - os: macos-13
-            asset: telepost-macos-x64
+          - os: macos-latest
+            asset: telepost-macos-arm64
     steps:
       - name: 检出代码
         uses: actions/checkout@v7

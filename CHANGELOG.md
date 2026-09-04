@@ -7,12 +7,12 @@
 
 ---
 
-## [2.10.35] - 2026-09-04
+## [2.10.36] - 2026-09-04
 
 ### 新增（傻瓜式部署：零依赖可执行文件）
-- **PyInstaller 分平台单文件可执行**（Linux x64 / Windows x64 / macOS x64，Release 自动附加
+- **PyInstaller 分平台单文件可执行**（Linux x64 / Windows x64 / macOS arm64，Release 自动附加
   `telepost-<平台>` 资产）：内含 Python 解释器，用户**无需安装 Python/Docker/WSL**，下载即用；
-  Apple Silicon Mac 走 Rosetta 运行 x64 版。
+  Apple Silicon 原生 arm64，Intel Mac 请用 install.sh 或 Docker。
 - **首次运行配置向导**：无配置时自动进入（或 `telepost --setup`），交互式填写 Token/频道/所有者
   三项后写 `config.ini`，再运行即启动。
 - **冻结版适配**：`config/settings.py` 在冻结态把 `BASE_DIR` 锚定到 exe 所在目录；`run.py` 支持

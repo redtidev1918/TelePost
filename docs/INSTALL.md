@@ -19,7 +19,7 @@
 不需要安装 Python / Docker / WSL 任何东西——可执行文件里已内置运行环境：
 
 1. 从 [GitHub Releases](https://github.com/redtidev1918/TelePost/releases) 下载对应平台的
-   `telepost-<平台>`（v2.10.35 起每次发版自动生成）；Apple Silicon Mac 下载 `macos-x64` 版（Rosetta 自动转译）；
+   `telepost-<平台>`（v2.10.36 起每次发版自动生成）：Linux/Windows 为 x64，macOS 为 Apple Silicon 原生 arm64（Intel Mac 用 install.sh 或 Docker）；
 2. 双击/运行：首次会自动进入配置向导，按提示填 **Bot Token、频道、你的 ID** 三项即可；
 3. 再次运行即启动，配置与数据都保存在可执行文件同目录（`config.ini` / `data/` / `logs/`）。
 
