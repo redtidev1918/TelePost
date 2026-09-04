@@ -1,546 +1,205 @@
-# Fly.io Webhook 模式部署指南
+# Fly.io 部署
 
-本指南详细说明如何在 Fly.io 上以 Webhook 模式部署 TelePost 项目。
+TelePost 在 Fly.io 必须使用 Webhook。默认推荐固定版本镜像、持久卷和自动休眠；
+PixivFlow 有内部 Cron，必须拆到另一台常驻 Machine。
 
-如果目标是一台 512 MiB Machine 同时运行 PixivFlow、TelePost Bot1 与 Bot2，
-请直接使用 [`deploy.fly-multi-bot.toml`](../deploy.fly-multi-bot.toml)
-并按[运维手册的联合部署章节](OPERATIONS.md#fly-512-mibpixivflow--telepost-双-bot)
-操作。该形态必须常驻；Fly 的 auto-stop 无法在内部 Cron 到点时主动唤醒机器。
+## 推荐拓扑
 
----
-
-## 前提条件
-
-### 必需信息
-
-- Telegram Bot Token（从 [@BotFather](https://t.me/BotFather) 获取）
-- 频道 ID 或用户名
-- 管理员 User ID（从 [@userinfobot](https://t.me/userinfobot) 获取）
-- Fly.io 账号（访问 [fly.io](https://fly.io) 注册，需要信用卡验证但免费额度内不收费）
-
-### 安装工具
-
-安装 Fly.io CLI 工具：
-
-**macOS/Linux**:
-```bash
-curl -L https://fly.io/install.sh | sh
+```text
+┌──────────────────────────────┐
+│ PixivFlow                    │
+│ shared-cpu-1x · 256 MiB      │
+│ always-on · min=1            │
+│ scheduler / downloader       │
+└──────────────┬───────────────┘
+               │ HTTP via Flycast/Fly Proxy
+               ▼
+┌──────────────────────────────┐
+│ TelePost                     │
+│ shared-cpu-1x · 512 MiB      │
+│ Bot 1 + Bot 2                │
+│ auto-stop · auto-start · min=0│
+└──────────────▲───────────────┘
+               │ Telegram Webhook / API
 ```
 
-**Windows (PowerShell)**:
-```powershell
-pwsh -Command "iwr https://fly.io/install.ps1 -useb | iex"
-```
+- PixivFlow 在自己的 256 MiB Machine 常驻，才能按时运行 scheduler。
+- TelePost 只处理入站请求，空闲时可完全停止。
+- PixivFlow 使用 `<telepost-app>.flycast`，请求经过 Fly Proxy 后可唤醒 TelePost；不要用
+  `.internal` 直连已停止的 Machine。
+- 两个 App 与各自 Volume 放在同一区域，减少延迟和跨区域流量。
 
-验证安装：
-```bash
-flyctl version
-```
+完整的拆分模板与初始化工具在
+[pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy)。
 
----
+## 单 Bot 部署
 
-## 部署步骤
+### 1. 准备
 
-### 第一步：登录 Fly.io
+安装并登录 `flyctl`：
 
 ```bash
 flyctl auth login
-```
-
-这会打开浏览器进行登录验证。
-
----
-
-### 第二步：准备项目
-
-克隆或进入项目目录：
-
-```bash
 git clone https://github.com/redtidev1918/TelePost.git
 cd TelePost
 ```
 
----
+复制或直接编辑仓库内 [`fly.toml`](../fly.toml)，填写 `app` 和 `primary_region`。
+区域应按用户延迟、容量和数据位置选择；各区价格可能变化，以
+[Fly.io 定价](https://fly.io/docs/about/pricing/)为准，不在配置里假定“最便宜区域”。
 
-### 第三步：配置 fly.toml
-
-项目已包含 `fly.toml` 配置文件，如果没有，创建它：
+### 2. 创建 App 与 Volume
 
 ```bash
-cat > fly.toml << 'EOF'
-# Fly.io 应用配置文件
-app = ""  # 应用名称，留空由 fly launch 自动生成
+flyctl apps create <app>
+flyctl volumes create telepost_data --size 1 --region <region> --app <app>
+```
 
-[build]
-  dockerfile = "Dockerfile"
+Volume 与 Machine 必须同区。不要省略挂载：数据库、API Token、运行时策略和投稿会话
+状态都在 `/app/data`。
 
+### 3. 设置 Secrets
+
+```bash
+flyctl secrets set --app <app> \
+  TOKEN='123456:replace-me' \
+  CHANNEL_ID='@your_channel' \
+  OWNER_ID='123456789' \
+  WEBHOOK_URL='https://<app>.fly.dev'
+```
+
+需要审核时再加 `REVIEW_CHAT_ID` 与审核开关。Token 不要写入 `fly.toml`。
+
+### 4. 部署固定版本
+
+```bash
+flyctl deploy --app <app> \
+  --image ghcr.io/redtidev1918/telepost:2.10.39
+```
+
+TelePost 启动时会自行调用 Telegram `setWebhook`；不需要手工注册。
+
+### 5. 验证
+
+```bash
+flyctl status --app <app>
+flyctl logs --app <app>
+curl -fsS https://<app>.fly.dev/health
+curl -fsS https://<app>.fly.dev/api/v1/health
+curl -fsS 'https://api.telegram.org/bot<TOKEN>/getWebhookInfo'
+```
+
+`/health` 返回 JSON；API 健康响应中的 `bot_version` 应等于部署版本。
+`getWebhookInfo` 应核对 URL、`pending_update_count`、`last_error_date` 和
+`last_error_message`，不要把完整响应连同 Token 贴到公开 Issue。
+
+## 多 Bot TelePost
+
+推荐直接使用部署套件的 `fly/telepost-split.toml`。核心 Secrets：
+
+```bash
+flyctl secrets set --app <telepost-app> \
+  BOT1_TOKEN='...' BOT1_CHANNEL_ID='@channel_one' BOT1_OWNER_ID='123456789' \
+  BOT2_TOKEN='...' BOT2_CHANNEL_ID='@channel_two' BOT2_OWNER_ID='123456789' \
+  WEBHOOK_URL='https://<telepost-app>.fly.dev'
+```
+
+父路由监听 8080，Bot 子进程使用 8081、8082……；公网路径为：
+
+- `/webhook/bot1`、`/webhook/bot2`
+- `/api/bot1/v1/*`、`/api/bot2/v1/*`
+
+双 Bot 生产实例使用 512 MiB，并在受限环境关闭搜索：
+
+```toml
 [env]
-  # 运行模式：必须设置为 WEBHOOK
   RUN_MODE = "WEBHOOK"
-  
-  # Webhook 端口（Fly.io 内部端口）
-  WEBHOOK_PORT = "8080"
-  
-  # Webhook 路径
-  WEBHOOK_PATH = "/webhook"
-  
-  # 搜索引擎优化（使用轻量级分词器节省内存）
+  SEARCH_ENABLED = "false"
   SEARCH_ANALYZER = "simple"
-  
-  # 数据库缓存优化
   DB_CACHE_KB = "1024"
 
 [http_service]
   internal_port = 8080
-  force_https = true
-  auto_stop_machines = true
+  auto_stop_machines = "stop"
   auto_start_machines = true
   min_machines_running = 0
 
 [[vm]]
   cpu_kind = "shared"
   cpus = 1
-  memory_mb = 256
-EOF
+  memory_mb = 512
 ```
 
----
+Fly Proxy 的 autostop/autostart 只停止或启动现有 Machine，不会删除 Machine 或 Volume；
+配置语义见 [Fly.io 官方配置参考](https://fly.io/docs/reference/configuration/)。
 
-### 第四步：创建配置文件
+## 为什么自动休眠现在可用
 
-创建 `config.ini`（如果还没有）：
+从 TelePost 2.10.39 起：
+
+- 正常关机只停止本地 HTTP 服务，不注销 Telegram Webhook。
+- 冷启动重新注册 Webhook 时不丢弃待处理更新。
+- 多 Bot 父路由会等待子进程端口最多 5 秒，避免刚唤醒时首个请求过早收到 502。
+- Telegram Webhook、HTTP API 和 PixivFlow 的 Flycast 请求都会经过 Fly Proxy，触发
+  `auto_start_machines=true`。
+
+休眠期间 TelePost 内部定时任务不会运行。这不影响 Telegram/PixivFlow 入站投递；需要
+准点执行的 scheduler 必须放在常驻的 PixivFlow App。
+
+验证冷启动：
 
 ```bash
-cp config.ini.example config.ini
-nano config.ini
+flyctl machine stop <machine-id> --app <app>
+flyctl machine status <machine-id> --app <app>
+curl -fsS -w 'time=%{time_total}s\n' https://<app>.fly.dev/health
 ```
 
-编辑关键配置：
+最后再次检查两个 Webhook URL 和待处理数。
 
-```ini
-[BOT]
-# 从 @BotFather 获取
-TOKEN = your_bot_token_here
+## PixivFlow 常驻 App
 
-# 频道 ID 或用户名
-CHANNEL_ID = @your_channel
-
-# 管理员 User ID
-OWNER_ID = 123456789
-
-# 重要：设置为 WEBHOOK 模式
-RUN_MODE = WEBHOOK
-
-[WEBHOOK]
-# 注意：URL 会在部署后自动设置，这里先留空或填占位符
-# 格式: https://your-app-name.fly.dev
-URL = 
-
-# 端口和路径（与 fly.toml 保持一致）
-PORT = 8080
-PATH = /webhook
-
-[SEARCH]
-# 使用轻量级分词器节省内存
-ANALYZER = simple
-
-[DB]
-# 内存优化配置
-CACHE_SIZE_KB = 1024
-```
-
----
-
-### 第五步：创建应用并部署
-
-#### 1. 初始化应用
-
-```bash
-flyctl launch
-```
-
-这个命令会：
-- 检测到 Dockerfile
-- 询问应用名称（可以接受默认名称或自定义）
-- 询问部署区域（选择离您最近的，如 `hkg` 香港、`nrt` 东京、`sjc` 美国）
-- 询问是否立即部署（选择 No，我们先设置密钥）
-
-**示例输出**：
-```
-? Choose an app name (leave blank to generate one): my-telegram-bot
-? Choose a region for deployment: Hong Kong, Hong Kong (hkg)
-? Would you like to deploy now? No
-```
-
-记下您的应用名称，例如 `my-telegram-bot`，您的应用 URL 将是：
-```
-https://my-telegram-bot.fly.dev
-```
-
-#### 2. 设置密钥（Secrets）
-
-使用 Fly.io 的 Secrets 功能安全地存储敏感信息：
-
-```bash
-# 设置 Bot Token（⭐ 替换为实际 Token；代码读取 TOKEN，BOT_TOKEN 亦兼容）
-flyctl secrets set TOKEN=your_bot_token_here
-
-# 设置频道 ID
-flyctl secrets set CHANNEL_ID=@your_channel
-
-# 设置管理员 ID
-flyctl secrets set OWNER_ID=123456789
-
-# 设置 Webhook URL（⭐ 替换为您的应用名称）
-flyctl secrets set WEBHOOK_URL=https://your-app-name.fly.dev
-```
-
-**完整示例**：
-```bash
-flyctl secrets set TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
-flyctl secrets set CHANNEL_ID=@mychannel
-flyctl secrets set OWNER_ID=987654321
-flyctl secrets set WEBHOOK_URL=https://my-telegram-bot.fly.dev
-```
-
-#### 3. 部署应用
-
-```bash
-flyctl deploy
-```
-
-部署过程：
-1. 构建 Docker 镜像
-2. 推送到 Fly.io 注册表
-3. 启动应用实例
-4. 自动配置 HTTPS
-
-**等待部署完成**，通常需要 2-5 分钟。
-
----
-
-### 第六步：设置 Webhook
-
-部署完成后，设置 Telegram Webhook：
-
-```bash
-# 替换为您的实际信息
-curl -X POST "https://api.telegram.org/botYOUR_BOT_TOKEN/setWebhook" \
-  -d "url=https://your-app-name.fly.dev/webhook" \
-  -d "max_connections=40"
-```
-
-**示例**：
-```bash
-curl -X POST "https://api.telegram.org/bot123456:ABC-DEF/setWebhook" \
-  -d "url=https://my-telegram-bot.fly.dev/webhook" \
-  -d "max_connections=40"
-```
-
-**验证 Webhook**：
-
-```bash
-curl "https://api.telegram.org/botYOUR_BOT_TOKEN/getWebhookInfo"
-```
-
-应该看到：
-```json
-{
-  "ok": true,
-  "result": {
-    "url": "https://your-app-name.fly.dev/webhook",
-    "has_custom_certificate": false,
-    "pending_update_count": 0,
-    "max_connections": 40
-  }
-}
-```
-
----
-
-## 验证部署
-
-### 1. 检查应用状态
-
-```bash
-flyctl status
-```
-
-应该显示：
-```
-ID              = my-telegram-bot
-Status          = running
-...
-```
-
-### 2. 查看日志
-
-```bash
-flyctl logs
-```
-
-应该看到：
-```
-✅ Webhook 模式已启动
-   监听地址: 0.0.0.0:8080/webhook
-   外部地址: https://my-telegram-bot.fly.dev/webhook
-```
-
-### 3. 测试健康检查
-
-```bash
-curl https://your-app-name.fly.dev/health
-```
-
-应该返回：`OK`
-
-### 4. 测试机器人
-
-向您的 Telegram 机器人发送消息：
-- 发送 `/start` 命令
-- 应该立即收到回复（< 1 秒）
-
----
-
-## 常见问题解决
-
-### 问题 1：部署失败
-
-**症状**：`flyctl deploy` 报错
-
-**解决方法**：
-
-```bash
-# 查看详细错误
-flyctl logs
-
-# 常见原因：
-# 1. Dockerfile 路径错误
-ls -la Dockerfile
-
-# 2. 依赖安装失败
-# 检查 requirements.txt 是否存在
-
-# 3. 重新部署
-flyctl deploy --force
-```
-
-### 问题 2：机器人无响应
-
-**可能原因**：
-1. Webhook 未正确设置
-2. 环境变量配置错误
-3. 应用未运行
-
-**解决方法**：
-
-```bash
-# 1. 检查应用状态
-flyctl status
-
-# 2. 查看日志
-flyctl logs
-
-# 3. 检查 Secrets
-flyctl secrets list
-
-# 4. 验证 Webhook
-curl "https://api.telegram.org/botYOUR_BOT_TOKEN/getWebhookInfo"
-
-# 5. 重启应用
-flyctl apps restart your-app-name
-```
-
-### 问题 3：内存不足
-
-**症状**：应用频繁重启，日志显示 OOM (Out of Memory)
-
-**解决方法**：
-
-升级内存配额（编辑 `fly.toml`）：
+使用部署套件的 `fly/pixivflow-split.toml`。核心配置：
 
 ```toml
+[env]
+  PIXIV_DOWNLOADER_CONFIG = "/app/data/pixivflow/config.json"
+  TELEPOST_API_BASE_URL = "http://<telepost-app>.flycast"
+  NODE_OPTIONS = "--max-old-space-size=96 --expose-gc"
+
 [[vm]]
   cpu_kind = "shared"
   cpus = 1
-  memory_mb = 512  # 从 256MB 升级到 512MB
+  memory_mb = 256
 ```
 
-然后重新部署：
-```bash
-flyctl deploy
-```
-
-**注意**：超过免费额度可能产生费用，请查看 [Fly.io 价格](https://fly.io/docs/about/pricing/)。
-
-### 问题 4：无法访问应用
-
-**症状**：访问 `https://your-app-name.fly.dev` 返回错误
-
-**解决方法**：
+它没有 HTTP service 和 autostop 配置，Machine 保持运行。TelePost App 需要一次性分配
+Flycast 私网地址：
 
 ```bash
-# 检查应用是否运行
-flyctl status
-
-# 检查证书状态
-flyctl certs check your-app-name.fly.dev
-
-# 查看详细信息
-flyctl info
+flyctl ips allocate-v6 --private --app <telepost-app>
 ```
 
-### 问题 5：环境变量未生效
+## 安全升级
 
-**症状**：机器人使用了错误的配置
+1. 确认目标版本的 GitHub Release、GHCR amd64/arm64 manifest 和 CI 都成功。
+2. 对 Volume 建 snapshot。
+3. 更新原 Machine 的镜像，不重建 Volume。
+4. 检查 Machine ID、Volume ID、内存和 autostop 配置未变化。
+5. 检查 `/health`、每个 Bot 的 API health、Webhook 和 SQLite `PRAGMA quick_check`。
 
-**解决方法**：
+示例：
 
 ```bash
-# 检查已设置的 Secrets
-flyctl secrets list
-
-# 重新设置 Secret
-flyctl secrets set WEBHOOK_URL=https://your-app-name.fly.dev
-
-# 应用会自动重启以使用新的 Secrets
+flyctl volumes snapshots create <volume-id> --app <app>
+flyctl machine update <machine-id> --app <app> \
+  --image ghcr.io/redtidev1918/telepost:<version> --yes
 ```
 
----
+不要在有状态部署上用 `fly scale count 2` 做“高可用”：单个 Volume 不能同时挂到两台
+Machine，两个进程也不能同时消费同一个 Telegram Token。
 
-## 性能优化建议
+## 回退
 
-### 1. 内存优化
-
-Fly.io 免费额度提供 256MB 内存，优化配置：
-
-```ini
-# config.ini
-[SEARCH]
-ANALYZER = simple  # 节省 ~140MB
-
-[DB]
-CACHE_SIZE_KB = 1024  # 适度缓存
-```
-
-### 2. 自动缩容配置
-
-在 `fly.toml` 中配置自动缩容，节省资源：
-
-```toml
-[http_service]
-  auto_stop_machines = true    # 无流量时自动停止
-  auto_start_machines = true   # 有请求时自动启动
-  min_machines_running = 0     # 最少运行 0 个实例
-```
-
-### 3. 区域选择
-
-选择离用户最近的区域以降低延迟：
-
-```bash
-# 查看可用区域
-flyctl platform regions
-
-# 常用区域：
-# hkg - 香港
-# nrt - 东京
-# sjc - 美国加州
-# fra - 德国法兰克福
-```
-
----
-
-## 更新和维护
-
-### 更新代码
-
-```bash
-# 1. 拉取最新代码
-git pull origin main
-
-# 2. 重新部署
-flyctl deploy
-
-# 3. 查看部署状态
-flyctl status
-```
-
-### 查看日志
-
-```bash
-# 实时日志
-flyctl logs
-
-# 查看最近 100 行
-flyctl logs -n 100
-
-# 持续监控
-flyctl logs -f
-```
-
-### 数据备份
-
-```bash
-# 连接到应用容器
-flyctl ssh console
-
-# 备份数据库
-cd /app/data
-tar -czf backup.tar.gz submissions.db
-
-# 退出容器
-exit
-
-# 下载备份（需要配置 SFTP 或使用 Fly.io Volumes）
-```
-
-### 扩容/缩容
-
-```bash
-# 增加实例数量（高可用）
-flyctl scale count 2
-
-# 升级内存
-flyctl scale memory 512
-
-# 查看当前配置
-flyctl scale show
-```
-
-
----
-
-## 相关文档
-
-- [主文档 - README.md](../README.md)
-- [Webhook 模式完整指南](WEBHOOK_MODE.md)
-- [部署指南 - DEPLOYMENT.md](../DEPLOYMENT.md)
-- [内存优化指南 - MEMORY_USAGE.md](PERFORMANCE.md)
-- [Fly.io 官方文档](https://fly.io/docs/)
-
----
-
-## 获取帮助
-
-如遇到问题：
-
-1. **检查文档**：先查看本指南和 Fly.io 官方文档
-2. **查看日志**：`flyctl logs` 通常包含详细错误信息
-3. **Fly.io 社区**：[Fly.io Community](https://community.fly.io/)
-4. **提交 Issue**：在 [GitHub Issues](https://github.com/redtidev1918/TelePost/issues) 提问
-
----
-
-**最后更新**：2025-12-02  
-**适用版本**：TelePost.1+  
-**测试环境**：Fly.io Free Tier (256MB RAM)
-
-**部署成功标志**：
-- ✅ `flyctl status` 显示 running
-- ✅ 健康检查返回 OK
-- ✅ Webhook 信息正确
-- ✅ 机器人响应正常（< 1 秒）
-- ✅ 完全免费运行 🎉
-
-> 2026-09 更正：环境变量统一为 `TOKEN`（兼容 `BOT_TOKEN` / `TELEGRAM_BOT_TOKEN`）；不再用临时转发探测频道帖子统计。
+将原 Machine 更新回上一固定版本镜像即可。只有数据库损坏或错误迁移时才从 snapshot
+恢复；普通代码回退不要覆盖更新后的数据。更多检查见 [运维手册](OPERATIONS.md) 与
+[故障排查](TROUBLESHOOTING.md)。

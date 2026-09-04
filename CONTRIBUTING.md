@@ -1,26 +1,33 @@
 # 贡献指南
 
-感谢关注 TelePost！
-
 ## 开发环境
 
 ```bash
-git clone https://github.com/redtidev1918/TelePost.git && cd TelePost
-python3 -m venv .venv && ./.venv/bin/pip install -r requirements-dev.txt
-cp config.ini.example config.ini   # 填入测试用 Token/频道
+git clone https://github.com/redtidev1918/TelePost.git
+cd TelePost
+python3 -m venv .venv
+./.venv/bin/pip install -r requirements-dev.txt
 ```
 
-## 提交约定
+测试不需要真实 Token。实际运行时执行 `./.venv/bin/python run.py --setup`，不要提交
+`config.ini`、Token、数据库、日志或下载内容。
 
-- 分支：从 `main` 拉出功能分支；提交信息使用中文并带前缀：`fix:` / `feat:` / `docs:` / `refactor:`（参考 `git log` 现有风格）。
-- 一个提交做一件事；行为变更同步更新 `CHANGELOG.md` 的 `[Unreleased]` 段。
+## 提交前
 
-## 提交前检查
+```bash
+./.venv/bin/python -m pytest -q --no-cov -o log_cli=false
+```
 
-1. `./.venv/bin/python -m pytest -q --no-cov` 全绿；
-2. 新增/修改行为需补测试；
-3. **文档联动**：改动 `main.py` 命令注册 → 同步 [docs/COMMANDS.md](docs/COMMANDS.md)；改动 `config/settings.py` 配置项 → 同步 [docs/CONFIGURATION.md](docs/CONFIGURATION.md) 与 `config.ini.example`；改动部署相关 → 同步 [docs/INSTALL.md](docs/INSTALL.md) 与对应平台指南。
+- 一个提交只解决一个问题，并为行为变更留下最小回归测试。
+- 命令变更同步 `docs/COMMANDS.md`。
+- 配置变更同步 `docs/CONFIGURATION.md` 与 `config.ini.example`。
+- API 变更同步 `docs/API.md`。
+- 部署行为变更同步对应平台文档。
+- 用户可见变更写入 `CHANGELOG.md` 的 `[Unreleased]`。
 
-## 提交方式
+提交信息沿用仓库现有前缀：`fix:`、`feat:`、`docs:`、`refactor:`、`test:`、`ci:`。
 
-Fork → 分支 → Pull Request，描述清楚动机、改动点与测试情况。
+## Pull Request
+
+从 `main` 建分支，PR 中写明动机、影响范围、验证命令和结果。不要附带无关格式化或
+重构；涉及持久数据时说明迁移、回退和备份策略。

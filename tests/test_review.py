@@ -102,16 +102,27 @@ async def test_file_id_submission_is_durable_and_idempotent(review_db):
         user_id=7,
         username="pixivflow",
         idempotency_key="pixiv:123",
+        target_id="daily-pixiv",
     )
 
     assert first["status"] == "pending_review"
+    assert first["reused"] is False
     assert second["review_id"] == first["review_id"]
+    assert second["reused"] is True
     assert bot.send_photo.await_count == 1
+    assert bot.send_message.await_count == 2
+    duplicate_notice = bot.send_message.await_args.kwargs
+    assert "收到重复投稿" in duplicate_notice["text"]
+    assert f"审核：#{first['review_id']}" in duplicate_notice["text"]
+    assert "状态：待审核" in duplicate_notice["text"]
+    assert duplicate_notice["reply_to_message_id"] == 11
+    assert duplicate_notice["allow_sending_without_reply"] is True
 
     async with db_manager.get_db() as conn:
         cursor = await conn.execute("SELECT * FROM pending_reviews")
         row = await cursor.fetchone()
     assert row["status"] == "pending"
+    assert row["target_id"] == "daily-pixiv"
     assert json.loads(row["media_json"])[0]["file_id"] == "STAGED_PHOTO"
     assert row["control_message_id"] == 11
 

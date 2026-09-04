@@ -118,6 +118,7 @@ class TestSubmission:
             assert kwargs["title"] == "标题\n副标题"
             assert kwargs["note"] == "第一行\n第二行\n第三行"
             assert kwargs["anonymous"] is True
+            assert "target_id" not in kwargs
         finally:
             await client.close()
 
@@ -242,6 +243,7 @@ class TestSubmission:
             form.add_field("files", b"fake-image", filename="photo.jpg", content_type="image/jpeg")
             form.add_field("tags", "Pixiv")
             form.add_field("idempotency_key", "pixiv:123")
+            form.add_field("target_id", "daily-pixiv")
             resp = await client.post(
                 "/api/v1/submissions", data=form,
                 headers={"Authorization": "Bearer tp_ok"},
@@ -252,6 +254,7 @@ class TestSubmission:
             assert data["data"]["review_id"] == 42
             queue_mock.assert_awaited_once()
             assert queue_mock.call_args.kwargs["idempotency_key"] == "pixiv:123"
+            assert queue_mock.call_args.kwargs["target_id"] == "daily-pixiv"
             publish_mock.assert_not_called()
         finally:
             await client.close()
@@ -343,6 +346,7 @@ class TestFileIdDirect:
             file_id_mock.assert_called_once()
             kwargs = file_id_mock.call_args.kwargs
             assert kwargs["anonymous"] is True
+            assert "target_id" not in kwargs
             assert file_id_mock.call_args.args[1][0]["file_id"] == "AAA"
         finally:
             await client.close()
@@ -416,12 +420,14 @@ class TestFileIdDirect:
                     "media": [{"type": "photo", "file_id": "AAA"}],
                     "tags": "Pixiv",
                     "idempotency_key": "pixiv:456",
+                    "target_id": "daily-pixiv",
                 },
             )
             assert resp.status == 201
             assert (await resp.json())["data"]["status"] == "pending_review"
             queue_mock.assert_awaited_once()
             assert queue_mock.call_args.kwargs["idempotency_key"] == "pixiv:456"
+            assert queue_mock.call_args.kwargs["target_id"] == "daily-pixiv"
             publish_mock.assert_not_called()
         finally:
             await client.close()

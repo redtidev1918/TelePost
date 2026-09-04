@@ -1,9 +1,7 @@
 # 测试
 
-测试指南已迁移至 [docs/TESTING.md](../docs/TESTING.md)。
-
-快速运行：
+完整说明见 [docs/TESTING.md](../docs/TESTING.md)。快速运行：
 
 ```bash
-./.venv/bin/python -m pytest -q --no-cov
+./.venv/bin/python -m pytest -q --no-cov -o log_cli=false
 ```

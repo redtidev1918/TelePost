@@ -1,91 +1,119 @@
 # 配置参考
 
-> 本文档与 `config/settings.py`、`config.ini.example` 逐项对齐。最后更新：2026-09
-
 ## 优先级
 
-**环境变量 > config.ini > 内置默认值**。环境变量即使为空字符串也视为"已设置"。
+`/botconfig` 写入的运行时策略 > 环境变量 > `config.ini` > 内置默认值。
 
-## 环境变量
+运行时策略只覆盖频道、审核群、两类审核开关和署名开关；`/botconfig reset` 删除覆盖。
+敏感值始终通过环境变量、Secrets 或 `config.ini` 管理。
+
+## 核心配置
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `TOKEN` | 无（必填） | 机器人 Token。**兼容别名**：`BOT_TOKEN`、`TELEGRAM_BOT_TOKEN`（Fly.io 旧文档写的是 `BOT_TOKEN`，现已互通，推荐统一用 `TOKEN`） |
-| `CHANNEL_ID` | 无（必填） | 目标频道，`@用户名` 或 `-100…` 数字 ID；兼容别名 `CHANNEL` |
-| `OWNER_ID` | 无 | 所有者 User ID（整数），自动并入管理员列表 |
-| `ADMIN_IDS` | 空 | 管理员 ID 列表，逗号分隔 |
-| `BOT_MODE` | `MIXED` | `MEDIA` / `DOCUMENT` / `MIXED`；混合模式自动区分媒体和附件文件 |
-| `ALLOWED_FILE_TYPES` | `*` | 文档模式允许的类型（扩展名或 MIME，逗号分隔） |
-| `SHOW_SUBMITTER` | `true` | 发布的帖子是否显示投稿人 |
-| `NOTIFY_OWNER` | `true` | 发布完成后是否私聊通知所有者；不会转发审核群或频道原帖 |
-| `SUBMIT_LIMIT_PER_HOUR` | `10` | 每用户每小时投稿次数上限，`0` 关闭 |
-| `RUN_MODE` | `AUTO` | `AUTO` / `POLLING` / `WEBHOOK`；AUTO 有有效公网 HTTPS URL 时选 Webhook，否则 Polling |
-| `WEBHOOK_URL` | 空 | Webhook 公网入口，如 `https://app.fly.dev`；AUTO 模式下可留空 |
-| `WEBHOOK_PORT` / `WEBHOOK_PATH` | `8080` / `/webhook` | 监听端口与路径 |
-| `WEBHOOK_SECRET_TOKEN` | 自动生成 | Telegram 回调校验令牌 |
-| `SEARCH_ENABLED` | `true` | 关闭后完全不建/写索引 |
-| `SEARCH_INDEX_DIR` | `data/search_index` | 索引目录 |
-| `SEARCH_ANALYZER` | `jieba` | `jieba`（未安装时自动回退 `simple`）/ `simple` |
+| `TOKEN` | 必填 | Bot Token；兼容 `BOT_TOKEN`、`TELEGRAM_BOT_TOKEN` |
+| `CHANNEL_ID` | 必填 | `@channel` 或 `-100…`；兼容 `CHANNEL` |
+| `OWNER_ID` | 空 | 唯一所有者 ID；自动加入 `ADMIN_IDS` |
+| `ADMIN_IDS` | 空 | 逗号分隔；只用于明确标为 Admin 的操作 |
+| `BOT_MODE` | `MIXED` | `MEDIA`、`DOCUMENT` 或 `MIXED` |
+| `ALLOWED_FILE_TYPES` | `*` | 文档扩展名或 MIME，逗号分隔 |
+| `SHOW_SUBMITTER` | `true` | 频道是否显示投稿人 |
+| `NOTIFY_OWNER` | `true` | 发布完成后是否私聊 Owner |
+| `SUBMIT_LIMIT_PER_HOUR` | `10` | 每用户每小时投稿次数；`0` 关闭 |
+| `ALLOWED_TAGS` | `30` | 单次最大标签数 |
+| `TIMEOUT` | `300` | 数据库中过期上传数据的清理阈值（秒） |
+| `SESSION_TIMEOUT` | `900` | 聊天投稿会话无操作超时（秒） |
+| `TZ` | `Asia/Shanghai` | IANA 时区名；用于每日维护任务 |
+
+## 运行模式与 HTTP
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `RUN_MODE` | `AUTO` | `AUTO`、`POLLING` 或 `WEBHOOK` |
+| `WEBHOOK_URL` | 空 | 公网 HTTPS 根地址，不含 `/webhook` |
+| `WEBHOOK_PORT` | `8080` | HTTP 监听端口；多 Bot 父路由使用此端口 |
+| `WEBHOOK_PATH` | `/webhook` | 单 Bot 回调路径；多 Bot 自动改为 `/webhook/botN` |
+| `WEBHOOK_SECRET_TOKEN` | 随机生成 | Telegram Webhook 请求校验令牌 |
+| `HEALTH_PORT` | `8080` | Polling 单 Bot 的健康/API 端口 |
+| `API_ENABLED` | `true` | 是否挂载 `/api/v1/*` |
+| `ROUTER_TIMEOUT_SECONDS` | `300` | 多 Bot 父路由的上游总超时 |
+| `UPLOAD_SESSION_MAX_AGE_SECONDS` | `3600` | 强制中断后遗留上传目录的清理年龄 |
+
+`AUTO` 只有在 `WEBHOOK_URL` 是公网 HTTPS 地址时才选择 Webhook；自动选择的 Webhook
+注册失败会回退 Polling。强制 `WEBHOOK` 失败则退出。
+
+## 搜索与存储
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `DB_PATH` | `data/submissions.db` | SQLite 路径 |
+| `DB_CACHE_KB` | `4096` | SQLite page cache；低内存可设 `1024` |
+| `SEARCH_ENABLED` | `true` | 是否建立并写入搜索索引 |
+| `SEARCH_INDEX_DIR` | `data/search_index` | Whoosh 索引目录 |
+| `SEARCH_ANALYZER` | `jieba` | `jieba`；未安装时回退 `simple` |
 | `SEARCH_HIGHLIGHT` | `false` | 搜索结果高亮 |
-| `DB_CACHE_KB` | `4096` | SQLite page cache（KB） |
-| `TIMEOUT` | `300` | 过期投稿数据清理截止（秒） |
-| `SESSION_TIMEOUT` | `900` | 投稿会话不活动超时（秒），超时清理会话并提示 |
-| `HEALTH_PORT` | `8080` | Polling 模式健康检查端口（多 bot 时自动错开为 8081/8082/…） |
-| `DB_PATH` | `data/submissions.db` | 数据库文件路径（多 bot 时默认按 bot 隔离） |
-| `RUNTIME_POLICY_PATH` | 与数据库同目录的 `runtime-policy.json` | `/botconfig` 保存的非敏感运行策略；多 bot 自动隔离，优先于部署环境变量 |
-| `API_ENABLED` | `true` | 是否启用 HTTP API（Polling/Webhook 均支持 `/api/v1`，供外部项目投稿） |
-| `API_REVIEW_REQUIRED` | `false` | HTTP API 投稿是否进入审核队列 |
-| `CHAT_REVIEW_REQUIRED` | `false` | Telegram `/submit` 投稿是否进入审核队列 |
-| `REVIEW_CHAT_ID` | 空 | 私有审核群 ID；任一审核开关为 `true` 时必填。**不能等于 `CHANNEL_ID`**：审核预览、控制消息与 PixivFlow 通知会以"回复/散帖"混进频道，启动时会直接报错拒绝该配置 |
-| `REVIEW_PREVIEW_INTERVAL_SECONDS` | `0.75` | 多文件审核预览发送间隔；低配实例建议保持默认值以减少 Telegram flood |
-| `REVIEW_PREVIEW_TIMEOUT_SECONDS` | `120` | 单个审核预览上传/响应超时；大图、多页作品或慢网络不要设得过低 |
-| `REVIEW_PREVIEW_THREAD` | `1` | 审核群后续相册/文件/控制消息是否回复上一批（回复链）；置 `0` 取消回复关系 |
-| `PENDING_REVIEW_RETENTION_DAYS` | `0` | 待审核投稿自动过期天数；`0` 表示永久保留。过期会删除审核群预览并保留轻量审计记录；Telegram Bot API 仅保证删除 48 小时内消息，需要清群时建议设 `1` |
-| `PENDING_REVIEW_CLEANUP_BATCH_SIZE` | `100` | 每轮最多过期的待审核投稿数（1–200），避免集中调用 Telegram 删除接口 |
-| `REVIEW_RETENTION_DAYS` | `30` | 已发布、已删除、拒绝、失败或过期记录的数据库保留天数；不负责待审核队列过期 |
-| `PIXIVFLOW_ENABLED` | `false` | 多 Bot supervisor 是否同时监督 PixivFlow 子进程 |
-| `PIXIVFLOW_CONFIG` | `/app/data/pixivflow/config.json` | 持久化配置路径；支持文件监听热重载 |
-| `PIXIVFLOW_CONFIG_TEMPLATE` | npm 包内双 Bot 模板 | 首次启动时复制到持久卷的模板路径 |
-| `PIXIVFLOW_COMMAND` | `pixivflow scheduler` | PixivFlow 子进程命令，通常无需修改 |
-| `PIXIV_DB_CACHE_KB` | `8192` | PixivFlow SQLite 页缓存；512 MiB 联合档建议 `4096` |
+| `RUNTIME_POLICY_PATH` | 数据库同目录 | `/botconfig` 的 JSON 文件 |
 
-## 多 bot 模式（BOT{n}_*）
+数据库使用 WAL。备份时执行 checkpoint，或同时复制 `.db`、`-wal` 和 `-shm`。
 
-设置 `BOT1_TOKEN` 即进入多 bot 模式：容器入口 `run.py` 会为每个 bot 派生独立子进程，
-数据目录自动隔离为 `data/botN/`（数据库与搜索索引互不干扰）。
+## 审核
 
-每个子进程的 `/botconfig` 策略默认保存在 `data/botN/runtime-policy.json`。修改后只让
-当前 Bot 子进程退出并由 supervisor 拉起，另一个 Bot 和 PixivFlow 不受影响；使用
-`/botconfig reset` 可删除覆盖并恢复部署环境变量。
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `API_REVIEW_REQUIRED` | `false` | HTTP API 投稿进入审核群 |
+| `CHAT_REVIEW_REQUIRED` | `false` | Telegram 聊天投稿进入审核群 |
+| `REVIEW_CHAT_ID` | 空 | 任一审核开关启用时必填，且不能等于频道 |
+| `REVIEW_ALBUM_SIZE` | `5` | 审核预览每组 1–10 个 |
+| `REVIEW_PREVIEW_INTERVAL_SECONDS` | `0.75` | 预览组之间的节流间隔 |
+| `REVIEW_PREVIEW_TIMEOUT_SECONDS` | `120` | 单次审核预览 Telegram I/O 超时 |
+| `REVIEW_PREVIEW_THREAD` | `1` | 后续预览和控制消息回复上一条 |
+| `PENDING_REVIEW_RETENTION_DAYS` | `0` | 待审过期天数；`0` 永久保留 |
+| `PENDING_REVIEW_CLEANUP_BATCH_SIZE` | `100` | 每轮最多过期 1–200 条 |
+| `REVIEW_RETENTION_DAYS` | `30` | 已决审核和 API 通知幂等记录保留天数 |
 
-每个 bot 可用 `BOT{n}_<KEY>` 覆盖以下全局项：
+Telegram 只保证 Bot 可删除 48 小时内消息；需要自动清理审核群时通常把待审保留设为 1 天。
 
-| 前缀变量 | 覆盖目标 |
+## 多 Bot
+
+存在 `BOT1_TOKEN` 时，`run.py` 进入多 Bot 模式，并连续读取
+`BOT1_TOKEN`、`BOT2_TOKEN`……中间不能缺号。每个 Bot 至少配置：
+
+```env
+BOT1_TOKEN=...
+BOT1_CHANNEL_ID=@channel_one
+BOT1_OWNER_ID=123456789
+BOT2_TOKEN=...
+BOT2_CHANNEL_ID=@channel_two
+BOT2_OWNER_ID=123456789
+```
+
+可用 `BOT{n}_` 覆盖 `run.py` 的 `OVERRIDABLE_KEYS`：Owner/Admin、显示与通知、Bot
+模式、文件类型、限频、审核、数据库、搜索、健康端口、超时、运行模式和 Webhook
+Secret。默认数据目录为 `data/botN/`，父路由固定提供：
+
+- `/webhook/botN`
+- `/api/botN/v1/*`
+
+## PixivFlow 联合进程（兼容模式）
+
+`PIXIVFLOW_ENABLED=true` 会让 TelePost supervisor 同时拉起 PixivFlow。相关变量：
+
+| 变量 | 默认 |
 |---|---|
-| `BOT{n}_TOKEN` / `BOT{n}_CHANNEL_ID` | 必填，各 bot 的凭据与目标频道 |
-| `BOT{n}_OWNER_ID` / `BOT{n}_ADMIN_IDS` | 各 bot 的管理员 |
-| `BOT{n}_SHOW_SUBMITTER` / `BOT{n}_NOTIFY_OWNER` / `BOT{n}_BOT_MODE` / `BOT{n}_ALLOWED_FILE_TYPES` | 各 bot 的行为开关 |
-| `BOT{n}_DB_PATH` / `BOT{n}_SEARCH_INDEX_DIR` / `BOT{n}_SEARCH_ENABLED` / `BOT{n}_SEARCH_ANALYZER` | 各 bot 的存储与搜索 |
-| `BOT{n}_SUBMIT_LIMIT_PER_HOUR` / `BOT{n}_HEALTH_PORT` / `BOT{n}_TIMEOUT` | 各 bot 的限频/端口/超时 |
-| `BOT{n}_API_REVIEW_REQUIRED` / `BOT{n}_CHAT_REVIEW_REQUIRED` / `BOT{n}_REVIEW_CHAT_ID` | 各 bot 的 API/聊天审核开关与私有审核群 |
+| `PIXIVFLOW_CONFIG` | `/app/data/pixivflow/config.json` |
+| `PIXIVFLOW_CONFIG_TEMPLATE` | 镜像内模板 |
+| `PIXIVFLOW_COMMAND` | `pixivflow scheduler` |
 
-Webhook 模式下回调路径自动分配为 `/webhook/botN`（详见 [WEBHOOK_MODE.md](WEBHOOK_MODE.md)）。
+该模式需要包含 Node/PixivFlow 的 `runtime-pixivflow` 镜像，并且必须常驻才能运行 Cron。
+Fly.io 省钱部署应把 PixivFlow 拆到独立常驻 Machine，TelePost 保持自动休眠。
 
-## config.ini
+## `config.ini`
 
-节与键与上表一一对应：`[BOT]`（TOKEN/CHANNEL_ID/OWNER_ID/ADMIN_IDS/BOT_MODE/RUN_MODE/ALLOWED_FILE_TYPES/SHOW_SUBMITTER/NOTIFY_OWNER/SUBMIT_LIMIT_PER_HOUR/API_REVIEW_REQUIRED/CHAT_REVIEW_REQUIRED/REVIEW_CHAT_ID/TIMEOUT/ALLOWED_TAGS/DB_PATH）、`[WEBHOOK]`（URL/PORT/PATH/SECRET_TOKEN）、`[SEARCH]`（ENABLED/INDEX_DIR/ANALYZER/HIGHLIGHT）、`[DB]`（CACHE_SIZE_KB）。
-`ALLOWED_TAGS` 默认 30；`DB_PATH` 默认 `data/submissions.db`。完整带注释模板见 [`config.ini.example`](../config.ini.example)。
+完整模板是仓库根目录的 [`config.ini.example`](../config.ini.example)。常用映射：
 
-## 数据库
+- `[BOT]`：核心配置、运行模式与审核
+- `[WEBHOOK]`：`URL`、`PORT`、`PATH`、`SECRET_TOKEN`
+- `[SEARCH]`：`INDEX_DIR`、`ENABLED`、`ANALYZER`、`HIGHLIGHT`
+- `[DB]`：`CACHE_SIZE_KB`
 
-- `data/submissions.db`（WAL 模式）：`submissions`（进行中的聊天投稿会话）、`pending_reviews`（API/聊天审核记录与 Telegram `file_id`）、`api_notifications`（可跨重启的通知幂等记录）与 `published_posts`（已发布帖子）。`published_posts.is_deleted=1` 时，关联审核状态会同步为 `deleted`；`published` 不再包含已删除帖子。
-- 备份时请连同 `-wal`/`-shm` 文件或先执行 checkpoint。
-
-## 常见误区
-
-- ❌ 只设置 `BOT_TOKEN`：旧版代码只读 `TOKEN` 会启动失败；当前版本两者皆可，但文档统一推荐 `TOKEN`。
-- ❌ 数据目录无写权限：数据库/索引/日志均写在项目 `data/`、`logs/` 下。
-- `jieba` 未安装时搜索引擎自动退回 `simple` 分词（整词匹配中文），见 [PERFORMANCE](PERFORMANCE.md)。
-
----
-最后更新：2026-09
+并非所有高级环境变量都有 INI 映射；部署平台优先使用环境变量/Secrets。

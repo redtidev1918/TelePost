@@ -1,57 +1,41 @@
-# 内部设计：投稿会话状态机
+# 内部设计：聊天投稿状态机
 
-> 面向开发者。最后更新：2026-09
+## 状态与入口
 
-## 概览
+`handlers/conversation.py` 注册唯一的 `ConversationHandler`：
 
-聊天投稿（`/submit`）收敛为**三个阶段、单一数据源**：
-
-```
-入口(/submit + 「📝 开始投稿」按钮)
-   │
-   ▼
-UPLOAD ──(媒体/文档消息)──▶ UPLOAD ──(/done_media | /skip_media)──▶ PREVIEW
-                                                                     │
-                                              ┌──────────────────────┤
-                                              ▼ 编辑按钮              ▼ 确认发布
-                                            EDIT ──(输入新值)──▶ PREVIEW ──▶ publish_submission
+```text
+/submit 或“开始投稿”
+        │
+        ▼
+UPLOAD ── /done_media 或 /skip_media ──▶ PREVIEW
+  ▲                                      │   │
+  └──────────── 补充媒体 ────────────────┘   ├─ 确认 → 发布/审核
+                                             └─ 编辑 → EDIT → PREVIEW
 ```
 
-状态定义在 `models/state.py`（`UPLOAD`/`PREVIEW`/`EDIT`），状态机注册在
-`handlers/conversation.py`（`build_submission_conversation`，生产与测试复用）。
+状态常量在 `models/state.py`；处理器分别位于 `handlers/upload.py`、
+`handlers/preview_handlers.py` 和 `handlers/publish.py`。
 
-## 单一数据源
+## 持久化边界
 
-会话真相只有一行：`submissions` 表（`user_id` 主键）。内存状态机只描述"当前在
-哪个阶段"；用户填写的媒体/文档/标签/标题/简介/链接/匿名/剧透全部写回这一行。
+- 投稿字段的真相是 SQLite `submissions` 行；读写集中在 `utils/submission.py`。
+- ConversationHandler 状态由 `PicklePersistence` 保存到数据库同目录的
+  `persistence.pickle`，正常重启、Fly auto-stop 和发版后可以恢复会话。
+- `SESSION_TIMEOUT` 到期后会清理过期会话；恢复能力不等于永久保留。
+- 多 Bot 为每个 Bot 使用独立的 `data/botN/`，数据库与 persistence 不共享。
 
-所有读写集中在 `utils/submission.py`：
+## 消息归类与发布
 
-- `classify_message(message)` —— 消息 → `type:file_id[:filename]`（唯一归类实现）
-- `get_session` / `create_session` / `append_entry` / `update_fields`
+`utils.submission.classify_message()` 是媒体/文档归类的唯一实现。发布与审核预览共用
+`handlers.publish.deliver_items_to_chat()`：图片/视频按最多 10 个分组，GIF、音频和
+文档按类型发送，后续消息回复上一段，caption 只放在首条。
 
-> 历史上媒体归类在 4 个文件各写一份、状态号 0–18 与 DB `mode` 双轨漂移，
-> 曾导致"点按钮只建 DB 行、不进状态机 → 发媒体静默无响应"。重构后归类只有
-> 一份、状态只有三个、数据源只有一行。
+## 修改规则
 
-## 各阶段 handler
+改状态机时至少跑：
 
-| 阶段 | 文件 | handler | 说明 |
-|---|---|---|---|
-| UPLOAD | `handlers/upload.py` | `handle_upload` / `done_upload` / `skip_upload` / `prompt_upload` | 媒体与文档统一归类追加；`BOT_MODE` 限制媒体/文档模式收哪些 |
-| PREVIEW | `handlers/preview_handlers.py` | `show_submission_preview` / `handle_toggle_*` / `handle_edit_field_callback` | 预览面板 + 匿名/剧透开关 + 编辑入口 |
-| EDIT | `handlers/preview_handlers.py` | `handle_edit_input` | `context.user_data['edit_field']` 区分字段，输入后回预览 |
-| 发布 | `handlers/publish.py` | `publish_submission` | 读会话行 → 审核或 `deliver_items_to_chat` |
-
-## 发布布局
-
-`handlers/publish.deliver_items_to_chat` 是频道与审核群共用的唯一布局引擎
-（详见该模块 docstring）：photo/video 相册 → GIF/音频逐条 → 文档组，每条链式回复，
-caption 只挂第一条。
-
-## 已知边界
-
-- `BOT_MODE` 为部署级配置（`MEDIA`/`DOCUMENT`/`MIXED`），用户不可在会话内切换；
-  `MIXED`（默认）接受媒体与文件混传。
-- 会话内存状态不跨进程重启保留；重启后需重新 `/submit`（DB 行由超时清理回收）。
-- 会话超时由 `check_conversation_timeout`（`main.py`）按 `SESSION_TIMEOUT` 判定。
+```bash
+./.venv/bin/python -m pytest -q --no-cov -o log_cli=false \
+  tests/test_conversation_flow.py tests/test_run_mode.py tests/test_shutdown.py
+```

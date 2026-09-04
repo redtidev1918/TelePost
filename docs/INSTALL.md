@@ -1,91 +1,96 @@
 # 安装与部署
 
-> 最后更新：2026-09。所有方式共用同一份配置（见 [CONFIGURATION.md](CONFIGURATION.md)），最少需要 `TOKEN` 与 `CHANNEL_ID` 两项，缺失会直接启动失败。
+## 选择方式
 
-## 选择部署方式
-
-| 方式 | 适合场景 | 前置要求 |
+| 方式 | 适合 | 需要 |
 |---|---|---|
-| [下载即用](#0-下载即用零依赖) | Windows/macOS/Linux 桌面 | 无（自带运行环境） |
-| [quickstart.sh](#1-quickstart-快速体验) | 本地快速体验 | Python 3.9+（Linux/macOS） |
-| [install.sh + systemd](#2-vps-生产部署) | 生产 VPS | root/sudo 的 Linux |
-| [install.bat](#4-windows-原生) | Windows 本地（无需 WSL/Docker） | Windows + Python 3.9+ |
-| [Docker / Compose](#3-docker) | 容器环境 | Docker |
-| [Fly.io](FLYIO_DEPLOYMENT.md) | 免运维 PaaS（Webhook） | flyctl |
-| [PythonAnywhere](PYTHONANYWHERE_DEPLOYMENT.md) | 低成本托管（Webhook） | 账号 |
+| Release 单文件 | 最少依赖、单 Bot | 无需预装 Python |
+| 源码 + venv | 开发、自管 VPS | Python 3.9+ |
+| Docker / Compose | 通用生产环境 | Docker |
+| Fly.io | Webhook、自动休眠 | `flyctl` |
 
-## 0. 下载即用（零依赖）
+PythonAnywhere 的旧适配不是当前受支持的生产路径，见
+[PYTHONANYWHERE_DEPLOYMENT.md](PYTHONANYWHERE_DEPLOYMENT.md)。
 
-不需要安装 Python / Docker / WSL 任何东西——可执行文件里已内置运行环境：
+## Release 单文件
 
-1. 从 [GitHub Releases](https://github.com/redtidev1918/TelePost/releases) 下载对应平台的
-   `telepost-<平台>`（v2.10.36 起每次发版自动生成）：Linux/Windows 为 x64，macOS 为 Apple Silicon 原生 arm64（Intel Mac 用 install.sh 或 Docker）；
-2. 双击/运行：首次会自动进入配置向导，按提示填 **Bot Token、频道、你的 ID** 三项即可；
-3. 再次运行即启动，配置与数据都保存在可执行文件同目录（`config.ini` / `data/` / `logs/`）。
+从 [Releases](https://github.com/redtidev1918/TelePost/releases/latest) 下载：
 
-小提示：Windows 首次运行若弹 SmartScreen，选"更多信息 → 仍要运行"；macOS 若被 Gatekeeper 拦截，
-右键文件 → 打开。想要开机自启可在系统里把它设为登录项。
+- `telepost-linux-x64`
+- `telepost-windows-x64.exe`
+- `telepost-macos-arm64`
 
-## 1. Quickstart（快速体验）
+Linux/macOS：
 
 ```bash
-git clone https://github.com/redtidev1918/TelePost.git && cd TelePost
-./quickstart.sh     # 引导式配置并启动
+chmod +x telepost-*
+./telepost-linux-x64
 ```
 
-## 2. VPS 生产部署
+首次运行会询问 Token、频道和 Owner ID，并在程序同目录写入 `config.ini`。再次运行启动；
+以后可执行 `./telepost-linux-x64 --setup` 重配。macOS 产物只支持 Apple Silicon，Intel
+Mac 请使用源码或 Docker。
+
+## 源码运行
 
 ```bash
-sudo ./install.sh   # 创建 venv、写入 config.ini、注册 systemd 服务
+git clone https://github.com/redtidev1918/TelePost.git
+cd TelePost
+python3 -m venv .venv
+./.venv/bin/pip install -r requirements.txt
+./.venv/bin/python run.py --setup
+./.venv/bin/python run.py
 ```
-管理：`systemctl {start|stop|restart|status} telepost`（服务名以脚本实际注册为准）。更新用 `./update.sh`。
 
-## 3. Docker
+`run.py` 是统一入口；不要直接用 `main.py` 启动多 Bot。配置可改为环境变量，见
+[CONFIGURATION.md](CONFIGURATION.md)。
 
-拉预构建镜像（不需要本地源码）：
+仓库也保留了 `quickstart.sh`、`install.sh`、`start.sh`、`restart.sh` 和 `update.sh`，
+适合交互式安装；自动化环境建议使用上面的显式命令。
+
+## Docker Compose
+
+在仓库根目录创建 `.env`：
+
+```env
+TOKEN=123456:replace-me
+CHANNEL_ID=@your_channel
+OWNER_ID=123456789
+```
+
+启动：
 
 ```bash
-mkdir telepost && cd telepost
-# 建 .env（TOKEN/CHANNEL_ID/OWNER_ID 三行，compose 自动读取），然后：
+docker compose pull
 docker compose up -d
+docker compose logs -f telepost
 ```
 
-镜像内置 `HEALTHCHECK`，每 30 秒请求 `http://localhost:8080/health`：
-  - **Polling 模式**：由 `utils/polling_server.py` 在同一事件循环提供 `/health` 与 `/api/v1/*`；
-  - **Webhook 模式**：由 `utils/webhook_server.py` 在同一端口提供 `/webhook`、`/health` 与 `/api/v1/*`。
-- 默认 `RUN_MODE=AUTO`：配置有效公网 HTTPS `WEBHOOK_URL` 时使用 Webhook，否则自动使用 Polling；Webhook 注册失败也会安全回退 Polling。
-- 持久化：容器内 `data/`（数据库+索引）与 `logs/` 需要卷映射，参考 `docker-compose.yml`。
-- 离线/受限网络拉不动镜像时，改用 `docker compose up -d --build` 本地构建。
+`docker-compose.yml` 默认使用 `ghcr.io/redtidev1918/telepost:latest`，并把 `./data`、
+`./logs` 挂载到容器。生产环境建议固定版本，例如 `2.10.39`，升级前备份 `data/`。
 
-## 4. Windows 原生
+需要 Webhook 时自行映射 8080 并提供公网 HTTPS 反向代理；无公网地址保持
+`RUN_MODE=AUTO` 或 `POLLING`。
 
-不需要 WSL 或 Docker（Windows 版 Python 官方安装包自带 venv/pip，无 Linux 的 `python3-venv` 问题）：
+## Fly.io
 
-1. 到 https://www.python.org/downloads/ 装 Python 3.9+，安装时勾选 **Add python.exe to PATH**；
-2. 双击 `install.bat`（建 venv、装依赖、引导生成 `config.ini`）；
-3. 双击 `run.bat` 启动，窗口关着就停；要开机自启用「任务计划程序」加一条登录时运行 `run.bat`。
+Fly.io 使用预构建镜像、持久卷和 Webhook。单 Bot、双 Bot以及“PixivFlow 常驻 +
+TelePost 自动休眠”完整配置见 [FLYIO_DEPLOYMENT.md](FLYIO_DEPLOYMENT.md)。
 
-长期在线的服务端仍建议 Linux/Docker/Fly，桌面本机 Windows 用上面两个 bat 即可。
+## 首次运行核对
 
-## 4/5. Fly.io 与 PythonAnywhere
+1. Bot 已加入频道并有发帖权限。
+2. `OWNER_ID` 是个人用户 ID，不是群或频道 ID。
+3. 审核群与投稿频道不是同一个会话。
+4. `curl http://127.0.0.1:8080/health` 返回 200。
+5. 向 Bot 发送 `/start` 和一次测试投稿。
+6. Webhook 部署再检查 `getWebhookInfo` 的 URL、待处理数和最近错误。
 
-见对应指南：[FLYIO_DEPLOYMENT.md](FLYIO_DEPLOYMENT.md)、[PYTHONANYWHERE_DEPLOYMENT.md](PYTHONANYWHERE_DEPLOYMENT.md)。两者均为 Webhook 模式；**设置密钥时使用 `TOKEN`**（`BOT_TOKEN` 亦兼容）：
+## 升级与卸载
 
-```bash
-flyctl secrets set TOKEN=xxx CHANNEL_ID=@xxx OWNER_ID=xxx WEBHOOK_URL=https://xxx.fly.dev
-```
+- 单文件：停止旧进程，备份同目录的 `config.ini` 与 `data/`，替换可执行文件。
+- Git：备份数据后 `git pull --ff-only`，更新依赖并重启。
+- Compose：固定新镜像版本，`docker compose pull && docker compose up -d`。
+- Fly.io：先建 Volume snapshot，再更新固定版本镜像。
 
-## 首次启动核对清单
-
-- [ ] 日志出现 `配置加载完成`、`数据库初始化完成`、命令菜单设置成功
-- [ ] `curl localhost:8080/health` 返回 200
-- [ ] 向机器人发送 `/start` 有响应；`/submit` 能进入投稿流程
-- [ ] 完成一次投稿，频道收到消息且 OWNER 收到通知
-
-## 更新与卸载
-
-- 更新：`./update.sh`（拉取代码 + 依赖 + 重启）
-- 卸载：`./uninstall.sh`（含 systemd 服务清理）
-
----
-最后更新：2026-08
+卸载程序前先保存 `data/`；SQLite、运行时策略和会话持久化都在其中。

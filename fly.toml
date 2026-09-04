@@ -33,18 +33,16 @@ primary_region = ""
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = true
+  auto_stop_machines = "stop"
   auto_start_machines = true
   min_machines_running = 0
   
-  # 健康检查
-  [http_service.checks]
-    [http_service.checks.health]
-      grace_period = "10s"
-      interval = "30s"
-      method = "GET"
-      timeout = "5s"
-      path = "/health"
+  [[http_service.checks]]
+    grace_period = "60s"
+    interval = "60s"
+    method = "GET"
+    timeout = "30s"
+    path = "/health"
 
 # 虚拟机配置
 [[vm]]
@@ -52,12 +50,10 @@ primary_region = ""
   cpus = 1
   memory_mb = 256
 
-# 挂载持久化存储（可选，用于数据持久化）
-# 取消注释以下配置来启用持久化存储
-# [[mounts]]
-#   source = "telepost_data"
-#   destination = "/app/data"
-#   initial_size = "1gb"
+# 数据库、运行时策略与会话状态必须放在持久卷。
+[[mounts]]
+  source = "telepost_data"
+  destination = "/app/data"
 
 # 注意：
 # 1. 敏感信息（TOKEN, CHANNEL_ID, OWNER_ID, WEBHOOK_URL）应使用 flyctl secrets set 设置

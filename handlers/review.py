@@ -122,13 +122,14 @@ def _caption_data(*, tags, title, note, link, anonymous, spoiler, user_id, usern
     }
 
 
-def _result_from_row(row) -> dict:
+def _result_from_row(row, *, reused: bool = False) -> dict:
     status = "pending_review" if row["status"] == "pending" else row["status"]
     result = {
         "status": status,
         "review_id": row["id"],
         "media_count": len(json.loads(row["media_json"] or "[]")),
         "document_count": len(json.loads(row["documents_json"] or "[]")),
+        "reused": reused,
     }
     if row["published_message_id"]:
         result["message_id"] = row["published_message_id"]
@@ -187,6 +188,52 @@ def _review_message_ids(row) -> list[int]:
     if control_message_id:
         message_ids.append(int(control_message_id))
     return list(dict.fromkeys(message_ids))
+
+
+async def _notify_reused_review(bot, row) -> None:
+    """Make an idempotent reuse visible without uploading the media again."""
+    labels = {
+        "pending": "待审核",
+        "failed": "发布失败，可重试",
+        "published": "已发布，本次未重复发布",
+    }
+    text = (
+        "♻️ 收到重复投稿，已复用现有审核\n"
+        f"审核：#{row['id']}\n"
+        f"状态：{labels.get(row['status'], row['status'])}\n"
+        "媒体未重复上传，原审核记录仍有效。"
+    )
+    kwargs = {
+        "chat_id": REVIEW_CHAT_ID,
+        "text": text,
+        "disable_web_page_preview": True,
+        **_review_timeout_kwargs(),
+    }
+    if str(row["review_chat_id"]) == str(REVIEW_CHAT_ID):
+        message_ids = _review_message_ids(row)
+        if message_ids:
+            kwargs.update(
+                reply_to_message_id=message_ids[-1],
+                allow_sending_without_reply=True,
+            )
+    await _send_preview_throttled(lambda: bot.send_message(**kwargs))
+    logger.info(
+        "重复投稿已在审核群提示: review_id=%s status=%s",
+        row["id"], row["status"],
+    )
+
+
+async def _reuse_review(bot, row, target_id: str = "") -> dict:
+    """Backfill source identity, notify reviewers, and return a reusable result."""
+    if target_id and not row["target_id"]:
+        async with get_db() as conn:
+            await conn.execute(
+                "UPDATE pending_reviews SET target_id=?, updated_at=? "
+                "WHERE id=? AND COALESCE(target_id, '')=''",
+                (target_id, time.time(), row["id"]),
+            )
+    await _notify_reused_review(bot, row)
+    return _result_from_row(row, reused=True)
 
 
 async def expire_stale_reviews(bot, *, now: Optional[float] = None) -> int:
@@ -706,7 +753,7 @@ async def _create_review(
                 raise
             if existing["status"] in ("pending", "failed"):
                 await _delete_messages(bot, review_message_ids)
-                return _result_from_row(existing)
+                return await _reuse_review(bot, existing, target_id)
             if (
                 existing["status"] == "published"
                 and (existing["decided_at"] or 0) >= time.time() - PUBLISHED_DEDUP_WINDOW_SECONDS
@@ -716,7 +763,7 @@ async def _create_review(
                     "跳过已发布作品的重复投递: idempotency_key=%s review_id=%s",
                     idempotency_key, existing["id"],
                 )
-                return _result_from_row(existing)
+                return await _reuse_review(bot, existing, target_id)
             await _delete_messages(bot, json.loads(existing["review_message_ids"] or "[]"))
             if existing["control_message_id"]:
                 await _delete_messages(bot, [existing["control_message_id"]])
@@ -779,6 +826,7 @@ async def _create_review(
         "review_id": review_id,
         "media_count": len(media),
         "document_count": len(documents),
+        "reused": False,
     }
 
 
@@ -807,8 +855,10 @@ async def queue_review_from_files(
     key = _normalized_idempotency_key(user_id, idempotency_key, source)
     existing = await _find_review(key)
     if existing is not None:
-        _cleanup_local_files(files)
-        return _result_from_row(existing)
+        try:
+            return await _reuse_review(bot, existing, target_id)
+        finally:
+            _cleanup_local_files(files)
 
     data = _caption_data(
         tags=tags, title=title, note=note, link=link,
@@ -864,7 +914,7 @@ async def queue_review_from_file_ids(
     key = _normalized_idempotency_key(user_id, idempotency_key, source)
     existing = await _find_review(key)
     if existing is not None:
-        return _result_from_row(existing)
+        return await _reuse_review(bot, existing, target_id)
 
     data = _caption_data(
         tags=tags, title=title, note=note, link=link,

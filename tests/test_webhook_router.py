@@ -2,10 +2,28 @@
 多 bot webhook 路由测试（run.py build_router_app / build_bot_env webhook 分支）
 """
 import os
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 import run as run_mod
+
+
+@pytest.mark.asyncio
+async def test_wait_for_bot_port_retries_until_ready(monkeypatch):
+    writer = MagicMock()
+    writer.wait_closed = AsyncMock()
+    connect = AsyncMock(side_effect=[OSError("not ready"), (object(), writer)])
+    monkeypatch.setattr(run_mod.asyncio, "open_connection", connect)
+    sleep = AsyncMock()
+    monkeypatch.setattr(run_mod.asyncio, "sleep", sleep)
+
+    await run_mod._wait_for_bot_port(8081)
+
+    assert connect.await_count == 2
+    sleep.assert_awaited_once_with(0.1)
+    writer.close.assert_called_once_with()
+    writer.wait_closed.assert_awaited_once_with()
 
 
 class TestWebhookMapping:

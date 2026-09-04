@@ -1,44 +1,30 @@
 # 内部设计：删帖与软删除
 
-> 面向开发者。最后更新：2026-08
+## 入口
 
-## 概览
+- Owner 在搜索或个人投稿列表点删除并确认。
+- Owner/Admin 使用 `/delete_posts <ID...>` 批量处理；支持单 ID、范围，单次最多 50 个。
 
-删帖采用**软删除**：`published_posts.is_deleted` 置 1，保留历史记录；同时删除频道消息（含关联消息）与搜索索引条目。入口有两类：
+二者最终都删除频道主消息及关联回复、移除搜索索引，并把
+`published_posts.is_deleted` 设为 `1`。审核记录从 `published` 同步为 `deleted`，原
+批准人和时间保留。
 
-1. OWNER 通过搜索/`/myposts` 列表的 🗑️ 按钮 → `delete_post_` 回调 → 确认键盘 → `confirm_delete_post_<id>` → `execute_delete_post`（`handlers/callback_handlers.py`）；
-2. OWNER `/delete_posts` 批量命令 → `delete_posts_batch`（`handlers/search_handlers.py`），支持 `100-110 150` 范围+单 ID 混合，单次上限 50。
+## 数据约定
 
-## 执行步骤（execute_delete_post）
+- `published_posts.message_id` 是频道主消息 ID。
+- `related_message_ids` 是 JSON 数组。
+- 时间字段是 Unix 时间 `publish_time`。
+- 数据库内部行号用 `rowid`；表中没有通用 `id` 或 `created_at`。
 
-1. `SELECT rowid AS post_id, message_id, related_message_ids, is_deleted ... WHERE message_id=?`（不存在/已删则提前返回）；
-2. 删除频道主消息与 `related_message_ids` 中的关联消息；"消息不存在/无法删除"视为已达目标；
-3. `search_engine.delete_post(message_id)` 移除索引（含关联消息；`SEARCH_ENABLED=false` 时跳过）；
-4. `UPDATE published_posts SET is_deleted=1 WHERE rowid=?`；数据库触发器同步将关联
-   `pending_reviews.status` 从 `published` 改为 `deleted`；
-5. 汇总各步结果回复 OWNER。
-
-## 频道外部删帖限制
-
-Telegram Bot API 不提供无副作用读取任意频道消息或接收频道删帖事件的接口，因此不再通过
-“转发给 OWNER 后立即删除”探测消息是否存在。由 TelePost 的删除入口执行时会正常软删除；若在
-Telegram 客户端直接删除频道消息，数据库不会自动感知，可用 `/delete_posts` 同步软删除记录。
-
-## 表结构相关列
-
-`published_posts`：`message_id`（频道消息 ID，主键）、`related_message_ids`（JSON 数组，多组媒体的其余消息）、`is_deleted`（0/1，默认 0）、`publish_time`（Unix REAL）。
-注意：表中没有 `id`/`created_at` 列——按库内 ID 查询用 `rowid`，时间用 `publish_time`。
-
-`pending_reviews`：`published_message_id` 关联频道主消息。`status=published`
-表示审核后发布且当前未软删除；频道消息软删除后为 `deleted`。
-`decided_at` / `decided_by` 保留原批准审核信息，不会被删除时间覆盖。
+Telegram 不会向 Bot 推送“管理员在客户端删除频道消息”的事件，因此这种外部删除不会
+自动同步数据库。应使用 TelePost 的删除入口，或随后手工软删除并同步索引。
 
 ## 恢复
+
+恢复数据库可见性：
 
 ```sql
 UPDATE published_posts SET is_deleted = 0 WHERE message_id = ?;
 ```
-随后 `/sync_index` 重建索引条目；频道消息如需恢复须另行重发（机器人不缓存媒体原文以外的 file_id 之外的下载副本）。
 
----
-最后更新：2026-08
+随后运行 `/sync_index`。频道原消息已经被 Telegram 删除时无法原地恢复，只能重新发布。

@@ -42,6 +42,22 @@ ROUTER_CLIENT_MAX_BYTES = 510 * 1024 * 1024
 _STORAGE_METRICS_CACHE = {"expires_at": 0.0, "value": None}
 
 
+async def _wait_for_bot_port(port: int, timeout: float = 5.0) -> None:
+    """Give auto-started bot children a short window to bind their port."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        try:
+            _reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.close()
+            await writer.wait_closed()
+            return
+        except OSError:
+            if loop.time() >= deadline:
+                raise
+            await asyncio.sleep(0.1)
+
+
 def _process_rss_snapshot(proc_root: str = "/proc") -> list[dict]:
     """Report Python and Node RSS even when a runtime changes its thread name."""
     processes = []
@@ -443,6 +459,7 @@ def build_router_app(indices: list):
     app = web.Application(client_max_size=ROUTER_CLIENT_MAX_BYTES)
     app.cleanup_ctx.append(client_session_context)
     app.router.add_get("/health", health)
+
     def make_relay(index: int, strip: str | None, prepend: str = ""):
         async def relay(request):
             path_qs = request.path_qs
@@ -450,7 +467,8 @@ def build_router_app(indices: list):
                 path_qs = path_qs[len(strip):] or "/"
             if prepend:
                 path_qs = prepend + path_qs
-            target = f"http://127.0.0.1:{bot_webhook_port(index)}{path_qs}"
+            port = bot_webhook_port(index)
+            target = f"http://127.0.0.1:{port}{path_qs}"
             headers = {
                 k: v for k, v in request.headers.items()
                 if k.lower() not in {
@@ -461,6 +479,7 @@ def build_router_app(indices: list):
             }
             downstream = None
             try:
+                await _wait_for_bot_port(port)
                 session = request.app[session_key]
                 async with session.request(
                     request.method,

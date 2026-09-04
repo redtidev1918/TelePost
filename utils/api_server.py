@@ -201,13 +201,13 @@ def add_api_routes(web_app, application) -> None:
                     "spoiler": _fields_bool(payload, "spoiler"),
                     "user_id": user_id,
                     "username": username,
-                    "target_id": _fields_target_id(payload),
                 }
                 if API_REVIEW_REQUIRED:
                     from handlers.review import queue_review_from_file_ids
                     result = await queue_review_from_file_ids(
                         bot, media, documents,
                         idempotency_key=_fields_idempotency_key(payload),
+                        target_id=_fields_target_id(payload),
                         **common,
                     )
                 else:
@@ -305,13 +305,13 @@ def add_api_routes(web_app, application) -> None:
                 "spoiler": spoiler,
                 "user_id": user_id,
                 "username": username,
-                "target_id": _fields_target_id(fields),
             }
             if API_REVIEW_REQUIRED:
                 from handlers.review import queue_review_from_files
                 result = await queue_review_from_files(
                     bot, files,
                     idempotency_key=_fields_idempotency_key(fields),
+                    target_id=_fields_target_id(fields),
                     **common,
                 )
             else:

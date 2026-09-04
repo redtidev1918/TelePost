@@ -1,77 +1,81 @@
 # 命令参考
 
-> 与 `main.py` 中实际注册的处理器一一对应。最后更新：2026-09
+## 权限
+
+- **用户**：任何未被拉黑的用户。
+- **Admin**：`ADMIN_IDS`，`OWNER_ID` 自动包含在内。
+- **Owner**：仅 `OWNER_ID`；Token、运行配置、批量删帖和黑名单等敏感操作不向 Admin 扩大。
 
 ## 用户命令
 
-| 命令 | 说明 | 示例 |
-|---|---|---|
-| `/start` | 欢迎信息 + 主菜单按钮 | |
-| `/submit` | 开始投稿（`MIXED` 模式直接上传并按 Telegram 消息类型自动归类） | |
-| `/search <关键词>` | 全文搜索。支持 `#标签` 前缀、`-t day\|week\|month` 时间过滤、`-n <数量>` 限制条数（≤30） | `/search 教程 -t week -n 20` |
-| `/tags` | 标签云 TOP 榜（默认前 20） | |
-| `/hot [数量] [时间范围]` | 热门排行榜（默认 10，最多 50） | `/hot 20 week` |
-| `/myposts [数量]` | 我的投稿列表 | `/myposts 20` |
-| `/mystats` | 我的投稿统计 | |
-| `/searchuser <用户>` | 按用户查询投稿 | |
-| `/help` | 完整帮助 | |
-| `/cancel` | 取消当前投稿会话 | |
-| `/settings` | 机器人设置 | |
+| 命令 | 说明 |
+|---|---|
+| `/start` | 显示欢迎信息和菜单 |
+| `/submit` | 开始投稿 |
+| `/cancel` | 取消当前投稿；会话外会说明没有进行中的投稿 |
+| `/search <关键词>` | 搜索；支持 `#标签`、`-t day\|week\|month`、`-n <数量>` |
+| `/tags` | 标签云 |
+| `/hot [数量] [范围]` | 本地热榜；数量最多 50 |
+| `/myposts [数量]` | 我的投稿 |
+| `/mystats` | 我的投稿统计 |
+| `/settings` | 查看当前公开配置 |
+| `/help` | 帮助 |
 
-## 管理命令（需 OWNER / `ADMIN_IDS`）
+## Owner 命令
 
 | 命令 | 说明 |
 |---|---|
-| `/blacklist_add <ID> [原因]` | 加入黑名单 |
-| `/blacklist_remove <ID>` | 移出黑名单 |
+| `/debug` | 当前 Bot 与运行配置诊断 |
+| `/searchuser <用户ID>` | 查询指定用户投稿 |
+| `/delete_posts <ID或范围...>` | 批量软删除，单次最多 50 个 |
+| `/blacklist` | 黑名单面板 |
+| `/blacklist_add <用户ID> [原因]` | 加入黑名单 |
+| `/blacklist_remove <用户ID>` | 移出黑名单 |
 | `/blacklist_list` | 查看黑名单 |
-| `/blacklist` | 黑名单管理面板 |
-| `/delete_posts <ID...>` | 批量删帖：支持单 ID 与范围混合（`100-110 150`），单次最多 50 个；执行软删除（频道消息+索引删除，记录保留） |
-| `/rebuild_index` | 全量重建搜索索引 |
-| `/sync_index` | 增量同步索引与数据库 |
-| `/index_stats` | 查看索引统计 |
-| `/optimize_index` | 合并索引段（优化） |
-| `/debug` | 调试信息 |
+| `/gen_token <名称>` | 生成 API Token；明文只显示一次 |
 
-## 所有者运行配置（仅 `OWNER_ID`）
+`/tokens` 和 `/revoke_token <编号>` 只查看或吊销当前用户自己的 Token；新 Token 仍只能
+由 Owner 通过 `/gen_token` 生成。
+
+## Admin 命令
 
 | 命令 | 说明 |
 |---|---|
-| `/botconfig` | 显示当前 Bot 的配置面板 |
-| `/botconfig channel @频道或-100ID` | 修改投稿频道；存在 pending 时拒绝切换 |
-| `/botconfig review here` | 将当前群设为审核群 |
-| `/botconfig review -100ID` | 按 ID 修改审核群；存在 pending 时拒绝切换 |
-| `/botconfig api_review on\|off` | API 投稿审核开关 |
-| `/botconfig chat_review on\|off` | Telegram 聊天投稿审核开关 |
-| `/botconfig show_submitter on\|off` | 频道是否显示投稿人；关闭相当于全部匿名 |
-| `/botconfig reset` | 删除运行时覆盖并恢复部署配置 |
+| `/rebuild_index` | 清空并重建搜索索引 |
+| `/sync_index` | 增量同步数据库与索引 |
+| `/index_stats` | 查看数据库/索引差异 |
+| `/optimize_index` | 合并 Whoosh 索引段 |
 
-`/botconfig` 只允许修改非敏感运行策略；Token、Owner、管理员列表和 Webhook 密钥不开放。
-多 Bot supervisor 会只重载当前 Bot，通常约 6 秒恢复。
+审核群的批准、拒绝、剧透切换和 Pixiv 重抓按钮同样要求 Admin。
 
-## 投稿流程内命令（仅会话中有效）
+## `/botconfig`（仅 Owner）
 
-| 命令 | 所处阶段 | 说明 |
+| 命令 | 说明 |
+|---|---|
+| `/botconfig` | 显示面板 |
+| `/botconfig channel @频道或-100ID` | 修改投稿频道 |
+| `/botconfig review here` | 把当前群设为审核群 |
+| `/botconfig review -100ID` | 按 ID 设置审核群 |
+| `/botconfig api_review on\|off` | API 审核开关 |
+| `/botconfig chat_review on\|off` | 聊天审核开关 |
+| `/botconfig show_submitter on\|off` | 频道署名开关 |
+| `/botconfig reset` | 删除运行时覆盖，恢复部署配置 |
+
+切换频道、审核群或 reset 前必须处理完待审队列。多 Bot supervisor 只重启当前 Bot；
+单 Bot 部署写入策略后需要手工重启。
+
+## 投稿流程命令
+
+| 命令 | 阶段 | 说明 |
 |---|---|---|
-| `/done_media` | 上传阶段 | 结束上传，打开发布预览 |
-| `/skip_media` | 上传阶段 | 跳过上传，直接打开发布预览 |
+| `/done_media` | 上传 | 完成上传并打开预览 |
+| `/skip_media` | 上传 | 不上传文件，直接打开预览 |
 
-投稿流程只有三个阶段（见 `handlers/conversation.py`）：
+预览页可编辑标签、标题、简介、链接，补充媒体，切换匿名/剧透，然后发布或取消。
+标签必填；`MIXED` 默认同时接受媒体和文档。
 
-1. **上传（UPLOAD）**：`/submit` 或主菜单「📝 开始投稿」进入；媒体（图片/视频/GIF/音频）与文件（附件）按消息类型自动归类，混传不互相干扰；`/done_media` 进入预览。
-2. **预览（PREVIEW）**：仅标签必填；按钮编辑标签/标题/简介/链接、补充媒体、切换匿名/剧透，然后确认发布或取消。
-3. **编辑（EDIT）**：点预览页的编辑按钮后进入，输入新值即回到预览。
+## 说明
 
-## 按钮与回调
-
-- 主菜单 / 搜索时间筛选（今日/本周/本月/全部）/ 标签云标签按钮（超长标签按钮会被安全跳过，避免超过 Telegram callback_data 64 字节上限）/ OWNER 删除确认（yes/no）。
-- **发布前预览页**（上传完成后自动打开）：仅标签必填；可按钮编辑标签、标题、简介、链接和补充媒体，也可切换匿名/剧透后确认发布。匿名默认关闭。
-- **分页导航**：/search 与 /hot 多页结果底部提供 ⬅️ 上一页 / 页码 / 下一页 ➡️。
-- 底部菜单文字快捷词自动映射到命令（见 `handlers/command_handlers.py` 的 `handle_menu_shortcuts`）。
-
-## 频率限制
-
-每用户每小时默认最多发起 **10** 次投稿（`SUBMIT_LIMIT_PER_HOUR` 可调，0 关闭），超限收到友好提示。
-
----
-最后更新：2026-09
+- `/hot` 读取本地数据库；Telegram Bot API 不提供无副作用回读任意频道帖实时浏览数。
+- `/search` 与 `/hot` 支持分页；`/myposts` 按消息逐条输出。
+- 黑名单会拦截投稿和按钮交互。
