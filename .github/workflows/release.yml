@@ -191,3 +191,8 @@ jobs:
           else
             echo "没有可执行产物（如手动触发），跳过附加。"
           fi
+
+      - name: 清理旧 release（每个 track 只留最新）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/prune_releases.py
