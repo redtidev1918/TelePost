@@ -7,6 +7,26 @@
 
 ---
 
+## [2.10.34] - 2026-09-04
+
+### 新增（傻瓜式部署：零依赖可执行文件）
+- **PyInstaller 分平台单文件可执行**（Linux x64 / Windows x64 / macOS x64，Release 自动附加
+  `telepost-<平台>` 资产）：内含 Python 解释器，用户**无需安装 Python/Docker/WSL**，下载即用；
+  Apple Silicon Mac 走 Rosetta 运行 x64 版。
+- **首次运行配置向导**：无配置时自动进入（或 `telepost --setup`），交互式填写 Token/频道/所有者
+  三项后写 `config.ini`，再运行即启动。
+- **冻结版适配**：`config/settings.py` 在冻结态把 `BASE_DIR` 锚定到 exe 所在目录；`run.py` 支持
+  `--frozen-worker` 子进程模式与同进程单 bot 运行（多 bot 守护逻辑不变）；`main.py` 抽出
+  `entrypoint()` 供冻结 worker 复用同一入口（含 Windows Selector 事件循环策略）。
+
+### 改进（安装路径顺滑）
+- `install.sh`：Debian/Ubuntu 检测不到 venv 模块时自动 `apt install python3-venv`（此前直接失败）。
+- 原生 Windows 安装：`install.bat` / `run.bat`（无需 WSL/Docker；`.bat` 以 CRLF 入库，UTF-8 控制台）。
+- `docker-compose.yml` 改为生产可用默认值：去掉开发期源码 bind-mount（空目录拉镜像直接崩溃的根因），
+  改由 `.env` 注入配置，移除硬编码 DNS/网络模式。
+
+---
+
 ## [2.10.33] - 2026-09-03
 
 ### 改进（超大图片压缩投稿，不再降级成文件）

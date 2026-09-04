@@ -2,6 +2,7 @@
 配置文件读取和变量定义模块
 """
 import os
+import sys
 import configparser
 import logging
 
@@ -9,8 +10,12 @@ from utils.run_mode import resolve_run_mode
 
 logger = logging.getLogger(__name__)
 
-# 项目根目录
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 项目根目录：源码运行取仓库根；PyInstaller 冻结时取可执行文件所在目录，
+# 保证 config.ini / data / logs 与 exe 同处一隅（双击即用）。
+if getattr(sys, "frozen", False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
 
 # 读取配置文件

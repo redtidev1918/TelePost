@@ -6,12 +6,25 @@
 
 | 方式 | 适合场景 | 前置要求 |
 |---|---|---|
+| [下载即用](#0-下载即用零依赖) | Windows/macOS/Linux 桌面 | 无（自带运行环境） |
 | [quickstart.sh](#1-quickstart-快速体验) | 本地快速体验 | Python 3.9+（Linux/macOS） |
 | [install.sh + systemd](#2-vps-生产部署) | 生产 VPS | root/sudo 的 Linux |
 | [install.bat](#4-windows-原生) | Windows 本地（无需 WSL/Docker） | Windows + Python 3.9+ |
 | [Docker / Compose](#3-docker) | 容器环境 | Docker |
 | [Fly.io](FLYIO_DEPLOYMENT.md) | 免运维 PaaS（Webhook） | flyctl |
 | [PythonAnywhere](PYTHONANYWHERE_DEPLOYMENT.md) | 低成本托管（Webhook） | 账号 |
+
+## 0. 下载即用（零依赖）
+
+不需要安装 Python / Docker / WSL 任何东西——可执行文件里已内置运行环境：
+
+1. 从 [GitHub Releases](https://github.com/redtidev1918/TelePost/releases) 下载对应平台的
+   `telepost-<平台>`（v2.10.34 起每次发版自动生成）；Apple Silicon Mac 下载 `macos-x64` 版（Rosetta 自动转译）；
+2. 双击/运行：首次会自动进入配置向导，按提示填 **Bot Token、频道、你的 ID** 三项即可；
+3. 再次运行即启动，配置与数据都保存在可执行文件同目录（`config.ini` / `data/` / `logs/`）。
+
+小提示：Windows 首次运行若弹 SmartScreen，选"更多信息 → 仍要运行"；macOS 若被 Gatekeeper 拦截，
+右键文件 → 打开。想要开机自启可在系统里把它设为登录项。
 
 ## 1. Quickstart（快速体验）
 

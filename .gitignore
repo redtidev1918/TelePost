@@ -167,3 +167,4 @@ dmypy.json
 *.pyc
 .last_backup
 config.ini.backup.*
+*.spec

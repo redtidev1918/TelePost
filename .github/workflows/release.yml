@@ -81,9 +81,41 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  bundle:
+    runs-on: ${{ matrix.os }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: telepost-linux-x64
+          - os: windows-latest
+            asset: telepost-windows-x64
+          - os: macos-13
+            asset: telepost-macos-x64
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+      - name: 设置 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: 安装依赖与 PyInstaller
+        run: pip install -r requirements.txt pyinstaller
+      - name: 构建单文件可执行（含解释器，用户零依赖）
+        run: pyinstaller --onefile --clean --name telepost run.py
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/telepost*
+          if-no-files-found: error
+
   release:
     runs-on: ubuntu-latest
-    needs: [test, docker]
+    needs: [test, docker, bundle]
     steps:
       - name: 检出代码
         uses: actions/checkout@v7
@@ -137,3 +169,21 @@ jobs:
             --notes-file release_notes.md \
             --verify-tag \
             --latest
+
+      - name: 下载分平台可执行产物
+        uses: actions/download-artifact@v5
+        with:
+          pattern: telepost-*
+          path: bundles
+          merge-multiple: false
+
+      - name: 附加到 GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ls bundles/*/telepost* >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" bundles/*/telepost* \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            echo "没有可执行产物（如手动触发），跳过附加。"
+          fi

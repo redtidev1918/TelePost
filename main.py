@@ -672,7 +672,11 @@ def setup_application(application):
     logger.info("应用程序设置完成")
 
 
-if __name__ == "__main__":
+def entrypoint() -> None:
+    """进程入口：Windows 用 Selector 事件循环策略，启动后常驻。
+
+    冻结版（PyInstaller）的 worker 子进程也复用此入口，保证与源码运行一致。
+    """
     try:
         # 根据系统设置正确的事件循环策略
         if platform.system() == "Windows":
@@ -688,3 +692,7 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"发生异常: {e}", exc_info=True)
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    entrypoint()

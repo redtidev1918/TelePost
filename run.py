@@ -361,8 +361,24 @@ def build_bot_env(index: int, base: dict) -> dict:
     return env
 
 
+_FROZEN = bool(getattr(sys, "frozen", False))
+
+
+def bot_child_command():
+    """冻结版没有 main.py 脚本：子进程重入自身并走 --frozen-worker 分支。"""
+    if _FROZEN:
+        return [sys.executable, "--frozen-worker"]
+    return [sys.executable, "-u", "main.py"]
+
+
+def run_bot_in_process():
+    """以当前进程运行 bot（冻结版单 bot 与 worker 子进程共用同一入口）。"""
+    import main  # noqa: PLC0415  延迟导入：避免 launcher 阶段加载完整 bot
+    main.entrypoint()
+
+
 def run_single():
-    """单 bot：原地替换为 main.py（信号直达主进程）"""
+    """单 bot：源码模式原地替换为 main.py；冻结模式同进程运行（信号直达）。"""
     env = dict(os.environ)
     policy_path = env.get("RUNTIME_POLICY_PATH") or os.path.join(
         os.path.dirname(env.get("DB_PATH", "data/submissions.db")) or ".",
@@ -373,6 +389,10 @@ def run_single():
         env.update(load_runtime_policy(policy_path))
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"[launcher] 忽略无效运行策略: {exc}", flush=True)
+    if _FROZEN:
+        os.environ.update(env)
+        run_bot_in_process()
+        return
     os.execve(sys.executable, [sys.executable, "-u", "main.py"], env)
 
 
@@ -563,7 +583,7 @@ def run_multi(indices: list) -> None:
                 if stopping["flag"]:
                     break
             env = build_bot_env(index, os.environ)
-            processes[index] = subprocess.Popen([sys.executable, "-u", "main.py"], env=env)
+            processes[index] = subprocess.Popen(bot_child_command(), env=env)
             print(f"[supervisor] bot{index} 已启动 (pid={processes[index].pid})", flush=True)
 
         if pixivflow_spec is not None and not stopping["flag"]:
@@ -597,6 +617,23 @@ def run_multi(indices: list) -> None:
 
 
 def main():
+    if _FROZEN:
+        # 冻结版以 exe 所在目录为工作目录：data/ logs/ config.ini 都落在这里
+        os.chdir(os.path.dirname(os.path.abspath(sys.executable)))
+        if "--frozen-worker" in sys.argv:
+            run_bot_in_process()
+            return
+    if "--setup" in sys.argv:
+        from utils.config_wizard import run_wizard
+        run_wizard()
+        return
+    if _FROZEN:
+        from utils.config_wizard import config_ready, run_wizard
+        if not config_ready():
+            print("[launcher] 首次运行：进入配置向导", flush=True)
+            run_wizard()
+            return
+
     indices = bot_indices(os.environ)
     if indices:
         # 多 bot 的路由器必须先知道最终模式，因此在启动子进程前解析。
