@@ -1,6 +1,6 @@
 # 安装与部署
 
-> 最后更新：2026-08。所有方式共用同一份配置（见 [CONFIGURATION.md](CONFIGURATION.md)），最少需要 `TOKEN` 与 `CHANNEL_ID` 两项，缺失会直接启动失败。
+> 最后更新：2026-09。所有方式共用同一份配置（见 [CONFIGURATION.md](CONFIGURATION.md)），最少需要 `TOKEN` 与 `CHANNEL_ID` 两项，缺失会直接启动失败。
 
 ## 选择部署方式
 

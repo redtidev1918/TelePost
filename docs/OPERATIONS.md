@@ -148,13 +148,20 @@ Fly 健康探针频繁遍历文件。建议正常空闲时至少留 100 MiB 可�
    git tag vx.y.z
    git push origin main --tags
    ```
-4. GitHub Actions 自动完成：构建 amd64/arm64 镜像 → 推送
-   `ghcr.io/redtidev1918/telepost:{x.y.z, x.y, latest}` → 创建 GitHub Release
-   （正文取 CHANGELOG 对应版本段，缺失时回退 `[Unreleased]`）
-5. 首次发布后：GitHub → Packages → `telepost` → Package settings 改为 Public（否则匿名 `docker pull` 需 `docker login ghcr.io`）
+4. GitHub Actions 自动完成（test → docker / bundle 并行 → release）：
+   - 构建 amd64/arm64 镜像 → 推送 `ghcr.io/redtidev1918/telepost:{x.y.z, x.y, latest}`
+   - bundle job 产出 3 个零依赖单文件可执行（PyInstaller，内含解释器）：
+     `telepost-linux-x64` / `telepost-windows-x64` / `telepost-macos-x64`
+   - 创建 GitHub Release（正文取 CHANGELOG 对应版本段，缺失时回退 `[Unreleased]`）
+     并把上述 3 个可执行文件附加为资产（`release` job 依赖 `bundle`，bundle 失败则不发版）
+5. 发版后核对：Release 页应有 3 个资产；任取一个在对应系统跑一次 `--setup` 冒烟。
+   bundle job 失败时：先修 main 再重跑该 workflow；若 Release 尚未创建可直接
+   `git tag -d vx.y.z && git push origin :refs/tags/vx.y.z` 后重打同版本 tag。
+6. 首次发布后：GitHub → Packages → `telepost` → Package settings 改为 Public（否则匿名 `docker pull` 需 `docker login ghcr.io`）
 
 `docker-compose.yml` 已内置 `image: ghcr.io/redtidev1918/telepost:latest`，
-不想本地构建的用户删掉 `build:` 段即可直接拉镜像运行。
+不想本地构建的用户删掉 `build:` 段即可直接拉镜像运行；不想装任何东西的用户
+直接下载 Release 里的可执行文件（见 `docs/INSTALL.md`「下载即用」）。
 
 ### 一键部署（推荐）
 
