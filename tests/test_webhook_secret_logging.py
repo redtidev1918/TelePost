@@ -54,7 +54,20 @@ async def test_setup_webhook_does_not_log_secret(caplog):
         )
 
     assert secret not in caplog.text
-    bot.set_webhook.assert_awaited_once()
+    bot.delete_webhook.assert_not_awaited()
+    bot.set_webhook.assert_awaited_once_with(
+        url="https://example.test/webhook",
+        secret_token=secret,
+        allowed_updates=[
+            "message",
+            "edited_message",
+            "channel_post",
+            "edited_channel_post",
+            "callback_query",
+            "inline_query",
+        ],
+        drop_pending_updates=False,
+    )
 
 
 def _make_server(secret: str) -> WebhookServer:

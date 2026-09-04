@@ -500,7 +500,7 @@ async def shutdown(
     """
     logger.info(f"收到信号 {signal.name}，正在关闭...")
     
-    # 如果是 Webhook 模式，停止 webhook 服务器并删除 webhook
+    # 停止本地服务，但保留 Telegram Webhook；Fly auto-stop 依赖它唤醒机器。
     if webhook_server:
         try:
             logger.info("正在停止 Webhook 服务器...")
@@ -508,14 +508,6 @@ async def shutdown(
             logger.info("Webhook 服务器已停止")
         except Exception as e:
             logger.warning(f"停止 Webhook 服务器失败: {e}")
-        
-        try:
-            logger.info("正在删除 Telegram Webhook...")
-            await application.bot.delete_webhook(drop_pending_updates=False)
-            logger.info("Telegram Webhook 已删除")
-        except Exception as e:
-            logger.warning(f"删除 Webhook 失败: {e}")
-
     if polling_server:
         try:
             logger.info("正在停止 Polling HTTP API 服务器...")

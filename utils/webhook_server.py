@@ -170,11 +170,7 @@ async def setup_webhook(application, webhook_url: str, webhook_path: str, secret
     full_webhook_url = f"{webhook_url.rstrip('/')}{webhook_path}"
     
     try:
-        # 删除现有 webhook（如果有）
-        await application.bot.delete_webhook(drop_pending_updates=True)
-        logger.info("已删除现有 Webhook")
-        
-        # 设置新的 webhook
+        # 直接更新现有 webhook，保留唤醒 auto-stop 实例的待处理消息。
         # 明确指定需要接收的更新类型，包括频道消息
         allowed_updates = [
             "message",           # 普通消息
@@ -188,7 +184,7 @@ async def setup_webhook(application, webhook_url: str, webhook_path: str, secret
             url=full_webhook_url,
             secret_token=secret_token,
             allowed_updates=allowed_updates,  # 明确指定接收频道消息
-            drop_pending_updates=True
+            drop_pending_updates=False
         )
         
         if success:
