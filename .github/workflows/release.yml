@@ -91,7 +91,7 @@ jobs:
           - os: ubuntu-latest
             asset: telepost-linux-x64
           - os: windows-latest
-            asset: telepost-windows-x64
+            asset: telepost-windows-x64.exe
           - os: macos-latest
             asset: telepost-macos-arm64
     steps:
@@ -106,11 +106,15 @@ jobs:
         run: pip install -r requirements.txt pyinstaller
       - name: 构建单文件可执行（含解释器，用户零依赖）
         run: pyinstaller --onefile --clean --name telepost run.py
+      - name: 以平台名命名产物（避免不同平台同名互相覆盖）
+        run: |
+          shopt -s nullglob
+          mv dist/telepost* "dist/${{ matrix.asset }}"
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
-          path: dist/telepost*
+          path: dist/${{ matrix.asset }}
           if-no-files-found: error
 
   release:
