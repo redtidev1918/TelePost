@@ -107,9 +107,7 @@ jobs:
       - name: 构建单文件可执行（含解释器，用户零依赖）
         run: pyinstaller --onefile --clean --name telepost run.py
       - name: 以平台名命名产物（避免不同平台同名互相覆盖）
-        run: |
-          shopt -s nullglob
-          mv dist/telepost* "dist/${{ matrix.asset }}"
+        run: python -c "from pathlib import Path; next(Path('dist').glob('telepost*')).rename(Path('dist') / '${{ matrix.asset }}')"
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
