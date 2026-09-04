@@ -6,8 +6,9 @@
 
 | 方式 | 适合场景 | 前置要求 |
 |---|---|---|
-| [quickstart.sh](#1-quickstart-快速体验) | 本地快速体验 | Python 3.9+ |
+| [quickstart.sh](#1-quickstart-快速体验) | 本地快速体验 | Python 3.9+（Linux/macOS） |
 | [install.sh + systemd](#2-vps-生产部署) | 生产 VPS | root/sudo 的 Linux |
+| [install.bat](#4-windows-原生) | Windows 本地（无需 WSL/Docker） | Windows + Python 3.9+ |
 | [Docker / Compose](#3-docker) | 容器环境 | Docker |
 | [Fly.io](FLYIO_DEPLOYMENT.md) | 免运维 PaaS（Webhook） | flyctl |
 | [PythonAnywhere](PYTHONANYWHERE_DEPLOYMENT.md) | 低成本托管（Webhook） | 账号 |
@@ -37,6 +38,16 @@ docker compose up -d --build
   - **Webhook 模式**：由 `utils/webhook_server.py` 在同一端口提供 `/webhook`、`/health` 与 `/api/v1/*`。
 - 默认 `RUN_MODE=AUTO`：配置有效公网 HTTPS `WEBHOOK_URL` 时使用 Webhook，否则自动使用 Polling；Webhook 注册失败也会安全回退 Polling。
 - 持久化：容器内 `data/`（数据库+索引）与 `logs/` 需要卷映射，参考 `docker-compose.yml`。
+
+## 4. Windows 原生
+
+不需要 WSL 或 Docker（Windows 版 Python 官方安装包自带 venv/pip，无 Linux 的 `python3-venv` 问题）：
+
+1. 到 https://www.python.org/downloads/ 装 Python 3.9+，安装时勾选 **Add python.exe to PATH**；
+2. 双击 `install.bat`（建 venv、装依赖、引导生成 `config.ini`）；
+3. 双击 `run.bat` 启动，窗口关着就停；要开机自启用「任务计划程序」加一条登录时运行 `run.bat`。
+
+长期在线的服务端仍建议 Linux/Docker/Fly，桌面本机 Windows 用上面两个 bat 即可。
 
 ## 4/5. Fly.io 与 PythonAnywhere
 
