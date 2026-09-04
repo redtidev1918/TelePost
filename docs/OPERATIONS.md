@@ -155,8 +155,14 @@ Fly 健康探针频繁遍历文件。建议正常空闲时至少留 100 MiB 可�
    - 创建 GitHub Release（正文取 CHANGELOG 对应版本段，缺失时回退 `[Unreleased]`）
      并把上述 3 个可执行文件附加为资产（`release` job 依赖 `bundle`，bundle 失败则不发版）
 5. 发版后核对：Release 页应有 3 个资产；任取一个在对应系统跑一次 `--setup` 冒烟。
-   bundle job 失败时：先修 main 再重跑该 workflow；若 Release 尚未创建可直接
-   `git tag -d vx.y.z && git push origin :refs/tags/vx.y.z` 后重打同版本 tag。
+   - **已知坑：`gh release create` 后立刻上传资产偶发 `HTTP 404`**（GitHub 上传端点
+     最终一致性竞态，v2.10.36 实测命中）。Release 已创建但缺资产——无需重新发版，
+     用 `gh run download <run-id> -D /tmp/x --pattern 'telepost-*'` 取回 bundle 产物，
+     再 `gh release upload vX.Y.Z /tmp/x/*/telepost* --clobber` 补传。
+   - bundle job 失败时：先修 main 再重跑该 workflow；若 Release 尚未创建可直接
+     `git tag -d vx.y.z && git push origin :refs/tags/vx.y.z` 后重打同版本 tag。
+   - macOS 用 `macos-latest`（Apple Silicon arm64）；`macos-13/14`（Intel）runner
+     在 GitHub 上排队可达 30+ 分钟，已弃用。
 6. 首次发布后：GitHub → Packages → `telepost` → Package settings 改为 Public（否则匿名 `docker pull` 需 `docker login ghcr.io`）
 
 `docker-compose.yml` 已内置 `image: ghcr.io/redtidev1918/telepost:latest`，
