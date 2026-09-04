@@ -68,6 +68,13 @@ PENDING_REVIEW_CLEANUP_BATCH_SIZE = max(
 # Telegram 图片单张上限（含相册）10 MiB，超过按文档发送；与频道发布共用同一阈值
 # （handlers.publish.PHOTO_MAX_BYTES），保留别名供本模块其余处引用。
 PHOTO_MAX_BYTES = _PHOTO_MAX_BYTES
+# 已发布作品在 N 秒内被同一 idempotency_key 再次投递时视为重复（PixivFlow 去重失效
+# 会把已发布作品重新投进审核群，造成"审核完了又转发"），跳过而不重建审核记录。
+PUBLISHED_DEDUP_WINDOW_SECONDS = 7 * 86400
+# "重抓/换一张" 的 run-once 串行跑完所有启用 schedule，每个受 plan.timeout（生产为
+# 1800s）watchdog 保护，2 个 schedule 最坏约 3600s；这里给足余量，避免把仍在下载的
+# 重抓进程提前掐断误报 "timed out"。
+REFETCH_TIMEOUT_SECONDS = 3900
 
 
 def _review_keyboard(
@@ -144,14 +151,20 @@ def _pixiv_id_from_link(link: str) -> str:
 
 
 async def _find_review(idempotency_key: str):
-    # 幂等只对仍在途的投稿生效：pending / failed（可重试）命中同一 key 时复用原记录；
-    # rejected / published 不再阻断——审核员拒绝或发布后，同一 idempotency_key 的
-    # 新投稿（例如 PixivFlow 定时任务再次选中同一作品）应能创建新审核记录。
+    # 幂等：
+    # - pending / failed：仍在途（可重试），命中同一 key 时复用原记录；
+    # - published 且最近（PUBLISHED_DEDUP_WINDOW_SECONDS 内）：视为重复投递，返回
+    #   已发布记录让调用方跳过——防止 PixivFlow 去重失效时把已发布作品再次投进审核群
+    #   造成"审核完了又转发"；
+    # - rejected / 更早的 published：不阻断，允许创建新审核记录（换一张 / 重新考虑）。
     async with get_db() as conn:
         cursor = await conn.execute(
             "SELECT * FROM pending_reviews "
-            "WHERE idempotency_key=? AND status IN ('pending', 'failed')",
-            (idempotency_key,),
+            "WHERE idempotency_key=? AND ("
+            "  status IN ('pending', 'failed')"
+            "  OR (status='published' AND decided_at >= ?)"
+            ")",
+            (idempotency_key, time.time() - PUBLISHED_DEDUP_WINDOW_SECONDS),
         )
         return await cursor.fetchone()
 
@@ -679,7 +692,7 @@ async def _create_review(
             break
         except aiosqlite.IntegrityError:
             # 同 key 已存在：pending/failed 复用原记录（新预览随后被清理）；
-            # rejected/published 的历史记录不应阻断同一 idempotency_key 的新投稿——
+            # 最近发布的视为重复投递直接跳过；rejected/更早的 published 不阻断——
             # 删除旧记录与旧预览后重试插入，新预览消息继续保留复用。
             async with get_db() as conn:
                 cursor = await conn.execute(
@@ -691,6 +704,16 @@ async def _create_review(
                 raise
             if existing["status"] in ("pending", "failed"):
                 await _delete_messages(bot, review_message_ids)
+                return _result_from_row(existing)
+            if (
+                existing["status"] == "published"
+                and (existing["decided_at"] or 0) >= time.time() - PUBLISHED_DEDUP_WINDOW_SECONDS
+            ):
+                await _delete_messages(bot, review_message_ids)
+                logger.info(
+                    "跳过已发布作品的重复投递: idempotency_key=%s review_id=%s",
+                    idempotency_key, existing["id"],
+                )
                 return _result_from_row(existing)
             await _delete_messages(bot, json.loads(existing["review_message_ids"] or "[]"))
             if existing["control_message_id"]:
@@ -959,7 +982,7 @@ def _run_pixivflow_refetch() -> subprocess.CompletedProcess:
         command += ["--config", config_path]
     logger.info("审核群触发 PixivFlow 重抓: %s", " ".join(command))
     return subprocess.run(
-        command, cwd="/app", timeout=1500, capture_output=True, text=True
+        command, cwd="/app", timeout=REFETCH_TIMEOUT_SECONDS, capture_output=True, text=True
     )
 
 
