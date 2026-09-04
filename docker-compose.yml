@@ -1,79 +1,29 @@
-version: '3.8'
-
 services:
   telepost:
-    # 官方镜像（tag 推送时由 CI 自动构建发布；本地 build 会覆盖）
-    image: ghcr.io/redtidev1918/telepost:latest
-    build: 
-      context: .
-      network: host  # 使用宿主机网络进行构建
-      # 代理参数（可选，通过 deploy.sh 的 --proxy 参数传入）
-      # args:
-      #   - HTTP_PROXY=${HTTP_PROXY}
-      #   - HTTPS_PROXY=${HTTPS_PROXY}
+    image: ghcr.io/redtidev1918/telepost:latest   # 预构建镜像；本地有源码时改 build: .
     container_name: telepost
     restart: unless-stopped
-    
-    # DNS 配置 - 使用真实 DNS 服务器
-    dns:
-      - 8.8.8.8
-      - 114.114.114.114
-      - 1.1.1.1
-    
-    # 挂载配置文件和数据目录
-    volumes:
-      - ./config.ini:/app/config.ini:ro      # 只读挂载配置文件
-      - ./data:/app/data                      # 持久化数据库和搜索索引
-      - ./logs:/app/logs                      # 持久化日志文件
-      # 开发模式：挂载代码目录以便实时更新（生产环境建议删除以下挂载）
-      - ./handlers:/app/handlers
-      - ./utils:/app/utils
-      - ./config:/app/config
-      - ./ui:/app/ui
-      - ./main.py:/app/main.py
-    
-    # 环境变量（可选，会覆盖config.ini中的配置）
+
+    # 在同目录建 .env：写 TOKEN=xxx、CHANNEL_ID=@xxx、OWNER_ID=xxx（compose 自动读取）
+    # 或改用配置文件挂载：- ./config.ini:/app/config.ini:ro
     environment:
       - TZ=Asia/Shanghai
-      # Telegram Bot 配置
-      # - TOKEN=your_bot_token_here
-      # - CHANNEL_ID=@your_channel_name
-      # - OWNER_ID=your_user_id
-      
-      # 功能开关
-      # - SHOW_SUBMITTER=true
-      # - NOTIFY_OWNER=true
-      # - BOT_MODE=MIXED
-      
-      # 搜索引擎配置
-      # - SEARCH_INDEX_DIR=data/search_index
-    
-    # 资源限制
-    # v2 版本因搜索功能需要更多内存
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 256M
-    
-    # 日志配置
+      - TOKEN=${TOKEN}
+      - CHANNEL_ID=${CHANNEL_ID}
+      - OWNER_ID=${OWNER_ID}
+      # 可选开关：SHOW_SUBMITTER=true / BOT_MODE=MIXED / SEARCH_INDEX_DIR=data/search_index
+
+    volumes:
+      - ./data:/app/data      # 数据库 + 搜索索引（必须持久化）
+      - ./logs:/app/logs
+
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "5"
-    
-    # 网络模式
-    network_mode: bridge
-    
-    # 健康检查
-    healthcheck:
-      test: ["CMD", "python", "-c", "import os, psutil; exit(0 if any('main.py' in ' '.join(p.cmdline()) for p in psutil.process_iter(['cmdline'])) else 1)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
 
+    deploy:
+      resources:
+        limits:
+          memory: 1G

@@ -29,15 +29,20 @@ sudo ./install.sh   # 创建 venv、写入 config.ini、注册 systemd 服务
 
 ## 3. Docker
 
+拉预构建镜像（不需要本地源码）：
+
 ```bash
-docker compose up -d --build
+mkdir telepost && cd telepost
+# 建 .env（TOKEN/CHANNEL_ID/OWNER_ID 三行，compose 自动读取），然后：
+docker compose up -d
 ```
 
-- 镜像内置 `HEALTHCHECK`，每 30 秒请求 `http://localhost:8080/health`：
+镜像内置 `HEALTHCHECK`，每 30 秒请求 `http://localhost:8080/health`：
   - **Polling 模式**：由 `utils/polling_server.py` 在同一事件循环提供 `/health` 与 `/api/v1/*`；
   - **Webhook 模式**：由 `utils/webhook_server.py` 在同一端口提供 `/webhook`、`/health` 与 `/api/v1/*`。
 - 默认 `RUN_MODE=AUTO`：配置有效公网 HTTPS `WEBHOOK_URL` 时使用 Webhook，否则自动使用 Polling；Webhook 注册失败也会安全回退 Polling。
 - 持久化：容器内 `data/`（数据库+索引）与 `logs/` 需要卷映射，参考 `docker-compose.yml`。
+- 离线/受限网络拉不动镜像时，改用 `docker compose up -d --build` 本地构建。
 
 ## 4. Windows 原生
 
