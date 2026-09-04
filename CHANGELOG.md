@@ -27,7 +27,7 @@
 
 ## [2.10.36] - 2026-09-04
 
-### 新增（傻瓜式部署：零依赖可执行文件）
+### 新增（开箱即用部署：零依赖可执行文件）
 - **PyInstaller 分平台单文件可执行**（Linux x64 / Windows x64 / macOS arm64，Release 自动附加
   `telepost-<平台>` 资产）：内含 Python 解释器，用户**无需安装 Python/Docker/WSL**，下载即用；
   Apple Silicon 原生 arm64，Intel Mac 请用 install.sh 或 Docker。
