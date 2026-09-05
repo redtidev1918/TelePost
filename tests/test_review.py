@@ -4,7 +4,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
-from telegram.error import RetryAfter
+from telegram.error import RetryAfter, TimedOut
 from telegram import InputFile
 
 from database import db_manager
@@ -596,6 +596,27 @@ async def test_album_failure_falls_back_to_single_sends(review_db, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_album_network_timeout_does_not_fallback_and_duplicate(review_db):
+    from handlers.publish import deliver_items_to_chat
+
+    bot = AsyncMock()
+    bot.send_media_group.side_effect = TimedOut("response lost")
+
+    with pytest.raises(TimedOut):
+        await deliver_items_to_chat(
+            bot,
+            -100456,
+            [
+                {"kind": "photo", "file_id": "ONE"},
+                {"kind": "photo", "file_id": "TWO"},
+            ],
+            caption="caption",
+        )
+
+    bot.send_photo.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_album_size_is_configurable(review_db, monkeypatch):
     """REVIEW_ALBUM_SIZE 控制每组媒体数；最后不足一组的单张走独立消息。"""
     bot = AsyncMock()
@@ -813,6 +834,33 @@ async def test_owner_can_approve_once(review_db):
 
 
 @pytest.mark.asyncio
+async def test_approval_timeout_warns_before_retrying(review_db):
+    bot = AsyncMock()
+    bot.send_photo.return_value = _photo_message()
+    bot.send_message.return_value = MagicMock(message_id=11)
+    queued = await review.queue_review_from_file_ids(
+        bot,
+        [{"type": "photo", "file_id": "ORIGINAL"}],
+        [],
+        tags="#pixiv",
+        user_id=7,
+        username="pixivflow",
+        idempotency_key="pixiv:timeout",
+    )
+    update = _callback_update(f"review_approve:{queued['review_id']}")
+    context = MagicMock(bot=bot)
+
+    with patch(
+        "handlers.review.publish_from_file_ids",
+        AsyncMock(side_effect=TimedOut("response lost")),
+    ):
+        await review.approve_review(update, context)
+
+    message = update.callback_query.edit_message_text.await_args.args[0]
+    assert "发送结果不确定，请先检查频道；确认未发布后再重试" in message
+
+
+@pytest.mark.asyncio
 async def test_chat_submission_enters_review_and_notifies_after_approval(
     review_db, monkeypatch
 ):
@@ -912,7 +960,11 @@ async def test_single_file_id_uses_send_photo_not_media_group(monkeypatch):
     )
 
     assert result["message_id"] == 55
-    bot.send_photo.assert_awaited_once()
+    kwargs = bot.send_photo.await_args.kwargs
+    assert kwargs["read_timeout"] == 120.0
+    assert kwargs["write_timeout"] == 120.0
+    assert kwargs["connect_timeout"] == 30.0
+    assert kwargs["pool_timeout"] == 30.0
     bot.send_media_group.assert_not_called()
 
 

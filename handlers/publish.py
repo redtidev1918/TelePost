@@ -12,6 +12,7 @@ from telegram import (
     InputMediaVideo,
     InputMediaDocument
 )
+from telegram.error import NetworkError
 from telegram.ext import ConversationHandler, CallbackContext
 
 from config.settings import (
@@ -26,6 +27,20 @@ from utils.helper_functions import build_caption
 from utils.search_engine import get_search_engine, PostDocument
 
 logger = logging.getLogger(__name__)
+
+TELEGRAM_SEND_TIMEOUT_SECONDS = max(
+    5.0,
+    float(os.getenv("TELEGRAM_SEND_TIMEOUT_SECONDS", os.getenv("REVIEW_PREVIEW_TIMEOUT_SECONDS", "120"))),
+)
+
+
+def _telegram_timeout_kwargs():
+    return {
+        "read_timeout": TELEGRAM_SEND_TIMEOUT_SECONDS,
+        "write_timeout": TELEGRAM_SEND_TIMEOUT_SECONDS,
+        "connect_timeout": min(TELEGRAM_SEND_TIMEOUT_SECONDS, 30.0),
+        "pool_timeout": min(TELEGRAM_SEND_TIMEOUT_SECONDS, 30.0),
+    }
 
 
 def _review_items(media_list, doc_list):
@@ -613,6 +628,13 @@ async def _run_item_batches(items, *, caption, album_size,
                     )
                 for member in media_group:
                     _close_item_handle(member.media)
+            except NetworkError:
+                if media_group:
+                    for member in media_group:
+                        _close_item_handle(member.media)
+                # Telegram may have accepted a request before the response was
+                # lost. Falling back here can duplicate an entire album.
+                raise
             except Exception as exc:
                 if media_group:
                     for member in media_group:
@@ -669,7 +691,7 @@ async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
     caption 只挂在整条投递的第一条消息；每批回复上一批，形成一条主贴回复链。
     返回 (sent_messages[list], main_message)。
     """
-    timeout_kwargs = timeout_kwargs or {}
+    timeout_kwargs = _telegram_timeout_kwargs() if timeout_kwargs is None else timeout_kwargs
 
     async def _album(media_group, reply_to):
         kwargs = dict(chat_id=chat_id, media=media_group,

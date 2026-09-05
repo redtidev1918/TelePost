@@ -26,7 +26,7 @@ from telegram import (
     InputMediaPhoto,
     InputMediaVideo,
 )
-from telegram.error import RetryAfter
+from telegram.error import NetworkError, RetryAfter
 
 from config.settings import ADMIN_IDS, REVIEW_CHAT_ID
 from database.db_manager import get_db
@@ -1171,8 +1171,13 @@ async def approve_review(update, context):
                 "UPDATE pending_reviews SET status='failed', updated_at=?, error=? WHERE id=?",
                 (time.time(), str(error)[:500], review_id),
             )
+        retry_hint = (
+            "发送结果不确定，请先检查频道；确认未发布后再重试"
+            if isinstance(error, NetworkError)
+            else "发布失败，可重试"
+        )
         await query.edit_message_text(
-            f"⚠️ 审核 #{review_id} 发布失败，可重试：\n{str(error)[:200]}",
+            f"⚠️ 审核 #{review_id} {retry_hint}：\n{str(error)[:200]}",
             reply_markup=_review_keyboard(
                 review_id,
                 row["link"],
