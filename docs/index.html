@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TelePost 文档</title>
+  <meta name="description" content="TelePost 文档中心：安装、配置、部署、运维与 HTTP API。内容直接来自仓库里的 Markdown，与代码同步更新。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📮</text></svg>">
+  <link id="theme-css" rel="stylesheet" href="assets/vendor/vue.css">
+  <script>
+    (function () {
+      var saved = localStorage.getItem('tp-theme');
+      var dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+      if (dark) document.write('<link rel="stylesheet" href="assets/vendor/dark.css">');
+    })();
+  </script>
+  <style>
+    .theme-toggle {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 999;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      color: #334155;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,.12);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    [data-theme="dark"] .theme-toggle {
+      background: #1f2937;
+      border-color: #475569;
+      color: #fbbf24;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">加载中…</div>
+  <button class="theme-toggle" id="theme-toggle" aria-label="切换明暗主题" title="切换明暗主题">🌙</button>
+  <script>
+    window.$docsify = {
+      name: '📮 TelePost',
+      nameLink: '#/',
+      repo: 'redtidev1918/TelePost',
+      loadSidebar: true,
+      subMaxLevel: 2,
+      maxLevel: 3,
+      auto2top: true,
+      search: {
+        placeholder: '搜索文档…',
+        noData: '没有匹配的结果',
+        paths: 'auto',
+        depth: 3
+      }
+    };
+  </script>
+  <script src="assets/vendor/docsify.min.js"></script>
+  <script src="assets/vendor/search.min.js"></script>
+  <script>
+    (function () {
+      var btn = document.getElementById('theme-toggle');
+      var css = document.getElementById('theme-css');
+      var root = document.documentElement;
+      function apply(dark) {
+        root.setAttribute('data-theme', dark ? 'dark' : 'light');
+        css.href = dark ? 'assets/vendor/dark.css' : 'assets/vendor/vue.css';
+        btn.textContent = dark ? '☀️' : '🌙';
+        localStorage.setItem('tp-theme', dark ? 'dark' : 'light');
+      }
+      var dark = localStorage.getItem('tp-theme') === 'dark';
+      if (!localStorage.getItem('tp-theme')) {
+        dark = matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+      apply(dark);
+      btn.addEventListener('click', function () {
+        apply(root.getAttribute('data-theme') !== 'dark');
+      });
+    })();
+  </script>
+</body>
+</html>
