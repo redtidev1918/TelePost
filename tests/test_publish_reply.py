@@ -2,6 +2,7 @@
 import asyncio
 
 import pytest
+from telegram.error import TelegramError
 
 from handlers import publish
 
@@ -79,3 +80,30 @@ async def test_post_mode_with_external_anchor():
     # 有外部锚点时，post 模式所有批次都回复该锚点。
     assert reply_log == [77, 77], reply_log
     assert len(sent) == 15
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode,anchor,expected", [
+    ("chain", None, [None, 1, 2, 3]),
+    ("post", None, [None, 1, 1, 1]),
+    ("post", 77, [77, 77, 77, 77]),
+])
+async def test_album_fallback_preserves_reply_layout(mode, anchor, expected):
+    replies = []
+    captions = []
+
+    async def send_album(*args):
+        raise TelegramError("album rejected")
+
+    async def send_one(item, cap, reply_to):
+        replies.append(reply_to)
+        captions.append(cap)
+        return _Msg(len(replies))
+
+    await publish._run_item_batches(
+        [{"kind": "photo", "file_id": str(i)} for i in range(4)],
+        caption="caption", album_size=3, send_one=send_one,
+        send_album=send_album, reply_mode=mode, anchor_id=anchor,
+    )
+    assert replies == expected
+    assert captions == ["caption", None, None, None]

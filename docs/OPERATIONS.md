@@ -99,7 +99,11 @@ curl -fsS https://<app>.fly.dev/api/bot1/v1/health
 curl -fsS https://<app>.fly.dev/api/bot2/v1/health
 ```
 
-必须确认 Machine ID、Volume ID、内存、镜像 digest 和 autostop 三项不变。回退只需更新
+必须确认 Machine ID、Volume ID、内存和 autostop 配置不变，镜像 digest 对应目标新版本。
+两个 Bot 的 API 健康端点均应返回目标版本。2.10.43 无数据库迁移，无需清理或重建历史数据；
+升级前后的只读完整性检查均应为 `ok`。相册降级回复、聊天遮罩和混合文件保存的回归测试见
+`tests/test_publish_reply.py`、`tests/test_publish_regressions.py` 和 `tests/test_streaming_uploads.py`。
+回退只需更新
 为上一版本镜像；除非数据本身损坏，不要用旧 snapshot 覆盖较新的数据库。
 
 ## 数据库完整性

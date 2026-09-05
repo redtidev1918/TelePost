@@ -654,18 +654,16 @@ async def _run_item_batches(items, *, caption, album_size,
                 logger.warning("相册发送失败（%s），降级为逐条发送 %d 个文件",
                                exc, len(batch))
                 messages = None
-            if messages is None and fallback_single:
-                messages = []
-                for index, item in enumerate(batch):
-                    item_caption = batch_caption if index == 0 else None
-                    item_reply = reply_to if index == 0 else previous_id
-                    messages.append(await send_one(item, item_caption, item_reply))
-
         if messages is None:
             messages = []
             for index, item in enumerate(batch):
                 item_caption = batch_caption if index == 0 else None
-                item_reply = reply_to if index == 0 else previous_id
+                if index == 0:
+                    item_reply = reply_to
+                elif reply_mode == "post":
+                    item_reply = reply_to if reply_to is not None else messages[0].message_id
+                else:
+                    item_reply = messages[-1].message_id
                 messages.append(await send_one(item, item_caption, item_reply))
 
         for message in messages:
@@ -706,6 +704,7 @@ async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
     """
     timeout_kwargs = _telegram_timeout_kwargs() if timeout_kwargs is None else timeout_kwargs
     reply_mode = (reply_mode or CHANNEL_ALBUM_REPLY) or "chain"
+    items = [dict(item, spoiler=item.get("spoiler", spoiler)) for item in items]
 
     async def _album(media_group, reply_to):
         kwargs = dict(chat_id=chat_id, media=media_group,
@@ -801,6 +800,8 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
         [{"kind": f["kind"], "path": f["path"], "filename": f["filename"],
           "spoiler": spoiler} for f in files]
     )
+    # Persist file IDs against the same media-family order used for delivery.
+    items = [item for _, batch in _item_batches(items, CHANNEL_ALBUM_SIZE) for item in batch]
 
     media_list, doc_list = [], []
     sent_messages, main_message = await deliver_items_to_chat(
