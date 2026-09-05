@@ -447,6 +447,10 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
 # 本地文件必须带 attach=True（否则 PTB 序列化时丢掉 media 字段，
 # Telegram 报 media not found，图片/文档发不出去）。
 CHANNEL_ALBUM_SIZE = 10
+# 超出一组相册（如 >10 图）时，频道里多个相册的回复层级：
+#   chain（默认）：每个相册回复上一个相册，形成一条逐级回复链；
+#   post：后续相册都回复第一条主贴（或外部锚点），整组"跟着帖子走"。
+CHANNEL_ALBUM_REPLY = os.getenv("CHANNEL_ALBUM_REPLY", "chain").strip().lower()
 # Telegram 图片（含相册）单张上限 10 MiB，超过必须按文档发送。
 PHOTO_MAX_BYTES = int((10.0 - 0.5) * 1024 * 1024)
 
@@ -589,13 +593,15 @@ def _item_batches(items: list, album_size: int):
 
 
 async def _run_item_batches(items, *, caption, album_size,
-                            send_one, send_album, fallback_single=True, anchor_id=None):
+                            send_one, send_album, fallback_single=True, anchor_id=None,
+                            reply_mode="chain"):
     """共享的投递编排（不绑定 bot/chat）：
 
-    统一"主贴+回复链"层级，频道发布与审核群预览共用同一套规则，
+    统一"主贴+回复"层级，频道发布与审核群预览共用同一套规则，
     不再各写一份分组/排序/串联逻辑：
       - 顺序：photo/video 相册 → GIF/音频逐条 → document 相册；
-      - 每批回复上一批（第一条回复 anchor_id）；
+      - chain 模式：每批回复上一批（第一条回复 anchor_id）；
+      - post 模式：后续批次都回复主贴/anchor_id，不逐级串联；
       - caption 只挂在整条投递的第一条消息；
       - 相册失败自动降级逐条（send_one）。
 
@@ -610,7 +616,13 @@ async def _run_item_batches(items, *, caption, album_size,
 
     for fam, batch in _item_batches(items, album_size):
         can_album = fam in ("visual", "document") and len(batch) > 1
-        reply_to = previous_id if previous_id is not None else anchor_id
+        if reply_mode == "post":
+            # 都跟着锚点（外部指定帖）或主贴走，避免相册逐级嵌套成链。
+            reply_to = anchor_id if anchor_id is not None else (
+                main_message.message_id if main_message is not None else None
+            )
+        else:
+            reply_to = previous_id if previous_id is not None else anchor_id
         batch_caption = caption if main_message is None else None
         messages = None
 
@@ -681,17 +693,19 @@ def _normalize_chat_items(media_list, doc_list):
 
 async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
                                 album_size=CHANNEL_ALBUM_SIZE, timeout_kwargs=None,
-                                reply_to_message_id=None):
+                                reply_to_message_id=None, reply_mode=None):
     # reply_to_message_id 作为整条链的锚点：媒体在前会自然成为主贴，
     # 只有当整条投递全是文档且外部指定锚点时才会回复它。
     """统一投递入口（频道发布与审核群预览共用）。
 
     items: [{"kind": photo|video|animation|audio|document,
              本地文件加 "path"+"filename"；Telegram 资源加 "file_id"(+"filename")}]
-    caption 只挂在整条投递的第一条消息；每批回复上一批，形成一条主贴回复链。
+    caption 只挂在整条投递的第一条消息；默认每批回复上一批，形成主贴回复链；
+    reply_mode="post" 时后续批次都回复主贴（跟随帖子，不逐级串联）。
     返回 (sent_messages[list], main_message)。
     """
     timeout_kwargs = _telegram_timeout_kwargs() if timeout_kwargs is None else timeout_kwargs
+    reply_mode = (reply_mode or CHANNEL_ALBUM_REPLY) or "chain"
 
     async def _album(media_group, reply_to):
         kwargs = dict(chat_id=chat_id, media=media_group,
@@ -713,6 +727,7 @@ async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
         items, caption=caption, album_size=album_size,
         send_one=_single, send_album=_album,
         anchor_id=reply_to_message_id,
+        reply_mode=reply_mode,
     )
 
 
