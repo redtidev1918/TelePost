@@ -110,7 +110,7 @@ Fly.io 省钱部署应把 PixivFlow 拆到独立常驻 Machine，TelePost 保持
 
 ## `config.ini`
 
-完整模板是仓库根目录的 [`config.ini.example`](../config.ini.example)。常用映射：
+完整模板是仓库根目录的 [`config.ini.example`](https://github.com/redtidev1918/TelePost/blob/main/config.ini.example)。常用映射：
 
 - `[BOT]`：核心配置、运行模式与审核
 - `[WEBHOOK]`：`URL`、`PORT`、`PATH`、`SECRET_TOKEN`

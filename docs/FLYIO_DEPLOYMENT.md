@@ -44,7 +44,7 @@ git clone https://github.com/redtidev1918/TelePost.git
 cd TelePost
 ```
 
-复制或直接编辑仓库内 [`fly.toml`](../fly.toml)，填写 `app` 和 `primary_region`。
+复制或直接编辑仓库内 [`fly.toml`](https://github.com/redtidev1918/TelePost/blob/main/fly.toml)，填写 `app` 和 `primary_region`。
 区域应按用户延迟、容量和数据位置选择；各区价格可能变化，以
 [Fly.io 定价](https://fly.io/docs/about/pricing/)为准，不在配置里假定“最便宜区域”。
 

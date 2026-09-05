@@ -1,0 +1,18 @@
+- 开始使用
+  - [文档中心](/)
+  - [安装与部署](INSTALL.md)
+  - [命令参考](COMMANDS.md)
+- 配置与部署
+  - [配置参考](CONFIGURATION.md)
+  - [Fly.io 部署](FLYIO_DEPLOYMENT.md)
+  - [PythonAnywhere 部署](PYTHONANYWHERE_DEPLOYMENT.md)
+  - [Webhook 与 Polling](WEBHOOK_MODE.md)
+- 运维
+  - [运维手册](OPERATIONS.md)
+  - [故障排查](TROUBLESHOOTING.md)
+  - [性能与容量](PERFORMANCE.md)
+- 开发者
+  - [HTTP API](API.md)
+  - [测试指南](TESTING.md)
+  - [投稿状态机](internals/submission-flow.md)
+  - [删帖与软删除](internals/moderation.md)
