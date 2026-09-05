@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from handlers.publish import handle_document_publish, handle_media_publish
+from handlers import publish
 
 
 @pytest.mark.asyncio
@@ -68,3 +69,17 @@ async def test_last_single_photo_after_full_album_is_sent_as_reply():
     assert message_ids == list(range(40, 51))
     bot.send_media_group.assert_awaited_once()
     assert bot.send_photo.await_args.kwargs["reply_to_message_id"] == 49
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count", [1, 2])
+async def test_chat_delivery_applies_spoiler(count):
+    bot = AsyncMock()
+    bot.send_photo.return_value = SimpleNamespace(message_id=1)
+    bot.send_media_group.return_value = [SimpleNamespace(message_id=i + 1) for i in range(count)]
+    items = publish._normalize_chat_items([f"photo:f{i}" for i in range(count)], [])
+    await publish.deliver_items_to_chat(bot, "@channel", items, caption="c", spoiler=True)
+    if count == 1:
+        assert bot.send_photo.await_args.kwargs["has_spoiler"] is True
+    else:
+        assert all(m.has_spoiler for m in bot.send_media_group.await_args.kwargs["media"])

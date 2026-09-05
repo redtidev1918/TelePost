@@ -89,6 +89,8 @@ fly secrets set -a <app> API_MAX_FILES=100
 ```
 
 - `CHANNEL_ALBUM_REPLY` 生效样例：30 张图发布到频道 → 第 1 组（10 张）是主贴，第 2、3 组都回复主贴。
+- 2.10.43 起，相册降级为单张发送时也保持所选层级：`chain` 逐条回复上一条，`post` 都回复主贴（或调用方指定的锚点）。网络超时仍不自动重发，需先确认频道中是否已送达。
+- `post` 指同一频道内的消息回复，不会把后续图片移到关联讨论群的评论区；它不改变发送目标。
 - `API_MAX_FILES` 放宽的是 HTTP API 投稿入口（PixivFlow 等）；单个 Telegram 相册仍 ≤10，发布侧自动分批。
 - 设置会触发应用重启；生产现网（telesubmit-multi-bot）已启用 `post` + `100`。
 

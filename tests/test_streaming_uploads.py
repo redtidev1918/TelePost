@@ -7,6 +7,26 @@ from handlers import publish
 
 
 @pytest.mark.asyncio
+async def test_mixed_files_saved_in_delivery_order(monkeypatch, tmp_path):
+    files = []
+    for kind, name in [("document", "novel.txt"), ("photo", "image.jpg")]:
+        path = tmp_path / name
+        path.write_bytes(b"test")
+        files.append(dict(kind=kind, filename=name, path=str(path)))
+    bot = SimpleNamespace(
+        send_photo=AsyncMock(return_value=SimpleNamespace(
+            message_id=1, photo=(SimpleNamespace(file_id="photo-id"),))),
+        send_document=AsyncMock(return_value=SimpleNamespace(
+            message_id=2, document=SimpleNamespace(file_id="doc-id"))),
+    )
+    save = AsyncMock()
+    monkeypatch.setattr(publish, "save_published_post", save)
+    await publish.publish_from_files(bot, files, tags="#test", user_id=1)
+    assert save.await_args.args[3] == ["photo:photo-id"]
+    assert save.await_args.args[4] == ["document:doc-id:novel.txt"]
+
+
+@pytest.mark.asyncio
 async def test_publish_keeps_file_handle_open_and_unbuffered(monkeypatch, tmp_path):
     media_path = tmp_path / "large.jpg"
     media_path.write_bytes(b"stream-me")
