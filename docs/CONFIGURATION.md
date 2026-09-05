@@ -76,6 +76,22 @@
 
 Telegram 只保证 Bot 可删除 48 小时内消息；需要自动清理审核群时通常把待审保留设为 1 天。
 
+### 已部署实例调整（Fly.io）
+
+已跑起来的部署改这两项**不用改代码/重建镜像**，直接改环境变量后重启生效：
+
+```bash
+# 多相册投稿改为「都回复主贴」（不再逐级嵌套成链）
+fly secrets set -a <app> CHANNEL_ALBUM_REPLY=post
+
+# 单次投稿文件数上限从 50 放宽到 100（支持超大图集整本投）
+fly secrets set -a <app> API_MAX_FILES=100
+```
+
+- `CHANNEL_ALBUM_REPLY` 生效样例：30 张图发布到频道 → 第 1 组（10 张）是主贴，第 2、3 组都回复主贴。
+- `API_MAX_FILES` 放宽的是 HTTP API 投稿入口（PixivFlow 等）；单个 Telegram 相册仍 ≤10，发布侧自动分批。
+- 设置会触发应用重启；生产现网（telesubmit-multi-bot）已启用 `post` + `100`。
+
 ## 多 Bot
 
 存在 `BOT1_TOKEN` 时，`run.py` 进入多 Bot 模式，并连续读取
