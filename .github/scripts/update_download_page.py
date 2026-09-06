@@ -78,6 +78,15 @@ def main() -> int:
         "",
     ]
 
+    # 可选的手写预览段：docs/download-preview.md（稳定文件，不被生成器覆盖）。
+    # 每次发版重新生成时会把它的内容注入下载页（放应用截图等）。
+    _preview_path = "docs/download-preview.md"
+    if os.path.isfile(_preview_path):
+        _preview = open(_preview_path, encoding="utf-8").read().strip()
+        if _preview:
+            lines.append(_preview)
+            lines.append("")
+
     if assets:
         rows = []
         for a in assets:
