@@ -10,6 +10,19 @@
 
 ---
 
+## [2.10.44](https://github.com/redtidev1918/TelePost/compare/v2.10.43...v2.10.44) (2026-09-06)
+
+
+### Bug Fixes
+
+* **docker:** install ffmpeg in runtime-pixivflow stage for ugoira GIF conversion ([cf6a143](https://github.com/redtidev1918/TelePost/commit/cf6a14325f692b7b50258f51f0d3057da35efeae))
+
+
+### Documentation
+
+* **site:** 独立自动化的下载页（发版自动更新，始终指向最新 Release） ([4b7c53a](https://github.com/redtidev1918/TelePost/commit/4b7c53adbe3209981f36c43dad2637e5adfe94d6))
+* **site:** 首页顶部新增「下载」区块（带二进制发布的项目） ([b094528](https://github.com/redtidev1918/TelePost/commit/b0945280e9ab4b294ee0fe1d20e1ff20ec30c49b))
+
 ## [2.10.43] - 2026-09-06
 
 ### 修复
