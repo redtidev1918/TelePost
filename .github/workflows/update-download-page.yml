@@ -1,0 +1,32 @@
+name: Update download page
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate docs/download.md from latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 .github/scripts/update_download_page.py
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/download.md
+          if ! git diff --cached --quiet; then
+            git commit -m "docs: 自动更新下载页（指向最新 Release）"
+            git pull --rebase origin "$(git branch --show-current)" || true
+            git push
+          else
+            echo "download page unchanged"
+          fi
