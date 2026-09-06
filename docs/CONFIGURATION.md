@@ -126,7 +126,10 @@ Secret。默认数据目录为 `data/botN/`，父路由固定提供：
 | `PIXIVFLOW_COMMAND` | `pixivflow scheduler` |
 
 该模式需要包含 Node/PixivFlow 的 `runtime-pixivflow` 镜像，并且必须常驻才能运行 Cron。
-Fly.io 省钱部署应把 PixivFlow 拆到独立常驻 Machine，TelePost 保持自动休眠。
+合一台镜像需带 `ffmpeg`：PixivFlow 处理 ugoira（Pixiv 动图）时会把帧 ZIP 转成循环 GIF，
+运行时 spawn `python3` + `ffmpeg`；缺 ffmpeg 时动图只会以 ZIP + 帧 JSON 文档形式投递。
+Fly.io 省钱部署应把 PixivFlow 拆到独立常驻 Machine，TelePost 保持自动休眠
+（拆分时 ffmpeg 由 PixivFlow 自己的镜像提供，TelePost 镜像无需安装）。
 
 ## `config.ini`
 
