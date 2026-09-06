@@ -2,6 +2,18 @@
 
 > TelePost 是一个 Telegram 频道投稿机器人：聊天投稿、审核队列、全文搜索、多 Bot 与 HTTP API。这里汇聚它的全部文档。
 
+## 📥 下载（免安装单文件版）
+
+Windows / macOS / Linux 各有一个单文件可执行，**无需装 Python 或 Docker**，下载即用：
+
+| 平台 | 文件 |
+|---|---|
+| Windows x64 | `telepost-windows-x64.exe` |
+| macOS（Apple Silicon） | `telepost-macos-arm64` |
+| Linux x64 | `telepost-linux-x64` |
+
+👉 最新版见 [GitHub Releases](https://github.com/redtidev1918/TelePost/releases/latest)。Intel Mac / 想用 Docker 的见 [安装与部署](INSTALL.md)。
+
 ## 🧭 按任务找文档
 
 | 你想做什么 | 路线 |
