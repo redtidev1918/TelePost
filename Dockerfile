@@ -51,6 +51,12 @@ CMD ["python", "-u", "run.py"]
 # Fly's combined 512 MiB profile explicitly selects this stage.
 FROM runtime-base AS runtime-pixivflow
 
+# PixivFlow 的 ugoira（动图）转 GIF 在运行时 spawn python3 + ffmpeg；
+# python:3.11-slim 自带 python3，只缺 ffmpeg，合一台必须装上，否则动图投递失败。
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=pixivflow-builder /usr/local/bin/node /usr/local/bin/node
 COPY --from=pixivflow-builder /opt/pixivflow /opt/pixivflow
 RUN ln -s /opt/pixivflow/node_modules/.bin/pixivflow /usr/local/bin/pixivflow
