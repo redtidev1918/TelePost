@@ -5,10 +5,10 @@ python-telegram-bot[job-queue]==21.10
 aiohttp>=3.9.0
 
 # 配置管理（configparser 已由 Python 标准库提供）
-python-dotenv==1.0.0
+python-dotenv==1.2.3
 
 # 数据库
-aiosqlite==0.19.0
+aiosqlite==0.22.1
 
 # 系统监控（可选，用于内存分析）
 psutil==5.9.8
