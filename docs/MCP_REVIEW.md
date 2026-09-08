@@ -70,6 +70,13 @@ TELEPOST_MCP_REVIEW_TOKEN=replace-with-long-random-secret
 TELEPOST_REVIEW_API_MODE=readonly
 ```
 
+多 bot 部署把 URL 指到具体 bot：
+
+```text
+Bot 1: https://<host>/api/bot1/v1
+Bot 2: https://<host>/api/bot2/v1
+```
+
 本地 Agent 与 TelePost 同机时优先使用 stdio + `127.0.0.1` HTTP；token 放环境变量或 Secret，不写入仓库、URL、日志或截图。
 
 ## 4. Streamable HTTP（可选）
