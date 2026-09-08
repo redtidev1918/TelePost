@@ -13,9 +13,8 @@
       },
       {
         "runner": "windows-latest",
-        "command": "& \"C:\\Program\\Git\\bin\\bash.exe\" scripts/build-release",
-        "version_check": "$v=& .\\dist\\release\\telepost-windows-x64.exe --version; if ($v -notlike \"telepost $env:RELEASE_VERSION*\") { exit 1 }",
-        "shell": "powershell"
+        "command": "scripts/build-release",
+        "version_check": "./dist/release/telepost-windows-x64.exe --version | grep -F \"telepost $RELEASE_VERSION\""
       },
       {
         "runner": "macos-14",
