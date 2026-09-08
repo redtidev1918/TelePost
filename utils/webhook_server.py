@@ -66,6 +66,10 @@ class WebhookServer:
             update = Update.de_json(data, self.application.bot)
             
             if update:
+                # 评论区模式在当前审核回调结束前就需要自动转发 ID，
+                # 因此在进入 PTB 串行更新队列前先记录。
+                from handlers.publish import capture_discussion_forward
+                capture_discussion_forward(update)
                 # 记录更新类型（特别是频道消息）
                 update_types = []
                 if update.message:

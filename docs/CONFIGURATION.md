@@ -67,7 +67,7 @@
 | `REVIEW_PREVIEW_INTERVAL_SECONDS` | `0.75` | 预览组之间的节流间隔 |
 | `REVIEW_PREVIEW_TIMEOUT_SECONDS` | `120` | 单次审核预览 Telegram I/O 超时 |
 | `TELEGRAM_SEND_TIMEOUT_SECONDS` | `REVIEW_PREVIEW_TIMEOUT_SECONDS` | 频道发布 Telegram I/O 超时；大相册建议保持 120 秒 |
-| `CHANNEL_ALBUM_REPLY` | `chain` | 频道多相册投递的回复层级：`chain`（默认，每个相册回复上一个相册）；`post`（后续相册都回复主贴，整组跟着帖子走，不逐级嵌套） |
+| `CHANNEL_ALBUM_REPLY` | `chain` | 多图展示：`chain` 在频道逐级回复；`post` 在频道都回复主贴；`discussion` 频道只发首图主贴，其余图片发到关联讨论组的该帖评论串（Webhook 模式） |
 | `REVIEW_PREVIEW_THREAD` | `1` | 后续预览和控制消息回复上一条 |
 | `PENDING_REVIEW_RETENTION_DAYS` | `0` | 待审过期天数；`0` 永久保留 |
 | `PENDING_REVIEW_CLEANUP_BATCH_SIZE` | `100` | 每轮最多过期 1–200 条 |
@@ -91,6 +91,7 @@ fly secrets set -a <app> API_MAX_FILES=100
 - `CHANNEL_ALBUM_REPLY` 生效样例：30 张图发布到频道 → 第 1 组（10 张）是主贴，第 2、3 组都回复主贴。
 - 2.10.43 起，相册降级为单张发送时也保持所选层级：`chain` 逐条回复上一条，`post` 都回复主贴（或调用方指定的锚点）。网络超时仍不自动重发，需先确认频道中是否已送达。
 - `post` 指同一频道内的消息回复，不会把后续图片移到关联讨论群的评论区；它不改变发送目标。
+- `discussion` 才是评论区展示：Bot 必须在频道的关联讨论组中且可发消息。
 - `API_MAX_FILES` 放宽的是 HTTP API 投稿入口（PixivFlow 等）；单个 Telegram 相册仍 ≤10，发布侧自动分批。
 - 设置会触发应用重启；生产现网（telesubmit-multi-bot）已启用 `post` + `100`。
 

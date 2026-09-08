@@ -5,6 +5,7 @@ import json
 import logging
 import asyncio
 import os
+import time
 from datetime import datetime
 from telegram import (
     Update,
@@ -319,7 +320,7 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                     context.bot, CHANNEL_ID, chat_items,
                     caption=caption, spoiler=spoiler_flag,
                 )
-                all_message_ids = [m.message_id for m in sent_messages]
+                all_message_ids = _channel_message_ids(sent_messages, sent_message)
             except Exception as e:
                 logger.error("发布到频道失败: %s", e, exc_info=True)
                 sent_message, all_message_ids = None, []
@@ -451,8 +452,54 @@ CHANNEL_ALBUM_SIZE = 10
 #   chain（默认）：每个相册回复上一个相册，形成一条逐级回复链；
 #   post：后续相册都回复第一条主贴（或外部锚点），整组"跟着帖子走"。
 CHANNEL_ALBUM_REPLY = os.getenv("CHANNEL_ALBUM_REPLY", "chain").strip().lower()
+DISCUSSION_FORWARD_TIMEOUT_SECONDS = max(
+    1.0, float(os.getenv("DISCUSSION_FORWARD_TIMEOUT_SECONDS", "10"))
+)
+_discussion_forwards = {}
+_discussion_waiters = {}
 # Telegram 图片（含相册）单张上限 10 MiB，超过必须按文档发送。
 PHOTO_MAX_BYTES = int((10.0 - 0.5) * 1024 * 1024)
+
+
+def capture_discussion_forward(update):
+    """记住频道帖自动转发到关联讨论组后的消息 ID。"""
+    message = getattr(update, "message", None)
+    if not message or not getattr(message, "is_automatic_forward", False):
+        return
+    origin = getattr(message, "forward_origin", None)
+    source_chat = getattr(origin, "chat", None)
+    source_id = getattr(origin, "message_id", None)
+    if source_chat is None or source_id is None:
+        source_chat = getattr(message, "forward_from_chat", None)
+        source_id = getattr(message, "forward_from_message_id", None)
+    if source_chat is None or source_id is None:
+        return
+
+    now = time.monotonic()
+    for key, (_, seen_at) in list(_discussion_forwards.items()):
+        if now - seen_at > 60:
+            _discussion_forwards.pop(key, None)
+    key = (source_chat.id, source_id)
+    target = (message.chat.id, message.message_id)
+    waiter = _discussion_waiters.pop(key, None)
+    if waiter is not None and not waiter.done():
+        waiter.set_result(target)
+    else:
+        _discussion_forwards[key] = (target, now)
+
+
+async def _wait_for_discussion_forward(channel_id, message_id):
+    key = (channel_id, message_id)
+    cached = _discussion_forwards.pop(key, None)
+    if cached is not None:
+        return cached[0]
+    waiter = asyncio.get_running_loop().create_future()
+    _discussion_waiters[key] = waiter
+    try:
+        return await asyncio.wait_for(waiter, DISCUSSION_FORWARD_TIMEOUT_SECONDS)
+    finally:
+        if _discussion_waiters.get(key) is waiter:
+            _discussion_waiters.pop(key, None)
 
 
 def _is_local_item(item: dict) -> bool:
@@ -706,6 +753,33 @@ async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
     reply_mode = (reply_mode or CHANNEL_ALBUM_REPLY) or "chain"
     items = [dict(item, spoiler=item.get("spoiler", spoiler)) for item in items]
 
+    if reply_mode == "discussion" and len(items) > 1:
+        channel = await bot.get_chat(chat_id)
+        if not channel.linked_chat_id:
+            raise RuntimeError("频道未关联讨论组，无法把其余图片发到主贴评论区")
+        first_sent, main = await deliver_items_to_chat(
+            bot, chat_id, items[:1], caption=caption, spoiler=spoiler,
+            album_size=album_size, timeout_kwargs=timeout_kwargs, reply_mode="post",
+        )
+        try:
+            discussion_chat_id, discussion_message_id = await _wait_for_discussion_forward(
+                channel.id, main.message_id
+            )
+            if discussion_chat_id != channel.linked_chat_id:
+                raise RuntimeError("频道自动转发落到了非预期讨论组")
+            rest_sent, _ = await deliver_items_to_chat(
+                bot, discussion_chat_id, items[1:], caption=None, spoiler=spoiler,
+                album_size=album_size, timeout_kwargs=timeout_kwargs,
+                reply_to_message_id=discussion_message_id, reply_mode="post",
+            )
+        except Exception:
+            try:
+                await bot.delete_message(chat_id=channel.id, message_id=main.message_id)
+            except Exception:
+                logger.exception("讨论串发送失败后清理频道主贴失败")
+            raise
+        return first_sent + rest_sent, main
+
     async def _album(media_group, reply_to):
         kwargs = dict(chat_id=chat_id, media=media_group,
                       reply_to_message_id=reply_to, **timeout_kwargs)
@@ -728,6 +802,16 @@ async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
         anchor_id=reply_to_message_id,
         reply_mode=reply_mode,
     )
+
+
+def _channel_message_ids(messages, main_message):
+    """只记录主贴所在频道的消息，避免把讨论组 ID 当频道帖删除。"""
+    main_chat_id = getattr(getattr(main_message, "chat", None), "id", None)
+    return [
+        message.message_id for message in messages
+        if main_chat_id is None
+        or getattr(getattr(message, "chat", None), "id", main_chat_id) == main_chat_id
+    ]
 
 
 async def handle_media_publish(context, media_list, caption, spoiler_flag):
@@ -810,7 +894,7 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
     if main_message is None:
         raise RuntimeError("所有消息发送失败")
 
-    all_message_ids = [m.message_id for m in sent_messages]
+    all_message_ids = _channel_message_ids(sent_messages, main_message)
     for message, item in zip(sent_messages, items):
         file_id = _file_id_of(message)
         if item["kind"] == "document":
@@ -881,7 +965,7 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="", not
     if main_message is None:
         raise RuntimeError("没有可发布的媒体或文档")
 
-    all_message_ids = [m.message_id for m in sent_messages]
+    all_message_ids = _channel_message_ids(sent_messages, main_message)
     media_list = [f"{m['type']}:{m['file_id']}" for m in media]
     doc_list = [f"document:{d['file_id']}:{d.get('filename', 'file')}" for d in documents]
 
