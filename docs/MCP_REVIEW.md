@@ -45,6 +45,28 @@ python3.10 -m venv .venv-mcp
 ./.venv-mcp/bin/pip install -r requirements-mcp.txt
 ```
 
+### 生成 Token
+
+`TELEPOST_MCP_REVIEW_TOKEN` 不是 Telegram/BotFather token；它是自生成的共享密钥，MCP sidecar 与 TelePost API 必须配置同一个值。
+
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+没有 Python 时可用：
+
+```bash
+openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
+```
+
+Fly.io 示例：
+
+```bash
+fly secrets set TELEPOST_MCP_REVIEW_TOKEN='<上一步输出>' -a <fly-app>
+```
+
+本地 Agent 配置同一个值。轮换密钥时同时更新 Fly secret 与 Agent 配置；不要提交到 Git，也不要放进 URL。
+
 Claude Desktop / Codex / 其他本地 Agent 示例：
 
 ```json
