@@ -10,6 +10,14 @@
 
 ---
 
+## [2.11.1](https://github.com/redtidev1918/TelePost/compare/v2.11.0...v2.11.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* **publish:** discussion 评论模式在非 Webhook 模式启动时明确告警 ([dbf0ab0](https://github.com/redtidev1918/TelePost/commit/dbf0ab0358b98471eee260fae05b7a3d42657df8))
+* **review:** 发布失败后主按钮显示为「🔄 重试发布」 ([33153d2](https://github.com/redtidev1918/TelePost/commit/33153d2468a0a5f5fe54ea6cac7fd125b8142345))
+
 ## [2.11.0](https://github.com/redtidev1918/TelePost/compare/v2.10.44...v2.11.0) (2026-09-08)
 
 
