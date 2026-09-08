@@ -1,304 +1,32 @@
 name: Release
 
-# 全自动发版，无需 PAT/secret：main 上合入 release-worthy 提交后 release-please 在本
-# 工作流内开/更发版 PR；发版 PR 合并后同一个 run 内推 tag、构建镜像/可执行文件、建 Release。
-# （内置 GITHUB_TOKEN 推的 tag 不会触发其他工作流，但同一 run 内的 job 不受此限制。）
-# 仍支持手动推 v* tag / workflow_dispatch（需填 tag）重跑。
 on:
+  pull_request:
   push:
     branches: [main]
-    tags: ["v*"]
+  schedule:
+    - cron: "29 * * * *"
   workflow_dispatch:
     inputs:
-      tag:
-        description: 要重跑/重发布的已有 tag（如 v2.11.0）；main push 自动发版时忽略
-        required: true
-        type: string
+      version: {description: "Existing version; blank reads the manifest", required: false, type: string}
+      dry_run: {description: "Build and validate without publishing", required: false, default: false, type: boolean}
+      force: {description: "Rerun a healthy version", required: false, default: false, type: boolean}
+      repair: {description: "Repair the current incomplete version", required: false, default: false, type: boolean}
+      stage: {description: "Recovery stage label", required: false, default: all, type: string}
 
 permissions:
-  contents: write   # 推 tag / 创建 GitHub Release
-  packages: write   # 推送 GHCR 镜像
+  contents: write
   pull-requests: write
-  pages: write      # 发版后部署 GitHub Pages
+  packages: write
   id-token: write
 
 jobs:
-  release-please:
-    runs-on: ubuntu-latest
-    outputs:
-      releases_created: ${{ steps.rp.outputs.releases_created }}
-      tag_name: ${{ steps.rp.outputs.tag_name }}
-    steps:
-      - uses: actions/checkout@v7
-      - name: Release Please
-        id: rp
-        uses: googleapis/release-please-action@v4
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-
-  test:
-    runs-on: ubuntu-latest
-    needs: release-please
-    if: >-
-      github.event_name != 'push' ||
-      github.ref == 'refs/heads/main' && needs.release-please.outputs.releases_created == 'true' ||
-      startsWith(github.ref, 'refs/tags/')
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.release-please.outputs.tag_name || inputs.tag || github.ref }}
-          fetch-depth: 0
-      - name: 设置 Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
-          cache: pip
-      - name: 安装测试依赖
-        run: pip install -r requirements-dev.txt
-      - name: 运行完整测试
-        run: python -m pytest -q --no-cov -o log_cli=false
-
-  docker:
-    runs-on: ubuntu-latest
-    needs: [release-please, test]
-    if: >-
-      github.event_name != 'push' ||
-      github.ref == 'refs/heads/main' && needs.release-please.outputs.releases_created == 'true' ||
-      startsWith(github.ref, 'refs/tags/')
-    env:
-      RELEASE_TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag || github.ref_name }}
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.release-please.outputs.tag_name || inputs.tag || github.ref }}
-          fetch-depth: 0
-
-      # GHCR 镜像名必须全小写，而 github.repository 保留原大小写
-      - name: 计算小写镜像名
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
-
-      - name: 设置 QEMU（arm64 构建）
-        uses: docker/setup-qemu-action@v4
-
-      - name: 设置 Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: 登录 GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 计算镜像标签（GHCR 不带 v 前缀）
-        id: imgtags
-        run: |
-          V="${RELEASE_TAG#v}"
-          echo "full=$V" >> "$GITHUB_OUTPUT"
-          echo "minor=${V%%.*}.$(echo "$V" | cut -d. -f2)" >> "$GITHUB_OUTPUT"
-
-      - name: 生成镜像标签与元数据
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.IMAGE }}
-          tags: |
-            type=raw,value=${{ steps.imgtags.outputs.full }}
-            type=raw,value=${{ steps.imgtags.outputs.minor }}
-            type=raw,value=latest
-          labels: |
-            org.opencontainers.image.title=TelePost
-            org.opencontainers.image.description=Telegram 频道投稿机器人
-            org.opencontainers.image.licenses=MIT
-
-      - name: 构建并推送镜像
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  bundle:
-    runs-on: ${{ matrix.os }}
-    needs: [release-please, test]
-    if: >-
-      github.event_name != 'push' ||
-      github.ref == 'refs/heads/main' && needs.release-please.outputs.releases_created == 'true' ||
-      startsWith(github.ref, 'refs/tags/')
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            asset: telepost-linux-x64
-          - os: windows-latest
-            asset: telepost-windows-x64.exe
-          - os: macos-latest
-            asset: telepost-macos-arm64
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.release-please.outputs.tag_name || inputs.tag || github.ref }}
-          fetch-depth: 0
-      - name: 设置 Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
-          cache: pip
-      - name: 安装依赖与 PyInstaller
-        run: pip install -r requirements.txt pyinstaller
-      - name: 构建单文件可执行（含解释器，用户零依赖）
-        run: pyinstaller --onefile --clean --name telepost run.py
-      - name: 以平台名命名产物（避免不同平台同名互相覆盖）
-        run: python -c "from pathlib import Path; next(Path('dist').glob('telepost*')).rename(Path('dist') / '${{ matrix.asset }}')"
-      - name: 上传产物
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.asset }}
-          path: dist/${{ matrix.asset }}
-          if-no-files-found: error
-
   release:
-    runs-on: ubuntu-latest
-    needs: [release-please, test, docker, bundle]
-    if: >-
-      github.event_name != 'push' ||
-      github.ref == 'refs/heads/main' && needs.release-please.outputs.releases_created == 'true' ||
-      startsWith(github.ref, 'refs/tags/')
-    env:
-      RELEASE_TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag || github.ref_name }}
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.release-please.outputs.tag_name || inputs.tag || github.ref }}
-          fetch-depth: 0
-
-      - name: 从 CHANGELOG 提取发布说明
-        run: |
-          TAG_VERSION="${RELEASE_TAG#v}"
-          python3 - "$TAG_VERSION" > release_notes.md <<'PY'
-          import re, sys
-
-          version = sys.argv[1]
-          text = open("CHANGELOG.md", encoding="utf-8").read()
-          sections = re.split(r"(?m)^## ", text)[1:]
-
-          body = None
-          # 优先取与 tag 对应的版本段（兼容 [2.2.0] / [v2.2.0] 两种写法）
-          for section in sections:
-              if re.match(r"\[?v?" + re.escape(version) + r"\]", section):
-                  body = section.split("\n", 1)[1].strip() if "\n" in section else ""
-                  break
-          # 版本段缺失时回退到 [Unreleased]（发版前应把 Unreleased 并入版本段）
-          if body is None:
-              for section in sections:
-                  if section.startswith("[Unreleased]"):
-                      body = section.split("\n", 1)[1].strip() if "\n" in section else ""
-                      break
-          if not body:
-              body = "TelePost " + version
-
-          install_lines = [
-              "## 安装", "",
-              "```bash",
-              "docker run -d --name telepost \\",
-              "  -e TOKEN=你的TOKEN -e CHANNEL_ID=@你的频道 -e OWNER_ID=你的ID \\",
-              "  ghcr.io/redtidev1918/telepost:latest",
-              "```", "",
-              "更多方式见 [docs/INSTALL.md](https://github.com/redtidev1918/TelePost/blob/main/docs/INSTALL.md)。",
-          ]
-          print("\n".join(body.split("\n") + [""] + install_lines))
-          PY
-          echo "---- 发布说明预览 ----"
-          cat release_notes.md
-
-      - name: 创建/更新 GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-              --title "TelePost $RELEASE_TAG" --notes-file release_notes.md --latest
-          else
-            gh release create "$RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "TelePost $RELEASE_TAG" \
-              --notes-file release_notes.md \
-              --verify-tag \
-              --latest
-          fi
-
-      - name: 下载分平台可执行产物
-        uses: actions/download-artifact@v8
-        with:
-          pattern: telepost-*
-          path: bundles
-          merge-multiple: false
-
-      - name: 附加到 GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if ls bundles/*/telepost* >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" bundles/*/telepost* \
-              --repo "$GITHUB_REPOSITORY" --clobber
-          else
-            echo "没有可执行产物，跳过附加。"
-          fi
-
-      - name: 清理旧 release（每个 track 只留最新）
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 scripts/prune_releases.py
-
-  # 发版后更新下载页并部署 Pages（必须同 run：release:published 与后续 main push
-  # 都不会触发新工作流）。
-  download-page:
-    name: Update download page and deploy Pages
-    needs: [release-please, release]
-    if: needs.release-please.outputs.releases_created == 'true'
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: main
-          fetch-depth: 0
-          token: ${{ github.token }}
-      - name: Generate docs/download.md from latest release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: python3 .github/scripts/update_download_page.py
-      - name: Commit and push
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/download.md
-          if git diff --cached --quiet; then
-            echo "download page unchanged"
-          else
-            git commit -m "docs: 自动更新下载页（指向最新 Release）"
-            git pull --rebase origin main || true
-            git push
-          fi
-      - name: Setup Pages
-        uses: actions/configure-pages@v6
-      - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v5
-        with:
-          path: './docs'
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
+    uses: redtidev1918/release-infra/.github/workflows/reusable-release.yml@v1
+    with:
+      version: ${{ inputs.version || '' }}
+      dry_run: ${{ github.event_name == 'pull_request' || inputs.dry_run || false }}
+      force: ${{ inputs.force || false }}
+      repair: ${{ github.event_name == 'pull_request' || inputs.repair || false }}
+      stage: ${{ inputs.stage || 'all' }}
+    secrets: inherit
