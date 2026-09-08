@@ -81,6 +81,22 @@ Machine；同一 Token 不能同时 Polling，也不能同时使用 Polling 与 
 - persistence 或 SQLite 无写权限时，先修复整个 `data/` 的所有者/挂载。
 - 审核预览出现 FloodWait/timeout 时，保持默认节流和 120 秒超时，避免并发重发。
 
+## 审核点「发布」后失败
+
+- 失败消息上的主按钮会变成 **「🔄 重试发布」**，直接再点即可；`failed` 与超期的
+  `publishing` 记录都能被重新认领。
+- **点了没反应 / 一直显示处理中**：多为上次发布中途进程崩溃，记录卡在
+  `publishing`。等待 `PUBLISHING_STALE_SECONDS`（默认 300 秒）后再点重试会自动
+  解锁；无需手改数据库。
+- **`CHANNEL_ALBUM_REPLY=discussion`（频道首贴 + 评论串）**：
+  - 等转发超时、非网络错误会**自动回滚已发消息并重试一次**，大多瞬时网络抖动
+    （`httpx.ReadError`）能自愈，无需人工。
+  - 提示「评论区发布结果不确定」时，表示评论相册可能已部分送达：先到**频道**确认
+    首贴、到**该帖评论串**确认图片是否齐，缺图再点重试；若有重复相册请手动删多余
+    的，不要盲目反复重试（会重复整个相册）。
+  - 持续失败按「未关联讨论组 / Bot 不在讨论组 / Bot 非管理员」排查：Bot 必须在
+    频道的关联讨论组里且可发消息；该模式仅 Webhook 可用（Polling 拿不到自动转发）。
+
 ## 搜索与统计
 
 - 搜索为空：确认 `SEARCH_ENABLED=true`，再运行 `python -m utils.index_manager status`。
