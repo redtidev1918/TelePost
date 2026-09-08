@@ -95,6 +95,20 @@ def _fields_target_id(payload) -> str:
     return str(payload.get("target_id", "")).strip()[:120]
 
 
+def _fields_slot_label(payload) -> str:
+    """Human-readable schedule slot provenance, e.g. '今日早班 · 2026-09-08'.
+
+    PixivFlow scheduled/external runs send slot_name (morning|evening) and
+    slot_date (YYYY-MM-DD). Manual/third-party submissions omit both → ''.
+    """
+    name = str(payload.get("slot_name", "")).strip().lower()
+    date = str(payload.get("slot_date", "")).strip()[:10]
+    if name not in ("morning", "evening"):
+        return ""
+    shift = "早班" if name == "morning" else "晚班"
+    return f"今日{shift} · {date}" if date else f"今日{shift}"
+
+
 def _fields_bool(payload, key: str) -> bool:
     return str(payload.get(key, "false")).lower() in ("true", "1", "yes")
 
@@ -209,6 +223,7 @@ def add_api_routes(web_app, application) -> None:
                         bot, media, documents,
                         idempotency_key=_fields_idempotency_key(payload),
                         target_id=_fields_target_id(payload),
+                        slot_label=_fields_slot_label(payload),
                         **common,
                     )
                 else:
@@ -313,6 +328,7 @@ def add_api_routes(web_app, application) -> None:
                     bot, files,
                     idempotency_key=_fields_idempotency_key(fields),
                     target_id=_fields_target_id(fields),
+                    slot_label=_fields_slot_label(fields),
                     **common,
                 )
             else:

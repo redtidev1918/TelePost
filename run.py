@@ -462,14 +462,14 @@ def build_router_app(indices: list):
     app.cleanup_ctx.append(client_session_context)
     app.router.add_get("/health", health)
 
-    def make_relay(index: int, strip: str | None, prepend: str = ""):
+    def make_relay(index: int, strip: str | None, prepend: str = "", port_override: int | None = None):
         async def relay(request):
             path_qs = request.path_qs
             if strip and path_qs.startswith(strip):
                 path_qs = path_qs[len(strip):] or "/"
             if prepend:
                 path_qs = prepend + path_qs
-            port = bot_webhook_port(index)
+            port = port_override if port_override is not None else bot_webhook_port(index)
             target = f"http://127.0.0.1:{port}{path_qs}"
             headers = {
                 k: v for k, v in request.headers.items()
@@ -526,6 +526,20 @@ def build_router_app(indices: list):
         api_relay = make_relay(index, api_prefix, prepend="/api")
         app.router.add_route("*", api_prefix, api_relay)
         app.router.add_route("*", api_prefix + "/{tail:.*}", api_relay)
+
+    # External Slot trigger (Fly autosleep, combined image): proxy /internal/*
+    # to the in-container PixivFlow trigger server so the public Fly hostname
+    # (port 8080) can both wake the machine and reach the authenticated Slot API
+    # on PixivFlow's trigger port. Only present when PixivFlow runs in-container.
+    if pixivflow_enabled():
+        trigger_port = int(os.environ.get("PIXIVFLOW_TRIGGER_PORT", "8090"))
+        trigger_relay = make_relay(indices[0], None, port_override=trigger_port)
+        # Slot runs are synchronous and can take several minutes; pin the longest
+        # router timeout for this path so the wake request stays open (activity
+        # lease) for the whole slot instead of proxy-timing-out mid-run.
+        os.environ.setdefault("ROUTER_TIMEOUT_SECONDS", "600")
+        app.router.add_route("*", "/internal", trigger_relay)
+        app.router.add_route("*", "/internal/{tail:.*}", trigger_relay)
     return app
 
 
