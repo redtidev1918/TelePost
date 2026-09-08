@@ -1,0 +1,194 @@
+openapi: 3.1.0
+info:
+  title: TelePost HTTP API
+  version: "1.0"
+  description: Minimal OpenAPI document for the curated internal review API used by the MCP sidecar.
+servers:
+  - url: /api/v1
+components:
+  securitySchemes:
+    bearerToken:
+      type: http
+      scheme: bearer
+  responses:
+    reviewNotFound:
+      description: Review does not exist
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    reviewState:
+      description: Review cannot accept the transition
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [ok, error]
+      properties:
+        ok: {type: 'boolean', const: false}
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string}
+            message: {type: string}
+    ReviewSummary:
+      type: object
+      properties:
+        review_id: {type: integer}
+        title: {type: string}
+        tags:
+          type: array
+          items: {type: string}
+        media_count: {type: integer}
+        document_count: {type: integer}
+        spoiler: {type: boolean}
+        source_label: {type: [string, 'null']}
+        created_at: {type: string, format: date-time}
+        status: {type: string, const: pending}
+    ReviewMedia:
+      type: object
+      properties:
+        index: {type: integer}
+        kind: {type: string}
+        file_id: {type: [string, 'null']}
+        filename: {type: [string, 'null']}
+        mime_type: {type: [string, 'null']}
+        thumbnail_file_id: {type: [string, 'null']}
+    ReviewItem:
+      type: object
+      properties:
+        id: {type: integer}
+        status: {type: string}
+        title: {type: string}
+        note: {type: string}
+        tags:
+          type: array
+          items: {type: string}
+        link: {type: string}
+        anonymous: {type: boolean}
+        spoiler: {type: boolean}
+        submitter_name: {type: [string, 'null']}
+        submitter_id: {type: [integer, 'null']}
+        source_label: {type: [string, 'null']}
+        source_ref: {type: [string, 'null']}
+        scheduled_at: {type: [string, 'null']}
+        media:
+          type: array
+          items: {$ref: '#/components/schemas/ReviewMedia'}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        error: {type: string}
+    ActionResult:
+      type: object
+      properties:
+        review_id: {type: integer}
+        status: {type: string}
+        reused: {type: boolean}
+        message_id: {type: [integer, 'null']}
+        link: {type: [string, 'null']}
+security:
+  - bearerToken: []
+paths:
+  /reviews:
+    get:
+      summary: List pending reviews
+      operationId: listPendingReviews
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {name: cursor, in: query, schema: {type: string}}
+      responses:
+        '200': {description: Pending review summaries}
+        '401': {description: Invalid token}
+  /reviews/policy:
+    get:
+      summary: Read administrator-configured review policy
+      operationId: getReviewPolicy
+      responses:
+        '200': {description: Markdown policy}
+        '401': {description: Invalid token}
+  /reviews/{review_id}:
+    get:
+      summary: Get one review
+      operationId: getReview
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {description: Review metadata}
+        '404': {$ref: '#/components/responses/reviewNotFound'}
+  /reviews/{review_id}/media/{index}:
+    get:
+      summary: Get bounded image preview for review media
+      operationId: getReviewMedia
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+        - {name: index, in: path, required: true, schema: {type: integer, minimum: 0}}
+        - {name: variant, in: query, schema: {type: string, enum: [thumbnail, preview, original], default: preview}}
+      responses:
+        '200':
+          description: Image bytes
+          content:
+            image/jpeg:
+              schema: {type: string, format: binary}
+        '404': {$ref: '#/components/responses/reviewNotFound'}
+        '409': {$ref: '#/components/responses/reviewState'}
+  /reviews/{review_id}/approve:
+    post:
+      summary: Claim and publish a review (destructive; human confirmation required)
+      operationId: approveReview
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                spoiler: {type: ['boolean', 'null']}
+      responses:
+        '200': {description: Published or already published}
+        '401': {description: Invalid token}
+        '403': {description: Read-only mode}
+        '409': {$ref: '#/components/responses/reviewState'}
+        '502': {description: Publish failed; review is retryable}
+  /reviews/{review_id}/reject:
+    post:
+      summary: Reject a review (destructive; human confirmation required)
+      operationId: rejectReview
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: {type: string, maxLength: 300}
+      responses:
+        '200': {description: Rejected}
+        '401': {description: Invalid token}
+        '403': {description: Read-only mode}
+        '409': {$ref: '#/components/responses/reviewState'}
+  /reviews/{review_id}/spoiler:
+    patch:
+      summary: Set spoiler before approval
+      operationId: setReviewSpoiler
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [spoiler]
+              properties:
+                spoiler: {type: boolean}
+      responses:
+        '200': {description: Spoiler updated}
+        '401': {description: Invalid token}
+        '403': {description: Read-only mode}
+        '409': {$ref: '#/components/responses/reviewState'}
