@@ -10,6 +10,13 @@
 
 ---
 
+## [2.11.0](https://github.com/redtidev1918/TelePost/compare/v2.10.44...v2.11.0) (2026-09-08)
+
+
+### Features
+
+* discussion 模式把多图其余部分发到频道关联讨论组评论串 ([4925211](https://github.com/redtidev1918/TelePost/commit/4925211e8b57d3876ae7c9b9a5f634239996f175))
+
 ## [2.10.44](https://github.com/redtidev1918/TelePost/compare/v2.10.43...v2.10.44) (2026-09-06)
 
 
