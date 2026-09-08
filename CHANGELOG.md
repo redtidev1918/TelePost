@@ -10,6 +10,13 @@
 
 ---
 
+## [2.13.0](https://github.com/redtidev1918/TelePost/compare/v2.12.0...v2.13.0) (2026-09-08)
+
+
+### Features
+
+* **api:** label scheduled submissions with their slot + proxy internal trigger ([f7c3a5e](https://github.com/redtidev1918/TelePost/commit/f7c3a5ecdfbade1cbb6f557eb9ab522cee42c781))
+
 ## [2.12.0](https://github.com/redtidev1918/TelePost/compare/v2.11.2...v2.12.0) (2026-09-08)
 
 
