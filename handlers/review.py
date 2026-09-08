@@ -710,7 +710,9 @@ async def _create_review(
     user_id,
     username,
     target_id="",
-    slot_label="",
+    source_label="",
+    source_ref="",
+    scheduled_at="",
 ):
     now = time.time()
     review_id = None
@@ -722,8 +724,9 @@ async def _create_review(
                     INSERT INTO pending_reviews (
                         idempotency_key, source, status, user_id, username, title, tags, note, link,
                         anonymous, spoiler, media_json, documents_json, review_chat_id,
-                        review_message_ids, target_id, created_at, updated_at
-                    ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        review_message_ids, target_id, source_label, source_ref, scheduled_at,
+                        created_at, updated_at
+                    ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         idempotency_key,
@@ -741,6 +744,9 @@ async def _create_review(
                         str(REVIEW_CHAT_ID),
                         json.dumps(review_message_ids),
                         target_id,
+                        source_label,
+                        source_ref,
+                        scheduled_at,
                         now,
                         now,
                     ),
@@ -781,9 +787,15 @@ async def _create_review(
     if review_id is None:
         raise RuntimeError("创建审核记录失败：幂等键冲突且无法覆盖旧记录")
 
+    provenance_line = ""
+    if source_label:
+        provenance_line = f"🏷️ {source_label}\n"
+    elif scheduled_at:
+        provenance_line = f"🕐 {scheduled_at}\n"
+
     control_text = (
         f"🕵️ 投稿待审核 #{review_id}\n"
-        + (f"🕐 {slot_label}\n" if slot_label else "")
+        + provenance_line
         + f"投稿方式：{_source_label(source)}\n"
         f"投稿人：{username}\n"
         f"标题：{title or '（无）'}\n"
@@ -859,7 +871,9 @@ async def queue_review_from_files(
     idempotency_key="",
     source="api",
     target_id="",
-    slot_label="",
+    source_label="",
+    source_ref="",
+    scheduled_at="",
 ) -> dict:
     """Stage multipart API files and create a durable pending review."""
     key = _normalized_idempotency_key(user_id, idempotency_key, source)
@@ -895,7 +909,9 @@ async def queue_review_from_files(
             user_id=user_id,
             username=username,
             target_id=target_id,
-            slot_label=slot_label,
+            source_label=source_label,
+            source_ref=source_ref,
+            scheduled_at=scheduled_at,
         )
     except Exception:
         await _delete_messages(bot, preview_ids)
@@ -920,7 +936,9 @@ async def queue_review_from_file_ids(
     idempotency_key="",
     source="api",
     target_id="",
-    slot_label="",
+    source_label="",
+    source_ref="",
+    scheduled_at="",
 ) -> dict:
     """Stage an API file_id submission and create a durable pending review."""
     key = _normalized_idempotency_key(user_id, idempotency_key, source)
@@ -953,7 +971,9 @@ async def queue_review_from_file_ids(
             user_id=user_id,
             username=username,
             target_id=target_id,
-            slot_label=slot_label,
+            source_label=source_label,
+            source_ref=source_ref,
+            scheduled_at=scheduled_at,
         )
     except Exception:
         await _delete_messages(bot, preview_ids)

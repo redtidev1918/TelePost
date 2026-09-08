@@ -77,6 +77,14 @@ curl -X POST 'https://example.com/api/bot1/v1/submissions' \
 | `spoiler` | 否 | 同上 |
 | `idempotency_key` | 否 | 最长 240；只在审核模式防止重复入队 |
 | `target_id` | 否 | 最长 120；审核模式标识自动化来源，供定向重抓 |
+| `source_label` | 否 | 最长 80；人类可读来源标签（如 `PixivFlow · 每日推荐`）。审核控制卡上展示；TelePost 不解析其含义，缺省不显示 |
+| `source_ref` | 否 | 最长 160；机器可读、稳定的来源引用（如上游 job/execution id）。仅存档/排查，TelePost 不解释其结构 |
+| `scheduled_at` | 否 | 最长 40；计划时间（ISO-8601）。仅来源展示/排查，TelePost 不据此调度 |
+
+> `source_label` / `source_ref` / `scheduled_at` 是**通用、可选、有界**的来源字段，任何 API
+> 客户端都可发送；不传时行为完全不变（向后兼容）。TelePost 不知道也不依赖任何上游的调度/
+> Slot 状态机。字段按单行纯文本处理（去除控制字符），只出现在纯文本审核控制卡，不进入
+> HTML 频道正文。
 
 上传按 64 KiB 流式写入 `data/api_uploads/<request>`，正常返回和错误都会清理；异常中断
 遗留目录由后台清扫。父路由同样流式转发，不会把 500 MiB 请求整体读入内存。

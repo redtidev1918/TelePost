@@ -527,16 +527,19 @@ def build_router_app(indices: list):
         app.router.add_route("*", api_prefix, api_relay)
         app.router.add_route("*", api_prefix + "/{tail:.*}", api_relay)
 
-    # External Slot trigger (Fly autosleep, combined image): proxy /internal/*
-    # to the in-container PixivFlow trigger server so the public Fly hostname
-    # (port 8080) can both wake the machine and reach the authenticated Slot API
-    # on PixivFlow's trigger port. Only present when PixivFlow runs in-container.
+    # Combined-image integration bridge (NOT core TelePost behavior): when an
+    # external automation engine (PixivFlow) runs in the same container in
+    # external-clock mode, reverse-proxy /internal/* to its trigger port so the
+    # public hostname both wakes the machine and reaches the authenticated
+    # trigger API. TelePost stays agnostic of that engine's scheduler semantics
+    # — this is a dumb port relay, gated on the engine being present. In
+    # split/standalone deployments this block is absent entirely.
     if pixivflow_enabled():
         trigger_port = int(os.environ.get("PIXIVFLOW_TRIGGER_PORT", "8090"))
         trigger_relay = make_relay(indices[0], None, port_override=trigger_port)
-        # Slot runs are synchronous and can take several minutes; pin the longest
-        # router timeout for this path so the wake request stays open (activity
-        # lease) for the whole slot instead of proxy-timing-out mid-run.
+        # Trigger runs are synchronous and can take several minutes; pin the
+        # longest router timeout for this path so the wake request stays open
+        # (it IS the activity lease) for the whole run instead of timing out.
         os.environ.setdefault("ROUTER_TIMEOUT_SECONDS", "600")
         app.router.add_route("*", "/internal", trigger_relay)
         app.router.add_route("*", "/internal/{tail:.*}", trigger_relay)
