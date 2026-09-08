@@ -1163,6 +1163,16 @@ async def approve_review(update, context):
         await query.edit_message_text(f"ℹ️ 该投稿当前状态：{row['status']}")
         return
 
+    # 认领成功：立刻把控制条改成「发布中」并移除按钮，避免点击后无反馈、
+    # 也防止多图发布（可能数十秒）期间被重复点击。
+    try:
+        await query.edit_message_text(
+            f"🚀 审核 #{review_id} 正在发布…多图+评论串可能要几十秒，请勿重复点击。",
+            reply_markup=InlineKeyboardMarkup([]),
+        )
+    except Exception:
+        pass
+
     try:
         result = await publish_from_file_ids(
             context.bot,
