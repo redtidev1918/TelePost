@@ -10,6 +10,13 @@
 
 ---
 
+## [2.12.0](https://github.com/redtidev1918/TelePost/compare/v2.11.2...v2.12.0) (2026-09-08)
+
+
+### Features
+
+* **review:** 点发布后立即显示「正在发布…」并移除按钮 ([1127628](https://github.com/redtidev1918/TelePost/commit/112762865a0422a0d52424f3fdaa281b7771d973))
+
 ## [2.11.2](https://github.com/redtidev1918/TelePost/compare/v2.11.1...v2.11.2) (2026-09-08)
 
 
