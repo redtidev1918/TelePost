@@ -67,6 +67,8 @@ fly secrets set TELEPOST_MCP_REVIEW_TOKEN='<上一步输出>' -a <fly-app>
 
 本地 Agent 配置同一个值。轮换密钥时同时更新 Fly secret 与 Agent 配置；不要提交到 Git，也不要放进 URL。
 
+> 这个密钥**不提供 Telegram bot 命令生成**。Bot 内的 `/gen_token` 本身只有 `OWNER_ID` 能调用，但它生成的是绑定 Telegram 用户、存数据库的投稿 API token；MCP 共享密钥是部署侧环境变量，bot 运行时无法自写环境变量或安全地回传长期密钥。因此请用上面的命令在部署机/CI 生成并通过 secret 管理。owner 生成的 `/gen_token` 也能读审核接口，且在 readwrite 模式可写，但不建议把它当 MCP 长期专用密钥。
+
 Claude Desktop / Codex / 其他本地 Agent 示例：
 
 ```json
