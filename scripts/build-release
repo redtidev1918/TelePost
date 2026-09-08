@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+rm -rf build dist/pyinstaller dist/release
+mkdir -p dist/release
+cat > _release_version.py <<EOF
+RELEASE_VERSION = "$RELEASE_VERSION"
+RELEASE_COMMIT = "$GITHUB_SHA"
+BUILD_DATE = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+EOF
+python -m pip install -r requirements.txt pyinstaller
+pyinstaller --onefile --clean --name telepost --hidden-import _release_version run.py
+case "$RUNNER_OS" in
+  Linux) asset=telepost-linux-x64 ;;
+  macOS) asset=telepost-macos-arm64 ;;
+  Windows) asset=telepost-windows-x64.exe ;;
+esac
+cp dist/telepost "dist/release/$asset" 2>/dev/null || cp dist/telepost.exe "dist/release/$asset"

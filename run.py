@@ -655,6 +655,13 @@ def run_multi(indices: list) -> None:
 
 
 def main():
+    if "--version" in sys.argv:
+        try:
+            from _release_version import RELEASE_VERSION, RELEASE_COMMIT, BUILD_DATE
+        except ImportError:
+            RELEASE_VERSION = RELEASE_COMMIT = BUILD_DATE = "dev"
+        print(f"telepost {RELEASE_VERSION} commit={RELEASE_COMMIT} date={BUILD_DATE}")
+        return
     if _FROZEN:
         # 冻结版以 exe 所在目录为工作目录：data/ logs/ config.ini 都落在这里
         os.chdir(os.path.dirname(os.path.abspath(sys.executable)))
