@@ -981,6 +981,16 @@ def test_review_keyboard_spoiler_toggle_reflects_state():
     assert on_btn and on_btn[0].text == "🔇 遮罩：开"
 
 
+def test_review_keyboard_failed_shows_retry_label_on_approve_button():
+    # 发布失败后主按钮变为"重试发布"，callback 仍是可重入的 review_approve。
+    kb = review._review_keyboard(55, "https://www.pixiv.net/artworks/1", failed=True)
+    btn = [b for b in _keyboard_buttons(kb) if b.callback_data == "review_approve:55"]
+    assert btn and btn[0].text == "🔄 重试发布"
+    normal = review._review_keyboard(55, "https://www.pixiv.net/artworks/1")
+    btn2 = [b for b in _keyboard_buttons(normal) if b.callback_data == "review_approve:55"]
+    assert btn2 and btn2[0].text == "✅ 发布到频道"
+
+
 def test_review_keyboard_refetch_only_for_pixiv_api_submissions():
     # HTTP API + Pixiv link -> refetch button present
     api = review._review_keyboard(

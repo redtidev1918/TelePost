@@ -84,9 +84,13 @@ def _review_keyboard(
     spoiler: bool = False,
     source: str = "api",
     pixiv_id: str = "",
+    failed: bool = False,
 ) -> InlineKeyboardMarkup:
+    # 发布失败后主按钮改为显眼的重试；callback 仍是 approve，
+    # approve_review 对 failed 记录可重新 claim。
+    approve_label = "🔄 重试发布" if failed else "✅ 发布到频道"
     rows = [[
-        InlineKeyboardButton("✅ 发布到频道", callback_data=f"review_approve:{review_id}"),
+        InlineKeyboardButton(approve_label, callback_data=f"review_approve:{review_id}"),
         InlineKeyboardButton("❌ 拒绝", callback_data=f"review_reject:{review_id}"),
     ]]
     # 审核员可在发布前决定频道遮罩；初始值沿用投稿者设置。
@@ -1184,6 +1188,7 @@ async def approve_review(update, context):
                 spoiler=bool(row["spoiler"]),
                 source=row["source"],
                 pixiv_id=_pixiv_id_from_link(row["link"] or ""),
+                failed=True,
             ),
         )
         return
