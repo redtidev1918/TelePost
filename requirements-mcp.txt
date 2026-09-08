@@ -1,0 +1,3 @@
+# Optional AI review sidecar. Not installed by the main TelePost requirements.
+# Python 3.10+ is required for the MCP sidecar; TelePost core remains Python 3.9+.
+mcp>=2.2,<3

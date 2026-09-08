@@ -26,7 +26,7 @@ from telegram import (
     InputMediaPhoto,
     InputMediaVideo,
 )
-from telegram.error import NetworkError, RetryAfter
+from telegram.error import RetryAfter
 
 from config.settings import ADMIN_IDS, REVIEW_CHAT_ID
 from database.db_manager import get_db
@@ -34,8 +34,15 @@ from handlers.publish import (
     _file_id_of,
     publish_from_file_ids,
     reclassify_oversized_photos,
-    DiscussionPublishError,
     PHOTO_MAX_BYTES as _PHOTO_MAX_BYTES,
+)
+from services.review_service import (
+    PublishFailedError,
+    ReviewBusyError,
+    ReviewError,
+    ReviewNotFoundError,
+    ReviewStateError,
+    ReviewService,
 )
 from utils.helper_functions import build_caption
 
@@ -78,6 +85,15 @@ PUBLISHED_DEDUP_WINDOW_SECONDS = 7 * 86400
 # 1800s）watchdog 保护，2 个 schedule 最坏约 3600s；这里给足余量，避免把仍在下载的
 # 重抓进程提前掐断误报 "timed out"。
 REFETCH_TIMEOUT_SECONDS = 3900
+
+
+async def _publish_from_file_ids(*args, **kwargs):
+    # Compatibility seam: tests and deployment monkey-patch the PTB adapter name;
+    # the actual transition still belongs to ReviewService.approve().
+    return await publish_from_file_ids(*args, **kwargs)
+
+
+review_service = ReviewService(_publish_from_file_ids)
 
 
 def _review_keyboard(
@@ -145,6 +161,15 @@ def _result_from_row(row, *, reused: bool = False) -> dict:
 
 def _source_label(source: str) -> str:
     return "Telegram 聊天" if source == "chat" else "HTTP API"
+
+
+def _thumbnail_file_id(message) -> str:
+    for attr in ("video", "animation", "document", "audio"):
+        value = getattr(message, attr, None)
+        thumbnail = getattr(value, "thumbnail", None) or getattr(value, "thumb", None)
+        if thumbnail and getattr(thumbnail, "file_id", ""):
+            return thumbnail.file_id
+    return ""
 
 
 _PIXIV_ID_RE = re.compile(r"pixiv\.net/(?:artworks/|novel/show\.php\?id=)(\d+)")
@@ -668,7 +693,11 @@ async def _stage_items(bot, items, caption, spoiler, message_ids, *, local):
                     "filename": item.get("filename") or "file",
                 })
             else:
-                staged_media.append({"type": item_kind, "file_id": file_id})
+                staged_item = {"type": item_kind, "file_id": file_id}
+                thumbnail_file_id = _thumbnail_file_id(message)
+                if thumbnail_file_id:
+                    staged_item["thumbnail_file_id"] = thumbnail_file_id
+                staged_media.append(staged_item)
 
     return staged_media, staged_documents
 
@@ -1021,28 +1050,19 @@ async def toggle_review_spoiler(update, context):
         await _answer(query, "无效的审核记录", show_alert=True)
         return
 
-    async with get_db() as conn:
-        cursor = await conn.execute(
-            """
-            UPDATE pending_reviews SET spoiler = 1 - COALESCE(spoiler, 0), updated_at=?
-            WHERE id=? AND status IN ('pending', 'failed')
-            """,
-            (time.time(), review_id),
+    try:
+        result = await review_service.toggle_spoiler(
+            review_id, actor=update.effective_user.id
         )
-        flipped = cursor.rowcount == 1
-        cursor = await conn.execute(
-            "SELECT spoiler, link, source FROM pending_reviews WHERE id=?",
-            (review_id,),
-        )
-        row = await cursor.fetchone()
-
-    if row is None:
+    except ReviewNotFoundError:
         await _answer(query, "审核记录不存在", show_alert=True)
         return
-    if not flipped:
+    except ReviewError as error:
         await _answer(query, "该投稿已处理，无法修改遮罩", show_alert=True)
+        logger.debug("审核遮罩切换失败: %s", error)
         return
 
+    row = await _load_review_for_action(query, review_id)
     new_spoiler = bool(row["spoiler"])
     await _answer(query, f"遮罩已{'开启' if new_spoiler else '关闭'}")
     try:
@@ -1163,78 +1183,37 @@ async def approve_review(update, context):
         await query.edit_message_text("❌ 无效的审核记录")
         return
 
-    now = time.time()
-    async with get_db() as conn:
-        # 认领待发/失败稿；同时把上次发布中途崩溃留下的僵尸 publishing
-        # （超过阈值仍未结束）自动解锁，使重试按钮在进程重启后可用。
-        cursor = await conn.execute(
-            """
-            UPDATE pending_reviews
-            SET status='publishing', updated_at=?, error=''
-            WHERE id=? AND (
-                status IN ('pending', 'failed')
-                OR (status='publishing' AND ? - updated_at > ?)
+    async def _show_publishing(row):
+        # 认领成功后立刻移除按钮，避免多图发布（可能数十秒）期间重复点击。
+        try:
+            await query.edit_message_text(
+                f"🚀 审核 #{review_id} 正在发布…多图+评论串可能要几十秒，请勿重复点击。",
+                reply_markup=InlineKeyboardMarkup([]),
             )
-            """,
-            (now, review_id, now, PUBLISHING_STALE_SECONDS),
-        )
-        claimed = cursor.rowcount == 1
-        cursor = await conn.execute("SELECT * FROM pending_reviews WHERE id=?", (review_id,))
-        row = await cursor.fetchone()
+        except Exception:
+            pass
 
-    if row is None:
+    try:
+        result = await review_service.approve(
+            context.bot,
+            review_id,
+            actor=update.effective_user.id,
+            source="telegram",
+            on_claim=_show_publishing,
+        )
+    except ReviewNotFoundError:
         await query.edit_message_text("❌ 审核记录不存在")
         return
-    if not claimed:
-        await query.edit_message_text(f"ℹ️ 该投稿当前状态：{row['status']}")
+    except ReviewBusyError:
+        await query.edit_message_text("ℹ️ 该投稿当前状态：publishing")
         return
-
-    # 认领成功：立刻把控制条改成「发布中」并移除按钮，避免点击后无反馈、
-    # 也防止多图发布（可能数十秒）期间被重复点击。
-    try:
+    except ReviewStateError as error:
+        await query.edit_message_text(f"ℹ️ {error.message}")
+        return
+    except PublishFailedError as error:
+        row = await _load_review_for_action(query, review_id)
         await query.edit_message_text(
-            f"🚀 审核 #{review_id} 正在发布…多图+评论串可能要几十秒，请勿重复点击。",
-            reply_markup=InlineKeyboardMarkup([]),
-        )
-    except Exception:
-        pass
-
-    try:
-        result = await publish_from_file_ids(
-            context.bot,
-            json.loads(row["media_json"] or "[]"),
-            json.loads(row["documents_json"] or "[]"),
-            tags=row["tags"],
-            title=row["title"],
-            note=row["note"],
-            link=row["link"],
-            anonymous=bool(row["anonymous"]),
-            spoiler=bool(row["spoiler"]),
-            user_id=row["user_id"],
-            username=row["username"],
-        )
-    except Exception as error:
-        logger.error("审核通过后发布失败: review_id=%s", review_id, exc_info=True)
-        async with get_db() as conn:
-            await conn.execute(
-                "UPDATE pending_reviews SET status='failed', updated_at=?, error=? WHERE id=?",
-                (time.time(), str(error)[:500], review_id),
-            )
-        if isinstance(error, DiscussionPublishError):
-            # 评论区模式：能回滚的已自动重试一次；uncertain 表示评论相册可能已
-            # 部分送达，无法自动判断重复，需人工先核对频道主贴+评论串。
-            retry_hint = (
-                "评论区发布结果不确定：请到频道确认首贴、到该帖评论串确认图片是否齐；"
-                "确认缺图后再点重试（重试只补发，重复请手动删多余相册）"
-                if error.uncertain
-                else "发布失败，已自动重试一次仍未成功，可再点重试"
-            )
-        elif isinstance(error, NetworkError):
-            retry_hint = "发送结果不确定，请先检查频道；确认未发布后再重试"
-        else:
-            retry_hint = "发布失败，可重试"
-        await query.edit_message_text(
-            f"⚠️ 审核 #{review_id} {retry_hint}：\n{str(error)[:200]}",
+            f"⚠️ 审核 #{review_id} {error.retry_hint}：\n{error.message}",
             reply_markup=_review_keyboard(
                 review_id,
                 row["link"],
@@ -1246,24 +1225,8 @@ async def approve_review(update, context):
         )
         return
 
-    now = time.time()
-    async with get_db() as conn:
-        await conn.execute(
-            """
-            UPDATE pending_reviews
-            SET status='published', updated_at=?, decided_at=?, decided_by=?,
-                published_message_id=?, error=''
-            WHERE id=?
-            """,
-            (now, now, update.effective_user.id, result["message_id"], review_id),
-        )
-    await _notify_chat_submitter(
-        context.bot,
-        row,
-        f"✅ 你的投稿已通过审核并发布到频道。\n{result.get('link', '')}",
-    )
     await query.edit_message_text(
-        f"✅ 审核 #{review_id} 已发布\n{result.get('link', '')}",
+        f"✅ 审核 #{review_id} 已发布\n{result.link or ''}",
         disable_web_page_preview=True,
     )
 
@@ -1281,28 +1244,18 @@ async def reject_review(update, context):
         await query.edit_message_text("❌ 无效的审核记录")
         return
 
-    now = time.time()
-    async with get_db() as conn:
-        cursor = await conn.execute(
-            """
-            UPDATE pending_reviews
-            SET status='rejected', updated_at=?, decided_at=?, decided_by=?, error=''
-            WHERE id=? AND status IN ('pending', 'failed')
-            """,
-            (now, now, update.effective_user.id, review_id),
-        )
-        changed = cursor.rowcount == 1
-        cursor = await conn.execute("SELECT * FROM pending_reviews WHERE id=?", (review_id,))
-        row = await cursor.fetchone()
-
-    if row is None:
-        await query.edit_message_text("❌ 审核记录不存在")
-    elif changed:
-        await _notify_chat_submitter(
+    try:
+        await review_service.reject(
             context.bot,
-            row,
-            "❌ 你的投稿未通过审核。如需了解原因，请联系频道管理员。",
+            review_id,
+            actor=update.effective_user.id,
+            source="telegram",
         )
-        await query.edit_message_text(f"❌ 审核 #{review_id} 已拒绝")
-    else:
-        await query.edit_message_text(f"ℹ️ 该投稿当前状态：{row['status']}")
+    except ReviewNotFoundError:
+        await query.edit_message_text("❌ 审核记录不存在")
+        return
+    except ReviewStateError as error:
+        await query.edit_message_text(f"ℹ️ {error.message}")
+        return
+
+    await query.edit_message_text(f"❌ 审核 #{review_id} 已拒绝")

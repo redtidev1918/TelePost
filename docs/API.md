@@ -175,6 +175,23 @@ curl -X POST 'https://example.com/api/bot1/v1/notifications' \
 | 502 | `publish_failed`、`review_queue_failed`、`notification_failed` |
 | 503 | `notification_state_failed` |
 
+## 审核管理 API（MCP/内部工具）
+
+审核管理端点仅供专用 review token 或 owner token 使用；普通投稿 token 只有读取权限。
+MCP sidecar 推荐设置 `TELEPOST_MCP_REVIEW_TOKEN`，并可通过
+`TELEPOST_REVIEW_API_MODE=readonly` 禁止 HTTP 写操作。完整配置见 [MCP 投稿审核](MCP_REVIEW.md)。
+
+- `GET /api/v1/reviews`：待审核摘要列表，支持 `limit`、`cursor`
+- `GET /api/v1/reviews/{id}`：完整文本元数据和媒体索引
+- `GET /api/v1/reviews/{id}/media/{index}?variant=preview`：受限图片预览
+- `GET /api/v1/reviews/policy`：管理员维护的 Markdown 审核规则
+- `POST /api/v1/reviews/{id}/approve`：审核通过并发布（需人工明确确认）
+- `POST /api/v1/reviews/{id}/reject`：拒绝，可附带有界 `reason`
+- `PATCH /api/v1/reviews/{id}/spoiler`：发布前设置 spoiler
+
+这些端点与 Telegram 审核按钮调用同一个 `ReviewService`，使用同一条条件 claim、
+发布失败回退和幂等状态转换；OpenAPI 片段见 [`openapi.yaml`](openapi.yaml)。
+
 ## 审核状态
 
 ```text

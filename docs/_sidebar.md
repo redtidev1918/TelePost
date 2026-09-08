@@ -14,6 +14,7 @@
   - [性能与容量](PERFORMANCE.md)
 - 开发者
   - [HTTP API](API.md)
+  - [MCP 投稿审核](MCP_REVIEW.md)
   - [测试指南](TESTING.md)
   - [投稿状态机](internals/submission-flow.md)
   - [删帖与软删除](internals/moderation.md)

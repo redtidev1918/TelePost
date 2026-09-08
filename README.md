@@ -14,6 +14,7 @@ Telegram 频道投稿机器人，支持聊天投稿、审核队列、全文搜�
 - 搜索频道历史、标签、个人投稿和本地热榜
 - 用一个 supervisor 运行多个相互隔离的 Bot
 - 通过 Bearer Token API 接收外部自动化投稿
+- 通过可选 MCP sidecar 让 AI Agent 安全读取待审核投稿和媒体、给出审核建议
 - 在 Polling、Webhook 与 `AUTO` 模式间切换
 - 在 Fly.io 保留 Webhook 后自动休眠，并由下一次请求唤醒
 
@@ -92,6 +93,7 @@ PixivFlow 必须常驻才能按 Cron 执行；TelePost 只处理入站事件，�
 | [配置参考](docs/CONFIGURATION.md) | 环境变量、`config.ini`、多 Bot |
 | [命令参考](docs/COMMANDS.md) | 用户、管理员和 Owner 命令 |
 | [HTTP API](docs/API.md) | Token、投稿、通知与错误 |
+| [MCP 投稿审核](docs/MCP_REVIEW.md) | AI 审稿、媒体预览、只读模式与人工确认 |
 | [Fly.io 部署](docs/FLYIO_DEPLOYMENT.md) | 自动休眠与拆分拓扑 |
 | [Webhook 与 Polling](docs/WEBHOOK_MODE.md) | 模式选择、路由和安全 |
 | [运维手册](docs/OPERATIONS.md) | 备份、升级、监控和发布 |

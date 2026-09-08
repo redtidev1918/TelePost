@@ -5,6 +5,8 @@ HTTP API（/api/v1）—— 供外部项目自动化投稿
 错误格式：{"ok": false, "error": {"code": "...", "message": "..."}}
 """
 import asyncio
+import hmac
+import json
 import logging
 import os
 import shutil
@@ -16,6 +18,7 @@ from aiohttp import web
 from config.settings import (
     API_REVIEW_REQUIRED,
     CHAT_REVIEW_REQUIRED,
+    OWNER_ID,
     REVIEW_CHAT_ID,
     SUBMIT_LIMIT_PER_HOUR,
 )
@@ -26,6 +29,7 @@ from database.db_manager import (
     mark_api_notification_sent,
     release_api_notification,
 )
+from services.review_service import ReviewError, load_review_policy
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +154,55 @@ def detect_kind(filename: str, content_type: str) -> str:
     if ct.startswith("audio/") or ext in (".mp3", ".ogg", ".m4a", ".flac", ".wav"):
         return "audio"
     return "document"
+
+
+def _review_mode() -> str:
+    return os.getenv("TELEPOST_REVIEW_API_MODE", "readwrite").strip().lower()
+
+
+def _matches_secret(value: str, secret: str) -> bool:
+    return bool(value and secret) and hmac.compare_digest(value, secret)
+
+
+async def _review_auth(request, *, write: bool):
+    token = request.headers.get("Authorization", "")
+    if token.startswith("Bearer "):
+        token = token[7:].strip()
+    else:
+        token = ""
+
+    review_token = os.getenv("TELEPOST_REVIEW_TOKEN", "")
+    mcp_token = os.getenv("TELEPOST_MCP_REVIEW_TOKEN", "")
+    if _matches_secret(token, review_token) or _matches_secret(token, mcp_token):
+        actor = "mcp" if request.headers.get("X-TelePost-Source", "").lower() == "mcp" else "review-token"
+        if write and _review_mode() == "readonly":
+            return None, _error(403, "permission_denied", "Review API is read-only")
+        return {"telegram_user_id": None, "name": actor, "scope": "review"}, None
+
+    row = await authenticate(token)
+    if row is None:
+        return None, _error(401, "invalid_token", "token 无效或已吊销")
+    if write and OWNER_ID is not None and int(row["telegram_user_id"] or 0) != int(OWNER_ID):
+        return None, _error(403, "permission_denied", "Only owner token may modify reviews")
+    if write and OWNER_ID is None:
+        return None, _error(403, "permission_denied", "OWNER_ID is required for review writes")
+    if write and _review_mode() == "readonly":
+        return None, _error(403, "permission_denied", "Review API is read-only")
+    return row, None
+
+
+def _review_error(exc: ReviewError) -> web.Response:
+    return _error(exc.http_status, exc.code, str(exc)[:200])
+
+
+async def _run_review_action(handler):
+    try:
+        return await handler()
+    except ReviewError as exc:
+        return _review_error(exc)
+    except Exception:
+        logger.error("Review API action failed", exc_info=True)
+        return _error(500, "internal_error", "Review action failed")
 
 
 def add_api_routes(web_app, application) -> None:
@@ -426,6 +479,159 @@ def add_api_routes(web_app, application) -> None:
         )
         return _ok({"status": "notified", "message_id": message.message_id}, status=201)
 
+    from services.review_service import ReviewService
+    review_service = ReviewService()
+
+    async def list_reviews(request):
+        async def action():
+            _, error = await _review_auth(request, write=False)
+            if error:
+                return error
+            try:
+                limit = int(request.query.get("limit", "20"))
+            except (TypeError, ValueError):
+                return _error(400, "invalid_limit", "limit 必须是整数")
+            cursor = request.query.get("cursor") or None
+            data = await review_service.list_pending(limit=limit, cursor=cursor)
+            return _ok(data)
+        return await _run_review_action(action)
+
+    async def get_review(request):
+        async def action():
+            _, error = await _review_auth(request, write=False)
+            if error:
+                return error
+            try:
+                review_id = int(request.match_info["review_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_review_id", "review_id 必须是整数")
+            item = await review_service.get_review(review_id)
+            return _ok(item.to_dict())
+        return await _run_review_action(action)
+
+    async def get_review_media(request):
+        async def action():
+            _, error = await _review_auth(request, write=False)
+            if error:
+                return error
+            try:
+                review_id = int(request.match_info["review_id"])
+                index = int(request.match_info["index"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_media_index", "review_id/index 必须是整数")
+            result = await review_service.get_media(
+                bot, review_id, index, request.query.get("variant", "preview")
+            )
+            response = web.Response(body=result.data, content_type=result.mime_type)
+            response.headers["Cache-Control"] = "private, max-age=60"
+            if result.filename:
+                response.headers["Content-Disposition"] = f'inline; filename="{result.filename}"'
+            response.headers["X-Review-Media"] = json.dumps(result.to_metadata(), ensure_ascii=False)
+            return response
+        return await _run_review_action(action)
+
+    async def review_policy(request):
+        _, error = await _review_auth(request, write=False)
+        if error:
+            return error
+        return _ok({"policy": load_review_policy(), "media_type": "text/markdown"})
+
+    async def _json_body(request):
+        try:
+            payload = await request.json()
+        except Exception:
+            return None, _error(400, "invalid_json", "JSON 解析失败")
+        if not isinstance(payload, dict):
+            return None, _error(400, "invalid_json", "JSON body 必须是对象")
+        return payload, None
+
+    async def approve_review(request):
+        async def action():
+            actor_row, auth_error = await _review_auth(request, write=True)
+            if auth_error:
+                return auth_error
+            payload, body_error = await _json_body(request)
+            if body_error:
+                return body_error
+            spoiler = payload.get("spoiler")
+            if spoiler is not None and not isinstance(spoiler, bool):
+                return _error(400, "invalid_spoiler", "spoiler 必须是布尔值")
+            try:
+                review_id = int(request.match_info["review_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_review_id", "review_id 必须是整数")
+            source = "mcp" if request.headers.get("X-TelePost-Source", "").lower() == "mcp" else "http"
+            result = await review_service.approve(
+                bot,
+                review_id,
+                spoiler=spoiler,
+                actor=actor_row["name"] if actor_row["telegram_user_id"] is None else actor_row["telegram_user_id"],
+                source=source,
+                notify_chat_submitter=True,
+            )
+            return _ok(result.to_dict())
+        return await _run_review_action(action)
+
+    async def reject_review(request):
+        async def action():
+            actor_row, auth_error = await _review_auth(request, write=True)
+            if auth_error:
+                return auth_error
+            payload, body_error = await _json_body(request)
+            if body_error:
+                return body_error
+            reason = payload.get("reason")
+            if reason is not None and not isinstance(reason, str):
+                return _error(400, "invalid_reason", "reason 必须是字符串")
+            try:
+                review_id = int(request.match_info["review_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_review_id", "review_id 必须是整数")
+            source = "mcp" if request.headers.get("X-TelePost-Source", "").lower() == "mcp" else "http"
+            result = await review_service.reject(
+                bot,
+                review_id,
+                reason=reason,
+                actor=actor_row["name"] if actor_row["telegram_user_id"] is None else actor_row["telegram_user_id"],
+                source=source,
+                notify_chat_submitter=True,
+            )
+            return _ok(result.to_dict())
+        return await _run_review_action(action)
+
+    async def set_review_spoiler(request):
+        async def action():
+            actor_row, auth_error = await _review_auth(request, write=True)
+            if auth_error:
+                return auth_error
+            payload, body_error = await _json_body(request)
+            if body_error:
+                return body_error
+            if not isinstance(payload.get("spoiler"), bool):
+                return _error(400, "invalid_spoiler", "spoiler 必须是布尔值")
+            try:
+                review_id = int(request.match_info["review_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_review_id", "review_id 必须是整数")
+            source = "mcp" if request.headers.get("X-TelePost-Source", "").lower() == "mcp" else "http"
+            result = await review_service.set_spoiler(
+                review_id,
+                payload["spoiler"],
+                actor=actor_row["name"] if actor_row["telegram_user_id"] is None else actor_row["telegram_user_id"],
+                source=source,
+            )
+            return _ok(result.to_dict())
+        return await _run_review_action(action)
+
+    web_app.router.add_get("/api/v1/reviews/policy", review_policy)
+    web_app.router.add_get("/api/v1/reviews", list_reviews)
+    web_app.router.add_get("/api/v1/reviews/{review_id}", get_review)
+    web_app.router.add_get(
+        "/api/v1/reviews/{review_id}/media/{index}", get_review_media
+    )
+    web_app.router.add_post("/api/v1/reviews/{review_id}/approve", approve_review)
+    web_app.router.add_post("/api/v1/reviews/{review_id}/reject", reject_review)
+    web_app.router.add_patch("/api/v1/reviews/{review_id}/spoiler", set_review_spoiler)
     web_app.router.add_get("/api/v1/health", health)
     web_app.router.add_get("/api/v1/me", me)
     web_app.router.add_post("/api/v1/submissions", create_submission)
