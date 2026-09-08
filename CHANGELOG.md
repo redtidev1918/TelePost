@@ -10,6 +10,13 @@
 
 ---
 
+## [2.14.0](https://github.com/redtidev1918/TelePost/compare/v2.13.0...v2.14.0) (2026-09-08)
+
+
+### Features
+
+* **api:** generic bounded source provenance, replacing PixivFlow slot enum ([ee70b42](https://github.com/redtidev1918/TelePost/commit/ee70b42c6aa101235736cd19b094199954740516))
+
 ## [2.13.0](https://github.com/redtidev1918/TelePost/compare/v2.12.0...v2.13.0) (2026-09-08)
 
 
