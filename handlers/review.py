@@ -34,6 +34,7 @@ from handlers.publish import (
     _file_id_of,
     publish_from_file_ids,
     reclassify_oversized_photos,
+    DiscussionPublishError,
     PHOTO_MAX_BYTES as _PHOTO_MAX_BYTES,
 )
 from utils.helper_functions import build_caption
@@ -48,6 +49,8 @@ REVIEW_PREVIEW_TIMEOUT_SECONDS = max(
     5.0, float(os.getenv("REVIEW_PREVIEW_TIMEOUT_SECONDS", "120"))
 )
 REVIEW_PREVIEW_MAX_ATTEMPTS = 5
+# 发布中途进程崩溃会把记录卡在 publishing；超过该秒数视为僵尸，允许重新认领。
+PUBLISHING_STALE_SECONDS = max(60.0, float(os.getenv("PUBLISHING_STALE_SECONDS", "300")))
 # 审核群预览是否回复上一条消息（形成回复链，多页图集在群内视觉上连成一组）。
 # 默认开启；置 0/false 恢复为全部平铺发送。
 REVIEW_PREVIEW_THREAD = str(
@@ -1134,14 +1137,20 @@ async def approve_review(update, context):
         await query.edit_message_text("❌ 无效的审核记录")
         return
 
+    now = time.time()
     async with get_db() as conn:
+        # 认领待发/失败稿；同时把上次发布中途崩溃留下的僵尸 publishing
+        # （超过阈值仍未结束）自动解锁，使重试按钮在进程重启后可用。
         cursor = await conn.execute(
             """
             UPDATE pending_reviews
             SET status='publishing', updated_at=?, error=''
-            WHERE id=? AND status IN ('pending', 'failed')
+            WHERE id=? AND (
+                status IN ('pending', 'failed')
+                OR (status='publishing' AND ? - updated_at > ?)
+            )
             """,
-            (time.time(), review_id),
+            (now, review_id, now, PUBLISHING_STALE_SECONDS),
         )
         claimed = cursor.rowcount == 1
         cursor = await conn.execute("SELECT * FROM pending_reviews WHERE id=?", (review_id,))
@@ -1175,11 +1184,19 @@ async def approve_review(update, context):
                 "UPDATE pending_reviews SET status='failed', updated_at=?, error=? WHERE id=?",
                 (time.time(), str(error)[:500], review_id),
             )
-        retry_hint = (
-            "发送结果不确定，请先检查频道；确认未发布后再重试"
-            if isinstance(error, NetworkError)
-            else "发布失败，可重试"
-        )
+        if isinstance(error, DiscussionPublishError):
+            # 评论区模式：能回滚的已自动重试一次；uncertain 表示评论相册可能已
+            # 部分送达，无法自动判断重复，需人工先核对频道主贴+评论串。
+            retry_hint = (
+                "评论区发布结果不确定：请到频道确认首贴、到该帖评论串确认图片是否齐；"
+                "确认缺图后再点重试（重试只补发，重复请手动删多余相册）"
+                if error.uncertain
+                else "发布失败，已自动重试一次仍未成功，可再点重试"
+            )
+        elif isinstance(error, NetworkError):
+            retry_hint = "发送结果不确定，请先检查频道；确认未发布后再重试"
+        else:
+            retry_hint = "发布失败，可重试"
         await query.edit_message_text(
             f"⚠️ 审核 #{review_id} {retry_hint}：\n{str(error)[:200]}",
             reply_markup=_review_keyboard(

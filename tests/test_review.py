@@ -981,6 +981,67 @@ def test_review_keyboard_spoiler_toggle_reflects_state():
     assert on_btn and on_btn[0].text == "🔇 遮罩：开"
 
 
+@pytest.mark.asyncio
+async def test_approve_reclaims_stale_publishing_after_crash(review_db, monkeypatch):
+    # 发布中途进程崩溃会把记录卡在 publishing；超过阈值后重试按钮应能重新认领。
+    import time as _time
+    bot = AsyncMock()
+    context = MagicMock()
+    context.bot = bot
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            """
+            INSERT INTO pending_reviews (
+                idempotency_key, source, status, user_id, username,
+                review_chat_id, media_json, created_at, updated_at
+            ) VALUES ('k', 'api', 'publishing', 7, 'pf', ?, '[]', ?, ?)
+            """,
+            (str(review.REVIEW_CHAT_ID), _time.time() - 999, _time.time() - 999),
+        )
+    published = AsyncMock(return_value={
+        "status": "published", "message_id": 99, "link": "https://t.me/test/99",
+    })
+    monkeypatch.setattr(review, "publish_from_file_ids", published)
+
+    update = _callback_update("review_approve:1")
+    await review.approve_review(update, context)
+
+    published.assert_awaited_once()
+    async with db_manager.get_db() as conn:
+        cur = await conn.execute("SELECT status, published_message_id FROM pending_reviews")
+        row = await cur.fetchone()
+    assert row["status"] == "published"
+    assert row["published_message_id"] == 99
+
+
+@pytest.mark.asyncio
+async def test_approve_does_not_reclaim_freshly_publishing(review_db, monkeypatch):
+    # 仍在进行中的 publishing（未超阈值）不应被并发重试抢入。
+    import time as _time
+    bot = AsyncMock()
+    context = MagicMock()
+    context.bot = bot
+    published = AsyncMock()
+    monkeypatch.setattr(review, "publish_from_file_ids", published)
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            """
+            INSERT INTO pending_reviews (
+                idempotency_key, source, status, user_id, username,
+                review_chat_id, media_json, created_at, updated_at
+            ) VALUES ('k', 'api', 'publishing', 7, 'pf', ?, '[]', ?, ?)
+            """,
+            (str(review.REVIEW_CHAT_ID), _time.time(), _time.time()),
+        )
+
+    update = _callback_update("review_approve:1")
+    await review.approve_review(update, context)
+
+    published.assert_not_awaited()
+    text = update.callback_query.edit_message_text.await_args.args[0]
+    assert "publishing" in text
+
+
 def test_review_keyboard_failed_shows_retry_label_on_approve_button():
     # 发布失败后主按钮变为"重试发布"，callback 仍是可重入的 review_approve。
     kb = review._review_keyboard(55, "https://www.pixiv.net/artworks/1", failed=True)

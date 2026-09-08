@@ -457,6 +457,10 @@ DISCUSSION_FORWARD_TIMEOUT_SECONDS = max(
 )
 _discussion_forwards = {}
 _discussion_waiters = {}
+# 近期频道自动转发的滚动列表（(源频道id, 源消息id, 讨论组id, 讨论消息id, 时间)）。
+# 首贴发送"结果不确定"（响应丢失）时反查它，判断 Telegram 是否其实收下并已转发，
+# 以便连频道首贴带讨论组锚点一起删干净——不确定→可安全重试。
+_recent_forwards = []
 # Telegram 图片（含相册）单张上限 10 MiB，超过必须按文档发送。
 PHOTO_MAX_BYTES = int((10.0 - 0.5) * 1024 * 1024)
 
@@ -481,11 +485,28 @@ def capture_discussion_forward(update):
             _discussion_forwards.pop(key, None)
     key = (source_chat.id, source_id)
     target = (message.chat.id, message.message_id)
+    # 保留最近 60s 的转发用于"首贴发送结果不确定"反查；ponytail: 有界列表即可。
+    _recent_forwards.append((source_chat.id, source_id, message.chat.id, message.message_id, now))
+    del _recent_forwards[:-200]
+    while _recent_forwards and now - _recent_forwards[0][4] > 60:
+        _recent_forwards.pop(0)
     waiter = _discussion_waiters.pop(key, None)
     if waiter is not None and not waiter.done():
         waiter.set_result(target)
     else:
         _discussion_forwards[key] = (target, now)
+
+
+def _pop_recent_forward(channel_id, channel_msg_id):
+    """反查某频道消息是否已自动转发到讨论组；命中则返回 (讨论组id, 讨论消息id)。"""
+    now = time.monotonic()
+    while _recent_forwards and now - _recent_forwards[0][4] > 60:
+        _recent_forwards.pop(0)
+    for i, (cid, mid, dchat, dmsg, _t) in enumerate(_recent_forwards):
+        if cid == channel_id and mid == channel_msg_id:
+            _recent_forwards.pop(i)
+            return dchat, dmsg
+    return None
 
 
 async def _wait_for_discussion_forward(channel_id, message_id):
@@ -641,7 +662,7 @@ def _item_batches(items: list, album_size: int):
 
 async def _run_item_batches(items, *, caption, album_size,
                             send_one, send_album, fallback_single=True, anchor_id=None,
-                            reply_mode="chain"):
+                            reply_mode="chain", on_sent=None):
     """共享的投递编排（不绑定 bot/chat）：
 
     统一"主贴+回复"层级，频道发布与审核群预览共用同一套规则，
@@ -718,6 +739,9 @@ async def _run_item_batches(items, *, caption, album_size,
             if main_message is None:
                 main_message = message
             previous_id = message.message_id
+        # 每批成功后回调（评论区模式用它登记已落地消息，失败时完整回滚）。
+        if on_sent:
+            on_sent(messages)
 
     return sent_messages, main_message
 
@@ -736,9 +760,140 @@ def _normalize_chat_items(media_list, doc_list):
     return items
 
 
+class DiscussionPublishError(RuntimeError):
+    """评论区发布失败。uncertain=True 表示无法确定是否已部分落地（可能重复）。"""
+    def __init__(self, message, *, uncertain=False, sent=None):
+        super().__init__(message)
+        self.uncertain = uncertain
+        self.sent = sent if sent is not None else {"cover": [], "anchor": [], "rest": []}
+
+
+async def _delete_message(bot, chat_id, message_id):
+    """删一条消息；消息已不存在视为成功，返回是否无需处理。"""
+    try:
+        await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        return True
+    except Exception as exc:
+        msg = str(exc).lower()
+        # 消息本就不在，无需清理；其余失败需人工注意。
+        if "not found" in msg or "message can't be deleted" in msg:
+            return True
+        logger.exception("回滚删除消息失败 chat=%s msg=%s", chat_id, message_id)
+        return False
+
+
+async def _discussion_rollback(bot, sent):
+    """删除本次评论区发布已落地的全部消息；返回是否全部清理干净。"""
+    clean = True
+    # 顺序：先讨论组内容与锚点，再频道首贴（让评论区先消失）。
+    for chat_id, msg_id in sent.get("rest", []) + sent.get("anchor", []) + sent.get("cover", []):
+        clean = await _delete_message(bot, chat_id, msg_id) and clean
+    return clean
+
+
+async def _scan_recent_forward(channel_id):
+    """首贴发送"响应丢失"后，轮询近期自动转发，确认 Telegram 是否其实已收下首贴。
+
+    命中则返回该频道最新转发 (源消息id, 讨论组id, 讨论消息id)，供回滚连首贴
+    带讨论组锚点一起删干净；未命中说明首贴大概率没发出去。
+    """
+    deadline = time.monotonic() + 6.0
+    while time.monotonic() < deadline:
+        for i in range(len(_recent_forwards) - 1, -1, -1):
+            cid, mid, dchat, dmsg, _t = _recent_forwards[i]
+            if cid == channel_id:
+                _recent_forwards.pop(i)
+                return mid, dchat, dmsg
+        await asyncio.sleep(1.0)
+    return None
+
+
+async def _deliver_discussion(bot, channel, items, *, caption, spoiler, album_size, timeout_kwargs):
+    """频道只发首贴；其余图片回复到关联讨论组该帖评论串。
+
+    每一步发出的消息都登记，失败完整回滚。首贴发送"结果不确定"（响应丢失）时
+    从自动转发缓存反查：若 Telegram 实际已收下，则连频道首贴带讨论组锚点删干净，
+    让状态回到确定态并自动重试一次。评论相册"发了没成功"无法确认是否重复，
+    不自动重试，抛 uncertain 交人工核对。返回 (sent_messages, main_message)。
+    """
+    linked = channel.linked_chat_id
+
+    async def attempt():
+        sent = {"cover": [], "anchor": [], "rest": []}
+
+        # 阶段1：频道首贴（响应丢失时不确定是否到达，反查自动转发自愈）。
+        first_sent = None
+        try:
+            first_sent, main = await deliver_items_to_chat(
+                bot, channel.id, items[:1], caption=caption, spoiler=spoiler,
+                album_size=album_size, timeout_kwargs=timeout_kwargs, reply_mode="post",
+            )
+        except NetworkError:
+            found = await _scan_recent_forward(channel.id)
+            if found is not None:
+                cover_id, dchat, dmsg = found
+                sent["cover"] = [(channel.id, cover_id)]
+                sent["anchor"] = [(dchat, dmsg)]
+                raise DiscussionPublishError(
+                    "频道首贴发送响应丢失，已反查到帖子并回滚", uncertain=False, sent=sent)
+            raise DiscussionPublishError(
+                "频道首贴发送响应丢失，未在讨论区发现转发，重发一次", uncertain=False, sent=sent)
+        except Exception as exc:
+            raise DiscussionPublishError(f"频道首贴发送失败：{exc}", uncertain=False, sent=sent)
+        sent["cover"] = [(m.chat.id, m.message_id) for m in first_sent]
+
+        # 阶段2：等待自动转发到讨论组锚点（失败时首贴一定已落地，回滚它）。
+        try:
+            dchat, dmsg = await _wait_for_discussion_forward(channel.id, main.message_id)
+        except Exception:
+            raise DiscussionPublishError("等待频道帖转发到讨论组超时", uncertain=False, sent=sent)
+        if dchat != linked:
+            raise DiscussionPublishError("频道自动转发落到了非预期讨论组", uncertain=False, sent=sent)
+        sent["anchor"] = [(dchat, dmsg)]
+
+        # 阶段3：其余图片回复到讨论组锚点。响应丢失可能已部分送达，不自动重试。
+        rest_collected = []
+        try:
+            rest_sent, _ = await deliver_items_to_chat(
+                bot, dchat, items[1:], caption=None, spoiler=spoiler,
+                album_size=album_size, timeout_kwargs=timeout_kwargs,
+                reply_to_message_id=dmsg, reply_mode="post",
+                on_sent=lambda msgs: rest_collected.extend(
+                    (m.chat.id, m.message_id) for m in msgs),
+            )
+        except NetworkError as exc:
+            sent["rest"] = rest_collected
+            raise DiscussionPublishError(
+                "评论区相册发送响应丢失，可能已部分送达，不自动重试", uncertain=True, sent=sent) from exc
+        except Exception as exc:
+            sent["rest"] = rest_collected
+            raise DiscussionPublishError(f"评论区相册发送失败：{exc}", uncertain=False, sent=sent)
+        sent["rest"] = rest_collected
+        return first_sent + rest_sent, main
+
+    last = None
+    for try_no in (1, 2):
+        try:
+            return await attempt()
+        except DiscussionPublishError as exc:
+            last = exc
+            if exc.uncertain:
+                # 无法确认是否重复：先回滚能确定的部分，再交人工核对，不自动重试。
+                await _discussion_rollback(bot, exc.sent)
+                raise
+            # 确定态：完整回滚；删干净才自动重试一次。
+            if not await _discussion_rollback(bot, exc.sent):
+                raise DiscussionPublishError(
+                    f"{exc}；且回滚未能删净，请人工检查", uncertain=True, sent=exc.sent)
+            if try_no == 2:
+                raise
+            await asyncio.sleep(2.0)
+    raise last or DiscussionPublishError("评论区发布失败", uncertain=True)
+
+
 async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
                                 album_size=CHANNEL_ALBUM_SIZE, timeout_kwargs=None,
-                                reply_to_message_id=None, reply_mode=None):
+                                reply_to_message_id=None, reply_mode=None, on_sent=None):
     # reply_to_message_id 作为整条链的锚点：媒体在前会自然成为主贴，
     # 只有当整条投递全是文档且外部指定锚点时才会回复它。
     """统一投递入口（频道发布与审核群预览共用）。
@@ -757,28 +912,10 @@ async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
         channel = await bot.get_chat(chat_id)
         if not channel.linked_chat_id:
             raise RuntimeError("频道未关联讨论组，无法把其余图片发到主贴评论区")
-        first_sent, main = await deliver_items_to_chat(
-            bot, chat_id, items[:1], caption=caption, spoiler=spoiler,
-            album_size=album_size, timeout_kwargs=timeout_kwargs, reply_mode="post",
+        return await _deliver_discussion(
+            bot, channel, items, caption=caption, spoiler=spoiler,
+            album_size=album_size, timeout_kwargs=timeout_kwargs,
         )
-        try:
-            discussion_chat_id, discussion_message_id = await _wait_for_discussion_forward(
-                channel.id, main.message_id
-            )
-            if discussion_chat_id != channel.linked_chat_id:
-                raise RuntimeError("频道自动转发落到了非预期讨论组")
-            rest_sent, _ = await deliver_items_to_chat(
-                bot, discussion_chat_id, items[1:], caption=None, spoiler=spoiler,
-                album_size=album_size, timeout_kwargs=timeout_kwargs,
-                reply_to_message_id=discussion_message_id, reply_mode="post",
-            )
-        except Exception:
-            try:
-                await bot.delete_message(chat_id=channel.id, message_id=main.message_id)
-            except Exception:
-                logger.exception("讨论串发送失败后清理频道主贴失败")
-            raise
-        return first_sent + rest_sent, main
 
     async def _album(media_group, reply_to):
         kwargs = dict(chat_id=chat_id, media=media_group,
@@ -800,7 +937,7 @@ async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
         items, caption=caption, album_size=album_size,
         send_one=_single, send_album=_album,
         anchor_id=reply_to_message_id,
-        reply_mode=reply_mode,
+        reply_mode=reply_mode, on_sent=on_sent,
     )
 
 
