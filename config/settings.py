@@ -253,6 +253,17 @@ logger.info(f"  - API_REVIEW_REQUIRED: {API_REVIEW_REQUIRED}")
 logger.info(f"  - CHAT_REVIEW_REQUIRED: {CHAT_REVIEW_REQUIRED}")
 logger.info(f"  - REVIEW_CHAT_ID: {REVIEW_CHAT_ID if REVIEW_CHAT_ID else '未设置'}")
 logger.info(f"  - ALLOWED_FILE_TYPES: {ALLOWED_FILE_TYPES}")
+if RUN_MODE != "WEBHOOK":
+    try:
+        from handlers.publish import CHANNEL_ALBUM_REPLY as _album_reply
+    except Exception:
+        _album_reply = os.getenv("CHANNEL_ALBUM_REPLY", "chain").strip().lower()
+    if _album_reply == "discussion":
+        logger.warning(
+            "  - ⚠️  CHANNEL_ALBUM_REPLY=discussion 仅在 Webhook 模式可用："
+            "自动转发事件进不了 Polling 进程，多图发布会在等待转发超时后失败。"
+            "请设置 RUN_MODE=WEBHOOK，或改回 chain/post。"
+        )
 if RUN_MODE == 'WEBHOOK':
     logger.info(f"  - WEBHOOK_URL: {WEBHOOK_URL if WEBHOOK_URL else '未设置'}")
     logger.info(f"  - WEBHOOK_PORT: {WEBHOOK_PORT}")

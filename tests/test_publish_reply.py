@@ -155,3 +155,47 @@ async def test_discussion_forward_is_correlated_before_update_queue_runs():
     publish.capture_discussion_forward(SimpleNamespace(message=message))
 
     assert await publish._wait_for_discussion_forward(-1001, 10) == (-1002, 77)
+
+
+@pytest.mark.asyncio
+async def test_discussion_mode_raises_without_linked_chat_before_sending():
+    bot = AsyncMock()
+    bot.get_chat.return_value = SimpleNamespace(id=-1001, linked_chat_id=None)
+
+    with pytest.raises(RuntimeError, match="未关联讨论组"):
+        await publish.deliver_items_to_chat(
+            bot,
+            -1001,
+            [{"kind": "photo", "file_id": str(i)} for i in range(3)],
+            caption="caption",
+            timeout_kwargs={},
+            reply_mode="discussion",
+        )
+
+    bot.send_photo.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_discussion_mode_deletes_channel_post_when_forward_wait_times_out(monkeypatch):
+    bot = AsyncMock()
+    bot.get_chat.return_value = SimpleNamespace(id=-1001, linked_chat_id=-1002)
+    bot.send_photo.return_value = _Msg(10, -1001)
+    monkeypatch.setattr(
+        publish,
+        "_wait_for_discussion_forward",
+        AsyncMock(side_effect=asyncio.TimeoutError),
+    )
+
+    with pytest.raises(asyncio.TimeoutError):
+        await publish.deliver_items_to_chat(
+            bot,
+            -1001,
+            [{"kind": "photo", "file_id": str(i)} for i in range(3)],
+            caption="caption",
+            timeout_kwargs={},
+            reply_mode="discussion",
+        )
+
+    # 讨论串没建成：频道封面主贴必须回滚删掉，且不得有图片落到评论区
+    bot.delete_message.assert_awaited_once_with(chat_id=-1001, message_id=10)
+    bot.send_media_group.assert_not_awaited()
