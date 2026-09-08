@@ -259,6 +259,59 @@ class TestSubmission:
         finally:
             await client.close()
 
+    async def test_generic_provenance_fields_are_passed_and_bounded(self, monkeypatch):
+        monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
+        queue_mock = AsyncMock(return_value={"status": "pending_review", "review_id": 7})
+        monkeypatch.setattr("handlers.review.queue_review_from_files", queue_mock)
+        app, _publish = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            form = __import__("aiohttp").FormData()
+            form.add_field("files", b"fake-image", filename="photo.jpg", content_type="image/jpeg")
+            form.add_field("tags", "Pixiv")
+            # Any client may send a free-form readable label + opaque ref + time.
+            form.add_field("source_label", "PixivFlow · 每日推荐")
+            form.add_field("source_ref", "daily-ranking@2026-09-08T1000")
+            form.add_field("scheduled_at", "2026-09-08T10:00:00+08:00")
+            resp = await client.post(
+                "/api/v1/submissions", data=form,
+                headers={"Authorization": "Bearer tp_ok"},
+            )
+            assert resp.status == 201
+            kw = queue_mock.call_args.kwargs
+            assert kw["source_label"] == "PixivFlow · 每日推荐"
+            assert kw["source_ref"] == "daily-ranking@2026-09-08T1000"
+            assert kw["scheduled_at"] == "2026-09-08T10:00:00+08:00"
+        finally:
+            await client.close()
+
+    async def test_provenance_defaults_to_empty_when_absent(self, monkeypatch):
+        monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
+        queue_mock = AsyncMock(return_value={"status": "pending_review", "review_id": 8})
+        monkeypatch.setattr("handlers.review.queue_review_from_files", queue_mock)
+        app, _publish = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            form = __import__("aiohttp").FormData()
+            form.add_field("files", b"fake-image", filename="photo.jpg", content_type="image/jpeg")
+            form.add_field("tags", "Art")
+            resp = await client.post(
+                "/api/v1/submissions", data=form,
+                headers={"Authorization": "Bearer tp_ok"},
+            )
+            assert resp.status == 201
+            kw = queue_mock.call_args.kwargs
+            assert kw["source_label"] == ""
+            assert kw["source_ref"] == ""
+            assert kw["scheduled_at"] == ""
+        finally:
+            await client.close()
+
+    async def test_source_label_is_length_bounded(self, monkeypatch):
+        from utils.api_server import _fields_source_label
+        long = "x" * 500
+        assert _fields_source_label({"source_label": long}) == "x" * 80
+
 
 class TestNotification:
     @pytest.mark.asyncio

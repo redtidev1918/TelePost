@@ -108,6 +108,10 @@ async def init_db():
                     decided_at REAL,
                     decided_by INTEGER,
                     published_message_id INTEGER,
+                    target_id TEXT NOT NULL DEFAULT '',
+                    source_label TEXT NOT NULL DEFAULT '',
+                    source_ref TEXT NOT NULL DEFAULT '',
+                    scheduled_at TEXT NOT NULL DEFAULT '',
                     error TEXT DEFAULT ''
                 )
             ''')
@@ -127,6 +131,19 @@ async def init_db():
                 logger.info("已添加 target_id 字段到 pending_reviews 表")
             except Exception:
                 pass  # 字段已存在
+            # Generic, bounded provenance for API submissions (any client).
+            # TelePost only stores/displays these; it never interprets them.
+            for column, ddl in (
+                ("source_label", "TEXT NOT NULL DEFAULT ''"),
+                ("source_ref", "TEXT NOT NULL DEFAULT ''"),
+                ("scheduled_at", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                try:
+                    await conn.execute(
+                        f"ALTER TABLE pending_reviews ADD COLUMN {column} {ddl}"
+                    )
+                except Exception:
+                    pass  # 字段已存在
             await conn.execute(
                 'CREATE INDEX IF NOT EXISTS idx_pending_reviews_status_created '
                 'ON pending_reviews(status, created_at DESC)'

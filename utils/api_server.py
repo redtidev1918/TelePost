@@ -95,18 +95,42 @@ def _fields_target_id(payload) -> str:
     return str(payload.get("target_id", "")).strip()[:120]
 
 
-def _fields_slot_label(payload) -> str:
-    """Human-readable schedule slot provenance, e.g. '今日早班 · 2026-09-08'.
+def _clean_provenance_text(value, limit: int) -> str:
+    """Bounded single-line provenance text.
 
-    PixivFlow scheduled/external runs send slot_name (morning|evening) and
-    slot_date (YYYY-MM-DD). Manual/third-party submissions omit both → ''.
+    TelePost only stores and displays these strings; it never interprets their
+    meaning. They are rendered in the plain-text review control card (no HTML),
+    so control characters are stripped and the value is length-capped.
     """
-    name = str(payload.get("slot_name", "")).strip().lower()
-    date = str(payload.get("slot_date", "")).strip()[:10]
-    if name not in ("morning", "evening"):
-        return ""
-    shift = "早班" if name == "morning" else "晚班"
-    return f"今日{shift} · {date}" if date else f"今日{shift}"
+    text = str(value or "").replace("\r", " ").replace("\n", " ")
+    text = "".join(ch for ch in text if ch == " " or ch.isprintable()).strip()
+    return text[:limit]
+
+
+def _fields_source_label(payload) -> str:
+    """Human-readable source label for the review card, e.g. 'PixivFlow · 每日推荐'.
+
+    Generic: any API client may send this; TelePost does not parse it or know
+    what a "slot" or "shift" is. Empty => hidden. Bounded to 80 chars.
+    """
+    return _clean_provenance_text(payload.get("source_label", ""), 80)
+
+
+def _fields_source_ref(payload) -> str:
+    """Stable, opaque machine-readable source reference (a job/execution id).
+
+    Stored for traceability only; TelePost never interprets its structure.
+    Bounded to 160 chars.
+    """
+    return _clean_provenance_text(payload.get("source_ref", ""), 160)
+
+
+def _fields_scheduled_at(payload) -> str:
+    """Optional ISO-8601 scheduled time for the work (provenance/trace only).
+
+    TelePost does not act on it. Bounded to 40 chars.
+    """
+    return _clean_provenance_text(payload.get("scheduled_at", ""), 40)
 
 
 def _fields_bool(payload, key: str) -> bool:
@@ -223,7 +247,9 @@ def add_api_routes(web_app, application) -> None:
                         bot, media, documents,
                         idempotency_key=_fields_idempotency_key(payload),
                         target_id=_fields_target_id(payload),
-                        slot_label=_fields_slot_label(payload),
+                        source_label=_fields_source_label(payload),
+                        source_ref=_fields_source_ref(payload),
+                        scheduled_at=_fields_scheduled_at(payload),
                         **common,
                     )
                 else:
@@ -328,7 +354,9 @@ def add_api_routes(web_app, application) -> None:
                     bot, files,
                     idempotency_key=_fields_idempotency_key(fields),
                     target_id=_fields_target_id(fields),
-                    slot_label=_fields_slot_label(fields),
+                    source_label=_fields_source_label(fields),
+                    source_ref=_fields_source_ref(fields),
+                    scheduled_at=_fields_scheduled_at(fields),
                     **common,
                 )
             else:
