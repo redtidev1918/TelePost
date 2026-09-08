@@ -186,7 +186,7 @@ async def test_discussion_mode_deletes_channel_post_when_forward_wait_times_out(
         AsyncMock(side_effect=asyncio.TimeoutError),
     )
 
-    with pytest.raises(asyncio.TimeoutError):
+    with pytest.raises(publish.DiscussionPublishError, match="转发到讨论组超时"):
         await publish.deliver_items_to_chat(
             bot,
             -1001,
@@ -196,6 +196,67 @@ async def test_discussion_mode_deletes_channel_post_when_forward_wait_times_out(
             reply_mode="discussion",
         )
 
-    # 讨论串没建成：频道封面主贴必须回滚删掉，且不得有图片落到评论区
-    bot.delete_message.assert_awaited_once_with(chat_id=-1001, message_id=10)
+    # 讨论串没建成：频道封面主贴必须回滚删掉，且不得有图片落到评论区。
+    # 确定态失败会自动重试一次（两次首贴各删一次），重试仍超时才抛出。
+    deleted = [c.kwargs for c in bot.delete_message.await_args_list]
+    assert deleted == [
+        {"chat_id": -1001, "message_id": 10},
+        {"chat_id": -1001, "message_id": 10},
+    ]
     bot.send_media_group.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_discussion_rest_album_network_error_is_uncertain_and_not_retried(monkeypatch):
+    # 评论相册响应丢失可能已部分送达：标记 uncertain、不自动重试（避免重复相册）。
+    from telegram.error import NetworkError
+
+    bot = AsyncMock()
+    bot.get_chat.return_value = SimpleNamespace(id=-1001, linked_chat_id=-1002)
+    bot.send_photo.return_value = _Msg(10, -1001)
+    bot.send_media_group.side_effect = NetworkError("read error")
+    monkeypatch.setattr(
+        publish, "_wait_for_discussion_forward", AsyncMock(return_value=(-1002, 77))
+    )
+
+    with pytest.raises(publish.DiscussionPublishError) as exc:
+        await publish.deliver_items_to_chat(
+            bot, -1001,
+            [{"kind": "photo", "file_id": str(i)} for i in range(3)],
+            caption="caption", timeout_kwargs={}, reply_mode="discussion",
+        )
+    assert exc.value.uncertain is True
+    # 首贴只发一次：评论相册不确定，不做整组重发。
+    assert bot.send_photo.await_count == 1
+    # 已落地的频道首贴与讨论组锚点都回滚删除。
+    deleted = {(c.kwargs["chat_id"], c.kwargs["message_id"])
+               for c in bot.delete_message.await_args_list}
+    assert deleted == {(-1001, 10), (-1002, 77)}
+
+
+@pytest.mark.asyncio
+async def test_discussion_determinate_failure_retries_once_and_then_succeeds(monkeypatch):
+    # 首次等转发超时（确定态，首贴回滚）→ 自动重试一次 → 第二次成功。
+    bot = AsyncMock()
+    bot.get_chat.return_value = SimpleNamespace(id=-1001, linked_chat_id=-1002)
+    bot.send_photo.side_effect = [_Msg(10, -1001), _Msg(11, -1001)]
+    bot.send_media_group.return_value = [_Msg(20, -1002), _Msg(21, -1002)]
+    monkeypatch.setattr(
+        publish, "_wait_for_discussion_forward",
+        AsyncMock(side_effect=[asyncio.TimeoutError, (-1002, 88)]),
+    )
+
+    sent, main = await publish.deliver_items_to_chat(
+        bot, -1001,
+        [{"kind": "photo", "file_id": str(i)} for i in range(3)],
+        caption="caption", timeout_kwargs={}, reply_mode="discussion",
+    )
+
+    assert main.message_id == 11  # 第二次的首贴成为主贴
+    assert bot.send_photo.await_count == 2
+    # 第一次的首贴已在重试前回滚；最终相册回复第二次锚点 88。
+    assert bot.delete_message.await_args_list[0].kwargs == {
+        "chat_id": -1001, "message_id": 10,
+    }
+    assert bot.send_media_group.await_args.kwargs["reply_to_message_id"] == 88
+    assert [m.message_id for m in sent] == [11, 20, 21]
