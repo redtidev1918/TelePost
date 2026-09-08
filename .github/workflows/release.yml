@@ -255,10 +255,15 @@ jobs:
             echo "没有可执行产物，跳过附加。"
           fi
 
-      - name: 清理旧 release（每个 track 只留最新）
+      - name: 清理旧 Release object（永久保留 Git tag）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 scripts/prune_releases.py
+        run: |
+          set -euo pipefail
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isPrerelease --jq '.[].tagName' |
+          while IFS= read -r old_tag; do
+            [ "$old_tag" = "$RELEASE_TAG" ] || gh release delete "$old_tag" --repo "$GITHUB_REPOSITORY" --yes
+          done
 
   # 发版后更新下载页并部署 Pages（必须同 run：release:published 与后续 main push
   # 都不会触发新工作流）。
