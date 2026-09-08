@@ -10,6 +10,13 @@
 
 ---
 
+## [2.15.0](https://github.com/redtidev1918/TelePost/compare/v2.14.0...v2.15.0) (2026-09-08)
+
+
+### Features
+
+* **review:** add AI review MCP facade ([62a2ae7](https://github.com/redtidev1918/TelePost/commit/62a2ae706f4110aaba1ca3c9f8862daffc8de9a9))
+
 ## [2.14.0](https://github.com/redtidev1918/TelePost/compare/v2.13.0...v2.14.0) (2026-09-08)
 
 
