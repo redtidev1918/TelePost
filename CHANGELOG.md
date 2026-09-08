@@ -10,6 +10,13 @@
 
 ---
 
+## [2.11.2](https://github.com/redtidev1918/TelePost/compare/v2.11.1...v2.11.2) (2026-09-08)
+
+
+### Bug Fixes
+
+* **review:** 评论区发布完整回滚+自动重试+僵尸解锁+准确失败提示 ([068ad32](https://github.com/redtidev1918/TelePost/commit/068ad3296af69e4f0e5c94b265f9f2c48aac3a47))
+
 ## [2.11.1](https://github.com/redtidev1918/TelePost/compare/v2.11.0...v2.11.1) (2026-09-08)
 
 
