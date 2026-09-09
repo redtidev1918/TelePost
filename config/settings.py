@@ -172,6 +172,12 @@ else:
 _db_cache_kb = get_env_or_config('DB_CACHE_KB', 'DB', 'CACHE_SIZE_KB')
 DB_CACHE_KB = int(_db_cache_kb) if _db_cache_kb else get_config_int('DB', 'CACHE_SIZE_KB', 4096)  # SQLite page cache，单位KB
 
+# 单条投稿可包含的文件数；发布时会自动拆成 Telegram 每组 10 个相册。
+try:
+    MAX_SUBMISSION_FILES = max(1, int(get_env_or_config('API_MAX_FILES', 'BOT', 'API_MAX_FILES', fallback='100')))
+except (ValueError, TypeError):
+    MAX_SUBMISSION_FILES = 100
+
 # 投稿频率限制：每用户每小时最多发起投稿次数，0 为关闭
 _submit_limit = get_env_or_config('SUBMIT_LIMIT_PER_HOUR', 'BOT', 'SUBMIT_LIMIT_PER_HOUR')
 try:
