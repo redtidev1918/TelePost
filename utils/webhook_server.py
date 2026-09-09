@@ -129,6 +129,18 @@ class WebhookServer:
             pass
         return web.json_response(payload)
     
+    async def live_handler(self, request: web.Request) -> web.Response:
+        from aiohttp import web as _web
+        return _web.json_response({"status": "ok", "kind": "live"})
+
+    async def ready_handler(self, request: web.Request) -> web.Response:
+        from aiohttp import web as _web
+        running = bool(getattr(self.application, "running", False)) if getattr(self, "application", None) else False
+        return _web.json_response(
+            {"status": "ok" if running else "starting", "kind": "ready", "ready": running},
+            status=200 if running else 503,
+        )
+
     async def start(self):
         """启动 Webhook 服务器"""
         from utils.api_server import API_CLIENT_MAX_BYTES
@@ -138,6 +150,8 @@ class WebhookServer:
         # 注册路由
         self.web_app.router.add_post(self.path, self.webhook_handler)
         self.web_app.router.add_get('/health', self.health_handler)
+        self.web_app.router.add_get('/live', self.live_handler)
+        self.web_app.router.add_get('/ready', self.ready_handler)
 
         # HTTP API（/api/v1，供外部项目自动化投稿）
         if os.getenv("API_ENABLED", "true").lower() != "false":

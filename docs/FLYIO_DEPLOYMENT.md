@@ -84,12 +84,21 @@ TelePost 启动时会自行调用 Telegram `setWebhook`；不需要手工注册�
 ```bash
 flyctl status --app <app>
 flyctl logs --app <app>
-curl -fsS https://<app>.fly.dev/health
+curl -fsS https://<app>.fly.dev/live
+curl -fsS https://<app>.fly.dev/ready
 curl -fsS https://<app>.fly.dev/api/v1/health
 curl -fsS 'https://api.telegram.org/bot<TOKEN>/getWebhookInfo'
 ```
 
-`/health` 返回 JSON；API 健康响应中的 `bot_version` 应等于部署版本。
+三个探针语义不同：
+
+| 端点 | 语义 | 用途 |
+|---|---|---|
+| `/live` | 路由进程存活即 200，恒不阻塞 | 存活探针、外部保活 ping |
+| `/ready` | 所有 Bot 子进程 `initialize()+start()` 完成才 200，冷启动中 503 | **Fly 健康检查打这个**；proxy 会等它就绪再转发唤醒请求 |
+| `/health` | 路由存活 + 容量/存储指标，恒 200 | 观测与 auto-stop 唤醒入口，**不**代表业务就绪 |
+
+API 健康响应中的 `bot_version` 应等于部署版本。
 `getWebhookInfo` 应核对 URL、`pending_update_count`、`last_error_date` 和
 `last_error_message`，不要把完整响应连同 Token 贴到公开 Issue。
 
@@ -120,9 +129,15 @@ flyctl secrets set --app <telepost-app> \
 
 [http_service]
   internal_port = 8080
-  auto_stop_machines = "stop"
+  auto_stop_machines = "suspend"
   auto_start_machines = true
   min_machines_running = 0
+
+[[http_service.checks]]
+  grace_period = "60s"
+  interval = "30s"
+  timeout = "10s"
+  path = "/ready"
 
 [[vm]]
   cpu_kind = "shared"
@@ -139,7 +154,12 @@ Fly Proxy 的 autostop/autostart 只停止或启动现有 Machine，不会删除
 
 - 正常关机只停止本地 HTTP 服务，不注销 Telegram Webhook。
 - 冷启动重新注册 Webhook 时不丢弃待处理更新。
-- 多 Bot 父路由会等待子进程端口最多 5 秒，避免刚唤醒时首个请求过早收到 502。
+- 多 Bot 父路由先等子进程端口、再轮询子进程 `/ready`（有界，默认最多 30 秒），
+  Bot 未完成 `initialize()+start()` 前不会把 webhook 转发给半热的子进程。
+- 自动休眠使用 `suspend`：挂起期间与 `stop` 一样不计 CPU/RAM，但唤醒是 Firecracker
+  快照恢复（几百毫秒），不是完整冷启动。
+- Webhook secret 持久化在数据卷，跨重启/唤醒稳定，不会出现"重启到重新 setWebhook
+  之间所有更新 403"的窗口。
 - Telegram Webhook、HTTP API 和 PixivFlow 的 Flycast 请求都会经过 Fly Proxy，触发
   `auto_start_machines=true`。
 
@@ -149,9 +169,10 @@ Fly Proxy 的 autostop/autostart 只停止或启动现有 Machine，不会删除
 验证冷启动：
 
 ```bash
-flyctl machine stop <machine-id> --app <app>
+flyctl machine suspend <machine-id> --app <app>
 flyctl machine status <machine-id> --app <app>
-curl -fsS -w 'time=%{time_total}s\n' https://<app>.fly.dev/health
+# 唤醒期间 /ready 先返回 503、就绪后 200；/live 立即 200
+curl -fsS -w 'time=%{time_total}s\n' https://<app>.fly.dev/ready
 ```
 
 最后再次检查两个 Webhook URL 和待处理数。

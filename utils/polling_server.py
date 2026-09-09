@@ -32,8 +32,23 @@ def build_polling_app(application) -> web.Application:
             pass
         return web.json_response(payload)
 
+    async def live(_request: web.Request) -> web.Response:
+        # Process is up and serving its event loop. Never blocks on background init.
+        return web.json_response({"status": "ok", "kind": "live"})
+
+    async def ready(_request: web.Request) -> web.Response:
+        # The bot application has finished initialize()+start(); the PTB app
+        # exposes a running state once update processing is available.
+        running = bool(getattr(application, "running", False))
+        return web.json_response(
+            {"status": "ok" if running else "starting", "kind": "ready", "ready": running},
+            status=200 if running else 503,
+        )
+
     app = web.Application(client_max_size=API_CLIENT_MAX_BYTES)
     app.router.add_get("/health", health)
+    app.router.add_get("/live", live)
+    app.router.add_get("/ready", ready)
     if os.getenv("API_ENABLED", "true").lower() != "false":
         from utils.api_server import add_api_routes
 

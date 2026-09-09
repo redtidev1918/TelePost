@@ -994,8 +994,69 @@ async def handle_document_publish(context, doc_list, caption=None, reply_to_mess
     return main
 
 
+async def _ledger_find_by_key(idempotency_key: str):
+    if not idempotency_key:
+        return None
+    async with get_db() as conn:
+        cursor = await conn.execute(
+            "SELECT * FROM delivery_ledger WHERE idempotency_key=?",
+            (idempotency_key,),
+        )
+        return await cursor.fetchone()
+
+
+async def _ledger_find_work(target_id: str, work_type: str, pixiv_id: str, window_seconds: int):
+    if not pixiv_id:
+        return None
+    async with get_db() as conn:
+        sql = (
+            "SELECT * FROM delivery_ledger WHERE pixiv_id=? AND work_type=? "
+            "AND status='published' AND created_at >= ?"
+        )
+        params = [pixiv_id, work_type, time.time() - window_seconds]
+        if target_id:
+            sql += " AND target_id=?"
+            params.append(target_id)
+        sql += " ORDER BY created_at DESC LIMIT 1"
+        cursor = await conn.execute(sql, params)
+        return await cursor.fetchone()
+
+
+async def _ledger_record(idempotency_key: str, *, target_id, pixiv_id, work_type,
+                         message_id, related_message_ids, user_id):
+    if not idempotency_key:
+        return False
+    async with get_db() as conn:
+        try:
+            await conn.execute(
+                "INSERT INTO delivery_ledger "
+                "(idempotency_key, target_id, pixiv_id, work_type, status, message_id, "
+                "related_message_ids, user_id, created_at) "
+                "VALUES (?, ?, ?, ?, 'published', ?, ?, ?, ?)",
+                (idempotency_key, target_id or "", pixiv_id or "", work_type or "",
+                 message_id, json.dumps(related_message_ids or []), user_id, time.time()),
+            )
+            return True
+        except Exception:
+            # UNIQUE race / replay: the other attempt owns the channel post.
+            return False
+
+
+def _ledger_replay(row) -> dict:
+    return {
+        "status": "published",
+        "message_id": row["message_id"],
+        "link": _link_of(row["message_id"]) if row["message_id"] else "",
+        "reused": True,
+        "reuse_reason": "idempotent_replay",
+        "matched_idempotency_key": row["idempotency_key"],
+        "delivery_status": "published",
+    }
+
+
 async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
-                             anonymous=False, spoiler=False, user_id, username="") -> dict:
+                             anonymous=False, spoiler=False, user_id, username="",
+                             idempotency_key="", target_id="", work_type="", pixiv_id="") -> dict:
     """
     API 投稿核心：把本地文件直接发布到频道（不经 Telegram 会话流程）。
 
@@ -1007,6 +1068,28 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
     import os as _os
     from contextlib import ExitStack
     from telegram import InputFile
+
+    from handlers.review import PUBLISHED_DEDUP_WINDOW_SECONDS, _pixiv_id_from_link
+    key = idempotency_key.strip()[:240]
+    pid = (pixiv_id or _pixiv_id_from_link(link or "")).strip()
+    replay = await _ledger_find_by_key(key)
+    if replay is not None:
+        for fobj in files:
+            try:
+                os.remove(fobj["path"])
+            except OSError:
+                pass
+        return _ledger_replay(replay)
+    historical = await _ledger_find_work(target_id, work_type, pid, PUBLISHED_DEDUP_WINDOW_SECONDS)
+    if historical is not None and historical["idempotency_key"] != key:
+        for fobj in files:
+            try:
+                os.remove(fobj["path"])
+            except OSError:
+                pass
+        result = _ledger_replay(historical)
+        result["reuse_reason"] = "duplicate_existing"
+        return result
 
     data = {
         "tags": tags, "title": title, "note": note, "link": link,
@@ -1040,6 +1123,9 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
             media_list.append(f"{item['kind']}:{file_id}")
 
     await save_published_post(user_id, main_message.message_id, data, media_list, doc_list, all_message_ids)
+    await _ledger_record(key, target_id=target_id, pixiv_id=pid, work_type=work_type,
+                         message_id=main_message.message_id,
+                         related_message_ids=all_message_ids, user_id=user_id)
 
     if str(CHANNEL_ID).startswith("@"):
         link = f"https://t.me/{str(CHANNEL_ID).lstrip('@')}/{main_message.message_id}"
@@ -1071,7 +1157,8 @@ def _link_of(message_id: int) -> str:
 
 
 async def publish_from_file_ids(bot, media, documents, *, tags="", title="", note="", link="",
-                                anonymous=False, spoiler=False, user_id, username="") -> dict:
+                                anonymous=False, spoiler=False, user_id, username="",
+                                idempotency_key="", target_id="", work_type="", pixiv_id="") -> dict:
     """
     API file_id 直投核心：素材已在 Telegram 服务器上（file_id 归属本 bot），
     直接用 file_id 发布到频道——零媒体文件传输。
@@ -1079,6 +1166,18 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="", not
     media:     [{"type": "photo|video|animation|audio", "file_id": str}]
     documents: [{"file_id": str, "filename": str}]
     """
+    from handlers.review import PUBLISHED_DEDUP_WINDOW_SECONDS, _pixiv_id_from_link
+    key = idempotency_key.strip()[:240]
+    pid = (pixiv_id or _pixiv_id_from_link(link or "")).strip()
+    replay_row = await _ledger_find_by_key(key)
+    if replay_row is not None:
+        return _ledger_replay(replay_row)
+    historical_row = await _ledger_find_work(target_id, work_type, pid, PUBLISHED_DEDUP_WINDOW_SECONDS)
+    if historical_row is not None and historical_row["idempotency_key"] != key:
+        out = _ledger_replay(historical_row)
+        out["reuse_reason"] = "duplicate_existing"
+        return out
+
     data = {
         "tags": tags, "title": title, "note": note, "link": link,
         "spoiler": "true" if spoiler else "false",
@@ -1107,6 +1206,9 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="", not
     doc_list = [f"document:{d['file_id']}:{d.get('filename', 'file')}" for d in documents]
 
     await save_published_post(user_id, main_message.message_id, data, media_list, doc_list, all_message_ids)
+    await _ledger_record(key, target_id=target_id, pixiv_id=pid, work_type=work_type,
+                         message_id=main_message.message_id,
+                         related_message_ids=all_message_ids, user_id=user_id)
 
     return {
         "status": "published",
@@ -1114,6 +1216,7 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="", not
         "link": _link_of(main_message.message_id),
         "media_count": len(media_list),
         "document_count": len(doc_list),
+        "delivery_status": "published",
     }
 
 def _file_id_of(message):

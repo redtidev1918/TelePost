@@ -45,7 +45,7 @@ _STORAGE_METRICS_CACHE = {"expires_at": 0.0, "value": None}
 
 
 async def _wait_for_bot_port(port: int, timeout: float = 5.0) -> None:
-    """Give auto-started bot children a short window to bind their port."""
+    """Give auto-started bot children a bounded window to bind their port."""
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while True:
@@ -58,6 +58,23 @@ async def _wait_for_bot_port(port: int, timeout: float = 5.0) -> None:
             if loop.time() >= deadline:
                 raise
             await asyncio.sleep(0.1)
+
+
+async def _probe_child_ready(port: int, *, timeout: float = 0.8) -> bool:
+    """Return True once a bot child answers GET /ready with 200.
+
+    Readiness (PTB app running) is distinct from a bound socket: after a cold
+    start the relay no longer 502s a webhook that arrives in the window between
+    'port open' and 'bot initialized'. Bounded and tolerant: any failure reads
+    as 'not ready yet' rather than raising into the relay.
+    """
+    from aiohttp import ClientSession, ClientTimeout
+    try:
+        async with ClientSession(timeout=ClientTimeout(total=timeout)) as session:
+            async with session.get(f"http://127.0.0.1:{port}/ready") as resp:
+                return resp.status == 200
+    except Exception:
+        return False
 
 
 def _process_rss_snapshot(proc_root: str = "/proc") -> list[dict]:
@@ -458,9 +475,32 @@ def build_router_app(indices: list):
     # The router never buffers submission bodies. The explicit size ceiling is
     # still useful for malformed clients and matches TelePost's 500 MiB API cap
     # (up to 50 files, 50 MiB each).
+    async def live(_request):
+        # Liveness: this routing process is up. Independent of child startup so
+        # the orchestrator never kills a healthy parent that is still warming
+        # cold bot children (killing it would just restart the warm-up).
+        return web.json_response({"status": "ok", "service": "telepost", "kind": "live"})
+
+    async def ready(_request):
+        # Readiness: every bot child has finished initialize()+start(). Bounded
+        # probes in parallel; a not-yet-ready child returns 503 without faking
+        # success (HTTP 200 never implied business readiness).
+        results = await asyncio.gather(*(
+            _probe_child_ready(bot_webhook_port(index)) for index in indices
+        )) if indices else [True]
+        all_ready = all(results)
+        return web.json_response(
+            {"status": "ok" if all_ready else "starting",
+             "kind": "ready",
+             "bots": {f"bot{index}": bool(ok) for index, ok in zip(indices, results)}},
+            status=200 if all_ready else 503,
+        )
+
     app = web.Application(client_max_size=ROUTER_CLIENT_MAX_BYTES)
     app.cleanup_ctx.append(client_session_context)
     app.router.add_get("/health", health)
+    app.router.add_get("/live", live)
+    app.router.add_get("/ready", ready)
 
     def make_relay(index: int, strip: str | None, prepend: str = "", port_override: int | None = None):
         async def relay(request):
@@ -481,7 +521,17 @@ def build_router_app(indices: list):
             }
             downstream = None
             try:
-                await _wait_for_bot_port(port)
+                # Bound socket first, then actual bot readiness. Cap the wait so
+                # a wedged child fails fast as 502 instead of hanging the webhook.
+                ready_deadline = float(os.environ.get("ROUTER_CHILD_READY_TIMEOUT", "30"))
+                waited = 0.0
+                ready = await _probe_child_ready(port)
+                while not ready and waited < ready_deadline:
+                    await asyncio.sleep(0.2)
+                    waited += 0.2
+                    ready = await _probe_child_ready(port)
+                if not ready:
+                    raise TimeoutError(f"bot child on port {port} not ready after {ready_deadline}s")
                 session = request.app[session_key]
                 async with session.request(
                     request.method,

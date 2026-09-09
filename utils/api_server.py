@@ -99,6 +99,15 @@ def _fields_target_id(payload) -> str:
     return str(payload.get("target_id", "")).strip()[:120]
 
 
+def _fields_work_type(payload) -> str:
+    value = str(payload.get("work_type", "")).strip().lower()
+    return value if value in ("illustration", "novel") else ""
+
+
+def _fields_pixiv_id(payload) -> str:
+    return str(payload.get("pixiv_id", "")).strip()[:32]
+
+
 def _clean_provenance_text(value, limit: int) -> str:
     """Bounded single-line provenance text.
 
@@ -294,21 +303,31 @@ def add_api_routes(web_app, application) -> None:
                     "user_id": user_id,
                     "username": username,
                 }
+                idem_key = _fields_idempotency_key(payload)
+                target_name = _fields_target_id(payload)
+                work_type = _fields_work_type(payload)
+                pixiv_id = _fields_pixiv_id(payload)
                 if API_REVIEW_REQUIRED:
                     from handlers.review import queue_review_from_file_ids
                     result = await queue_review_from_file_ids(
                         bot, media, documents,
-                        idempotency_key=_fields_idempotency_key(payload),
-                        target_id=_fields_target_id(payload),
+                        idempotency_key=idem_key,
+                        target_id=target_name,
                         source_label=_fields_source_label(payload),
                         source_ref=_fields_source_ref(payload),
                         scheduled_at=_fields_scheduled_at(payload),
+                        work_type=work_type,
                         **common,
                     )
                 else:
                     from handlers.publish import publish_from_file_ids
                     result = await publish_from_file_ids(
-                        bot, media, documents, **common,
+                        bot, media, documents,
+                        idempotency_key=idem_key,
+                        target_id=target_name,
+                        work_type=work_type,
+                        pixiv_id=pixiv_id,
+                        **common,
                     )
             except Exception as e:
                 action = "进入审核队列" if API_REVIEW_REQUIRED else "发布到频道"
@@ -410,6 +429,7 @@ def add_api_routes(web_app, application) -> None:
                     source_label=_fields_source_label(fields),
                     source_ref=_fields_source_ref(fields),
                     scheduled_at=_fields_scheduled_at(fields),
+                    work_type=_fields_work_type(fields),
                     **common,
                 )
             else:
@@ -623,6 +643,55 @@ def add_api_routes(web_app, application) -> None:
             return _ok(result.to_dict())
         return await _run_review_action(action)
 
+    async def delivery_lookup(request):
+        """Authenticated reconciliation lookup for a downstream work.
+        Lets the caller (e.g. PixivFlow doctor) ask 'did target X already
+        publish work Y?' without trusting a 2xx alone."""
+        token_row = await authenticate(_bearer(request) or "")
+        if token_row is None:
+            return _error(401, "invalid_token", "token 无效或已吊销")
+        q = request.query
+        target = (q.get("target") or "").strip()[:120]
+        work_type = (q.get("work_type") or "").strip().lower()
+        pixiv_id = (q.get("pixiv_id") or "").strip()[:32]
+        if work_type not in ("illustration", "novel") or not pixiv_id:
+            return _error(400, "invalid_query", "work_type (illustration|novel) 与 pixiv_id 必填")
+        from database.db_manager import get_db
+        cutoff = time.time() - (7 * 24 * 3600)
+        params = [pixiv_id, work_type] + ([target] if target else []) + [cutoff]
+        async with get_db() as conn:
+            cursor = await conn.execute(
+                "SELECT id, status, idempotency_key, target_id, published_message_id AS message_id, "
+                "pixiv_id, work_type, decided_at FROM pending_reviews "
+                "WHERE pixiv_id=? AND work_type=? "
+                + ("AND target_id=? " if target else "")
+                + "AND status='published' AND decided_at >= ? ORDER BY decided_at DESC LIMIT 1",
+                params,
+            )
+            review_row = await cursor.fetchone()
+            cursor = await conn.execute(
+                "SELECT id, status, idempotency_key, target_id, message_id, pixiv_id, work_type, created_at "
+                "FROM delivery_ledger WHERE pixiv_id=? AND work_type=? "
+                + ("AND target_id=? " if target else "")
+                + "AND status='published' AND created_at >= ? ORDER BY created_at DESC LIMIT 1",
+                ([pixiv_id, work_type, target, cutoff] if target else [pixiv_id, work_type, cutoff]),
+            )
+            ledger_row = await cursor.fetchone()
+
+        match = review_row or ledger_row
+        if match is None:
+            return _ok({"found": False, "target": target, "work_type": work_type, "pixiv_id": pixiv_id})
+        return _ok({
+            "found": True,
+            "target": target,
+            "work_type": work_type,
+            "pixiv_id": pixiv_id,
+            "delivery_status": match["status"],
+            "message_id": match["message_id"],
+            "matched_idempotency_key": match["idempotency_key"],
+            "source": "review" if review_row is not None else "direct",
+        })
+
     web_app.router.add_get("/api/v1/reviews/policy", review_policy)
     web_app.router.add_get("/api/v1/reviews", list_reviews)
     web_app.router.add_get("/api/v1/reviews/{review_id}", get_review)
@@ -635,6 +704,7 @@ def add_api_routes(web_app, application) -> None:
     web_app.router.add_get("/api/v1/health", health)
     web_app.router.add_get("/api/v1/me", me)
     web_app.router.add_post("/api/v1/submissions", create_submission)
+    web_app.router.add_get("/api/v1/deliveries/lookup", delivery_lookup)
     web_app.router.add_post("/api/v1/notifications", create_notification)
     logger.info("API 路由已注册: /api/v1/*")
     _ensure_upload_sweeper()

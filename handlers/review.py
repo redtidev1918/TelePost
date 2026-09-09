@@ -145,7 +145,7 @@ def _caption_data(*, tags, title, note, link, anonymous, spoiler, user_id, usern
     }
 
 
-def _result_from_row(row, *, reused: bool = False) -> dict:
+def _result_from_row(row, *, reused: bool = False, reuse_reason: str = "") -> dict:
     status = "pending_review" if row["status"] == "pending" else row["status"]
     result = {
         "status": status,
@@ -154,6 +154,12 @@ def _result_from_row(row, *, reused: bool = False) -> dict:
         "document_count": len(json.loads(row["documents_json"] or "[]")),
         "reused": reused,
     }
+    if reused:
+        # Distinguish an ACK-loss replay of the SAME intent from a DIFFERENT
+        # intent for a work already published by another slot/key.
+        result["reuse_reason"] = reuse_reason or "idempotent_replay"
+        result["matched_idempotency_key"] = row["idempotency_key"]
+        result["delivery_status"] = status
     if row["published_message_id"]:
         result["message_id"] = row["published_message_id"]
     return result
@@ -255,7 +261,7 @@ async def _notify_reused_review(bot, row) -> None:
     )
 
 
-async def _reuse_review(bot, row, target_id: str = "") -> dict:
+async def _reuse_review(bot, row, target_id: str = "", reuse_reason: str = "idempotent_replay") -> dict:
     """Backfill source identity, notify reviewers, and return a reusable result."""
     if target_id and not row["target_id"]:
         async with get_db() as conn:
@@ -265,7 +271,28 @@ async def _reuse_review(bot, row, target_id: str = "") -> dict:
                 (target_id, time.time(), row["id"]),
             )
     await _notify_reused_review(bot, row)
-    return _result_from_row(row, reused=True)
+    return _result_from_row(row, reused=True, reuse_reason=reuse_reason)
+
+
+async def _find_published_work(target_id: str, work_type: str, pixiv_id: str):
+    """Find a recently PUBLISHED review for the same downstream work+target under a
+    DIFFERENT idempotency key. This is the cross-intent historical duplicate case
+    (e.g. a new occurrence selecting a work already posted by an older slot)."""
+    if not pixiv_id:
+        return None
+    async with get_db() as conn:
+        sql = (
+            "SELECT * FROM pending_reviews "
+            "WHERE status='published' AND work_type=? AND pixiv_id=? "
+            "AND decided_at >= ?"
+        )
+        params: list = [work_type, pixiv_id, time.time() - PUBLISHED_DEDUP_WINDOW_SECONDS]
+        if target_id:
+            sql += " AND target_id=?"
+            params.append(target_id)
+        sql += " ORDER BY decided_at DESC LIMIT 1"
+        cursor = await conn.execute(sql, params)
+        return await cursor.fetchone()
 
 
 async def expire_stale_reviews(bot, *, now: Optional[float] = None) -> int:
@@ -903,15 +930,25 @@ async def queue_review_from_files(
     source_label="",
     source_ref="",
     scheduled_at="",
+    work_type="",
 ) -> dict:
     """Stage multipart API files and create a durable pending review."""
     key = _normalized_idempotency_key(user_id, idempotency_key, source)
     existing = await _find_review(key)
     if existing is not None:
         try:
-            return await _reuse_review(bot, existing, target_id)
+            return await _reuse_review(bot, existing, target_id, "idempotent_replay")
         finally:
             _cleanup_local_files(files)
+
+    pixiv_id = _pixiv_id_from_link(link or "")
+    if pixiv_id:
+        historical = await _find_published_work(target_id, work_type, pixiv_id)
+        if historical is not None and historical["idempotency_key"] != key:
+            try:
+                return _result_from_row(historical, reused=True, reuse_reason="duplicate_existing")
+            finally:
+                _cleanup_local_files(files)
 
     data = _caption_data(
         tags=tags, title=title, note=note, link=link,
@@ -941,6 +978,8 @@ async def queue_review_from_files(
             source_label=source_label,
             source_ref=source_ref,
             scheduled_at=scheduled_at,
+            pixiv_id=pixiv_id,
+            work_type=work_type,
         )
     except Exception:
         await _delete_messages(bot, preview_ids)

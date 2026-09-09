@@ -75,7 +75,7 @@ curl -X POST 'https://example.com/api/bot1/v1/submissions' \
 | `link` | 否 | 必须以 `http://` 或 `https://` 开头 |
 | `anonymous` | 否 | `true`、`1`、`yes` 为真 |
 | `spoiler` | 否 | 同上 |
-| `idempotency_key` | 否 | 最长 240；只在审核模式防止重复入队 |
+| `idempotency_key` | 强烈建议 | 最长 240；审核模式防重复入队，直发模式防重复发帖（ACK 丢失重试安全） |
 | `target_id` | 否 | 最长 120；审核模式标识自动化来源，供定向重抓 |
 | `source_label` | 否 | 最长 80；人类可读来源标签（如 `PixivFlow · 每日推荐`）。审核控制卡上展示；TelePost 不解析其含义，缺省不显示 |
 | `source_ref` | 否 | 最长 160；机器可读、稳定的来源引用（如上游 job/execution id）。仅存档/排查，TelePost 不解释其结构 |
@@ -135,13 +135,16 @@ curl -X POST 'https://example.com/api/bot1/v1/notifications' \
 
 ## 响应
 
-立即发布成功：
+### 直发模式（`API_REVIEW_REQUIRED=false`）
+
+首次发布成功（HTTP 200）：
 
 ```json
 {
   "ok": true,
   "data": {
     "status": "published",
+    "reused": false,
     "message_id": 123,
     "link": "https://t.me/channel/123",
     "media_count": 1,
@@ -150,10 +153,36 @@ curl -X POST 'https://example.com/api/bot1/v1/notifications' \
 }
 ```
 
-`API_REVIEW_REQUIRED=true` 时成功响应为 `201`，`status` 是 `pending_review`，并包含
-`review_id` 和 `reused`。`reused=true` 表示命中了现有幂等记录；TelePost 会补齐缺失的
-`target_id` 并在审核群发送复用提示。只有审核群上传和 SQLite 记录都成功后才返回 201；上游收到非 2xx 时应
-保留任务并重试。
+上游在收到响应前超时/断连时，应**用同一个 `idempotency_key` 原样重试**。此时不会产生
+第二条频道消息，响应为 HTTP 200 且：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "published",
+    "reused": true,
+    "reuse_reason": "idempotent_replay",
+    "matched_idempotency_key": "source:123",
+    "message_id": 123
+  }
+}
+```
+
+`reuse_reason` 有两种语义，上游都应按成功处理、**不得再次补发**：
+
+| reuse_reason | 含义 |
+|---|---|
+| `idempotent_replay` | 同一个 `idempotency_key` 的重试（典型：ACK 丢失）。返回的 `message_id` 就是第一次发布的那条，频道里只有一条消息。 |
+| `duplicate_existing` | `idempotency_key` 不同（新的 slot/触发），但同一作品（target+type+pixiv_id）在去重窗口内已由**另一次意图**发布过。不创建新消息，`matched_idempotency_key` 指向先发布的那条。 |
+
+### 审核模式（`API_REVIEW_REQUIRED=true`）
+
+成功响应为 `201`，`status` 是 `pending_review`，并包含 `review_id` 和 `reused`。
+`reused=true` 时同样带 `reuse_reason`（`idempotent_replay` / `duplicate_existing`）
+与 `matched_idempotency_key`；TelePost 会补齐缺失的 `target_id` 并在审核群发送复用提示。
+只有审核群上传和 SQLite 记录都成功后才返回 201；上游收到非 2xx 时应保留任务并用同一
+`idempotency_key` 重试。
 
 同一 `idempotency_key` 命中待审核、失败或 7 天内已发布记录时，不重复上传媒体或
 创建审核记录，但会在当前审核群发送一条提示，引用原审核编号并显示状态。因此每次
