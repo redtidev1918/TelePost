@@ -149,6 +149,25 @@ async def init_db():
                 'ON pending_reviews(status, created_at DESC)'
             )
 
+            # Downstream reconciliation keys (PixivFlow ledger / historical dedupe).
+            # Additive, nullable; older rows simply do not participate.
+            for column, ddl in (
+                ("pixiv_id", "TEXT NOT NULL DEFAULT ''"),
+                ("work_type", "TEXT NOT NULL DEFAULT ''"),
+                ("delivery_target", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                try:
+                    await conn.execute(
+                        f"ALTER TABLE pending_reviews ADD COLUMN {column} {ddl}"
+                    )
+                except Exception:
+                    pass  # column already exists
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_pending_reviews_dedupe '
+                "ON pending_reviews(delivery_target, work_type, pixiv_id) "
+                "WHERE pixiv_id <> ''"
+            )
+
             # API 运维通知的持久幂等记录。不同 token 所绑定的用户可以复用同一业务键；
             # 同一用户在 Bot 重启后仍不会重复发送同一条通知。
             await conn.execute('''
@@ -214,6 +233,30 @@ async def init_db():
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_heat ON published_posts(is_deleted, heat_score DESC)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_publish_time ON published_posts(is_deleted, publish_time DESC)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_deleted ON published_posts(user_id, is_deleted)')
+
+            # Direct-publish delivery ledger (API_REVIEW_REQUIRED=false). The review
+            # path already dedupes on pending_reviews.idempotency_key; direct publish had
+            # NO idempotency, so an ACK loss / client retry re-posted to the channel.
+            # One row per confirmed channel post, keyed by the caller's idempotency key.
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS delivery_ledger (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    idempotency_key TEXT UNIQUE NOT NULL,
+                    target_id TEXT NOT NULL DEFAULT '',
+                    pixiv_id TEXT NOT NULL DEFAULT '',
+                    work_type TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'published',
+                    message_id INTEGER,
+                    related_message_ids TEXT NOT NULL DEFAULT '[]',
+                    user_id INTEGER,
+                    created_at REAL NOT NULL
+                )
+            ''')
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_delivery_ledger_dedupe '
+                "ON delivery_ledger(target_id, work_type, pixiv_id) "
+                "WHERE pixiv_id <> ''"
+            )
 
             # published_posts 是频道现状，pending_reviews 是审核审计。频道消息被软删除时
             # 同步把对应审核记录从“曾发布”推进到“已删除”，避免把历史终态误当成

@@ -399,8 +399,40 @@ class TestFileIdDirect:
             file_id_mock.assert_called_once()
             kwargs = file_id_mock.call_args.kwargs
             assert kwargs["anonymous"] is True
-            assert "target_id" not in kwargs
+            # Direct publish now carries idempotency/dedupe identity through so
+            # an ACK loss / retry cannot re-post to the channel.
+            assert kwargs["target_id"] == ""
+            assert kwargs["work_type"] == ""
+            assert kwargs["pixiv_id"] == ""
             assert file_id_mock.call_args.args[1][0]["file_id"] == "AAA"
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_idempotency_fields_passed_through(self, monkeypatch):
+        file_id_mock = AsyncMock(return_value={"status": "published", "message_id": 1})
+        monkeypatch.setattr("handlers.publish.publish_from_file_ids", file_id_mock)
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            resp = await client.post(
+                "/api/v1/submissions",
+                headers={"Authorization": "Bearer tp_ok"},
+                json={
+                    "media": [{"type": "photo", "file_id": "A"}],
+                    "tags": "t",
+                    "idempotency_key": "pixivflow:bot1:illustration:55:slot:t1",
+                    "target_id": "bot1",
+                    "work_type": "illustration",
+                    "pixiv_id": "55",
+                },
+            )
+            assert resp.status == 201
+            kwargs = file_id_mock.call_args.kwargs
+            assert kwargs["idempotency_key"] == "pixivflow:bot1:illustration:55:slot:t1"
+            assert kwargs["target_id"] == "bot1"
+            assert kwargs["work_type"] == "illustration"
+            assert kwargs["pixiv_id"] == "55"
         finally:
             await client.close()
 
