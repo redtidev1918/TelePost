@@ -10,6 +10,15 @@
 
 ---
 
+## [2.16.0](https://github.com/redtidev1918/TelePost/compare/v2.15.1...v2.16.0) (2026-09-09)
+
+
+### Features
+
+* **api:** idempotent direct publish + reuse envelope (idempotent_replay vs duplicate_existing), reconciliation lookup, fast startup, stable webhook secret ([91eaa48](https://github.com/redtidev1918/TelePost/commit/91eaa489d768839f15a7762b0273edd5742302cb))
+* **api:** idempotent direct publish + reuse envelope, /live /ready probes, fast startup, stable webhook secret ([9e4a861](https://github.com/redtidev1918/TelePost/commit/9e4a861f8449bc2521d3f99ced8169554328dd37))
+* **startup:** /live vs /ready probes, bounded router child-readiness gate, background post-ready init ([61ee99f](https://github.com/redtidev1918/TelePost/commit/61ee99ffc3ef2791f17593d1ebde86caad26bcb3))
+
 ## [2.15.1](https://github.com/redtidev1918/TelePost/compare/v2.15.0...v2.15.1) (2026-09-09)
 
 
