@@ -34,3 +34,18 @@ async def test_polling_mode_can_disable_api(monkeypatch):
     async with TestClient(TestServer(app)) as client:
         assert (await client.get("/health")).status == 200
         assert (await client.get("/api/v1/health")).status == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("running,expected", [(False, 503), (True, 200)])
+async def test_polling_ready_reflects_ptb_running_state(running, expected):
+    from aiohttp.test_utils import TestClient, TestServer
+
+    app = build_polling_app(SimpleNamespace(bot=object(), running=running))
+    async with TestClient(TestServer(app)) as client:
+        live = await client.get("/live")
+        assert live.status == 200  # liveness never depends on PTB state
+        ready = await client.get("/ready")
+        assert ready.status == expected
+        body = await ready.json()
+        assert body["ready"] is running
