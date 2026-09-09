@@ -91,8 +91,12 @@ class TestRouterRelay:
             return web.json_response({"status": "ok"})
 
         # 假 bot 进程（跑在 8081 对应的临时端口上）
+        async def fake_ready(_request):
+            return web.json_response({"status": "ok", "ready": True})
+
         bot_app = web.Application()
         bot_app.router.add_post("/webhook/bot1", fake_bot)
+        bot_app.router.add_get("/ready", fake_ready)
 
         # 让 router 的转发目标端口指向临时端口
         monkeypatch.setattr(run_mod, "bot_webhook_port", lambda i: 8081 if i == 1 else 8082)
@@ -162,3 +166,68 @@ class TestRouterRelay:
                     assert data["storage"]["delivery_outbox"]["files"] == 2
         finally:
             await runner.cleanup()
+
+
+class TestReadinessProbes:
+    """/live always answers; /ready aggregates bot-child readiness (503 while
+    any child is still warming, 200 once all are initialize()+start() done)."""
+
+    async def _serve(self, app, port):
+        from aiohttp import web
+        runner = web.AppRunner(app)
+        await runner.setup()
+        await web.TCPSite(runner, "127.0.0.1", port).start()
+        return runner
+
+    @pytest.mark.asyncio
+    async def test_live_is_independent_of_child_warmup(self, monkeypatch):
+        from aiohttp import web
+        import aiohttp
+
+        # No bot children listening at all.
+        monkeypatch.setattr(run_mod, "bot_webhook_port", lambda i: 18100 + i)
+        router_app = run_mod.build_router_app([1])
+        runner = await self._serve(router_app, 18082)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get("http://127.0.0.1:18082/live") as resp:
+                    assert resp.status == 200
+                    assert (await resp.json())["kind"] == "live"
+        finally:
+            await runner.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_ready_503_while_child_not_ready_then_200(self, monkeypatch):
+        from aiohttp import web
+        import aiohttp
+
+        state = {"ready": False}
+
+        async def ready_handler(_request):
+            return web.json_response(
+                {"ready": state["ready"]},
+                status=200 if state["ready"] else 503,
+            )
+
+        child = web.Application()
+        child.router.add_get("/ready", ready_handler)
+
+        monkeypatch.setattr(run_mod, "bot_webhook_port", lambda i: 18111)
+        router_app = run_mod.build_router_app([1])
+        child_runner = await self._serve(child, 18111)
+        router_runner = await self._serve(router_app, 18083)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get("http://127.0.0.1:18083/ready") as resp:
+                    assert resp.status == 503
+                    data = await resp.json()
+                    assert data["bots"]["bot1"] is False
+
+                state["ready"] = True
+                async with session.get("http://127.0.0.1:18083/ready") as resp:
+                    assert resp.status == 200
+                    data = await resp.json()
+                    assert data["bots"]["bot1"] is True
+        finally:
+            await router_runner.cleanup()
+            await child_runner.cleanup()
