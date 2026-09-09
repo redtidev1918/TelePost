@@ -12,7 +12,8 @@ async def test_photo_appends_media(mock_telegram_update, mock_telegram_context):
     mock_telegram_update.message.photo = [photo]
     mock_telegram_update.message.reply_text = AsyncMock()
 
-    with patch("handlers.upload.append_entry", new=AsyncMock(return_value=1)):
+    with patch("handlers.upload.get_session", new=AsyncMock(return_value={"image_id": "[]", "document_id": "[]"})), \
+         patch("handlers.upload.append_entry", new=AsyncMock(return_value=1)):
         from handlers.upload import handle_upload
         result = await handle_upload(mock_telegram_update, mock_telegram_context)
 
@@ -33,6 +34,7 @@ async def test_document_appends_file_in_mixed(mock_telegram_update, mock_telegra
 
     with patch("handlers.upload.BOT_MODE", "MIXED"), \
          patch("handlers.upload._file_validator.validate", return_value=(True, "")), \
+         patch("handlers.upload.get_session", new=AsyncMock(return_value={"image_id": "[]", "document_id": "[]"})), \
          patch("handlers.upload.append_entry", new=AsyncMock(return_value=1)):
         from handlers.upload import handle_upload
         result = await handle_upload(mock_telegram_update, mock_telegram_context)
@@ -57,6 +59,36 @@ async def test_media_mode_rejects_document(mock_telegram_update, mock_telegram_c
 
     assert result == STATE["UPLOAD"]
     assert "文件附件" in mock_telegram_update.message.reply_text.await_args.args[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_rejects_upload_after_configured_limit(mock_telegram_update, mock_telegram_context):
+    photo = MagicMock(file_id="f101")
+    mock_telegram_update.message.photo = [photo]
+    mock_telegram_update.message.reply_text = AsyncMock()
+    session = {"image_id": "[" + ",".join(f'"photo:f{i}"' for i in range(100)) + "]", "document_id": "[]"}
+
+    with patch("handlers.upload.MAX_SUBMISSION_FILES", 100), \
+         patch("handlers.upload.get_session", new=AsyncMock(return_value=session)), \
+         patch("handlers.upload.append_entry", new=AsyncMock()) as append:
+        from handlers.upload import handle_upload
+        result = await handle_upload(mock_telegram_update, mock_telegram_context)
+
+    assert result == STATE["UPLOAD"]
+    append.assert_not_awaited()
+    assert "最多 100 个文件" in mock_telegram_update.message.reply_text.await_args.args[0]
+
+
+@pytest.mark.unit
+def test_upload_hint_shows_configured_limit():
+    from handlers.mode_selection import _upload_hint
+    import handlers.mode_selection as mode_selection
+
+    with patch.object(mode_selection, "MAX_SUBMISSION_FILES", 100):
+        assert "最多 100 个" in _upload_hint("MEDIA")
+        assert "最多 100 个" in _upload_hint("DOCUMENT")
+        assert "合计最多 100 个" in _upload_hint("MIXED")
 
 
 @pytest.mark.unit

@@ -41,10 +41,10 @@ _upload_sweeper_started = False
 
 API_VERSION = "1.0"
 MAX_FILE_BYTES = 50 * 1024 * 1024      # Telegram Bot API 单文件上限
-# 入站文件数上限（发布侧会按每组 ≤10 自动拆成多个 Telegram media group），
-# 放宽以支持多页插画/图集整本投稿（如 Pixiv 24 页作品）。
-# 可调：API_MAX_FILES 环境变量覆盖默认 50。
-MAX_FILES = int(os.getenv("API_MAX_FILES", "50"))
+from config.settings import MAX_SUBMISSION_FILES
+
+# 入站文件数上限（发布侧会按每组 ≤10 自动拆成多个 Telegram media group）。
+MAX_FILES = MAX_SUBMISSION_FILES
 # 文件数与体积分别受限。不能按 50 × 50 MiB 放宽到 2.5 GiB，否则低配
 # 实例的持久卷可能被单个请求占满。默认累计 500 MiB，并与父路由一致。
 MAX_TOTAL_FILE_BYTES = 500 * 1024 * 1024
