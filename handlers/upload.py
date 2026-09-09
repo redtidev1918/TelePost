@@ -9,7 +9,13 @@ import logging
 from telegram import Update
 from telegram.ext import ConversationHandler, CallbackContext
 
-from config.settings import BOT_MODE, MODE_MEDIA, MODE_DOCUMENT, ALLOWED_FILE_TYPES
+from config.settings import (
+    BOT_MODE,
+    MODE_MEDIA,
+    MODE_DOCUMENT,
+    ALLOWED_FILE_TYPES,
+    MAX_SUBMISSION_FILES,
+)
 from models.state import STATE
 from utils.file_validator import create_file_validator
 from utils.submission import classify_message, entry_kind, append_entry, get_session
@@ -17,9 +23,6 @@ from utils.submission import classify_message, entry_kind, append_entry, get_ses
 logger = logging.getLogger(__name__)
 
 _file_validator = create_file_validator(ALLOWED_FILE_TYPES)
-
-MEDIA_LIMIT = 50
-DOCUMENT_LIMIT = 10
 
 
 async def handle_upload(update: Update, context: CallbackContext) -> int:
@@ -50,6 +53,18 @@ async def handle_upload(update: Update, context: CallbackContext) -> int:
             return STATE["UPLOAD"]
     elif BOT_MODE == MODE_DOCUMENT:
         await message.reply_text("⚠️ 当前为文档投稿模式，请以附件发送文件。")
+        return STATE["UPLOAD"]
+
+    session = await get_session(user_id)
+    if session is None:
+        await message.reply_text("❌ 会话已过期，请重新发送 /submit")
+        return ConversationHandler.END
+    current_count = len(_parse(session["image_id"])) + len(_parse(session["document_id"]))
+    if current_count >= MAX_SUBMISSION_FILES:
+        await message.reply_text(
+            f"⚠️ 单条投稿最多 {MAX_SUBMISSION_FILES} 个文件。\n"
+            "请发送 /done_media 进入预览，或 /cancel 后重新投稿。"
+        )
         return STATE["UPLOAD"]
 
     count = await append_entry(user_id, entry)

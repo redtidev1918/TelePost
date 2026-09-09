@@ -11,7 +11,13 @@ from datetime import datetime
 from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import ConversationHandler, CallbackContext
 
-from config.settings import BOT_MODE, MODE_MEDIA, MODE_DOCUMENT, SUBMIT_LIMIT_PER_HOUR
+from config.settings import (
+    BOT_MODE,
+    MODE_MEDIA,
+    MODE_DOCUMENT,
+    SUBMIT_LIMIT_PER_HOUR,
+    MAX_SUBMISSION_FILES,
+)
 from models.state import STATE
 from utils.blacklist import is_blacklisted
 from utils.submission import create_session
@@ -60,19 +66,19 @@ def _upload_hint(mode: str) -> str:
         return (
             "📮 请直接上传媒体：\n"
             "• 相册图片、视频、GIF、音频会归为媒体\n"
-            "• 最多 50 个；上传完成后发送 /done_media 打开预览" + common
+            f"• 最多 {MAX_SUBMISSION_FILES} 个；上传完成后发送 /done_media 打开预览" + common
         )
     if mode == MODE_DOCUMENT:
         return (
             "📮 请上传文档：\n"
             "• 以附件发送的图片、压缩包、PDF 等会归为文件\n"
-            "• 最多 10 个；上传完成后发送 /done_media 打开预览" + common
+            f"• 最多 {MAX_SUBMISSION_FILES} 个；上传完成后发送 /done_media 打开预览" + common
         )
     return (
         "📮 请直接上传内容：\n"
         "• 相册图片、视频、GIF、音频会归为媒体\n"
         "• 以附件发送的图片、压缩包、PDF 等会归为文件\n"
-        "• 可以混合上传，完成后发送 /done_media 打开预览" + common
+        f"• 合计最多 {MAX_SUBMISSION_FILES} 个，可以混合上传，完成后发送 /done_media 打开预览" + common
     )
 
 
