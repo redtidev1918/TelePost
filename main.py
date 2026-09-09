@@ -248,6 +248,31 @@ async def setup_bot_commands(application):
         logger.error(f"设置命令菜单失败: {e}", exc_info=True)
 
 
+def _load_or_create_persisted_webhook_secret() -> str:
+    """Return a stable webhook secret persisted next to the database.
+
+    Survives machine stop/restart so the secret Telegram already has stays
+    valid even before the first setWebhook of a fresh process. File is 0600.
+    """
+    try:
+        secret_path = os.path.join(os.path.dirname(DB_PATH) or "data", "webhook.secret")
+        os.makedirs(os.path.dirname(secret_path), exist_ok=True)
+        if os.path.exists(secret_path):
+            with open(secret_path, "r", encoding="utf-8") as fh:
+                value = fh.read().strip()
+                if value:
+                    return value
+        value = __import__("secrets").token_urlsafe(32)
+        fd = os.open(secret_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(value)
+        logger.info("已生成并持久化 Webhook Secret Token（值不写入日志）")
+        return value
+    except Exception as exc:  # read-only FS fallback: ephemeral but still functional
+        logger.warning("无法持久化 Webhook Secret，回退为本次启动随机值: %s", exc)
+        return __import__("secrets").token_urlsafe(32)
+
+
 async def main():
     """
     主函数 - 设置并启动机器人
@@ -262,68 +287,48 @@ async def main():
     # 初始化黑名单
     await init_blacklist()
     
-    # 初始化搜索引擎
-    logger.info("正在初始化搜索引擎...")
-    try:
-        from config.settings import SEARCH_INDEX_DIR, SEARCH_ENABLED
-        if SEARCH_ENABLED:
-            # 初始化搜索引擎（内置兼容性检查和自动重建）
-            search_engine = init_search_engine(index_dir=SEARCH_INDEX_DIR, from_scratch=False)
+    # 搜索引擎（Whoosh）初始化/同步/重建被推迟到机器人 READY 之后后台执行。
+    # 它是可降级的非关键能力：大索引重建曾同步阻塞事件循环，把冷启动从
+    # 秒级拉长到分钟级，并卡住健康检查/Webhook 绑定。搜索未就绪时命令侧
+    # 自行降级提示，绝不拖慢 bot 上线。
+    async def _post_ready_search_init():
+        logger.info("正在初始化搜索引擎（后台，不阻塞上线）...")
+        try:
+            from config.settings import SEARCH_INDEX_DIR, SEARCH_ENABLED
+            if not SEARCH_ENABLED:
+                logger.info("搜索功能已禁用")
+                return
+            def _init_blocking():
+                return init_search_engine(index_dir=SEARCH_INDEX_DIR, from_scratch=False)
+            search_engine = await asyncio.to_thread(_init_blocking)
             logger.info(f"搜索引擎初始化完成，索引目录: {SEARCH_INDEX_DIR}")
-            
-            # 检查是否需要重新索引
-            if hasattr(search_engine, '_needs_reindex') and search_engine._needs_reindex:
+            if hasattr(search_engine, "_needs_reindex") and search_engine._needs_reindex:
                 logger.warning("检测到索引已重建，需要重新索引所有帖子")
-                logger.info("正在从数据库重新索引...")
                 try:
                     result = await auto_rebuild_index_if_needed()
-                    # 返回结构: {"action": "sync"|"rebuild"|"none"|"failed", "result": {...}, ...}
                     action = result.get("action")
-                    inner = result.get("result") or {}
-                    if action == "none":
-                        logger.info("✅ 索引无需重建，已同步")
-                        search_engine._needs_reindex = False
-                    elif action == "sync" and inner.get("success"):
-                        logger.info("✅ 索引已自动同步")
-                        search_engine._needs_reindex = False
-                    elif action == "rebuild" and inner.get("success"):
-                        logger.info("✅ 索引重建成功！")
-                        search_engine._needs_reindex = False
-                    else:
-                        logger.warning(f"⚠️ 索引检查/重建未完全成功 (action={action})，搜索功能可能受限")
+                    if action in ("none", "sync", "rebuild"):
+                        ok = (result.get("result") or {}).get("success", action == "none")
+                        if ok:
+                            search_engine._needs_reindex = False
+                            logger.info("后台索引重建/同步完成 action=%s", action)
+                        else:
+                            logger.warning("后台索引处理未完全成功 action=%s", action)
                 except Exception as rebuild_err:
                     logger.error(f"自动重建索引失败: {rebuild_err}", exc_info=True)
-                    logger.warning("搜索功能可能不可用，请手动执行 /rebuild_index")
             else:
-                # 正常的索引检查和同步
-                logger.info("正在检查搜索索引...")
                 try:
                     result = await auto_rebuild_index_if_needed()
-                    if result["action"] == "sync":
-                        sync_result = result["result"]
-                        if sync_result["success"]:
-                            logger.info(f"✅ 索引已自动同步: 添加 {sync_result['added']} 个, 删除 {sync_result['removed']} 个")
-                        else:
-                            logger.warning(f"⚠️ 索引同步部分失败: {sync_result.get('errors', [])}")
-                    elif result["action"] == "rebuild":
-                        rebuild_result = result["result"]
-                        if rebuild_result["success"]:
-                            logger.info(f"✅ 索引已自动重建: 成功 {rebuild_result['added']} 个, 失败 {rebuild_result['failed']} 个 (原因: {result.get('reason', '未知')})")
-                        else:
-                            logger.warning(f"⚠️ 索引重建失败: {rebuild_result.get('errors', [])}")
-                    elif result["action"] == "none":
-                        logger.info(f"✅ {result['reason']}")
-                    else:
-                        logger.warning(f"⚠️ 索引检查失败: {result.get('reason', '未知原因')}")
+                    if result.get("action") == "sync" and (result.get("result") or {}).get("success"):
+                        logger.info("后台索引增量同步完成")
                 except Exception as idx_err:
-                    logger.error(f"索引检查失败: {idx_err}", exc_info=True)
-                    logger.warning("将继续运行，但索引可能不准确")
-        else:
-            logger.info("搜索功能已禁用")
-    except Exception as e:
-        logger.error(f"搜索引擎初始化失败: {e}", exc_info=True)
-        logger.warning("将继续运行，但搜索功能可能不可用")
-    
+                    logger.error(f"后台索引检查失败: {idx_err}", exc_info=True)
+        except Exception as e:
+            logger.error(f"搜索引擎初始化失败: {e}", exc_info=True)
+            logger.warning("将继续运行，但搜索功能可能不可用")
+
+    post_ready_tasks = []
+
     # 创建和启动应用程序
     token = TOKEN
     if not token:
@@ -347,8 +352,8 @@ async def main():
     await application.initialize()
     await application.start()
     
-    # 设置命令菜单
-    await setup_bot_commands(application)
+    # 命令菜单是非关键 Telegram API 调用，放到上线后后台设置，避免其
+    # 网络延迟/限流拖慢就绪。
     
     # 根据运行模式选择启动方式
     webhook_server = None
@@ -377,11 +382,12 @@ async def main():
         # 导入 Webhook 服务器模块
         from utils.webhook_server import WebhookServer, setup_webhook
         
-        # 生成或使用 Secret Token
-        import secrets
-        secret_token = WEBHOOK_SECRET_TOKEN or secrets.token_urlsafe(32)
-        if not WEBHOOK_SECRET_TOKEN:
-            logger.info("已自动生成 Webhook Secret Token（值不写入日志）")
+        # 使用稳定的 Secret Token。显式配置优先；否则在持久化目录里生成并
+        # 复用同一枚 token——auto_stop 唤醒/进程重启后 Telegram 仍按已注册的
+        # secret 投递，随机 token 会在“重启到重新 setWebhook”的窗口里把更新
+        # 全部判为非法（403）。
+        import secrets as _secrets
+        secret_token = WEBHOOK_SECRET_TOKEN or _load_or_create_persisted_webhook_secret()
         
         # 创建服务器并向 Telegram 注册。AUTO 模式会把监听端口、DNS、
         # TLS 或 Telegram API 侧的任何启动失败统一回退到 Polling。
@@ -476,6 +482,10 @@ async def main():
                 ),
             )
         
+    # READY: bot 已开始接收更新。现在才跑非关键后台初始化（搜索索引、命令菜单）。
+    post_ready_tasks.append(asyncio.create_task(_post_ready_search_init(), name="post-ready-search"))
+    post_ready_tasks.append(asyncio.create_task(setup_bot_commands(application), name="post-ready-commands"))
+
     logger.info("机器人运行中，使用 Ctrl+C 停止")
     
     # 保持应用程序运行
