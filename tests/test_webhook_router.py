@@ -91,8 +91,12 @@ class TestRouterRelay:
             return web.json_response({"status": "ok"})
 
         # 假 bot 进程（跑在 8081 对应的临时端口上）
+        async def fake_ready(_request):
+            return web.json_response({"status": "ok", "ready": True})
+
         bot_app = web.Application()
         bot_app.router.add_post("/webhook/bot1", fake_bot)
+        bot_app.router.add_get("/ready", fake_ready)
 
         # 让 router 的转发目标端口指向临时端口
         monkeypatch.setattr(run_mod, "bot_webhook_port", lambda i: 8081 if i == 1 else 8082)
