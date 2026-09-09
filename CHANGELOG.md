@@ -10,6 +10,13 @@
 
 ---
 
+## [2.15.1](https://github.com/redtidev1918/TelePost/compare/v2.15.0...v2.15.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* **submit:** allow 100 files in chat uploads ([#25](https://github.com/redtidev1918/TelePost/issues/25)) ([9d7937a](https://github.com/redtidev1918/TelePost/commit/9d7937a2dd8f0cce4681d45b91a96d5153592a91))
+
 ## [2.15.0](https://github.com/redtidev1918/TelePost/compare/v2.14.0...v2.15.0) (2026-09-08)
 
 
