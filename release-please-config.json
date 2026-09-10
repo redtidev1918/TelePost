@@ -7,7 +7,8 @@
       "package-name": "TelePost",
       "include-v-in-tag": true,
       "include-component-in-tag": false,
-      "skip-github-release": true
+      "skip-github-release": true,
+      "extra-files": ["telepost/build_info.py"]
     }
   }
 }
