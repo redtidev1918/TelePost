@@ -6,6 +6,7 @@
 curl -fsS http://127.0.0.1:8080/health
 curl -fsS http://127.0.0.1:8080/live
 curl -fsS http://127.0.0.1:8080/ready
+curl -fsS http://127.0.0.1:8080/version    # 当前版本 + 提交号
 curl -fsS http://127.0.0.1:8080/api/v1/health       # 单 Bot
 curl -fsS http://127.0.0.1:8080/api/bot1/v1/health  # 多 Bot 父路由
 ```
@@ -13,7 +14,41 @@ curl -fsS http://127.0.0.1:8080/api/bot1/v1/health  # 多 Bot 父路由
 `/live` 只证明 runtime 活着；`/ready` 还要求数据库迁移、Bot、投稿服务和审核恢复完成。
 多 Bot 父路由的 `/health` 会汇总 Bot 序号、Python/Node RSS、系统可用内存、Volume、
 API 临时上传、审核队列、PixivFlow cache 和 delivery outbox。单 Bot 子服务的
-`/health` 只表示进程可用；版本看 `/api/v1/health`。
+`/health` 只表示进程可用。`/version` 与 `/health` 都带 `version`/`commit`，
+可以直接确认线上跑的是哪个发行版和哪次提交（Docker 镜像由发布流水线注入）。
+
+## 审计与可观测性
+
+每条投稿的完整流水都落进本机 SQLite 表 `audit_events`（每个 Bot 一个库），
+日志被轮转或进程重启后依然可查：
+
+| 事件 | 含义 |
+| --- | --- |
+| `submission.received` / `submission.accepted` / `submission.duplicate` | 收到投稿、被接收、判定为重复（含复用的审核号与原因） |
+| `review.created` / `review.preview_staged` / `review.control_created` / `review.pending` | 审核落库、预览与按钮发出、进入待审 |
+| `review.approved` / `review.rejected` / `review.failed` | 审核决定或失败（带 `error_class`） |
+| `publish.started` / `publish.completed` / `publish.duplicate_suppressed` | 发布开始、成功、重复抑制 |
+| `review.reconciled` | 启动修复：补发控制消息、清理无按钮预览、需要人工介入 |
+| `media.prepared` | 每张图的处理结论：尺寸、体积、解码预算、最终方式与原因 |
+
+每行都带 `review_id`、`pixiv_id`、`target_id`、`idempotency_key`，
+以及来自上游的 `execution_id`，可以把下载、投递、审核、发布串起来对账。
+
+- 日志里每张图还会输出一行 `media decision {...}`，`decision` 取
+  `photo_passthrough` / `safe_compress` / `use_preview` / `document_fallback`，
+  `reason` 说明原因（体积超限、解码预算超限、尺寸超过 Telegram 照片上限等）。
+- 失败会带类型化 `error_class`（如 `dependency_not_ready`、`network_timeout`、
+  `telegram_send_failed`），「上游还没就绪」与「真正失败」区分记录。
+- 令牌、密钥、请求头在落盘前统一脱敏。
+- 保留期由 `AUDIT_RETENTION_DAYS`（默认 30 天）控制；仍在进行中的审核，
+  其审计事件不会被清理。
+
+查询某条审核的完整流水：
+
+```bash
+python -m telepost.observability.cli reviews inspect <review_id>
+python -m telepost.observability.cli reviews inspect <review_id> --bot 2
+```
 
 ## 启停与日志
 
