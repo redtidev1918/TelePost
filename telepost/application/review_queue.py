@@ -141,6 +141,15 @@ class ReviewQueueService:
         caption = _caption_from_command(command)
         preview_ids: List[int] = []
         try:
+            review_id = await self._reserve(
+                command, pixiv_id=pixiv_id, stager=stager
+            )
+        except ReusedReview as reused:
+            if is_local:
+                await stager.cleanup_files(files)
+            return reused.result
+
+        try:
             # Pass the id list in-out: when staging fails mid-way, ids of
             # already-uploaded previews survive for rollback deletion.
             if is_local:
@@ -157,6 +166,9 @@ class ReviewQueueService:
         except RuntimeError as exc:
             message = str(exc)
             await stager.delete_preview_messages(preview_ids)
+            await self._repo.mark_preparation_failed(
+                review_id, message, clear_previews=True
+            )
             if is_local:
                 await stager.cleanup_files(files)
             if message.startswith("返回消息数") and "与文件数" in message:
@@ -164,21 +176,38 @@ class ReviewQueueService:
             raise
         except Exception:
             await stager.delete_preview_messages(preview_ids)
+            await self._repo.mark_preparation_failed(
+                review_id, "preview staging failed", clear_previews=True
+            )
             if is_local:
                 await stager.cleanup_files(files)
             raise
 
         try:
-            review_id = await self._create(
-                command, staged_media, staged_documents, preview_ids,
-                pixiv_id=pixiv_id, stager=stager,
+            staged = await self._repo.update_staged(
+                review_id, media=staged_media, documents=staged_documents,
+                preview_message_ids=preview_ids,
             )
-        except ReusedReview as reused:
-            # Newly uploaded preview for a duplicate intent must be removed.
-            await stager.delete_preview_messages(reused.preview_message_ids)
-            return reused.result
-        if is_local:
-            await stager.cleanup_files(files)
+            if not staged:
+                raise RuntimeError("审核记录在预览完成前被并发修改")
+            control_id = await stager.send_control_message_id(
+                review_id=review_id, command=command,
+                preview_message_ids=preview_ids,
+                media_count=len(staged_media),
+                document_count=len(staged_documents),
+            )
+            if not await self._repo.finalize_control(review_id, control_id):
+                await stager.delete_preview_messages([control_id])
+                raise RuntimeError("审核控制消息无法绑定到记录")
+        except Exception as exc:
+            await stager.delete_preview_messages(preview_ids)
+            await self._repo.mark_preparation_failed(
+                review_id, str(exc), clear_previews=True
+            )
+            raise
+        finally:
+            if is_local:
+                await stager.cleanup_files(files)
         return {
             "status": "pending_review",
             "review_id": review_id,
@@ -187,9 +216,9 @@ class ReviewQueueService:
             "reused": False,
         }
 
-    async def _create(self, command: QueueCommand, media, documents,
-                      preview_message_ids, *, pixiv_id, stager) -> int:
-        """Insert the row, attach the control message, handling key collisions."""
+    async def _reserve(self, command: QueueCommand, *, pixiv_id: str,
+                       stager: StagingPort) -> int:
+        """Persist the source of truth before any Telegram preview is sent."""
         new_review = NewReview(
             idempotency_key=command.idempotency_key,
             source=command.source,
@@ -201,10 +230,10 @@ class ReviewQueueService:
             link=command.link,
             anonymous=command.anonymous,
             spoiler=command.spoiler,
-            media=media,
-            documents=documents,
+            media=[],
+            documents=[],
             review_chat_id=command.review_chat_id,
-            review_message_ids=preview_message_ids,
+            review_message_ids=[],
             target_id=command.target_id,
             source_label=command.source_label,
             source_ref=command.source_ref,
@@ -212,6 +241,7 @@ class ReviewQueueService:
             pixiv_id=pixiv_id,
             work_type=command.work_type,
             delivery_target=command.target_id,
+            status="preparing",
         )
         for _attempt in range(2):
             try:
@@ -232,40 +262,68 @@ class ReviewQueueService:
                     if existing_by_key is None:
                         raise
                     existing = existing_by_key
-                if existing["status"] in ("pending", "failed"):
+                if existing["status"] in ("preparing", "pending", "failed"):
                     raise ReusedReview(
                         self.result_from_row(existing, reused=True),
-                        preview_message_ids,
+                        [],
                     )
                 if (existing["status"] == "published"
                         and (existing["decided_at"] or 0)
                         >= time.time() - self._dedup_window):
                     raise ReusedReview(
                         self.result_from_row(existing, reused=True),
-                        preview_message_ids,
+                        [],
                     )
                 # rejected/expired/old published: drop old row + previews.
                 old_ids = _loads(existing["review_message_ids"])
                 await stager.delete_preview_messages(old_ids)
                 if existing["control_message_id"]:
-                    await stager.delete_preview_messages([existing["control_message_id"]])
+                    await stager.delete_preview_messages(
+                        [existing["control_message_id"]]
+                    )
                 await self._repo.delete(existing["id"])
                 continue
         else:
             raise RuntimeError("创建审核记录失败：幂等键冲突且无法覆盖旧记录")
 
-        try:
-            control_id = await stager.send_control_message_id(
-                review_id=review_id, command=command,
-                preview_message_ids=preview_message_ids,
-                media_count=len(media), document_count=len(documents),
-            )
-        except Exception:
-            await self._repo.delete(review_id)
-            await stager.delete_preview_messages(preview_message_ids)
-            raise
-        await self._repo.set_control_message(review_id, control_id)
         return review_id
+
+    async def reconcile_incomplete(self, stager: StagingPort, *,
+                                   stale_seconds: float = 60.0) -> int:
+        """Repair crash-left review rows so previews never remain buttonless."""
+        rows = await self._repo.list_incomplete(
+            cutoff=time.time() - max(0.0, stale_seconds)
+        )
+        repaired = 0
+        for row in rows:
+            preview_ids = _loads(row["review_message_ids"])
+            media = _loads(row["media_json"])
+            documents = _loads(row["documents_json"])
+            ready = bool(media or documents)
+            if not ready and preview_ids:
+                await stager.delete_preview_messages(preview_ids)
+                preview_ids = []
+                await self._repo.mark_preparation_failed(
+                    row["id"], "preview preparation interrupted by process restart",
+                    clear_previews=True,
+                )
+            command = _command_from_row(row)
+            try:
+                control_id = await stager.send_control_message_id(
+                    review_id=row["id"], command=command,
+                    preview_message_ids=preview_ids,
+                    media_count=len(media), document_count=len(documents),
+                )
+                if await self._repo.finalize_control(
+                    row["id"], control_id, ready=ready
+                ):
+                    repaired += 1
+            except Exception:
+                logger.warning(
+                    "修复审核控制消息失败: review_id=%s", row["id"],
+                    exc_info=True,
+                )
+        return repaired
 
     async def _repo_get_by_key(self, key: str):
         # Terminal rows (rejected/expired/old published) are not returned by
@@ -306,3 +364,18 @@ def _caption_from_command(command: QueueCommand) -> str:
         "user_id": command.user_id,
         "username": command.username,
     })
+
+
+def _command_from_row(row) -> QueueCommand:
+    return QueueCommand(
+        user_id=row["user_id"], username=row["username"] or "",
+        tags=row["tags"] or "", title=row["title"] or "",
+        note=row["note"] or "", link=row["link"] or "",
+        anonymous=bool(row["anonymous"]), spoiler=bool(row["spoiler"]),
+        source=row["source"] or "api",
+        idempotency_key=row["idempotency_key"] or "",
+        target_id=row["target_id"] or "", work_type=row["work_type"] or "",
+        pixiv_id=row["pixiv_id"] or "", source_label=row["source_label"] or "",
+        source_ref=row["source_ref"] or "", scheduled_at=row["scheduled_at"] or "",
+        review_chat_id=str(row["review_chat_id"] or ""),
+    )

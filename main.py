@@ -54,7 +54,7 @@ from handlers.command_handlers import blacklist_add, blacklist_remove, blacklist
 from handlers.botconfig import botconfig, botconfig_callback
 
 # 投稿处理（状态机由 handlers.conversation 构建）
-from handlers.review import expire_stale_reviews
+from handlers.review import expire_stale_reviews, reconcile_incomplete_reviews
 
 # 错误处理
 from handlers.error_handler import error_handler
@@ -351,6 +351,12 @@ async def main():
     logger.info(f"机器人正在启动，运行模式: {RUN_MODE}")
     await application.initialize()
     await application.start()
+    application.bot_data["telepost_ready"] = False
+
+    # Review DB is the source of truth. Repair any row left between preview
+    # staging and control-message creation before exposing /ready to producers.
+    await reconcile_incomplete_reviews(application.bot, stale_seconds=0)
+    application.bot_data["telepost_ready"] = True
     
     # 命令菜单是非关键 Telegram API 调用，放到上线后后台设置，避免其
     # 网络延迟/限流拖慢就绪。
@@ -651,6 +657,7 @@ def setup_application(application):
         async def cleanup_runtime_data(context):
             await cleanup_old_data()
             await expire_stale_reviews(context.bot)
+            await reconcile_incomplete_reviews(context.bot)
 
         job_queue.run_repeating(cleanup_runtime_data, interval=300, first=10)
         

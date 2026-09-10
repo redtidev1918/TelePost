@@ -38,6 +38,7 @@
 | `API_ENABLED` | `true` | 是否挂载 `/api/v1/*` |
 | `ROUTER_TIMEOUT_SECONDS` | `300` | 多 Bot 父路由的上游总超时 |
 | `UPLOAD_SESSION_MAX_AGE_SECONDS` | `3600` | 强制中断后遗留上传目录的清理年龄 |
+| `TELEPOST_IMAGE_DECODE_BUDGET_MB` | `64` | 允许图片压缩路径使用的估算峰值预算；超出时禁止 full decode |
 
 `AUTO` 只有在 `WEBHOOK_URL` 是公网 HTTPS 地址时才选择 Webhook；自动选择的 Webhook
 注册失败会回退 Polling。强制 `WEBHOOK` 失败则退出。
@@ -76,6 +77,11 @@
 | `API_MAX_FILES` | `50` | HTTP API 单次投稿文件数上限；多页/超大作品可调大（如 100），父路由只限总字节不数文件 |
 
 Telegram 只保证 Bot 可删除 48 小时内消息；需要自动清理审核群时通常把待审保留设为 1 天。
+
+`TELEPOST_IMAGE_DECODE_BUDGET_MB` 衡量的是解码后的像素工作集，不是压缩文件大小。
+无需转换且符合 Telegram photo 限制的文件会直接流式发送，不调用 Pillow；需要转换的文件只有
+在估算峰值不超过预算时才生成临时 JPEG。超预算时，审核群显示调用方提供的 preview，并把
+immutable original 暂存为最终发布用 document；没有 preview 时直接使用 document fallback。
 
 ### 已部署实例调整（Fly.io）
 

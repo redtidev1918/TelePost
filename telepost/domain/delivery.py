@@ -49,6 +49,9 @@ class TelegramFileId:
 class LocalFile:
     path: str
     filename: str
+    preview_path: Optional[str] = None
+    original_path: Optional[str] = None
+    temporary: bool = False
 
 
 @dataclass(frozen=True)

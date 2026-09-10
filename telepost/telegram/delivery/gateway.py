@@ -23,7 +23,7 @@ from ...domain.delivery import (
 from . import discussion as discussion_mod
 from .executor import execute_plan
 from .planner import PlanningOrder, plan_delivery
-from .preparation import reclassify_oversized
+from .preparation import cleanup_prepared, reclassify_oversized
 from .sender import PTBSender, timeout_kwargs
 
 logger = logging.getLogger(__name__)
@@ -53,15 +53,18 @@ class PTBTelegramDeliveryGateway:
         items = request.items
         if self._reclassify_photos:
             items = reclassify_oversized(items)
-        plan = plan_delivery(
-            items,
-            album_size=request.album_size or self._album_size,
-            reply_mode=request.reply_mode,
-            anchor_message_id=request.reply_to_message_id,
-            ordering=PlanningOrder.FAMILY,
-        )
-        sender = PTBSender(self._bot, request.chat_id, timeouts=self._timeouts())
-        return await execute_plan(plan, sender, caption=request.caption)
+        try:
+            plan = plan_delivery(
+                items,
+                album_size=request.album_size or self._album_size,
+                reply_mode=request.reply_mode,
+                anchor_message_id=request.reply_to_message_id,
+                ordering=PlanningOrder.FAMILY,
+            )
+            sender = PTBSender(self._bot, request.chat_id, timeouts=self._timeouts())
+            return await execute_plan(plan, sender, caption=request.caption)
+        finally:
+            cleanup_prepared(items)
 
     async def _deliver_discussion(self, request: DeliveryRequest) -> DeliveryResult:
         strategy = self._discussion or discussion_mod.DiscussionStrategy(

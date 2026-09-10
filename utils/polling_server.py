@@ -39,7 +39,10 @@ def build_polling_app(application) -> web.Application:
     async def ready(_request: web.Request) -> web.Response:
         # The bot application has finished initialize()+start(); the PTB app
         # exposes a running state once update processing is available.
-        running = bool(getattr(application, "running", False))
+        running = (
+            bool(getattr(application, "running", False))
+            and bool(application.bot_data.get("telepost_ready", False))
+        )
         return web.json_response(
             {"status": "ok" if running else "starting", "kind": "ready", "ready": running},
             status=200 if running else 503,

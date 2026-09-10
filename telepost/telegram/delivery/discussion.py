@@ -29,7 +29,7 @@ from ...domain.delivery import (
 )
 from .executor import execute_plan
 from .planner import PlanningOrder, plan_delivery
-from .preparation import reclassify_oversized
+from .preparation import cleanup_prepared, reclassify_oversized
 from .registry import ForwardRegistry, default_registry
 from .sender import PTBSender
 
@@ -198,19 +198,22 @@ class DiscussionStrategy:
 
     async def _send_rest(self, rest_items, dchat, dmsg, request, on_sent):
         items = reclassify_oversized(list(rest_items))
-        plan = plan_delivery(
-            items,
-            album_size=request.album_size,
-            reply_mode=ReplyMode.POST,
-            anchor_message_id=dmsg,
-            ordering=PlanningOrder.FAMILY,
-        )
-        # Caption is owned by the channel cover; the discussion rest has none.
-        sender = PTBSender(
-            self._bot, dchat,
-            timeouts=self._gateway._timeouts() if hasattr(self._gateway, "_timeouts") else None,
-        )
-        return await execute_plan(plan, sender, caption=None, on_sent=on_sent)
+        try:
+            plan = plan_delivery(
+                items,
+                album_size=request.album_size,
+                reply_mode=ReplyMode.POST,
+                anchor_message_id=dmsg,
+                ordering=PlanningOrder.FAMILY,
+            )
+            # Caption is owned by the channel cover; the discussion rest has none.
+            sender = PTBSender(
+                self._bot, dchat,
+                timeouts=self._gateway._timeouts() if hasattr(self._gateway, "_timeouts") else None,
+            )
+            return await execute_plan(plan, sender, caption=None, on_sent=on_sent)
+        finally:
+            cleanup_prepared(items)
 
     async def deliver(self, request: DeliveryRequest,
                       linked_chat_id: Optional[int] = None) -> DeliveryResult:

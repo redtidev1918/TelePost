@@ -4,14 +4,14 @@
 
 | 场景 | 内存 | 关键配置 |
 |---|---:|---|
-| 单 Bot、simple 搜索 | 256 MiB | `SEARCH_ANALYZER=simple`、`DB_CACHE_KB=1024` |
+| 单 Bot、simple 搜索 | 256 MiB 起 | `SEARCH_ANALYZER=simple`、`DB_CACHE_KB=1024` |
 | 单 Bot、jieba 搜索 | 512 MiB | 默认 `jieba`、`DB_CACHE_KB=4096` |
 | 双 Bot TelePost | 512 MiB | 低配时 `SEARCH_ENABLED=false`、`DB_CACHE_KB=1024` |
 | 独立 PixivFlow scheduler | 256 MiB | `download.concurrency=1`、Node heap 96 MiB |
 
-双 Bot + PixivFlow 全部放进一台 512 MiB Machine 虽可在严格限制下运行，但下载和投稿
-峰值容易碰到 OOM，而且为了 Cron 必须常驻。Fly.io 推荐拆成 PixivFlow 256 MiB 常驻、
-TelePost 512 MiB 自动休眠。
+256 MiB 只描述 TelePost standalone 的起步档位，不是资源保证。双 Bot + PixivFlow combined
+runtime 的 Node、多个 Python 进程、图片上传和 ffmpeg 峰值相加，不能套用 standalone 数字。
+Fly.io 推荐拆成 PixivFlow 常驻、TelePost 自动休眠，并以生产 RSS 实测选择内存。
 
 ## 主要内存来源
 
@@ -20,6 +20,16 @@ TelePost 512 MiB 自动休眠。
 - SQLite cache 近似受 `DB_CACHE_KB` 控制。
 - API 请求是流式传输，但并发上传、Telegram 重发和预览仍会形成峰值。
 - PixivFlow 的 Node/V8 基线与下载解码峰值不能靠 Python 配置消除。
+
+压缩文件大小不等于解码内存。图片解码工作集至少约为 `width × height × bytes_per_pixel`；
+RGBA 按至少 4 B/px 估算，转换 RGB 还会产生额外工作集。TelePost 先读取文件大小、格式、
+尺寸、模式和帧数等 header metadata，再比较 `TELEPOST_IMAGE_DECODE_BUDGET_MB`（默认 64 MiB）。
+超过预算是硬边界：不会调用 `load`、`convert`、`resize` 或 `thumbnail`。
+
+符合 Telegram photo 限制的原文件直接 pass-through。需要转换且预算允许时，TelePost 只生成
+有界质量次数的 tempfile JPEG，原文件不变；预算不足、图片损坏、Pillow 缺失或压缩失败时，
+审核优先显示可选 preview，最终素材使用 immutable original document。document fallback 是
+低内存安全策略，不是异常，也不承诺保留相册式图片展示。
 
 不要用 `TIMEOUT`、标签数量等业务参数“优化内存”；收益不可测，反而改变行为。
 
@@ -36,7 +46,7 @@ TelePost 512 MiB 自动休眠。
 
 ## 审核预览
 
-低配实例保持：
+审核节流推荐保持：
 
 ```env
 REVIEW_ALBUM_SIZE=5
@@ -45,8 +55,8 @@ REVIEW_PREVIEW_TIMEOUT_SECONDS=120
 REVIEW_PREVIEW_THREAD=1
 ```
 
-减小相册组能降低单次 Telegram 调用峰值，但增加消息数；不要把间隔设为 0 后再用更多
-重试掩盖 FloodWait。
+`REVIEW_ALBUM_SIZE` 用于 Telegram FloodWait/分组行为，不是图片解码 OOM 的修复开关。
+不要把间隔设为 0 后再用更多重试掩盖 FloodWait。
 
 ## PixivFlow 调度
 
@@ -57,6 +67,8 @@ REVIEW_PREVIEW_THREAD=1
 ## 观测
 
 ```bash
+curl -fsS http://127.0.0.1:8080/live
+curl -fsS http://127.0.0.1:8080/ready
 curl -fsS http://127.0.0.1:8080/health
 docker stats --no-stream telepost
 flyctl machine status <machine-id> --app <app>
