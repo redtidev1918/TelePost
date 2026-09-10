@@ -10,6 +10,13 @@
 
 ---
 
+## [2.17.2](https://github.com/redtidev1918/TelePost/compare/v2.17.1...v2.17.2) (2026-09-10)
+
+
+### Bug Fixes
+
+* **router:** probe PixivFlow trigger health ([#54](https://github.com/redtidev1918/TelePost/issues/54)) ([e3eff81](https://github.com/redtidev1918/TelePost/commit/e3eff810e339b3c77376e13c6e46d4765bdbb186))
+
 ## [2.17.1](https://github.com/redtidev1918/TelePost/compare/v2.17.0...v2.17.1) (2026-09-10)
 
 
