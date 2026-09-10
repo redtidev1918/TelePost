@@ -593,19 +593,22 @@ def build_router_app(indices: list):
         app.router.add_route("*", api_prefix + "/{tail:.*}", api_relay)
 
     # Combined-image integration bridge (NOT core TelePost behavior): when an
-    # external automation engine (PixivFlow) runs in the same container in
-    # external-clock mode, reverse-proxy /internal/* to its trigger port so the
-    # public hostname both wakes the machine and reaches the authenticated
-    # trigger API. TelePost stays agnostic of that engine's scheduler semantics
-    # — this is a dumb port relay, gated on the engine being present. In
-    # split/standalone deployments this block is absent entirely.
+    # external automation engine (PixivFlow) runs in the same container,
+    # reverse-proxy /internal/* to its trigger port so the public hostname both
+    # wakes the machine and reaches the authenticated trigger API. TelePost
+    # stays agnostic of that engine's scheduler semantics — this is a dumb port
+    # relay, gated on the engine being present. In split/standalone deployments
+    # this block is absent entirely.
     if pixivflow_enabled():
         trigger_port = int(os.environ.get("PIXIVFLOW_TRIGGER_PORT", "8090"))
         trigger_relay = make_relay(indices[0], None, port_override=trigger_port, ready_path="/health")
-        # Trigger runs are synchronous and can take several minutes; pin the
-        # longest router timeout for this path so the wake request stays open
-        # (it IS the activity lease) for the whole run instead of timing out.
-        os.environ.setdefault("ROUTER_TIMEOUT_SECONDS", "600")
+        # The trigger endpoint now durably records the slot and returns
+        # immediately (202 Accepted / 200 already_completed); the actual run
+        # happens in that engine's background scheduler. So this relay keeps the
+        # router's own default timeout (ROUTER_TIMEOUT_SECONDS, 300s — see
+        # client_session_context above) instead of a raised one. The old 600s
+        # setdefault existed only to hold a 10-40 min request open as an
+        # activity lease, and it produced measurable 502s at the 600s mark.
         app.router.add_route("*", "/internal", trigger_relay)
         app.router.add_route("*", "/internal/{tail:.*}", trigger_relay)
     return app
