@@ -1,7 +1,15 @@
 """Headless review business logic shared by Telegram, HTTP and MCP.
 
-The Telegram adapter stages previews and owns callbacks. This module owns the
+The Telegram adapter stages previews and owns callbacks. This service owns the
 review state transitions, publishing claim/idempotency and DTO/media access.
+
+Persistence is delegated to
+:class:`telepost.storage.sqlite.reviews.ReviewRepository`, whose conditional
+UPDATEs are the single writer of ``pending_reviews.status``: two administrators
+approving concurrently can never both publish, and a stale ``publishing`` row
+(a process crashed mid-publish) can be reclaimed after PUBLISHING_STALE_SECONDS.
+Terminal updates carry a status guard so a late writer can never clobber a row
+that a stale reclaim already moved again.
 """
 
 from __future__ import annotations
@@ -16,7 +24,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from database.db_manager import get_db
+from telepost.storage.sqlite.reviews import ReviewRepository
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +80,7 @@ class PublishFailedError(ReviewError):
         super().__init__(message)
         self.retry_hint = retry_hint
         self.original = original
+        self.details = {}
 
 
 @dataclass(frozen=True)
@@ -233,7 +242,7 @@ def _to_item(row) -> ReviewItem:
 
 
 def clean_reason(value: Optional[str]) -> str:
-    """Bound reject text and strip Telegram/control characters; it is audit-only."""
+    """Bound reject text and strip Telegram/control characters; audit-only."""
     if not value:
         return ""
     text = str(value).replace("\r", " ").replace("\n", " ")
@@ -242,7 +251,6 @@ def clean_reason(value: Optional[str]) -> str:
 
 
 def _audit(action: str, review_id: int, actor: Any, result: str, **extra) -> None:
-    # Never log tokens or full content; review_id/action/actor are bounded metadata.
     source = str(extra.pop("source", "service")).lower()
     payload = {
         "event": "review_action",
@@ -257,19 +265,17 @@ def _audit(action: str, review_id: int, actor: Any, result: str, **extra) -> Non
 
 
 class ReviewService:
-    def __init__(self, publisher: Optional[Publisher] = None):
+    def __init__(self, publisher: Optional[Publisher] = None,
+                 repo: Optional[ReviewRepository] = None):
         self._publisher = publisher
+        self._repo = repo or ReviewRepository()
 
     async def _publish(self, bot, row, spoiler: bool) -> Dict[str, Any]:
         publisher = self._publisher
         if publisher is None:
-            # Lazy import keeps this module importable without constructing PTB objects.
             from handlers.publish import publish_from_file_ids
             publisher = publish_from_file_ids
-        return await publisher(
-            bot,
-            json.loads(row["media_json"] or "[]"),
-            json.loads(row["documents_json"] or "[]"),
+        kwargs = dict(
             tags=row["tags"],
             title=row["title"],
             note=row["note"],
@@ -278,6 +284,22 @@ class ReviewService:
             spoiler=spoiler,
             user_id=row["user_id"],
             username=row["username"],
+        )
+        # Carry durable dedupe identity so an approved review participates in
+        # the same idempotency/ledger guarantees as direct API publication.
+        if row["idempotency_key"]:
+            kwargs["idempotency_key"] = f"review:{row['id']}:{row['idempotency_key']}"
+        for column in ("target_id", "work_type", "pixiv_id"):
+            try:
+                if row[column]:
+                    kwargs[column] = row[column]
+            except (IndexError, KeyError):
+                pass
+        return await publisher(
+            bot,
+            json.loads(row["media_json"] or "[]"),
+            json.loads(row["documents_json"] or "[]"),
+            **kwargs,
         )
 
     async def list_pending(self, *, limit: int = 20, cursor: Optional[str] = None) -> Dict[str, Any]:
@@ -290,22 +312,11 @@ class ReviewService:
                 raise ReviewError("invalid cursor", details={"cursor": cursor})
             created_cursor, id_cursor = float(match.group(1)), int(match.group(2))
 
-        async with get_db() as conn:
-            if created_cursor is None:
-                cur = await conn.execute(
-                    "SELECT * FROM pending_reviews WHERE status='pending' "
-                    "ORDER BY created_at DESC, id DESC LIMIT ?",
-                    (limit + 1,),
-                )
-            else:
-                cur = await conn.execute(
-                    "SELECT * FROM pending_reviews WHERE status='pending' "
-                    "AND (created_at, id) < (?, ?) "
-                    "ORDER BY created_at DESC, id DESC LIMIT ?",
-                    (created_cursor, id_cursor, limit + 1),
-                )
-            rows = await cur.fetchall()
-
+        rows = await self._repo.list_pending(
+            limit=limit + 1,
+            created_cursor=created_cursor,
+            id_cursor=id_cursor,
+        )
         has_more = len(rows) > limit
         rows = rows[:limit]
         items = [
@@ -328,11 +339,7 @@ class ReviewService:
         return {"items": items, "next_cursor": next_cursor}
 
     async def get_row(self, review_id: int):
-        async with get_db() as conn:
-            cur = await conn.execute(
-                "SELECT * FROM pending_reviews WHERE id=?", (int(review_id),)
-            )
-            return await cur.fetchone()
+        return await self._repo.get(int(review_id))
 
     async def get_review(self, review_id: int) -> ReviewItem:
         row = await self.get_row(int(review_id))
@@ -340,24 +347,9 @@ class ReviewService:
             raise ReviewNotFoundError("审核记录不存在")
         return _to_item(row)
 
-    async def set_spoiler(
-        self,
-        review_id: int,
-        spoiler: bool,
-        *,
-        actor: Any = None,
-        source: str = "service",
-    ) -> ActionResult:
-        now = time.time()
-        async with get_db() as conn:
-            cur = await conn.execute(
-                "UPDATE pending_reviews SET spoiler=?, updated_at=? "
-                "WHERE id=? AND status IN ('pending', 'failed')",
-                (1 if spoiler else 0, now, int(review_id)),
-            )
-            changed = cur.rowcount == 1
-            row = await self._select_in_conn(conn, int(review_id))
-
+    async def set_spoiler(self, review_id: int, spoiler: bool, *,
+                          actor: Any = None, source: str = "service") -> ActionResult:
+        changed, row = await self._repo.set_spoiler(int(review_id), spoiler)
         if row is None:
             raise ReviewNotFoundError("审核记录不存在")
         if not changed:
@@ -367,19 +359,12 @@ class ReviewService:
                     details={"status": row["status"]},
                 )
             raise ReviewStateError(f"该投稿当前状态：{row['status']}")
-        _audit("set_spoiler", int(review_id), actor, "ok", source=source, spoiler=bool(spoiler))
+        _audit("set_spoiler", int(review_id), actor, "ok",
+               source=source, spoiler=bool(spoiler))
         return ActionResult(int(review_id), row["status"], False)
 
     async def toggle_spoiler(self, review_id: int, *, actor: Any = None) -> ActionResult:
-        now = time.time()
-        async with get_db() as conn:
-            cur = await conn.execute(
-                "UPDATE pending_reviews SET spoiler=1-COALESCE(spoiler,0), updated_at=? "
-                "WHERE id=? AND status IN ('pending', 'failed')",
-                (now, int(review_id)),
-            )
-            changed = cur.rowcount == 1
-            row = await self._select_in_conn(conn, int(review_id))
+        changed, row = await self._repo.toggle_spoiler(int(review_id))
         if row is None:
             raise ReviewNotFoundError("审核记录不存在")
         if not changed:
@@ -389,30 +374,14 @@ class ReviewService:
                     details={"status": row["status"]},
                 )
             raise ReviewStateError(f"该投稿当前状态：{row['status']}")
+        _audit("toggle_spoiler", int(review_id), actor, "ok")
         return ActionResult(int(review_id), row["status"], False, link=row["link"])
 
-    async def reject(
-        self,
-        bot,
-        review_id: int,
-        *,
-        reason: Optional[str] = None,
-        actor: Any = None,
-        source: str = "service",
-        notify_chat_submitter: bool = True,
-    ) -> ActionResult:
+    async def reject(self, bot, review_id: int, *, reason: Optional[str] = None,
+                     actor: Any = None, source: str = "service",
+                     notify_chat_submitter: bool = True) -> ActionResult:
         safe_reason = clean_reason(reason)
-        now = time.time()
-        async with get_db() as conn:
-            cur = await conn.execute(
-                "UPDATE pending_reviews SET status='rejected', updated_at=?, "
-                "decided_at=?, decided_by=?, error='' "
-                "WHERE id=? AND status IN ('pending', 'failed')",
-                (now, now, actor if isinstance(actor, int) else None, int(review_id)),
-            )
-            changed = cur.rowcount == 1
-            row = await self._select_in_conn(conn, int(review_id))
-
+        changed, row = await self._repo.reject(int(review_id), actor=actor)
         if row is None:
             raise ReviewNotFoundError("审核记录不存在")
         if not changed:
@@ -430,8 +399,10 @@ class ReviewService:
                     text="❌ 你的投稿未通过审核。如需了解原因，请联系频道管理员。",
                 )
             except Exception:
-                logger.warning("通知聊天投稿人拒绝结果失败: review_id=%s", review_id, exc_info=True)
-        _audit("reject", int(review_id), actor, "ok", source=source, reason=safe_reason or None)
+                logger.warning("通知聊天投稿人拒绝结果失败: review_id=%s",
+                               review_id, exc_info=True)
+        _audit("reject", int(review_id), actor, "ok",
+               source=source, reason=safe_reason or None)
         return ActionResult(int(review_id), "rejected", False)
 
     def failure_hint(self, error: BaseException) -> str:
@@ -451,39 +422,16 @@ class ReviewService:
             return "发送结果不确定，请先检查频道；确认未发布后再重试"
         return "发布失败，可重试"
 
-    async def approve(
-        self,
-        bot,
-        review_id: int,
-        *,
-        spoiler: Optional[bool] = None,
-        actor: Any = None,
-        source: str = "service",
-        notify_chat_submitter: bool = True,
-        on_claim: Optional[Callable[[Any], Awaitable[None]]] = None,
-    ) -> ActionResult:
+    async def approve(self, bot, review_id: int, *,
+                      spoiler: Optional[bool] = None,
+                      actor: Any = None, source: str = "service",
+                      notify_chat_submitter: bool = True,
+                      on_claim: Optional[Callable[[Any], Awaitable[None]]] = None
+                      ) -> ActionResult:
         review_id = int(review_id)
-        now = time.time()
-        spoiler_set = "" if spoiler is None else ", spoiler=?"
-        params: List[Any] = [now]
-        if spoiler is not None:
-            params.append(1 if spoiler else 0)
-        params.extend([review_id, now, PUBLISHING_STALE_SECONDS])
-        async with get_db() as conn:
-            cur = await conn.execute(
-                f"""
-                UPDATE pending_reviews
-                SET status='publishing', updated_at=?, error=''{spoiler_set}
-                WHERE id=? AND (
-                    status IN ('pending', 'failed')
-                    OR (status='publishing' AND ? - updated_at > ?)
-                )
-                """,
-                tuple(params),
-            )
-            claimed = cur.rowcount == 1
-            row = await self._select_in_conn(conn, review_id)
-
+        claimed, row = await self._repo.claim_for_publishing(
+            review_id, stale_seconds=PUBLISHING_STALE_SECONDS, spoiler=spoiler
+        )
         if row is None:
             raise ReviewNotFoundError("审核记录不存在")
         if not claimed:
@@ -504,32 +452,39 @@ class ReviewService:
             try:
                 await on_claim(row)
             except Exception:
-                logger.debug("审核 claim UI 通知失败: review_id=%s", review_id, exc_info=True)
+                logger.debug("审核 claim UI 通知失败: review_id=%s", review_id,
+                             exc_info=True)
 
         try:
             result = await self._publish(bot, row, current_spoiler)
         except Exception as error:
             logger.error("审核通过后发布失败: review_id=%s", review_id, exc_info=True)
-            async with get_db() as conn:
-                await conn.execute(
-                    "UPDATE pending_reviews SET status='failed', updated_at=?, error=? WHERE id=?",
-                    (time.time(), str(error)[:500], review_id),
-                )
-            _audit("approve", review_id, actor, "failed", source=source, error=str(error)[:120])
+            await self._repo.mark_failed(review_id, str(error))
+            _audit("approve", review_id, actor, "failed",
+                   source=source, error=str(error)[:120])
             raise PublishFailedError(
-                str(error)[:200], retry_hint=self.failure_hint(error), original=error
+                str(error)[:200],
+                retry_hint=self.failure_hint(error),
+                original=error,
             )
 
-        now = time.time()
-        async with get_db() as conn:
-            await conn.execute(
-                """
-                UPDATE pending_reviews
-                SET status='published', updated_at=?, decided_at=?, decided_by=?,
-                    published_message_id=?, error=''
-                WHERE id=?
-                """,
-                (now, now, actor if isinstance(actor, int) else None, result["message_id"], review_id),
+        # Guarded terminal transition: a stale reclaim racing this late writer
+        # cannot be clobbered – if we no longer own the claim, the row was
+        # already resolved by another actor and we must not overwrite it.
+        marked = await self._repo.mark_published(
+            review_id, actor=actor, message_id=result["message_id"]
+        )
+        if not marked:
+            current = await self.get_row(review_id)
+            logger.warning(
+                "发布成功但状态已被其他执行者推进: review_id=%s status=%s",
+                review_id, current["status"] if current else "missing",
+            )
+            return ActionResult(
+                review_id,
+                current["status"] if current else "published",
+                True,
+                result.get("message_id"), result.get("link"),
             )
 
         if notify_chat_submitter and row["source"] == "chat":
@@ -539,26 +494,16 @@ class ReviewService:
                     text=f"✅ 你的投稿已通过审核并发布到频道。\n{result.get('link', '')}",
                 )
             except Exception:
-                logger.warning("通知聊天投稿人通过结果失败: review_id=%s", review_id, exc_info=True)
+                logger.warning("通知聊天投稿人通过结果失败: review_id=%s",
+                               review_id, exc_info=True)
         _audit("approve", review_id, actor, "published", source=source)
         return ActionResult(
             review_id, "published", False,
             result.get("message_id"), result.get("link"),
         )
 
-    async def _select_in_conn(self, conn, review_id: int):
-        cur = await conn.execute(
-            "SELECT * FROM pending_reviews WHERE id=?", (review_id,)
-        )
-        return await cur.fetchone()
-
-    async def get_media(
-        self,
-        bot,
-        review_id: int,
-        index: int,
-        variant: str = "preview",
-    ) -> MediaResult:
+    async def get_media(self, bot, review_id: int, index: int,
+                        variant: str = "preview") -> MediaResult:
         if variant not in {"thumbnail", "preview", "original"}:
             raise ReviewError("invalid variant")
         item = await self.get_review(review_id)
@@ -568,7 +513,6 @@ class ReviewService:
         if not media.file_id:
             raise MediaNotFoundError("媒体 file_id 不存在")
         if media.kind in {"document", "audio"}:
-            # First version exposes non-visual metadata only; no arbitrary extraction.
             raise PreviewUnavailableError(
                 "文档/音频不返回内容；请使用 get_review 查看元数据"
             )
@@ -597,12 +541,14 @@ class ReviewService:
         filename = media.filename or remote_path.rsplit("/", 1)[-1] or f"media-{index}"
         if variant == "original":
             mime_type = self._mime_for(media.kind, filename, data)
-            return MediaResult(review_id, index, media.kind, "original", mime_type, filename, len(data), data, media.kind)
+            return MediaResult(review_id, index, media.kind, "original", mime_type,
+                               filename, len(data), data, media.kind)
 
         image_data, mime_type = self._image_preview(data, variant)
         return MediaResult(
             review_id, index, "image", variant, mime_type,
-            f"{os.path.splitext(filename)[0]}.jpg", len(image_data), image_data, media.kind,
+            f"{os.path.splitext(filename)[0]}.jpg", len(image_data),
+            image_data, media.kind,
         )
 
     @staticmethod
@@ -638,7 +584,6 @@ class ReviewService:
             image.load()
         except Exception as exc:
             raise PreviewUnavailableError("无法生成图片预览") from exc
-        # GIF/animation: first static frame only in version one; no ffmpeg pipeline.
         if getattr(image, "is_animated", False):
             image.seek(0)
         if image.mode != "RGB":

@@ -1,0 +1,418 @@
+openapi: 3.1.0
+info:
+  title: TelePost HTTP API
+  version: "1.0"
+  description: |
+    Canonical HTTP contract for TelePost. All endpoints are under `/api/v1`
+    and require a bearer API token.
+
+    Business acknowledgement (`business_status`) on submission responses:
+
+    * `accepted` — the work was published (or accepted into review);
+    * `idempotent_replay` — the same `idempotency_key` already completed;
+    * `duplicate_existing` — another key already published the same work;
+    * `retryable_failure` — transport/timeout; Telegram state is unknown,
+      the server never auto-resends; reconcile with `GET /deliveries/lookup`;
+    * `permanent_failure` — deterministic rejection; do not resend unchanged.
+servers:
+  - url: /api/v1
+security:
+  - bearerToken: []
+components:
+  securitySchemes:
+    bearerToken:
+      type: http
+      scheme: bearer
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [ok, error]
+      properties:
+        ok: {type: boolean, const: false}
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string}
+            message: {type: string}
+    BusinessFailure:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: {type: boolean, const: false}
+        data:
+          type: object
+          required: [business_status, reason]
+          properties:
+            business_status:
+              type: string
+              enum: [retryable_failure, permanent_failure]
+            reason: {type: string}
+    SubmissionResult:
+      type: object
+      required: [business_status]
+      properties:
+        business_status:
+          type: string
+          enum:
+            - accepted
+            - idempotent_replay
+            - duplicate_existing
+        status:
+          type: string
+          enum: [published, pending_review]
+        message_id: {type: [integer, 'null']}
+        link: {type: string}
+        media_count: {type: integer}
+        document_count: {type: integer}
+        delivery_status: {type: string}
+        reused: {type: boolean}
+        reuse_reason:
+          type: string
+          enum: [idempotent_replay, duplicate_existing]
+        matched_idempotency_key: {type: string}
+        review_id: {type: integer}
+    FileIdMedia:
+      type: object
+      required: [type, file_id]
+      properties:
+        type:
+          type: string
+          enum: [photo, video, animation, audio]
+        file_id: {type: string, maxLength: 256}
+        thumbnail_file_id: {type: string, maxLength: 256}
+    FileIdDocument:
+      type: object
+      required: [file_id]
+      properties:
+        file_id: {type: string, maxLength: 256}
+        filename: {type: string, maxLength: 255}
+    SubmissionJson:
+      type: object
+      required: [tags]
+      properties:
+        media:
+          type: array
+          maxItems: 100
+          items: {$ref: '#/components/schemas/FileIdMedia'}
+        documents:
+          type: array
+          maxItems: 100
+          items: {$ref: '#/components/schemas/FileIdDocument'}
+        tags: {type: string, maxLength: 2000}
+        title: {type: string, maxLength: 255}
+        note: {type: string, maxLength: 4000}
+        link: {type: string, maxLength: 2048}
+        anonymous: {type: boolean}
+        spoiler: {type: boolean}
+        idempotency_key:
+          type: string
+          maxLength: 240
+          description: Caller-generated dedupe key; replays return the first result.
+        target_id: {type: string, maxLength: 120}
+        work_type:
+          type: string
+          enum: [illustration, novel, ""]
+        pixiv_id: {type: string, maxLength: 32}
+        source_label: {type: string, maxLength: 120}
+        source_ref: {type: string, maxLength: 255}
+        scheduled_at: {type: string, maxLength: 64}
+    NotificationRequest:
+      type: object
+      required: [text]
+      properties:
+        text: {type: string, maxLength: 2000}
+        idempotency_key: {type: string, maxLength: 240}
+    DeliveryLookup:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [review, direct_publish, none]
+        message_id: {type: [integer, 'null']}
+        idempotency_key: {type: [string, 'null']}
+        decided_at: {type: [number, 'null']}
+        created_at: {type: [number, 'null']}
+  responses:
+    unauthorized:
+      description: Missing, invalid or revoked token
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+paths:
+  /health:
+    get:
+      security: []
+      summary: Liveness/version probe
+      responses:
+        '200':
+          description: Service metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  data:
+                    type: object
+                    properties:
+                      service: {type: string}
+                      api_version: {type: string}
+                      bot_version: {type: string}
+                      api_review_required: {type: boolean}
+                      chat_review_required: {type: boolean}
+  /me:
+    get:
+      summary: Token identity and current rate-limit usage
+      responses:
+        '200':
+          description: Token identity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  data:
+                    type: object
+                    properties:
+                      telegram_user_id: {type: integer}
+                      name: {type: string}
+                      submissions_last_hour: {type: integer}
+                      rate_limit_per_hour: {type: integer}
+        '401': {$ref: '#/components/responses/unauthorized'}
+  /submissions:
+    post:
+      summary: Submit media (file_id JSON or multipart files) for publish or review
+      description: |
+        `application/json` sends Telegram file_ids (zero re-upload).
+        `multipart/form-data` uploads files; repeat a `files` part per file,
+        up to 100 files and 500 MiB aggregate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SubmissionJson'}
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files, tags]
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                tags: {type: string}
+                title: {type: string}
+                note: {type: string}
+                link: {type: string}
+                anonymous: {type: string, enum: ['true', 'false']}
+                spoiler: {type: string, enum: ['true', 'false']}
+                idempotency_key: {type: string}
+                target_id: {type: string}
+                work_type: {type: string}
+                pixiv_id: {type: string}
+      responses:
+        '201':
+          description: Published or queued for review
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  data: {$ref: '#/components/schemas/SubmissionResult'}
+        '200':
+          description: Idempotent replay or duplicate of an existing publication
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  data: {$ref: '#/components/schemas/SubmissionResult'}
+        '400':
+          description: Validation or permanent delivery failure
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - {$ref: '#/components/schemas/ErrorResponse'}
+                  - {$ref: '#/components/schemas/BusinessFailure'}
+        '401': {$ref: '#/components/responses/unauthorized'}
+        '413':
+          description: File or request too large
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        '503':
+          description: Retryable transport failure; reconcile via /deliveries/lookup
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BusinessFailure'}
+  /deliveries/lookup:
+    get:
+      summary: Reconcile whether a work was already published
+      parameters:
+        - {in: query, name: target, required: false, schema: {type: string}}
+        - {in: query, name: work_type, required: true,
+           schema: {type: string, enum: [illustration, novel]}}
+        - {in: query, name: pixiv_id, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Reconciliation result across review queue and direct ledger
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  data: {$ref: '#/components/schemas/DeliveryLookup'}
+        '400':
+          description: Missing work_type/pixiv_id
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        '401': {$ref: '#/components/responses/unauthorized'}
+  /reviews:
+    get:
+      summary: List pending reviews
+      operationId: listPendingReviews
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {name: cursor, in: query, schema: {type: string}}
+      responses:
+        '200': {description: Pending review summaries}
+        '401': {description: Invalid token}
+  /reviews/policy:
+    get:
+      summary: Read administrator-configured review policy
+      operationId: getReviewPolicy
+      responses:
+        '200': {description: Markdown policy}
+        '401': {description: Invalid token}
+  /reviews/{review_id}:
+    get:
+      summary: Get one review
+      operationId: getReview
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {description: Review metadata}
+        '404': {$ref: '#/components/responses/reviewNotFound'}
+  /reviews/{review_id}/media/{index}:
+    get:
+      summary: Get bounded image preview for review media
+      operationId: getReviewMedia
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+        - {name: index, in: path, required: true, schema: {type: integer, minimum: 0}}
+        - {name: variant, in: query, schema: {type: string, enum: [thumbnail, preview, original], default: preview}}
+      responses:
+        '200':
+          description: Image bytes
+          content:
+            image/jpeg:
+              schema: {type: string, format: binary}
+        '404': {$ref: '#/components/responses/reviewNotFound'}
+        '409': {$ref: '#/components/responses/reviewState'}
+  /reviews/{review_id}/approve:
+    post:
+      summary: Claim and publish a review (destructive; human confirmation required)
+      operationId: approveReview
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                spoiler: {type: ['boolean', 'null']}
+      responses:
+        '200': {description: Published or already published}
+        '401': {description: Invalid token}
+        '403': {description: Read-only mode}
+        '409': {$ref: '#/components/responses/reviewState'}
+        '502': {description: Publish failed; review is retryable}
+  /reviews/{review_id}/reject:
+    post:
+      summary: Reject a review (destructive; human confirmation required)
+      operationId: rejectReview
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: {type: string, maxLength: 300}
+      responses:
+        '200': {description: Rejected}
+        '401': {description: Invalid token}
+        '403': {description: Read-only mode}
+        '409': {$ref: '#/components/responses/reviewState'}
+  /reviews/{review_id}/spoiler:
+    patch:
+      summary: Set spoiler before approval
+      operationId: setReviewSpoiler
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [spoiler]
+              properties:
+                spoiler: {type: boolean}
+      responses:
+        '200': {description: Spoiler updated}
+        '401': {description: Invalid token}
+        '403': {description: Read-only mode}
+        '409': {$ref: '#/components/responses/reviewState'}
+  /notifications:
+    post:
+      summary: Send a text notification into the configured review chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NotificationRequest'}
+      responses:
+        '201':
+          description: Notification accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  data:
+                    type: object
+                    properties:
+                      status: {type: string, const: sent}
+                      message_id: {type: integer}
+        '200':
+          description: Duplicate idempotency key
+        '400': {$ref: '#/components/responses/unauthorized'}
+        '409':
+          description: Review chat not configured
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        '502':
+          description: Telegram delivery failed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}

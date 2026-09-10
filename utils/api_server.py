@@ -63,6 +63,73 @@ def _ok(data, status: int = 200) -> web.Response:
     return web.json_response({"ok": True, "data": data}, status=status)
 
 
+# ---- Formal business ACK statuses --------------------------------------
+# accepted            : published this request
+# idempotent_replay   : same idempotency_key was already published
+# duplicate_existing  : a different key already published the same work
+# retryable_failure   : network/timeout; Telegram state unknown, DO NOT blind-retry
+# permanent_failure   : deterministic rejection/validation
+_BUSINESS_STATUS = {
+    "published": "accepted",
+    "pending_review": "accepted",
+}
+
+
+def _business_ack(result: dict) -> web.Response:
+    """Normalize a facade result dict to the formal business ACK envelope."""
+    reason = result.get("reuse_reason") or ""
+    if reason == "idempotent_replay":
+        business = "idempotent_replay"
+        http_status = 200
+    elif reason == "duplicate_existing":
+        business = "duplicate_existing"
+        http_status = 200
+    elif result.get("status") in ("failed",):
+        business = "permanent_failure"
+        http_status = 400
+    else:
+        business = _BUSINESS_STATUS.get(result.get("status"), "accepted")
+        http_status = 201
+    data = dict(result)
+    data["business_status"] = business
+    return web.json_response(
+        {"ok": business in ("accepted", "idempotent_replay", "duplicate_existing"),
+         "data": data},
+        status=http_status,
+    )
+
+
+_RETRYABLE_MARKERS = (
+    "timed out", "timeout", "network", "connection", "server closed",
+    "flood", "retry after", "unavailable",
+)
+
+
+def _failure_ack(exc: Exception) -> web.Response:
+    """Map a delivery exception to retryable_failure / permanent_failure.
+
+    Timeouts/network errors are retryable *in the sense the client may query*
+    the delivery-lookup endpoint; the server itself never auto-resends because
+    Telegram may already have accepted the album.
+    """
+    message = str(exc)[:200]
+    from telegram import error as _tg_error
+    if isinstance(exc, (_tg_error.BadRequest, _tg_error.Forbidden, ValueError)):
+        retryable = False
+    elif isinstance(exc, (_tg_error.TimedOut, _tg_error.NetworkError)):
+        retryable = True
+    else:
+        lowered = message.lower()
+        retryable = any(marker in lowered for marker in _RETRYABLE_MARKERS)
+    business = "retryable_failure" if retryable else "permanent_failure"
+    return web.json_response(
+        {"ok": False,
+         "data": {"business_status": business,
+                  "reason": message}},
+        status=503 if retryable else 400,
+    )
+
+
 # ---- 字段解析（multipart fields 与 JSON body 共用）----
 
 def _fields_tags(payload) -> str:
@@ -303,31 +370,29 @@ def add_api_routes(web_app, application) -> None:
                     "user_id": user_id,
                     "username": username,
                 }
-                idem_key = _fields_idempotency_key(payload)
-                target_name = _fields_target_id(payload)
-                work_type = _fields_work_type(payload)
-                pixiv_id = _fields_pixiv_id(payload)
+                # JSON file_id clients always receive the four provenance
+                # kwargs (empty string means "absent"); multipart omits them.
+                provenance = {
+                    "idempotency_key": _fields_idempotency_key(payload),
+                    "target_id": _fields_target_id(payload),
+                    "work_type": _fields_work_type(payload),
+                    "pixiv_id": _fields_pixiv_id(payload),
+                }
                 if API_REVIEW_REQUIRED:
                     from handlers.review import queue_review_from_file_ids
-                    result = await queue_review_from_file_ids(
-                        bot, media, documents,
-                        idempotency_key=idem_key,
-                        target_id=target_name,
+                    queue_kwargs = dict(
                         source_label=_fields_source_label(payload),
                         source_ref=_fields_source_ref(payload),
                         scheduled_at=_fields_scheduled_at(payload),
-                        work_type=work_type,
-                        **common,
+                        **provenance,
+                    )
+                    result = await queue_review_from_file_ids(
+                        bot, media, documents, **queue_kwargs, **common,
                     )
                 else:
                     from handlers.publish import publish_from_file_ids
                     result = await publish_from_file_ids(
-                        bot, media, documents,
-                        idempotency_key=idem_key,
-                        target_id=target_name,
-                        work_type=work_type,
-                        pixiv_id=pixiv_id,
-                        **common,
+                        bot, media, documents, **provenance, **common,
                     )
             except Exception as e:
                 action = "进入审核队列" if API_REVIEW_REQUIRED else "发布到频道"
@@ -338,7 +403,7 @@ def add_api_routes(web_app, application) -> None:
                 "API file_id 投稿已处理: user=%s status=%s",
                 user_id, result.get("status"),
             )
-            return _ok(result, status=201)
+            return _business_ack(result)
 
         if not (request.content_type or "").startswith("multipart/"):
             return _error(400, "invalid_content_type",
@@ -420,31 +485,39 @@ def add_api_routes(web_app, application) -> None:
                 "user_id": user_id,
                 "username": username,
             }
+            provenance = {}
+            for _name, _value in (
+                ("idempotency_key", _fields_idempotency_key(fields)),
+                ("target_id", _fields_target_id(fields)),
+                ("work_type", _fields_work_type(fields)),
+                ("pixiv_id", _fields_pixiv_id(fields)),
+            ):
+                if _value:
+                    provenance[_name] = _value
             if API_REVIEW_REQUIRED:
                 from handlers.review import queue_review_from_files
-                result = await queue_review_from_files(
-                    bot, files,
-                    idempotency_key=_fields_idempotency_key(fields),
-                    target_id=_fields_target_id(fields),
+                queue_kwargs = dict(
                     source_label=_fields_source_label(fields),
                     source_ref=_fields_source_ref(fields),
                     scheduled_at=_fields_scheduled_at(fields),
-                    work_type=_fields_work_type(fields),
-                    **common,
+                    **provenance,
+                )
+                result = await queue_review_from_files(
+                    bot, files, **queue_kwargs, **common,
                 )
             else:
-                result = await publish_from_files(bot, files, **common)
+                result = await publish_from_files(
+                    bot, files, **provenance, **common,
+                )
         except Exception as e:
-            action = "进入审核队列" if API_REVIEW_REQUIRED else "发布到频道"
             logger.error(f"API 投稿处理失败: {e}", exc_info=True)
-            code = "review_queue_failed" if API_REVIEW_REQUIRED else "publish_failed"
-            return _error(502, code, f"{action}失败: {str(e)[:200]}")
+            return _failure_ack(e)
 
         logger.info(
             "API 投稿已处理: user=%s status=%s",
             user_id, result.get("status"),
         )
-        return _ok(result, status=201)
+        return _business_ack(result)
 
     async def create_notification(request):
         token_row = await authenticate(_bearer(request) or "")
