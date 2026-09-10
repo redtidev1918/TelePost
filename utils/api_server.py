@@ -101,7 +101,7 @@ def _business_ack(result: dict) -> web.Response:
 
 _RETRYABLE_MARKERS = (
     "timed out", "timeout", "network", "connection", "server closed",
-    "flood", "retry after", "unavailable", "telegram",
+    "flood", "retry after", "unavailable",
 )
 
 
@@ -113,13 +113,14 @@ def _failure_ack(exc: Exception) -> web.Response:
     Telegram may already have accepted the album.
     """
     message = str(exc)[:200]
-    lowered = message.lower()
-    retryable = any(marker in lowered for marker in _RETRYABLE_MARKERS)
     from telegram import error as _tg_error
-    if isinstance(exc, (_tg_error.TimedOut, _tg_error.NetworkError)):
-        retryable = True
     if isinstance(exc, (_tg_error.BadRequest, _tg_error.Forbidden, ValueError)):
         retryable = False
+    elif isinstance(exc, (_tg_error.TimedOut, _tg_error.NetworkError)):
+        retryable = True
+    else:
+        lowered = message.lower()
+        retryable = any(marker in lowered for marker in _RETRYABLE_MARKERS)
     business = "retryable_failure" if retryable else "permanent_failure"
     return web.json_response(
         {"ok": False,

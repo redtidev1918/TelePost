@@ -600,7 +600,6 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
     from telepost.application.publication import (
         PublicationService, PublishCommand,
     )
-    from telepost.telegram.delivery.gateway import PTBTelegramDeliveryGateway
 
     key = idempotency_key.strip()[:240]
     pid = (pixiv_id or _pixiv_id_from_link(link or "")).strip()
@@ -672,7 +671,6 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
     from telepost.application.publication import (
         PublicationService, PublishCommand,
     )
-    from telepost.telegram.delivery.gateway import PTBTelegramDeliveryGateway
 
     key = idempotency_key.strip()[:240]
     pid = (pixiv_id or _pixiv_id_from_link(link or "")).strip()
@@ -733,7 +731,11 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
 
 def _outcome_to_legacy(outcome, *, raise_on_failure):
     if outcome.uncertain:
-        # Preserve NetworkError semantics: caller must not blind-retry.
+        # Re-raise the original transport exception when available so callers
+        # can distinguish TimedOut from NetworkError; never signal success.
+        original = getattr(outcome, "error", None)
+        if isinstance(original, BaseException):
+            raise original
         from telegram.error import NetworkError
         raise NetworkError(outcome.reason or "delivery uncertain")
     if outcome.status == "failed":
@@ -790,8 +792,12 @@ class _LegacyDeliveryPort:
                 or "network" in str(exc).lower()
             )
             if uncertain:
-                return DeliveryResult.uncertain(str(exc))
-            return DeliveryResult.failed(str(exc), retryable=True)
+                result = DeliveryResult.uncertain(str(exc))
+                result.error = exc
+                return result
+            result = DeliveryResult.failed(str(exc), retryable=True)
+            result.error = exc
+            return result
 
         fallback_chat = getattr(getattr(raw_main, "chat", None), "id", None)
         messages = [
