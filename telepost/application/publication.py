@@ -52,6 +52,7 @@ class PublicationOutcome:
     retryable: bool = False
     uncertain: bool = False
     known_messages: List[DeliveredMessage] = field(default_factory=list)
+    error: object = None
 
     @property
     def ok(self) -> bool:
@@ -171,6 +172,7 @@ class PublicationService:
                 uncertain=True,
                 known_messages=result.known_messages,
                 delivery_status="uncertain",
+                error=getattr(result, "error", None),
             )
         if not result.ok or result.main_message is None:
             return PublicationOutcome(
@@ -179,6 +181,7 @@ class PublicationService:
                 retryable=result.retryable,
                 known_messages=result.known_messages,
                 delivery_status="failed",
+                error=getattr(result, "error", None),
             )
 
         main = result.main_message
