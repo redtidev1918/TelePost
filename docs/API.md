@@ -68,7 +68,7 @@ curl -X POST 'https://example.com/api/bot1/v1/submissions' \
 
 | 字段 | 必填 | 限制 |
 |---|---|---|
-| `files` | 是 | 可重复；最多 50 个，单个 50 MiB，合计 500 MiB |
+| `files` | 是 | 可重复；最多 100 个，单个 50 MiB，合计 500 MiB |
 | `tags` | 是 | 逗号分隔，最多 `ALLOWED_TAGS`（默认 30） |
 | `title` | 否 | 最长 100 字符 |
 | `note` | 否 | 最长 600 字符；接受真实换行和字面 `\\n` |
@@ -115,7 +115,7 @@ curl -X POST 'https://example.com/api/bot1/v1/submissions' \
 ```
 
 `media[].type` 只接受 `photo`、`video`、`animation`、`audio`；`documents[]` 必须有
-`file_id`。两组至少一项，总数最多 50。当前 JSON 路径允许空标签，但调用方仍应提供
+`file_id`。两组至少一项，总数最多 100。当前 JSON 路径允许空标签，但调用方仍应提供
 标签，保持与聊天投稿和 multipart 行为一致。`file_id` 与 Bot 绑定，不能跨 Bot 使用。
 
 ## 审核群通知
@@ -201,8 +201,24 @@ curl -X POST 'https://example.com/api/bot1/v1/notifications' \
 | 409 | `review_chat_not_configured` |
 | 413 | `file_too_large`、`request_too_large` |
 | 429 | `rate_limited` |
-| 502 | `publish_failed`、`review_queue_failed`、`notification_failed` |
-| 503 | `notification_state_failed` |
+| 502 | `notification_failed` |
+| 503 | `notification_state_failed`，以及投稿投递的 `retryable_failure`（见下） |
+
+### 投稿业务 ACK
+
+投稿端点在 `data.business_status` 中给出正式业务状态：
+
+| business_status | HTTP | 含义 |
+|---|---|---|
+| `accepted` | 201 | 本次发布成功（或已进入审核队列） |
+| `idempotent_replay` | 200 | 同一 `idempotency_key` 已完成，返回首次结果 |
+| `duplicate_existing` | 200 | 另一 key 在 7 天窗口内已发布同一作品 |
+| `retryable_failure` | 503 | 网络/超时：Telegram 是否收到未知，服务端绝不自动重发；先查 `GET /api/v1/deliveries/lookup` 再决定 |
+| `permanent_failure` | 400 | 确定性拒绝（参数/媒体不合法等），原样重发无意义 |
+
+超时/网络失败时 `ok=false`、`data` 形如
+`{"business_status":"retryable_failure","reason":"…"}`。完整契约见
+仓库规范 [api/openapi.yaml](../api/openapi.yaml)。
 
 ## 审核管理 API（MCP/内部工具）
 

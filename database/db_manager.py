@@ -26,6 +26,9 @@ async def get_db():
         await conn.execute("PRAGMA journal_mode=WAL;")
         await conn.execute("PRAGMA synchronous=NORMAL;")
         await conn.execute("PRAGMA temp_store=MEMORY;")
+        # Writers serialize in WAL; wait up to 5s instead of throwing
+        # "database is locked" to concurrent conditional UPDATEs (claims).
+        await conn.execute("PRAGMA busy_timeout=5000;")
         # 通过负值设置 KB 为单位的 page cache 大小（默认为 4MB，可通过 DB_CACHE_KB 配置）
         await conn.execute(f"PRAGMA cache_size={-int(DB_CACHE_KB)};")
     except Exception:
