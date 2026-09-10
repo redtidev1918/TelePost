@@ -261,6 +261,39 @@ async def init_db():
                 "WHERE pixiv_id <> ''"
             )
 
+            # Append-only audit/observability log. pending_reviews remains the
+            # source of truth; these rows are evidence only and are pruned by
+            # cleanup_old_data (never while the referenced review is still open).
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS audit_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts REAL NOT NULL,
+                    component TEXT DEFAULT 'telepost',
+                    event TEXT NOT NULL,
+                    review_id INTEGER,
+                    pixiv_id TEXT,
+                    work_type TEXT,
+                    target_id TEXT,
+                    idempotency_key TEXT,
+                    execution_id TEXT,
+                    actor TEXT,
+                    error_class TEXT,
+                    detail TEXT
+                )
+            ''')
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_audit_events_review '
+                'ON audit_events(review_id)'
+            )
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_audit_events_execution '
+                'ON audit_events(execution_id)'
+            )
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_audit_events_ts '
+                'ON audit_events(ts)'
+            )
+
             # published_posts 是频道现状，pending_reviews 是审核审计。频道消息被软删除时
             # 同步把对应审核记录从“曾发布”推进到“已删除”，避免把历史终态误当成
             # 当前仍在线的发布。触发器覆盖项目内所有软删除入口。
@@ -353,6 +386,31 @@ async def cleanup_old_data():
                         (review_cutoff,),
                     )
                     logger.info("已清理过期 API 通知幂等记录（保留 %d 天）", review_retention_days)
+
+        # Append-only audit: prune old rows, but keep every event attached to a
+        # still-open review (preparing/pending/publishing/failed) regardless of
+        # age. Unattached events (review_id IS NULL) follow the age cutoff.
+        audit_retention_days = int(os.getenv("AUDIT_RETENTION_DAYS", "30"))
+        if audit_retention_days > 0:
+            audit_cutoff = datetime.now().timestamp() - audit_retention_days * 86400
+            async with aiosqlite.connect(DB_PATH) as conn:
+                c = await conn.cursor()
+                await c.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_events'"
+                )
+                has_audit = await c.fetchone()
+            if has_audit:
+                async with get_db() as conn:
+                    cursor = await conn.execute(
+                        "DELETE FROM audit_events WHERE ts < ? AND ("
+                        "review_id IS NULL OR review_id NOT IN ("
+                        "SELECT id FROM pending_reviews WHERE status IN "
+                        "('preparing', 'pending', 'publishing', 'failed')"
+                        "))",
+                        (audit_cutoff,),
+                    )
+                    logger.debug("已清理过期审计事件 %d 条（保留 %d 天）",
+                                 cursor.rowcount, audit_retention_days)
     except Exception as e:
         logger.error(f"清理过期数据失败: {e}")
 

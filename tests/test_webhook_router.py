@@ -168,6 +168,23 @@ class TestRouterRelay:
             await runner.cleanup()
 
 
+def test_outbox_metrics_ignores_migrated_archive(tmp_path):
+    import json
+
+    outbox = tmp_path / "delivery-outbox"
+    (outbox / "migrated").mkdir(parents=True)
+    # Active failed manifest: counted.
+    (outbox / "active.json").write_text(json.dumps({"attempts": 3, "lastError": "x"}))
+    # Archived manifest already replayed to the SQLite outbox: ignored.
+    (outbox / "migrated" / "old.json").write_text(
+        json.dumps({"attempts": 9, "lastError": "already migrated"})
+    )
+    metrics = run_mod._outbox_metrics(str(outbox))
+    assert metrics["failed_files"] == 1
+    assert metrics["total_attempts"] == 3
+    assert metrics["files"] == 1
+
+
 class TestReadinessProbes:
     """/live always answers; /ready aggregates bot-child readiness (503 while
     any child is still warming, 200 once all are initialize()+start() done)."""

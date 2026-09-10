@@ -20,11 +20,37 @@ import re
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Awaitable, Callable, List, Optional, Protocol, Tuple
+from typing import Any, Awaitable, Callable, List, Optional, Protocol, Tuple
 
+from ..observability import audit
+from ..observability.errors import classify as classify_error
 from ..storage.sqlite.reviews import NewReview, ReviewRepository
 
 logger = logging.getLogger(__name__)
+
+
+def _actor(user_id: Any = None) -> str:
+    return f"telegram_user:{user_id}" if user_id else "api"
+
+
+def _common(command: QueueCommand) -> dict:
+    return {
+        "idempotency_key": command.idempotency_key or None,
+        "execution_id": audit.execution_id_from_ref(command.source_ref),
+        "actor": _actor(command.user_id),
+        "target_id": command.target_id or None,
+        "work_type": command.work_type or None,
+        "pixiv_id": command.pixiv_id or None,
+    }
+
+
+async def _record(event: str, command: QueueCommand, **fields) -> None:
+    payload = dict(_common(command))
+    payload.update(fields)
+    await audit.record_event(
+        event, **{k: v for k, v in payload.items()
+                  if v is not None or k in ("review_id", "detail")}
+    )
 
 PUBLISHED_DEDUP_WINDOW_SECONDS = 7 * 86400
 _PIXIV_ID_RE = re.compile(r"pixiv\.net/(?:artworks/|novel/show\.php\?id=)(\d+)")
@@ -65,7 +91,7 @@ class QueueCommand:
 
 class StagingPort(Protocol):
     async def stage_local(self, files, *, caption: str, spoiler: bool
-                          ) -> Tuple[list, list, List[int]]: ...
+                          ) -> Tuple[list, list, List[int], list]: ...
 
     async def stage_file_ids(self, media, documents, *, caption: str, spoiler: bool
                              ) -> Tuple[list, list, List[int]]: ...
@@ -119,6 +145,12 @@ class ReviewQueueService:
                     await self._repo.backfill_target(existing["id"], command.target_id)
                     existing = await self._repo.get(existing["id"])
                 await stager.notify_reused(existing)
+                await _record(
+                    "submission.duplicate", command,
+                    review_id=existing["id"],
+                    detail={"reused_id": existing["id"],
+                            "status": existing["status"]},
+                )
                 return self.result_from_row(existing, reused=True)
             finally:
                 if is_local:
@@ -147,16 +179,26 @@ class ReviewQueueService:
         except ReusedReview as reused:
             if is_local:
                 await stager.cleanup_files(files)
+            reused_id = (reused.result or {}).get("review_id")
+            if reused_id is not None:
+                await _record(
+                    "submission.duplicate", command, review_id=reused_id,
+                    detail={"reused_id": reused_id},
+                )
             return reused.result
 
+        await _record("review.created", command, review_id=review_id)
+
+        media_decisions: list = []
         try:
             # Pass the id list in-out: when staging fails mid-way, ids of
             # already-uploaded previews survive for rollback deletion.
             if is_local:
-                staged_media, staged_documents, preview_ids = await stager.stage_local(
-                    files, caption=caption, spoiler=command.spoiler,
-                    message_ids=preview_ids,
-                )
+                staged_media, staged_documents, preview_ids, media_decisions = \
+                    await stager.stage_local(
+                        files, caption=caption, spoiler=command.spoiler,
+                        message_ids=preview_ids,
+                    )
             else:
                 staged_media, staged_documents, preview_ids = await stager.stage_file_ids(
                     media or [], documents or [],
@@ -169,15 +211,25 @@ class ReviewQueueService:
             await self._repo.mark_preparation_failed(
                 review_id, message, clear_previews=True
             )
+            await _record(
+                "review.failed", command, review_id=review_id,
+                error_class=classify_error(exc),
+                detail={"stage": "preview_staging", "error": message[:200]},
+            )
             if is_local:
                 await stager.cleanup_files(files)
             if message.startswith("返回消息数") and "与文件数" in message:
                 raise RuntimeError(message.replace("返回消息数", "消息数", 1))
             raise
-        except Exception:
+        except Exception as exc:
             await stager.delete_preview_messages(preview_ids)
             await self._repo.mark_preparation_failed(
                 review_id, "preview staging failed", clear_previews=True
+            )
+            await _record(
+                "review.failed", command, review_id=review_id,
+                error_class=classify_error(exc),
+                detail={"stage": "preview_staging", "error": str(exc)[:200]},
             )
             if is_local:
                 await stager.cleanup_files(files)
@@ -190,19 +242,39 @@ class ReviewQueueService:
             )
             if not staged:
                 raise RuntimeError("审核记录在预览完成前被并发修改")
+            await _record(
+                "review.preview_staged", command, review_id=review_id,
+                detail={"media": len(staged_media),
+                        "documents": len(staged_documents),
+                        "preview_messages": len(preview_ids)},
+            )
+            if is_local and media_decisions:
+                await _record(
+                    "media.prepared", command, review_id=review_id,
+                    detail={"items": media_decisions},
+                )
             control_id = await stager.send_control_message_id(
                 review_id=review_id, command=command,
                 preview_message_ids=preview_ids,
                 media_count=len(staged_media),
                 document_count=len(staged_documents),
             )
+            await _record("review.control_created", command,
+                          review_id=review_id,
+                          detail={"control_message_id": control_id})
             if not await self._repo.finalize_control(review_id, control_id):
                 await stager.delete_preview_messages([control_id])
                 raise RuntimeError("审核控制消息无法绑定到记录")
+            await _record("review.pending", command, review_id=review_id)
         except Exception as exc:
             await stager.delete_preview_messages(preview_ids)
             await self._repo.mark_preparation_failed(
                 review_id, str(exc), clear_previews=True
+            )
+            await _record(
+                "review.failed", command, review_id=review_id,
+                error_class=classify_error(exc),
+                detail={"stage": "control_message", "error": str(exc)[:200]},
             )
             raise
         finally:
@@ -300,6 +372,23 @@ class ReviewQueueService:
             media = _loads(row["media_json"])
             documents = _loads(row["documents_json"])
             ready = bool(media or documents)
+            command = _command_from_row(row)
+
+            async def record_reconciled(action, *, error=None):
+                await audit.record_event(
+                    "review.reconciled", review_id=row["id"],
+                    actor="system_reconciler",
+                    pixiv_id=row["pixiv_id"] or None,
+                    work_type=row["work_type"] or None,
+                    target_id=row["target_id"] or None,
+                    idempotency_key=row["idempotency_key"] or None,
+                    execution_id=audit.execution_id_from_ref(row["source_ref"]),
+                    **({"error_class": "reconciliation_failed"}
+                       if action == "manual_intervention_required" else {}),
+                    detail=({"action": action} if error is None
+                            else {"action": action, "error": error}),
+                )
+
             if not ready and preview_ids:
                 await stager.delete_preview_messages(preview_ids)
                 preview_ids = []
@@ -307,7 +396,7 @@ class ReviewQueueService:
                     row["id"], "preview preparation interrupted by process restart",
                     clear_previews=True,
                 )
-            command = _command_from_row(row)
+                await record_reconciled("orphan_preview_removed")
             try:
                 control_id = await stager.send_control_message_id(
                     review_id=row["id"], command=command,
@@ -318,10 +407,14 @@ class ReviewQueueService:
                     row["id"], control_id, ready=ready
                 ):
                     repaired += 1
-            except Exception:
+                    await record_reconciled("control_message_recreated")
+            except Exception as exc:
                 logger.warning(
                     "修复审核控制消息失败: review_id=%s", row["id"],
                     exc_info=True,
+                )
+                await record_reconciled(
+                    "manual_intervention_required", error=str(exc)[:200]
                 )
         return repaired
 

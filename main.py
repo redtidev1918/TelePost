@@ -277,7 +277,11 @@ async def main():
     """
     主函数 - 设置并启动机器人
     """
-    logger.info(f"启动TelePost机器人。版本: {CONFIG.get('VERSION', 'unknown')}")
+    from telepost.build_info import release_info
+    _build = release_info()
+    logger.info(
+        f"启动TelePost机器人。版本: {_build['version']} commit={_build['commit']}"
+    )
     logger.info(f"会话超时时间: {TIMEOUT_SECONDS}秒")
     
     # 初始化数据库

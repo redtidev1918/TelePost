@@ -566,6 +566,25 @@ def _ledger_replay(row) -> dict:
     }
 
 
+async def _audit_duplicate_suppressed(row, reason, *, user_id, target_id,
+                                      work_type, pixiv_id):
+    """Durable audit for pre-send dedupe short-circuits (direct API path)."""
+    from telepost.observability import audit as audit_mod
+    matched = None
+    try:
+        matched = row.get("matched_idempotency_key")
+    except (AttributeError, TypeError):
+        matched = getattr(row, "idempotency_key", None)
+    await audit_mod.record_event(
+        "publish.duplicate_suppressed",
+        actor=f"telegram_user:{user_id}" if user_id else "api",
+        idempotency_key=getattr(row, "idempotency_key", None) or matched,
+        target_id=target_id or None, work_type=work_type or None,
+        pixiv_id=pixiv_id or None,
+        detail={"reuse_reason": reason, "matched_idempotency_key": matched},
+    )
+
+
 # Legacy ledger module-level helpers (kept as seams; delegate to repository).
 async def _ledger_find_by_key(idempotency_key: str):
     from telepost.storage.sqlite.ledger import DeliveryLedgerRepository
@@ -624,6 +643,10 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
                 _os.remove(fobj["path"])
             except OSError:
                 pass
+        await _audit_duplicate_suppressed(
+            replay, "idempotent_replay", user_id=user_id, target_id=target_id,
+            work_type=work_type, pixiv_id=pid,
+        )
         return replay
     historical = await ledger.find_work(
         target_id, work_type, pid, PUBLISHED_DEDUP_WINDOW_SECONDS
@@ -635,6 +658,10 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
             except OSError:
                 pass
         historical["reuse_reason"] = "duplicate_existing"
+        await _audit_duplicate_suppressed(
+            historical, "duplicate_existing", user_id=user_id,
+            target_id=target_id, work_type=work_type, pixiv_id=pid,
+        )
         return historical
 
     items = _items_from_dicts(
@@ -691,12 +718,20 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
     ledger = _LedgerBridge()
     replay = await ledger.find_by_key(key)
     if replay is not None:
+        await _audit_duplicate_suppressed(
+            replay, "idempotent_replay", user_id=user_id, target_id=target_id,
+            work_type=work_type, pixiv_id=pid,
+        )
         return replay
     historical = await ledger.find_work(
         target_id, work_type, pid, PUBLISHED_DEDUP_WINDOW_SECONDS
     )
     if historical is not None and historical.get("matched_idempotency_key") != key:
         historical["reuse_reason"] = "duplicate_existing"
+        await _audit_duplicate_suppressed(
+            historical, "duplicate_existing", user_id=user_id,
+            target_id=target_id, work_type=work_type, pixiv_id=pid,
+        )
         return historical
 
     items = _items_from_dicts([

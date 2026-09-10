@@ -14,6 +14,12 @@ from database.db_manager import init_db
 from handlers import publish
 
 
+def audit_detail(event):
+    import json
+    detail = event.get("detail") or {}
+    return detail if isinstance(detail, dict) else json.loads(detail)
+
+
 def _photo_message(message_id: int):
     return SimpleNamespace(
         message_id=message_id,
@@ -68,3 +74,22 @@ async def test_direct_publish_idempotent_replay_then_historical_duplicate(monkey
     assert historical["reused"] is True
     assert historical["reuse_reason"] == "duplicate_existing"
     assert deliver.await_count == 1
+
+    # Direct-publish audit through the canonical PublicationService.
+    import asyncio
+    from telepost.observability import audit
+    await asyncio.sleep(0)
+    events = await audit.list_events(limit=100)
+    names = [e["event"] for e in events]
+    assert names.count("publish.started") == 1
+    assert names.count("publish.completed") == 1
+    assert names.count("publish.duplicate_suppressed") == 2
+    suppressed = [
+        e for e in events if e["event"] == "publish.duplicate_suppressed"
+    ]
+    assert {audit_detail(e)["reuse_reason"] for e in suppressed} == {
+        "idempotent_replay", "duplicate_existing"
+    }
+    completed = next(e for e in events if e["event"] == "publish.completed")
+    assert completed["pixiv_id"] == "55"
+    assert completed["idempotency_key"].endswith(":slot-a:t1")

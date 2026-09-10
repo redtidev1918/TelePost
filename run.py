@@ -110,6 +110,9 @@ def _directory_metrics(path: str, *, suffix: str | None = None) -> dict:
     if not os.path.isdir(path):
         return {"files": 0, "bytes": 0, "mb": 0.0}
     for root, _dirs, files in os.walk(path, followlinks=False):
+        # Archived/replayed manifests live under migrated/ and are no longer
+        # active outbox state; never count them.
+        _dirs[:] = [name for name in _dirs if name != "migrated"]
         for filename in files:
             if suffix and not filename.endswith(suffix):
                 continue
@@ -135,6 +138,10 @@ def _outbox_metrics(path: str) -> dict:
     oldest_mtime = None
     if os.path.isdir(path):
         for root, _dirs, files in os.walk(path, followlinks=False):
+            # The migrated/ archive holds manifests already replayed into the
+            # SQLite outbox (often with a non-null lastError); never count them
+            # or /health stays red forever.
+            _dirs[:] = [name for name in _dirs if name != "migrated"]
             for filename in files:
                 if not filename.endswith(".json"):
                     continue
@@ -452,7 +459,8 @@ def build_router_app(indices: list):
         await app[session_key].close()
 
     async def health(request):
-        payload = {"status": "ok", "service": "telepost", "bots": indices}
+        from telepost.build_info import release_info
+        payload = {"status": "ok", "bots": indices, **release_info()}
         try:
             import psutil
             procs = _process_rss_snapshot()
@@ -471,6 +479,10 @@ def build_router_app(indices: list):
         except Exception:
             pass
         return web.json_response(payload)
+
+    async def version(_request):
+        from telepost.build_info import release_info
+        return web.json_response(release_info())
 
     # The router never buffers submission bodies. The explicit size ceiling is
     # still useful for malformed clients and matches TelePost's 500 MiB API cap
@@ -501,6 +513,7 @@ def build_router_app(indices: list):
     app.router.add_get("/health", health)
     app.router.add_get("/live", live)
     app.router.add_get("/ready", ready)
+    app.router.add_get("/version", version)
 
     def make_relay(index: int, strip: str | None, prepend: str = "", port_override: int | None = None):
         async def relay(request):
@@ -706,11 +719,10 @@ def run_multi(indices: list) -> None:
 
 def main():
     if "--version" in sys.argv:
-        try:
-            from _release_version import RELEASE_VERSION, RELEASE_COMMIT, BUILD_DATE
-        except ImportError:
-            RELEASE_VERSION = RELEASE_COMMIT = BUILD_DATE = "dev"
-        print(f"telepost {RELEASE_VERSION} commit={RELEASE_COMMIT} date={BUILD_DATE}")
+        from telepost.build_info import release_info
+        info = release_info()
+        print(f"telepost {info['version']} commit={info['commit']} "
+              f"date={info['build_date']}")
         return
     if _FROZEN:
         # 冻结版以 exe 所在目录为工作目录：data/ logs/ config.ini 都落在这里

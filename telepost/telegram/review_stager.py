@@ -90,9 +90,9 @@ class TelegramReviewStager:
     # ---- StagingPort ---------------------------------------------------
     async def stage_local(self, files, *, caption: str, spoiler: bool,
                           message_ids: Optional[List[int]] = None
-                          ) -> Tuple[list, list, List[int]]:
+                          ) -> Tuple[list, list, List[int], list]:
         ids: List[int] = message_ids if message_ids is not None else []
-        prepared = reclassify_oversized(
+        prepared, decisions = reclassify_oversized(
             list(files), max_bytes=self._photo_max_bytes, use_preview=True
         )
         staged_items = []
@@ -115,7 +115,7 @@ class TelegramReviewStager:
             media, documents = await self._stage(
                 staged_items, caption, spoiler, ids, local=True
             )
-            return media, documents, ids
+            return media, documents, ids, decisions
         finally:
             cleanup_prepared_dicts(prepared)
 
