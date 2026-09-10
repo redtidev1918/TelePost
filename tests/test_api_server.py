@@ -193,7 +193,11 @@ class TestSubmission:
                 data=form,
                 headers={"Authorization": "Bearer tp_ok"},
             )
-            assert resp.status == 502
+            # Infrastructure/telegram failure -> formal retryable_failure ACK
+            # (503). The server did not auto-resend; client may query lookup.
+            assert resp.status == 503
+            body = await resp.json()
+            assert body["data"]["business_status"] == "retryable_failure"
             uploaded_path = publish_mock.call_args.args[1][0]["path"]
             await asyncio.sleep(0)
             assert not os.path.exists(uploaded_path)

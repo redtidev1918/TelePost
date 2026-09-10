@@ -541,9 +541,23 @@ def setup_application(application):
     """
     初始化和配置应用程序
     """
+    # Discussion auto-forward capture must run before every handler in BOTH
+    # ingestion paths. Webhook mode captures manually before queueing (see
+    # utils/webhook_server.py); polling relies on this PTB pre-handler.
+    from telegram.ext import TypeHandler
+    from telegram import Update as _Update
+    from handlers.publish import capture_discussion_forward as _capture_forward
+
+    async def _capture_discussion_update(_update, _context):
+        _capture_forward(_update)
+
+    application.add_handler(
+        TypeHandler(_Update, _capture_discussion_update), group=-1000
+    )
+
     # 首先设置全局记录器为最高优先级
     application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=-999)
-    
+
     # 添加黑名单管理命令和调试命令（设置为最高优先级，不可被其他处理器拦截）
     try:
         logger.info("注册高优先级命令处理器...")
