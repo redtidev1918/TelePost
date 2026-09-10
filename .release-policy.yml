@@ -27,7 +27,10 @@
     "required": [
       "telepost-linux-x64",
       "telepost-windows-x64.exe",
-      "telepost-macos-arm64"
+      "telepost-macos-arm64",
+      "telepost-*-linux-x64.tar.gz",
+      "telepost-*-macos-arm64.tar.gz",
+      "telepost-*-windows-x64.zip"
     ],
     "optional": []
   },

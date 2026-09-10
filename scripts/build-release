@@ -15,3 +15,22 @@ case "$RUNNER_OS" in
   Windows) asset=telepost-windows-x64.exe ;;
 esac
 cp dist/telepost "dist/release/$asset" 2>/dev/null || cp dist/telepost.exe "dist/release/$asset"
+# Versioned archive alongside the raw binary: a familiar double-click-to-extract
+# download with the version in the filename (bash + python exist on all 3 runners).
+python - "$asset" "$RELEASE_VERSION" <<'PY'
+import sys, tarfile, zipfile
+from pathlib import Path
+
+asset, version = sys.argv[1], sys.argv[2]
+src = Path("dist/release") / asset
+if asset.endswith(".exe"):
+    archive = Path(f"dist/release/telepost-{version}-windows-x64.zip")
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
+        z.write(src, asset)
+else:
+    platform = "macos-arm64" if "macos" in asset else "linux-x64"
+    archive = Path(f"dist/release/telepost-{version}-{platform}.tar.gz")
+    with tarfile.open(archive, "w:gz") as t:
+        t.add(src, arcname=asset)
+print(archive)
+PY
