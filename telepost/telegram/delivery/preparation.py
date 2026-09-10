@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 #: Telegram photo (single and in-album) hard limit, with safety margin.
 PHOTO_MAX_BYTES = int((10.0 - 0.5) * 1024 * 1024)
+#: Telegram rejects a photo when width + height exceeds this sum, even when the
+#: file is well under the byte limit ("Photo_invalid_dimensions").
+PHOTO_MAX_DIMENSION_SUM = int(os.getenv("TELEPOST_PHOTO_MAX_DIMENSION_SUM", "10000"))
 IMAGE_DECODE_BUDGET_BYTES = max(
     1, int(os.getenv("TELEPOST_IMAGE_DECODE_BUDGET_MB", "64"))
 ) * 1024 * 1024
@@ -152,12 +155,26 @@ class MediaPreparationPolicy:
         except OSError:
             return self._fallback(path, preview_path, reason="compression_failed_fallback")
 
-        # Telegram can accept this exact file as a photo; no Pillow import or
-        # decode is needed. This also keeps normal operation working without PIL.
+        # Telegram can accept this exact file as a photo; no decode is needed.
+        # This also keeps normal operation working without PIL.
         if size <= self.max_bytes:
+            # Bytes alone are not sufficient: Telegram rejects photos whose
+            # width+height exceeds PHOTO_MAX_DIMENSION_SUM with
+            # "Photo_invalid_dimensions". Header-only probe (no pixel decode);
+            # an unreadable header keeps the pass-through behaviour.
+            try:
+                probe = probe_image(path)
+            except Exception:
+                probe = None
+            if probe is not None and \
+                    probe.width + probe.height > PHOTO_MAX_DIMENSION_SUM:
+                return self._fallback(
+                    path, preview_path, probe=probe,
+                    reason="photo_dimensions_too_large",
+                )
             payload = _decision_payload(
                 path, size=size, decision="photo_passthrough",
-                reason="already_within_limits", policy=self,
+                reason="already_within_limits", policy=self, probe=probe,
             )
             log_media_decision(payload)
             return PreparedMedia(path, path, MediaKind.PHOTO,

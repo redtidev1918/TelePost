@@ -54,6 +54,59 @@ def test_huge_rgba_never_enters_full_decode(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
+def test_small_file_with_oversized_dimensions_falls_back_to_document(tmp_path, monkeypatch):
+    """Telegram rejects such photos with Photo_invalid_dimensions even though
+    the file is tiny; the original must go out as a document instead."""
+    source = tmp_path / "wide.png"
+    source.write_bytes(b"small")
+
+    class Header:
+        size = (7000, 5400)
+        mode = "RGBA"
+        format = "PNG"
+        n_frames = 1
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+
+    from PIL import Image
+    for name in ("load", "convert", "resize", "thumbnail"):
+        monkeypatch.setattr(
+            Image.Image, name,
+            lambda *_a, _name=name, **_kw: (_ for _ in ()).throw(
+                AssertionError(f"Image.{_name} must not be called")
+            ),
+        )
+    monkeypatch.setattr(Image, "open", lambda *_a, **_kw: Header())
+
+    result = preparation.MediaPreparationPolicy().prepare(str(source))
+    assert result.reason is preparation.PreparationDecision.DOCUMENT_FALLBACK
+    assert result.kind is MediaKind.DOCUMENT
+    assert result.delivery_source == str(source)
+    assert result.decision["reason"] == "photo_dimensions_too_large"
+
+
+@pytest.mark.unit
+def test_small_photo_within_dimension_limit_still_passes_through(tmp_path, monkeypatch):
+    source = tmp_path / "ok.png"
+    source.write_bytes(b"small")
+
+    class Header:
+        size = (1280, 720)
+        mode = "RGB"
+        format = "PNG"
+        n_frames = 1
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+
+    from PIL import Image
+    monkeypatch.setattr(Image, "open", lambda *_a, **_kw: Header())
+
+    result = preparation.MediaPreparationPolicy().prepare(str(source))
+    assert result.reason is preparation.PreparationDecision.PASS_THROUGH
+    assert result.kind is MediaKind.PHOTO
+
+
+@pytest.mark.unit
 def test_huge_rgba_uses_optional_preview_without_decoding(tmp_path, monkeypatch):
     source = tmp_path / "huge.png"
     preview = tmp_path / "preview.jpg"
