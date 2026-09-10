@@ -340,16 +340,24 @@ class TestPerformance:
         conn.close()
         
         # 并发写入函数
+        errors = []
+
         def write_data(thread_id, count):
-            conn = sqlite3.connect(db_path)
-            for i in range(count):
-                conn.execute(
-                    'INSERT INTO test_data (thread_id, value) VALUES (?, ?)',
-                    (thread_id, f'value_{i}')
-                )
-                conn.commit()
-            conn.close()
-        
+            try:
+                # busy_timeout：默认 5s 在 CI 高并发下会抛 "database is locked"，
+                # 而线程内异常不会在 join 时重抛，表现为行数静默变少（450 != 500）。
+                conn = sqlite3.connect(db_path, timeout=30)
+                conn.execute('PRAGMA busy_timeout=30000')
+                for i in range(count):
+                    conn.execute(
+                        'INSERT INTO test_data (thread_id, value) VALUES (?, ?)',
+                        (thread_id, f'value_{i}')
+                    )
+                    conn.commit()
+                conn.close()
+            except Exception as exc:
+                errors.append(exc)
+
         # 启动多个线程
         start_time = time.time()
         threads = []
@@ -360,7 +368,9 @@ class TestPerformance:
         
         for t in threads:
             t.join()
-        
+
+        assert not errors, f"并发写入失败: {errors!r}"
+
         end_time = time.time()
         
         # 验证性能
