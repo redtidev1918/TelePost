@@ -10,6 +10,14 @@
 
 ---
 
+## [2.17.0](https://github.com/redtidev1918/TelePost/compare/v2.16.1...v2.17.0) (2026-09-10)
+
+
+### Features
+
+* durable observability/audit for media decisions and review lifecycle ([#36](https://github.com/redtidev1918/TelePost/issues/36)) ([15c245a](https://github.com/redtidev1918/TelePost/commit/15c245ac4aafa206e71975e9236d56b3133f06c4))
+* **release:** ship versioned tar.gz/zip archives alongside raw binaries ([#34](https://github.com/redtidev1918/TelePost/issues/34)) ([a4b16d8](https://github.com/redtidev1918/TelePost/commit/a4b16d86cda90e0c5975979c899e09e362017782))
+
 ## [2.16.1](https://github.com/redtidev1918/TelePost/compare/v2.16.0...v2.16.1) (2026-09-10)
 
 ### Fixed
