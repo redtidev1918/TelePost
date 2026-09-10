@@ -13,9 +13,10 @@
 ## [2.17.1](https://github.com/redtidev1918/TelePost/compare/v2.17.0...v2.17.1) (2026-09-10)
 
 
-### Bug Fixes
+### Fixed
 
-* **media:** send oversized-dimension images as documents ([#39](https://github.com/redtidev1918/TelePost/issues/39)) ([493b007](https://github.com/redtidev1918/TelePost/commit/493b0078d1cf2a64b320f621cdaefae25a040a2e))
+- 宽 + 高超过 Telegram 照片上限（10000）的图片不再按照片发送而失败：体积很小但尺寸很大的原图会自动改为以原图文档发送，投稿与审核照常进行。
+- 每张图片的处理结果都会写进审计记录，包含这次按什么方式发送以及原因（例如「尺寸超过照片上限」），便于事后核对。
 
 ## [2.17.0](https://github.com/redtidev1918/TelePost/compare/v2.16.1...v2.17.0) (2026-09-10)
 
