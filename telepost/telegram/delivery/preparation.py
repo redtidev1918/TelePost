@@ -1,107 +1,271 @@
-"""Pre-send media preparation driven by Telegram limits.
+"""Canonical, decode-budgeted media preparation.
 
-* oversized local photos are compressed in place to stay under the 10 MiB
-  photo cap (preferred: they remain inline images in the channel);
-* if compression is impossible (Pillow missing / undecodable) the item is
-  reclassified as a document (documents accept up to 50 MiB);
-* ``file_id`` media is Telegram-hosted and therefore never size-limited here.
+Every local-photo path (review staging, direct/channel publishing, discussion
+publishing and replay) reaches this module before Telegram I/O.  Probing reads
+only file metadata.  A photo whose estimated working set exceeds the configured
+budget is never decoded: an optional preview is used, otherwise the immutable
+original is sent as a document.
 
 Pure filesystem + Pillow, no PTB imports.
 """
 from __future__ import annotations
 
-import io
 import logging
 import os
-from typing import List
+import tempfile
+from dataclasses import dataclass
+from enum import Enum
+from typing import List, Optional
 
-from ...domain.delivery import MediaItem, MediaKind
+from ...domain.delivery import LocalFile, MediaItem, MediaKind
 
 logger = logging.getLogger(__name__)
 
 #: Telegram photo (single and in-album) hard limit, with safety margin.
 PHOTO_MAX_BYTES = int((10.0 - 0.5) * 1024 * 1024)
+IMAGE_DECODE_BUDGET_BYTES = max(
+    1, int(os.getenv("TELEPOST_IMAGE_DECODE_BUDGET_MB", "64"))
+) * 1024 * 1024
+
+_MODE_BYTES_PER_PIXEL = {
+    "1": 1,
+    "L": 1,
+    "P": 1,
+    "LA": 2,
+    "RGB": 3,
+    "RGBA": 4,
+    "RGBa": 4,
+    "CMYK": 4,
+    "I": 4,
+    "F": 4,
+}
 
 
-def compress_photo(path: str, max_bytes: int) -> bool:
-    """Compress a local image in place to <= max_bytes (JPEG, step-down)."""
+class PreparationDecision(str, Enum):
+    PASS_THROUGH = "pass_through"
+    SAFE_COMPRESS = "safe_compress"
+    USE_PREVIEW = "use_preview"
+    DOCUMENT_FALLBACK = "document_fallback"
+
+
+@dataclass(frozen=True)
+class MediaProbe:
+    filesize: int
+    format: str
+    width: int
+    height: int
+    mode: str
+    frames: int
+
+
+@dataclass(frozen=True)
+class MediaResourceEstimate:
+    estimated_decode_bytes: int
+    estimated_peak_bytes: int
+
+
+@dataclass(frozen=True)
+class PreparedMedia:
+    original_source: str
+    delivery_source: str
+    kind: MediaKind
+    reason: PreparationDecision
+    temporary: bool = False
+
+
+def probe_image(path: str) -> MediaProbe:
+    """Read image header metadata without materializing pixels."""
+    from PIL import Image
+
+    size = os.stat(path).st_size
+    with Image.open(path) as image:
+        width, height = image.size
+        return MediaProbe(
+            filesize=size,
+            format=str(image.format or ""),
+            width=int(width),
+            height=int(height),
+            mode=str(image.mode or ""),
+            frames=max(1, int(getattr(image, "n_frames", 1) or 1)),
+        )
+
+
+def estimate_resources(probe: MediaProbe) -> MediaResourceEstimate:
+    pixels = probe.width * probe.height
+    decode = pixels * _MODE_BYTES_PER_PIXEL.get(probe.mode, 4)
+    conversion = 0 if probe.mode in {"RGB", "L"} else pixels * 3
+    return MediaResourceEstimate(decode, decode + conversion)
+
+
+class MediaPreparationPolicy:
+    def __init__(self, *, max_bytes: int = PHOTO_MAX_BYTES,
+                 decode_budget_bytes: int = IMAGE_DECODE_BUDGET_BYTES):
+        self.max_bytes = max_bytes
+        self.decode_budget_bytes = decode_budget_bytes
+
+    def prepare(self, path: str, *, preview_path: Optional[str] = None) -> PreparedMedia:
+        try:
+            size = os.stat(path).st_size
+        except OSError:
+            return PreparedMedia(path, path, MediaKind.DOCUMENT,
+                                 PreparationDecision.DOCUMENT_FALLBACK)
+
+        # Telegram can accept this exact file as a photo; no Pillow import or
+        # decode is needed. This also keeps normal operation working without PIL.
+        if size <= self.max_bytes:
+            return PreparedMedia(path, path, MediaKind.PHOTO,
+                                 PreparationDecision.PASS_THROUGH)
+
+        try:
+            probe = probe_image(path)
+            estimate = estimate_resources(probe)
+        except Exception:
+            return self._fallback(path, preview_path)
+
+        if (probe.frames > 1
+                or estimate.estimated_peak_bytes > self.decode_budget_bytes):
+            return self._fallback(path, preview_path)
+
+        derivative = compress_photo(path, self.max_bytes)
+        if derivative:
+            return PreparedMedia(path, derivative, MediaKind.PHOTO,
+                                 PreparationDecision.SAFE_COMPRESS, True)
+        return self._fallback(path, preview_path)
+
+    def _fallback(self, path: str, preview_path: Optional[str]) -> PreparedMedia:
+        if preview_path:
+            try:
+                if os.stat(preview_path).st_size <= self.max_bytes:
+                    return PreparedMedia(
+                        path, preview_path, MediaKind.PHOTO,
+                        PreparationDecision.USE_PREVIEW,
+                    )
+            except OSError:
+                pass
+        return PreparedMedia(path, path, MediaKind.DOCUMENT,
+                             PreparationDecision.DOCUMENT_FALLBACK)
+
+
+def compress_photo(path: str, max_bytes: int) -> Optional[str]:
+    """Create a bounded JPEG derivative; the original is never modified."""
     try:
         from PIL import Image
     except ImportError:
-        return False
+        return None
 
+    derivative = ""
     try:
-        image = Image.open(path)
-        try:
-            if image.mode not in ("RGB", "L"):
-                image = image.convert("RGB")
+        with Image.open(path) as source:
+            image = source
+            converted = None
+            # Shrink before RGB conversion so RGBA does not create a second
+            # full-size pixel buffer. Only budget-approved images reach here.
             if max(image.size) > 4096:
-                image.thumbnail((4096, 4096), Image.LANCZOS)
-            for quality in (92, 85, 78, 70, 60):
-                buf = io.BytesIO()
-                image.save(buf, "JPEG", quality=quality,
-                           optimize=True, progressive=True)
-                if buf.tell() <= max_bytes:
-                    tmp = path + ".compressed"
-                    with open(tmp, "wb") as fh:
-                        fh.write(buf.getvalue())
-                    os.replace(tmp, path)
-                    return True
-            return False
-        finally:
-            image.close()
+                image.thumbnail((4096, 4096), Image.Resampling.LANCZOS)
+            if image.mode not in ("RGB", "L"):
+                converted = image.convert("RGB")
+                image = converted
+            try:
+                for quality in (85, 70, 55):
+                    fd, derivative = tempfile.mkstemp(
+                        prefix="telepost-prepared-", suffix=".jpg",
+                        dir=os.path.dirname(os.path.abspath(path)),
+                    )
+                    os.close(fd)
+                    image.save(derivative, "JPEG", quality=quality)
+                    if os.stat(derivative).st_size <= max_bytes:
+                        return derivative
+                    os.unlink(derivative)
+                    derivative = ""
+            finally:
+                if converted is not None:
+                    converted.close()
     except Exception as exc:  # decoding/IO failure → caller falls back to document
         logger.warning("图片压缩失败，回退为文档发送: %s", exc)
-        return False
+    if derivative:
+        try:
+            os.unlink(derivative)
+        except OSError:
+            pass
+    return None
+
+
+def cleanup_prepared(items: List[MediaItem]) -> None:
+    for item in items:
+        source = item.source
+        if isinstance(source, LocalFile) and source.temporary:
+            try:
+                os.unlink(source.path)
+            except OSError:
+                pass
+
+
+def cleanup_prepared_dicts(items: list) -> None:
+    for item in items:
+        if item.get("temporary"):
+            try:
+                os.unlink(item["path"])
+            except OSError:
+                pass
 
 
 def reclassify_oversized_dicts(items: list, *,
-                                max_bytes: int = PHOTO_MAX_BYTES) -> list:
-    """Dict-item variant (``{"kind", "path", "filename"}``); mutates paths."""
+                                max_bytes: int = PHOTO_MAX_BYTES,
+                                use_preview: bool = False) -> list:
+    """Legacy dict facade over the canonical preparation policy."""
+    policy = MediaPreparationPolicy(max_bytes=max_bytes)
     out: list = []
     for item in items:
         if item.get("kind") == "photo" and item.get("path"):
-            path = item["path"]
-            try:
-                if os.path.getsize(path) > max_bytes:
-                    if compress_photo(path, max_bytes):
-                        base = os.path.splitext(item.get("filename") or "image")[0]
-                        item = dict(item)
-                        item["filename"] = f"{base}.jpg"
-                    else:
-                        item = dict(item)
-                        item["kind"] = "document"
-            except OSError:
-                pass
+            prepared = policy.prepare(
+                item["path"],
+                preview_path=item.get("preview_path") if use_preview else None,
+            )
+            item = dict(item)
+            item["path"] = prepared.delivery_source
+            item["kind"] = prepared.kind.value
+            item["preparation_reason"] = prepared.reason.value
+            item["temporary"] = prepared.temporary
+            item["original_path"] = prepared.original_source
+            if prepared.reason is PreparationDecision.SAFE_COMPRESS:
+                base = os.path.splitext(item.get("filename") or "image")[0]
+                item["filename"] = f"{base}.jpg"
+            elif prepared.reason is PreparationDecision.USE_PREVIEW:
+                item["filename"] = os.path.basename(prepared.delivery_source)
         out.append(item)
     return out
 
 
 def reclassify_oversized(items: List[MediaItem], *,
                          max_bytes: int = PHOTO_MAX_BYTES) -> List[MediaItem]:
-    """Return a new list with oversized local photos compressed/reclassified."""
+    """Return canonical prepared items without modifying original artifacts."""
+    policy = MediaPreparationPolicy(max_bytes=max_bytes)
     out: List[MediaItem] = []
     for item in items:
         if item.kind is MediaKind.PHOTO:
-            path = item.local_path
-            if path:
-                try:
-                    if os.path.getsize(path) > max_bytes:
-                        if compress_photo(path, max_bytes):
-                            logger.info("图片压缩到 %d 字节内，仍按图片发送: %s",
-                                        max_bytes, item.filename)
-                            source = item.source
-                            if source.filename and not source.filename.lower().endswith(".jpg"):
-                                base = os.path.splitext(source.filename)[0]
-                                # LocalFile is frozen; rebuild with .jpg name.
-                                from ...domain.delivery import LocalFile
-                                source = LocalFile(source.path, f"{base}.jpg")
-                            item = MediaItem(item.kind, source, item.spoiler)
-                        else:
-                            logger.info("图片超过 %d 字节且无法压缩，按文档发送: %s",
-                                        max_bytes, item.filename)
-                            item = MediaItem(MediaKind.DOCUMENT, item.source, False)
-                except OSError:
-                    pass
+            source = item.source
+            if isinstance(source, LocalFile):
+                prepared = policy.prepare(
+                    source.path
+                )
+                filename = source.filename
+                if prepared.reason is PreparationDecision.SAFE_COMPRESS:
+                    filename = f"{os.path.splitext(filename)[0]}.jpg"
+                item = MediaItem(
+                    prepared.kind,
+                    LocalFile(
+                        prepared.delivery_source,
+                        filename,
+                        preview_path=source.preview_path,
+                        original_path=prepared.original_source,
+                        temporary=prepared.temporary,
+                    ),
+                    item.spoiler if prepared.kind is MediaKind.PHOTO else False,
+                )
+                logger.info(
+                    "图片准备决策=%s source=%s delivery=%s",
+                    prepared.reason.value, prepared.original_source,
+                    prepared.delivery_source,
+                )
         out.append(item)
     return out

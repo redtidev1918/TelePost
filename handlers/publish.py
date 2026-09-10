@@ -49,6 +49,7 @@ from telepost.domain.delivery import (
 from telepost.telegram.delivery.preparation import (
     PHOTO_MAX_BYTES,
     compress_photo as _compress_photo,
+    cleanup_prepared_dicts,
     reclassify_oversized as _reclassify_oversized_items,
 )
 from telepost.telegram.delivery.sender import (
@@ -183,7 +184,12 @@ def _items_from_dicts(items):
     for it in items:
         kind = MediaKind.coerce(it["kind"])
         if it.get("path"):
-            source = LocalFile(it["path"], it.get("filename") or "file")
+            source = LocalFile(
+                it["path"], it.get("filename") or "file",
+                preview_path=it.get("preview_path"),
+                original_path=it.get("original_path"),
+                temporary=bool(it.get("temporary", False)),
+            )
         elif it.get("file_id") is not None:
             source = TelegramFileId(it["file_id"], it.get("filename"))
         else:
@@ -204,6 +210,12 @@ def _item_to_dict(item: MediaItem) -> dict:
     if item.is_local:
         out["path"] = item.source.path
         out["filename"] = item.source.filename
+        if item.source.preview_path:
+            out["preview_path"] = item.source.preview_path
+        if item.source.original_path:
+            out["original_path"] = item.source.original_path
+        if item.source.temporary:
+            out["temporary"] = True
     else:
         out["file_id"] = item.source.file_id
         if item.source.filename:
@@ -627,7 +639,8 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
 
     items = _items_from_dicts(
         [{"kind": f["kind"], "path": f["path"], "filename": f["filename"],
-          "spoiler": spoiler} for f in files]
+          "preview_path": f.get("preview_path"), "spoiler": spoiler}
+         for f in files]
     )
     data = {
         "tags": tags, "title": title, "note": note, "link": link,
@@ -776,14 +789,17 @@ class _LegacyDeliveryPort:
             # Keep domain items aligned with reclassified dict items.
             request.items = _items_from_dicts(dict_items)
         try:
-            raw_messages, raw_main = await deliver_items_to_chat(
-                self._bot, request.chat_id, dict_items,
-                caption=request.caption,
-                spoiler=request.spoiler,
-                album_size=request.album_size,
-                reply_to_message_id=request.reply_to_message_id,
-                reply_mode=request.reply_mode.value,
-            )
+            try:
+                raw_messages, raw_main = await deliver_items_to_chat(
+                    self._bot, request.chat_id, dict_items,
+                    caption=request.caption,
+                    spoiler=request.spoiler,
+                    album_size=request.album_size,
+                    reply_to_message_id=request.reply_to_message_id,
+                    reply_mode=request.reply_mode.value,
+                )
+            finally:
+                cleanup_prepared_dicts(dict_items)
         except Exception as exc:
             uncertain = (
                 getattr(exc, "uncertain", False)

@@ -7,7 +7,7 @@
 
 1. 确认只有一个实例使用该 Token。
 2. 看进程/Machine 状态和最近日志。
-3. 请求 `/health` 与 `/api/botN/v1/health`。
+3. 请求 `/live`、`/ready`、`/health` 与 `/api/botN/v1/health`。
 4. Webhook 模式查看 `getWebhookInfo`。
 
 ```bash
@@ -113,9 +113,15 @@ flyctl machine status <machine-id> --app <app>
 
 - 双 Bot 用 512 MiB；低配关闭搜索并把 `DB_CACHE_KB` 设为 1024。
 - PixivFlow 拆到 256 MiB 常驻 Machine，计划错开且下载并发为 1。
+- 不要用 PNG/JPEG 文件大小推断内存。检查尺寸和 mode；RGBA 解码至少约 4 B/px，RGB 转换还会增加峰值。
+- 保持 `TELEPOST_IMAGE_DECODE_BUDGET_MB` 的保守值。超预算素材变成 document 是预期安全行为；不要靠增大 `REVIEW_ALBUM_SIZE` 或强制 ffmpeg 转码绕过预算。
 - `api_uploads` 持续增长说明请求被强制中断。
 - outbox 增长先修复投递；不要直接删除引用的缓存。
 - Volume 使用率高时先扩容/备份，不要边写入边 VACUUM。
+
+若审核群出现旧的“只有预览没有按钮”，先升级到包含审核 reconciler 的版本并重启；启动期间
+`/live` 可为 200，但 `/ready` 会保持 503，直到数据库迁移和未完成审核修复结束。上游投递应只
+以 `/ready` 为消费屏障，不应把冷启动 502/503 计作一次业务失败。
 
 ## 数据库
 

@@ -4,10 +4,13 @@
 
 ```bash
 curl -fsS http://127.0.0.1:8080/health
+curl -fsS http://127.0.0.1:8080/live
+curl -fsS http://127.0.0.1:8080/ready
 curl -fsS http://127.0.0.1:8080/api/v1/health       # 单 Bot
 curl -fsS http://127.0.0.1:8080/api/bot1/v1/health  # 多 Bot 父路由
 ```
 
+`/live` 只证明 runtime 活着；`/ready` 还要求数据库迁移、Bot、投稿服务和审核恢复完成。
 多 Bot 父路由的 `/health` 会汇总 Bot 序号、Python/Node RSS、系统可用内存、Volume、
 API 临时上传、审核队列、PixivFlow cache 和 delivery outbox。单 Bot 子服务的
 `/health` 只表示进程可用；版本看 `/api/v1/health`。
@@ -154,6 +157,10 @@ Webhook Secret 不能通过 Telegram 修改。
 - `REVIEW_RETENTION_DAYS` 只清理已决审计记录和 API 通知幂等记录。
 - outbox 数量、失败数、累计重试和最老年龄持续增长，说明 TelePost/API 链路异常。
 - 不要直接删 outbox 引用的缓存文件；先恢复投递，让上游完成重试。
+- PixivFlow 使用 `pixivflow outbox list` / `inspect <id>` 查看状态，使用
+  `retry <id>` 或 `retry --dead` 正式重放 dead letter，使用 `cancel <id>` 取消尚未开始的
+  intent；不要手改 SQLite `next_attempt_at`，也不要用 `run-once` 代替 outbox retry。
+- replay 保留原 idempotency key。TelePost `/ready` 非 200 时 PixivFlow 只延后，不增加 attempt。
 
 ## 正式发布
 

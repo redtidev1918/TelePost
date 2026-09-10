@@ -135,7 +135,10 @@ class WebhookServer:
 
     async def ready_handler(self, request: web.Request) -> web.Response:
         from aiohttp import web as _web
-        running = bool(getattr(self.application, "running", False)) if getattr(self, "application", None) else False
+        running = (
+            bool(getattr(self.application, "running", False))
+            and bool(self.application.bot_data.get("telepost_ready", False))
+        ) if getattr(self, "application", None) else False
         return _web.json_response(
             {"status": "ok" if running else "starting", "kind": "ready", "ready": running},
             status=200 if running else 503,

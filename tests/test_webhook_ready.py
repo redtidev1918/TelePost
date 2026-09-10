@@ -1,5 +1,6 @@
 """WebhookServer exposes liveness independent of PTB and readiness gated on
-Application.running, so Fly's /ready check never routes to a half-warmed bot."""
+Application.running plus review reconciliation, so /ready never routes to a
+half-warmed bot."""
 from types import SimpleNamespace
 
 import pytest
@@ -8,12 +9,20 @@ from utils.webhook_server import WebhookServer
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("running,expected", [(False, 503), (True, 200)])
-async def test_webhook_live_and_ready(running, expected, unused_tcp_port):
+@pytest.mark.parametrize(
+    "running,reconciled,expected",
+    [(False, False, 503), (True, False, 503), (True, True, 200)],
+)
+async def test_webhook_live_and_ready(
+    running, reconciled, expected, unused_tcp_port
+):
     from aiohttp.test_utils import TestClient, TestServer
 
     server = WebhookServer(
-        application=SimpleNamespace(running=running, bot=object()),
+        application=SimpleNamespace(
+            running=running, bot=object(),
+            bot_data={"telepost_ready": reconciled},
+        ),
         port=unused_tcp_port,
         path="/webhook/bot1",
         secret_token="sec",
@@ -25,6 +34,6 @@ async def test_webhook_live_and_ready(running, expected, unused_tcp_port):
             assert (await client.get("/live")).status == 200
             ready = await client.get("/ready")
             assert ready.status == expected
-            assert (await ready.json())["ready"] is running
+            assert (await ready.json())["ready"] is (running and reconciled)
     finally:
         await server.stop()

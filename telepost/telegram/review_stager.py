@@ -26,6 +26,7 @@ from telegram.error import RetryAfter
 from ..application.review_queue import pixiv_id_from_link
 from .delivery.preparation import (
     PHOTO_MAX_BYTES,
+    cleanup_prepared_dicts,
     reclassify_oversized_dicts as reclassify_oversized,
 )
 from .delivery.sender import file_id_of, timeout_kwargs
@@ -91,10 +92,32 @@ class TelegramReviewStager:
                           message_ids: Optional[List[int]] = None
                           ) -> Tuple[list, list, List[int]]:
         ids: List[int] = message_ids if message_ids is not None else []
-        media, documents = await self._stage(
-            list(files), caption, spoiler, ids, local=True
+        prepared = reclassify_oversized(
+            list(files), max_bytes=self._photo_max_bytes, use_preview=True
         )
-        return media, documents, ids
+        staged_items = []
+        original_documents = []
+        for index, item in enumerate(prepared):
+            if item.get("preparation_reason") == "use_preview":
+                preview = dict(item)
+                preview["staging_only"] = True
+                staged_items.append(preview)
+                original_documents.append({
+                    "kind": "document",
+                    "path": item["original_path"],
+                    "filename": files[index].get("filename")
+                    or item.get("filename") or "image",
+                })
+            else:
+                staged_items.append(item)
+        staged_items.extend(original_documents)
+        try:
+            media, documents = await self._stage(
+                staged_items, caption, spoiler, ids, local=True
+            )
+            return media, documents, ids
+        finally:
+            cleanup_prepared_dicts(prepared)
 
     async def stage_file_ids(self, media, documents, *, caption: str, spoiler: bool,
                              message_ids: Optional[List[int]] = None
@@ -131,16 +154,16 @@ class TelegramReviewStager:
     async def cleanup_files(self, files) -> None:
         directories = set()
         for item in files or []:
-            path = item.get("path")
-            if not path:
-                continue
-            directories.add(os.path.dirname(path))
-            try:
-                os.remove(path)
-            except FileNotFoundError:
-                pass
-            except OSError:
-                logger.warning("删除 API 临时文件失败: %s", path, exc_info=True)
+            for path in (item.get("path"), item.get("preview_path")):
+                if not path:
+                    continue
+                directories.add(os.path.dirname(path))
+                try:
+                    os.remove(path)
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    logger.warning("删除 API 临时文件失败: %s", path, exc_info=True)
         for directory in directories:
             try:
                 os.rmdir(directory)
@@ -366,11 +389,6 @@ class TelegramReviewStager:
 
     # ---- core staging --------------------------------------------------
     async def _stage(self, items, caption, spoiler, message_ids, *, local):
-        if local:
-            # Reclassify (compress / demote to document) before grouping; the
-            # oversized dict helper mutates paths in place and returns new items.
-            items = reclassify_oversized(items, max_bytes=self._photo_max_bytes)
-
         runs: List[tuple] = []
         for item in items:
             kind = item["kind"] if local else item["type"]
@@ -454,6 +472,8 @@ class TelegramReviewStager:
                 if not fid:
                     raise RuntimeError("审核群预览未返回 Telegram file_id")
                 item_kind = item["kind"] if local else item["type"]
+                if item.get("staging_only"):
+                    continue
                 if item_kind == "document":
                     staged_documents.append({
                         "file_id": fid,

@@ -17,6 +17,8 @@ Telegram 频道投稿机器人，支持聊天投稿、审核队列、全文搜�
 - 通过可选 MCP sidecar 让 AI Agent 安全读取待审核投稿和媒体、给出审核建议
 - 在 Polling、Webhook 与 `AUTO` 模式间切换
 - 在 Fly.io 保留 Webhook 后自动休眠，并由下一次请求唤醒
+- 在图片解码前执行资源预算；高风险原图以预览或文档安全降级
+- 审核暂存采用可恢复状态，启动时修复缺失的控制消息
 
 ## 最快开始
 
@@ -58,7 +60,8 @@ python3 -m venv .venv
 | 有公网 HTTPS | `RUN_MODE=WEBHOOK` |
 | 希望自动选择 | `RUN_MODE=AUTO`（默认） |
 
-Webhook 和 Polling 都提供 `/health` 与 `/api/v1/*`。多 Bot 入口固定为
+Webhook 和 Polling 都提供 `/live`（进程存活）、`/ready`（数据库、Bot、审核服务可用）、
+`/health` 与 `/api/v1/*`。多 Bot 入口固定为
 `/api/botN/v1/*` 和 `/webhook/botN`，详见 [Webhook 与 Polling](docs/WEBHOOK_MODE.md)。
 
 ## Fly.io 与 PixivFlow
@@ -81,6 +84,7 @@ PixivFlow 必须常驻才能按 Cron 执行；TelePost 只处理入站事件，�
 - 用户：`/submit`、`/search`、`/hot`、`/myposts`、`/mystats`
 - Owner：`/botconfig`、`/gen_token`、`/delete_posts`
 - 健康检查：`curl http://127.0.0.1:8080/health`
+- 版本追踪：`python run.py --version`（显示 release、commit SHA 与构建日期）
 - 测试：`./.venv/bin/python -m pytest -q --no-cov -o log_cli=false`
 
 全部命令见[命令参考](docs/COMMANDS.md)，自动化调用见 [HTTP API](docs/API.md)。
