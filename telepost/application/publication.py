@@ -28,6 +28,8 @@ from ..domain.delivery import (
     DeliveryResult,
     MediaItem,
 )
+from ..observability import audit
+from ..observability.errors import classify as classify_error
 from ..storage.sqlite.ledger import DeliveryLedgerRepository, LedgerEntry
 
 logger = logging.getLogger(__name__)
@@ -142,6 +144,11 @@ class PublicationService:
         from ..domain.delivery import ReplyMode
 
         pid = (command.pixiv_id or "").strip()
+        event_fields = self._event_fields(command, key)
+        # Review-approved publishes use review:<id>:<original> keys. Their
+        # publish.* audit is owned by ReviewService (which keeps the durable
+        # event linked to the review row); emitting here too would double it.
+        audit_publish = not (key.startswith("review:") and event_fields["review_id"])
 
         replay = await self._ledger.find_by_key(key)
         if replay is not None:
@@ -162,6 +169,8 @@ class PublicationService:
             reply_to_message_id=command.reply_to_message_id,
             album_size=command.album_size,
         )
+        if audit_publish:
+            await audit.record_event("publish.started", **event_fields)
         result = await self._delivery.deliver(request)
 
         if result.is_uncertain:
@@ -175,13 +184,21 @@ class PublicationService:
                 error=getattr(result, "error", None),
             )
         if not result.ok or result.main_message is None:
+            error = getattr(result, "error", None)
+            if audit_publish:
+                await audit.record_event(
+                    "publish.failed",
+                    error_class=classify_error(error),
+                    detail={"reason": result.reason or "delivery failed"},
+                    **event_fields,
+                )
             return PublicationOutcome(
                 status="failed",
                 reason=result.reason or "delivery failed",
                 retryable=result.retryable,
                 known_messages=result.known_messages,
                 delivery_status="failed",
-                error=getattr(result, "error", None),
+                error=error,
             )
 
         main = result.main_message
@@ -217,6 +234,13 @@ class PublicationService:
                     delivery_status="uncertain",
                 )
 
+        if audit_publish:
+            await audit.record_event(
+                "publish.completed",
+                detail={"message_id": main.message_id,
+                        "media": media_count, "documents": document_count},
+                **event_fields,
+            )
         return PublicationOutcome(
             status="published",
             message_id=main.message_id,
@@ -225,7 +249,46 @@ class PublicationService:
             document_count=document_count,
         )
 
+    @staticmethod
+    def _event_fields(command: PublishCommand, key: str) -> dict:
+        # Review-approved publishes use keys shaped review:<id>:<original>.
+        review_id = None
+        parts = key.split(":", 2)
+        if len(parts) == 3 and parts[0] == "review" and parts[1].isdigit():
+            review_id = int(parts[1])
+        return {
+            "review_id": review_id,
+            "pixiv_id": (command.pixiv_id or "").strip() or None,
+            "work_type": command.work_type or None,
+            "target_id": command.target_id or None,
+            "idempotency_key": key or None,
+            "actor": f"telegram_user:{command.user_id}" if command.user_id else "api",
+        }
+
     def _replay(self, entry: LedgerEntry, *, reason: str) -> PublicationOutcome:
+        key = entry.idempotency_key or ""
+        review_id = None
+        parts = key.split(":", 2)
+        is_review_key = (
+            len(parts) == 3 and parts[0] == "review" and parts[1].isdigit()
+        )
+        if is_review_key:
+            review_id = int(parts[1])
+        # review-keyed replays are audited by ReviewService (or short-circuited
+        # before the publisher entirely) — never double-emit from the service.
+        if not is_review_key:
+            try:
+                asyncio.get_running_loop().create_task(audit.record_event(
+                    "publish.duplicate_suppressed",
+                    pixiv_id=entry.pixiv_id or None,
+                    work_type=entry.work_type or None,
+                    target_id=entry.target_id or None,
+                    idempotency_key=key or None,
+                    detail={"reuse_reason": reason,
+                            "matched_idempotency_key": entry.idempotency_key},
+                ))
+            except RuntimeError:
+                pass
         message_id = entry.message_id or 0
         return PublicationOutcome(
             status="published",

@@ -10,12 +10,14 @@ Pure filesystem + Pillow, no PTB imports.
 """
 from __future__ import annotations
 
+import json
 import logging
+import mimetypes
 import os
 import tempfile
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from ...domain.delivery import LocalFile, MediaItem, MediaKind
 
@@ -71,6 +73,47 @@ class PreparedMedia:
     kind: MediaKind
     reason: PreparationDecision
     temporary: bool = False
+    decision: Optional[Dict[str, Any]] = None
+
+
+def log_media_decision(payload: Dict[str, Any]) -> None:
+    """Emit the single structured decision line for one classified item."""
+    logger.info("media decision %s", json.dumps(payload, ensure_ascii=False,
+                                                default=str))
+
+
+def _decision_payload(path: str, *, size: int, decision: str, reason: str,
+                      probe: Optional[MediaProbe] = None,
+                      estimate: Optional[MediaResourceEstimate] = None,
+                      policy: Optional["MediaPreparationPolicy"] = None,
+                      delivery: Optional[str] = None,
+                      preview_available: bool = False) -> Dict[str, Any]:
+    mime = mimetypes.guess_type(path)[0] or ""
+    payload: Dict[str, Any] = {
+        "filename": os.path.basename(path),
+        "mime": mime,
+        "file_bytes": size,
+        "width": probe.width if probe else None,
+        "height": probe.height if probe else None,
+        "mode": probe.mode if probe else None,
+        "estimated_decode_bytes": (
+            estimate.estimated_decode_bytes if estimate else None
+        ),
+        "decode_budget_bytes": (
+            policy.decode_budget_bytes if policy else IMAGE_DECODE_BUDGET_BYTES
+        ),
+        "telegram_photo_limit": policy.max_bytes if policy else PHOTO_MAX_BYTES,
+        "preview_available": preview_available,
+        "decision": decision,
+        "reason": reason,
+        "original_bytes": size,
+    }
+    if delivery and delivery != path:
+        try:
+            payload["prepared_bytes"] = os.stat(delivery).st_size
+        except OSError:
+            pass
+    return payload
 
 
 def probe_image(path: str) -> MediaProbe:
@@ -107,14 +150,19 @@ class MediaPreparationPolicy:
         try:
             size = os.stat(path).st_size
         except OSError:
-            return PreparedMedia(path, path, MediaKind.DOCUMENT,
-                                 PreparationDecision.DOCUMENT_FALLBACK)
+            return self._fallback(path, preview_path, reason="compression_failed_fallback")
 
         # Telegram can accept this exact file as a photo; no Pillow import or
         # decode is needed. This also keeps normal operation working without PIL.
         if size <= self.max_bytes:
+            payload = _decision_payload(
+                path, size=size, decision="photo_passthrough",
+                reason="already_within_limits", policy=self,
+            )
+            log_media_decision(payload)
             return PreparedMedia(path, path, MediaKind.PHOTO,
-                                 PreparationDecision.PASS_THROUGH)
+                                 PreparationDecision.PASS_THROUGH,
+                                 decision=payload)
 
         try:
             probe = probe_image(path)
@@ -122,28 +170,66 @@ class MediaPreparationPolicy:
         except Exception:
             return self._fallback(path, preview_path)
 
-        if (probe.frames > 1
-                or estimate.estimated_peak_bytes > self.decode_budget_bytes):
-            return self._fallback(path, preview_path)
+        if probe.frames > 1 or estimate.estimated_peak_bytes > self.decode_budget_bytes:
+            return self._fallback(
+                path, preview_path, probe=probe, estimate=estimate,
+                reason="decode_budget_exceeded",
+            )
 
         derivative = compress_photo(path, self.max_bytes)
         if derivative:
+            payload = _decision_payload(
+                path, size=size, decision="safe_compress",
+                reason="photo_size_exceeded_but_decode_within_budget",
+                probe=probe, estimate=estimate, policy=self,
+                delivery=derivative,
+                preview_available=bool(preview_path),
+            )
+            log_media_decision(payload)
             return PreparedMedia(path, derivative, MediaKind.PHOTO,
-                                 PreparationDecision.SAFE_COMPRESS, True)
-        return self._fallback(path, preview_path)
+                                 PreparationDecision.SAFE_COMPRESS, True,
+                                 decision=payload)
+        return self._fallback(
+            path, preview_path, probe=probe, estimate=estimate,
+            reason="compression_failed_fallback",
+        )
 
-    def _fallback(self, path: str, preview_path: Optional[str]) -> PreparedMedia:
+    def _fallback(self, path: str, preview_path: Optional[str], *,
+                  reason: str = "decode_budget_exceeded",
+                  probe: Optional[MediaProbe] = None,
+                  estimate: Optional[MediaResourceEstimate] = None
+                  ) -> PreparedMedia:
+        try:
+            size = os.stat(path).st_size
+        except OSError:
+            size = 0
         if preview_path:
             try:
                 if os.stat(preview_path).st_size <= self.max_bytes:
+                    payload = _decision_payload(
+                        path, size=size, decision="use_preview",
+                        reason="preview_preferred"
+                        if reason == "decode_budget_exceeded"
+                        else "compression_failed_fallback",
+                        probe=probe, estimate=estimate, policy=self,
+                        delivery=preview_path, preview_available=True,
+                    )
+                    log_media_decision(payload)
                     return PreparedMedia(
                         path, preview_path, MediaKind.PHOTO,
-                        PreparationDecision.USE_PREVIEW,
+                        PreparationDecision.USE_PREVIEW, decision=payload,
                     )
             except OSError:
                 pass
+        payload = _decision_payload(
+            path, size=size, decision="document_fallback", reason=reason,
+            probe=probe, estimate=estimate, policy=self,
+            preview_available=bool(preview_path),
+        )
+        log_media_decision(payload)
         return PreparedMedia(path, path, MediaKind.DOCUMENT,
-                             PreparationDecision.DOCUMENT_FALLBACK)
+                             PreparationDecision.DOCUMENT_FALLBACK,
+                             decision=payload)
 
 
 def compress_photo(path: str, max_bytes: int) -> Optional[str]:
@@ -211,10 +297,15 @@ def cleanup_prepared_dicts(items: list) -> None:
 
 def reclassify_oversized_dicts(items: list, *,
                                 max_bytes: int = PHOTO_MAX_BYTES,
-                                use_preview: bool = False) -> list:
-    """Legacy dict facade over the canonical preparation policy."""
+                                use_preview: bool = False) -> tuple:
+    """Legacy dict facade over the canonical preparation policy.
+
+    Returns (items, decisions); decisions are the structured media-decision
+    payloads (one per classified photo) for the durable media.prepared audit.
+    """
     policy = MediaPreparationPolicy(max_bytes=max_bytes)
     out: list = []
+    decisions: list = []
     for item in items:
         if item.get("kind") == "photo" and item.get("path"):
             prepared = policy.prepare(
@@ -232,8 +323,13 @@ def reclassify_oversized_dicts(items: list, *,
                 item["filename"] = f"{base}.jpg"
             elif prepared.reason is PreparationDecision.USE_PREVIEW:
                 item["filename"] = os.path.basename(prepared.delivery_source)
+            if prepared.decision is not None:
+                decision = dict(prepared.decision)
+                if item.get("filename"):
+                    decision["filename"] = item["filename"]
+                decisions.append(decision)
         out.append(item)
-    return out
+    return out, decisions
 
 
 def reclassify_oversized(items: List[MediaItem], *,
@@ -262,10 +358,16 @@ def reclassify_oversized(items: List[MediaItem], *,
                     ),
                     item.spoiler if prepared.kind is MediaKind.PHOTO else False,
                 )
-                logger.info(
-                    "图片准备决策=%s source=%s delivery=%s",
-                    prepared.reason.value, prepared.original_source,
-                    prepared.delivery_source,
-                )
+                if prepared.decision is not None:
+                    payload = dict(prepared.decision)
+                    if filename:
+                        payload["filename"] = filename
+                    log_media_decision(payload)
+                else:
+                    logger.info(
+                        "图片准备决策=%s source=%s delivery=%s",
+                        prepared.reason.value, prepared.original_source,
+                        prepared.delivery_source,
+                    )
         out.append(item)
     return out

@@ -59,6 +59,57 @@ def _error(status: int, code: str, message: str) -> web.Response:
     )
 
 
+async def _audit_submission(event: str, *, user_id, idempotency_key="",
+                            target_id="", work_type="", pixiv_id="",
+                            source_ref="", review_id=None, detail=None) -> None:
+    from telepost.observability import audit as audit_mod
+    await audit_mod.record_event(
+        event,
+        actor=f"telegram_user:{user_id}" if user_id else "api",
+        idempotency_key=idempotency_key or None,
+        target_id=target_id or None,
+        work_type=work_type or None,
+        pixiv_id=pixiv_id or None,
+        review_id=review_id,
+        execution_id=audit_mod.execution_id_from_ref(source_ref),
+        detail=detail,
+    )
+
+
+def _result_reused_id(result: dict):
+    return result.get("review_id") or result.get("message_id")
+
+
+def _audit_key(raw_key: str, result: dict, *, user_id: int) -> str:
+    """Mirror the review queue's key normalization so events link to the row."""
+    if not (raw_key and API_REVIEW_REQUIRED and result.get("review_id")):
+        return raw_key
+    from telepost.application.review_queue import normalize_idempotency_key
+    return normalize_idempotency_key(user_id, raw_key, "api")
+
+
+async def _audit_submission_outcome(result: dict, **kwargs) -> None:
+    if result.get("reused"):
+        reused_id = _result_reused_id(result)
+        await _audit_submission(
+            "submission.duplicate",
+            review_id=result.get("review_id") if result.get("status") in (
+                "pending_review", "pending"
+            ) else None,
+            detail={"reused_id": reused_id,
+                    "reuse_reason": result.get("reuse_reason", "")},
+            **kwargs,
+        )
+    else:
+        await _audit_submission(
+            "submission.accepted",
+            review_id=result.get("review_id")
+            if result.get("status") == "pending_review" else None,
+            detail={"message_id": result.get("message_id")},
+            **kwargs,
+        )
+
+
 def _ok(data, status: int = 200) -> web.Response:
     return web.json_response({"ok": True, "data": data}, status=status)
 
@@ -325,6 +376,7 @@ def add_api_routes(web_app, application) -> None:
             return _error(429, "rate_limited",
                           f"每小时最多 {SUBMIT_LIMIT_PER_HOUR} 次投稿，请稍后再试")
         _rate_cache.set(f"api:{user_id}", used + 1, ttl=3600)
+        await _audit_submission("submission.received", user_id=user_id)
 
         if (request.content_type or "").startswith("application/json"):
             # file_id 直投：素材已在 Telegram 服务器（file_id 归属本 bot），零媒体传输
@@ -402,6 +454,15 @@ def add_api_routes(web_app, application) -> None:
             logger.info(
                 "API file_id 投稿已处理: user=%s status=%s",
                 user_id, result.get("status"),
+            )
+            await _audit_submission_outcome(
+                result, user_id=user_id,
+                idempotency_key=_audit_key(
+                    provenance.get("idempotency_key", ""), result, user_id=user_id),
+                target_id=provenance.get("target_id", ""),
+                work_type=provenance.get("work_type", ""),
+                pixiv_id=provenance.get("pixiv_id", ""),
+                source_ref=_fields_source_ref(payload),
             )
             return _business_ack(result)
 
@@ -530,6 +591,15 @@ def add_api_routes(web_app, application) -> None:
         logger.info(
             "API 投稿已处理: user=%s status=%s",
             user_id, result.get("status"),
+        )
+        await _audit_submission_outcome(
+            result, user_id=user_id,
+            idempotency_key=_audit_key(
+                provenance.get("idempotency_key", ""), result, user_id=user_id),
+            target_id=provenance.get("target_id", ""),
+            work_type=provenance.get("work_type", ""),
+            pixiv_id=provenance.get("pixiv_id", ""),
+            source_ref=_fields_source_ref(fields),
         )
         return _business_ack(result)
 

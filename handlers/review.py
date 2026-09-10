@@ -156,7 +156,7 @@ async def _stage_file_ids(bot, media, documents, caption: str, spoiler: bool,
 
 async def _stage_local_files(bot, files, caption: str, spoiler: bool, message_ids):
     stager = _stager(bot)
-    staged_media, staged_documents, preview_ids = await stager.stage_local(
+    staged_media, staged_documents, preview_ids, _decisions = await stager.stage_local(
         files, caption=caption, spoiler=spoiler
     )
     message_ids.extend(preview_ids)
