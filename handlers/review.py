@@ -340,6 +340,16 @@ async def expire_stale_reviews(bot, *, now: Optional[float] = None) -> int:
     return len(rows)
 
 
+async def reconcile_incomplete_reviews(bot, *, stale_seconds: float = 60.0) -> int:
+    """Repair crash-left review rows by restoring a durable control message."""
+    repaired = await queue_service.reconcile_incomplete(
+        _stager(bot), stale_seconds=stale_seconds
+    )
+    if repaired:
+        logger.info("已修复 %d 条缺少控制消息的审核记录", repaired)
+    return repaired
+
+
 async def _load_review_for_action(query, review_id):
     return await review_service.get_row(review_id)
 

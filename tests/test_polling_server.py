@@ -37,15 +37,23 @@ async def test_polling_mode_can_disable_api(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("running,expected", [(False, 503), (True, 200)])
-async def test_polling_ready_reflects_ptb_running_state(running, expected):
+@pytest.mark.parametrize(
+    "running,reconciled,expected",
+    [(False, False, 503), (True, False, 503), (True, True, 200)],
+)
+async def test_polling_ready_requires_ptb_and_reconciliation(
+    running, reconciled, expected
+):
     from aiohttp.test_utils import TestClient, TestServer
 
-    app = build_polling_app(SimpleNamespace(bot=object(), running=running))
+    app = build_polling_app(SimpleNamespace(
+        bot=object(), running=running,
+        bot_data={"telepost_ready": reconciled},
+    ))
     async with TestClient(TestServer(app)) as client:
         live = await client.get("/live")
         assert live.status == 200  # liveness never depends on PTB state
         ready = await client.get("/ready")
         assert ready.status == expected
         body = await ready.json()
-        assert body["ready"] is running
+        assert body["ready"] is (running and reconciled)

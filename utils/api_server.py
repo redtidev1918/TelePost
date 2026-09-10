@@ -412,6 +412,7 @@ def add_api_routes(web_app, application) -> None:
 
         fields = {}
         files = []
+        previews = []
         upload_dir = os.path.join("data", "api_uploads")
         os.makedirs(upload_dir, exist_ok=True)
         session_dir = os.path.join(upload_dir, uuid.uuid4().hex)
@@ -429,12 +430,18 @@ def add_api_routes(web_app, application) -> None:
             reader = await request.multipart()
             total_file_bytes = 0
             while part := await reader.next():
-                if part.name == "files":
-                    if len(files) >= MAX_FILES:
+                if part.name in {"files", "previews"}:
+                    target = files if part.name == "files" else previews
+                    if len(target) >= MAX_FILES:
                         return _error(400, "too_many_files", f"单次最多 {MAX_FILES} 个文件")
-                    filename = os.path.basename(part.filename or f"file-{len(files)+1}")
+                    filename = os.path.basename(
+                        part.filename or f"{part.name}-{len(target)+1}"
+                    )
                     kind_hint = part.headers.get("Content-Type", "")
-                    tmp_path = os.path.join(session_dir, f"{len(files)+1:02d}_{filename}")
+                    prefix = "file" if part.name == "files" else "preview"
+                    tmp_path = os.path.join(
+                        session_dir, f"{prefix}_{len(target)+1:02d}_{filename}"
+                    )
                     size = 0
                     with open(tmp_path, "wb") as fh:
                         while chunk := await part.read_chunk(65536):
@@ -450,8 +457,8 @@ def add_api_routes(web_app, application) -> None:
                                     "单次投稿文件累计超过 500MB 上限",
                                 )
                             fh.write(chunk)
-                    files.append({"path": tmp_path, "filename": filename,
-                                  "kind": detect_kind(filename, kind_hint)})
+                    target.append({"path": tmp_path, "filename": filename,
+                                   "kind": detect_kind(filename, kind_hint)})
                 else:
                     fields[part.name] = (await part.text()).strip()
         except Exception as e:
@@ -461,6 +468,13 @@ def add_api_routes(web_app, application) -> None:
             return _error(400, "missing_files", "至少需要一个 files 字段")
         if len(files) > MAX_FILES:
             return _error(400, "too_many_files", f"单次最多 {MAX_FILES} 个文件")
+        if previews and len(previews) != len(files):
+            return _error(
+                400, "invalid_previews",
+                "previews 必须与 files 一一对应，或完全省略",
+            )
+        for index, preview in enumerate(previews):
+            files[index]["preview_path"] = preview["path"]
 
         tags = _fields_tags(fields)
         if not tags:

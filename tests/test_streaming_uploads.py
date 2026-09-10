@@ -1,3 +1,4 @@
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -149,9 +150,8 @@ async def test_publish_animation_goes_standalone_not_album(monkeypatch, tmp_path
 
 
 @pytest.mark.unit
-def test_oversized_photo_is_compressed_not_demoted(tmp_path):
-    """超大本地图片应压缩到可发范围、保持 photo（频道直接看图），
-    而不是降级成 document 文件。Pillow 缺失时跳过。"""
+def test_oversized_photo_is_compressed_without_mutating_original(tmp_path):
+    """安全图片生成派生 JPEG；原始 artifact 保持不变。"""
     PIL = pytest.importorskip("PIL")
     from PIL import Image
 
@@ -159,6 +159,7 @@ def test_oversized_photo_is_compressed_not_demoted(tmp_path):
     img = Image.effect_noise((2200, 2200), 128).convert("RGB")
     img.save(src, "BMP")  # BMP 无压缩，2200*2200*3 ≈ 14.5MB > 阈值
     assert src.stat().st_size > publish.PHOTO_MAX_BYTES, "测试图应超过阈值"
+    original_size = src.stat().st_size
 
     items = publish.reclassify_oversized_photos(
         [{"kind": "photo", "path": str(src), "filename": "huge.bmp"}]
@@ -166,4 +167,6 @@ def test_oversized_photo_is_compressed_not_demoted(tmp_path):
 
     assert items[0]["kind"] == "photo"
     assert items[0]["filename"] == "huge.jpg"
-    assert src.stat().st_size <= publish.PHOTO_MAX_BYTES
+    assert items[0]["path"] != str(src)
+    assert os.path.getsize(items[0]["path"]) <= publish.PHOTO_MAX_BYTES
+    assert src.stat().st_size == original_size

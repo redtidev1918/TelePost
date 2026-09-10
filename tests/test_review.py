@@ -1,5 +1,6 @@
 """API/chat review queue and approval callbacks."""
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
@@ -257,6 +258,112 @@ async def test_failed_local_staging_deletes_uploaded_preview(review_db, tmp_path
 
     bot.delete_message.assert_awaited_once_with(chat_id=-100123, message_id=77)
     assert not source.exists()
+
+
+@pytest.mark.asyncio
+async def test_preview_success_and_database_failure_cleans_preview(
+    review_db, monkeypatch, tmp_path
+):
+    source = tmp_path / "preview.jpg"
+    source.write_bytes(b"image")
+    bot = AsyncMock()
+    bot.send_photo.return_value = _photo_message(message_id=78)
+
+    async def fail_update(*_args, **_kwargs):
+        raise RuntimeError("db write failed")
+
+    monkeypatch.setattr(review.queue_service._repo, "update_staged", fail_update)
+    with pytest.raises(RuntimeError, match="db write failed"):
+        await review.queue_review_from_files(
+            bot,
+            [{"kind": "photo", "path": str(source), "filename": "preview.jpg"}],
+            tags="#test", user_id=7, username="tester",
+            idempotency_key="db-failure",
+        )
+    bot.delete_message.assert_awaited_once_with(
+        chat_id=-100123, message_id=78
+    )
+
+
+@pytest.mark.asyncio
+async def test_preview_success_and_control_failure_is_recoverable(
+    review_db, tmp_path
+):
+    source = tmp_path / "preview.jpg"
+    source.write_bytes(b"image")
+    bot = AsyncMock()
+    bot.send_photo.return_value = _photo_message(message_id=79)
+    bot.send_message.side_effect = RuntimeError("control failed")
+
+    with pytest.raises(RuntimeError, match="control failed"):
+        await review.queue_review_from_files(
+            bot,
+            [{"kind": "photo", "path": str(source), "filename": "preview.jpg"}],
+            tags="#test", user_id=7, username="tester",
+            idempotency_key="control-failure",
+        )
+
+    bot.delete_message.assert_awaited_once_with(
+        chat_id=-100123, message_id=79
+    )
+    async with db_manager.get_db() as conn:
+        row = await (await conn.execute(
+            "SELECT * FROM pending_reviews WHERE idempotency_key=?",
+            ("api:7:control-failure",),
+        )).fetchone()
+    assert row["status"] == "failed"
+    assert row["control_message_id"] is None
+    assert json.loads(row["review_message_ids"]) == []
+    assert json.loads(row["media_json"])[0]["file_id"] == "STAGED_PHOTO"
+
+
+@pytest.mark.asyncio
+async def test_restart_reconciliation_restores_missing_control_message(review_db):
+    from telepost.storage.sqlite.reviews import NewReview, ReviewRepository
+
+    repo = ReviewRepository()
+    review_id = await repo.insert(NewReview(
+        idempotency_key="api:7:restart", source="api", status="preparing",
+        user_id=7, username="tester", title="", tags="#test", note="",
+        link="", anonymous=False, spoiler=False,
+        media=[{"type": "photo", "file_id": "STAGED"}], documents=[],
+        review_chat_id=str(review.REVIEW_CHAT_ID), review_message_ids=[80],
+    ))
+    bot = AsyncMock()
+    bot.send_message.return_value = MagicMock(message_id=81)
+
+    assert await review.reconcile_incomplete_reviews(
+        bot, stale_seconds=0
+    ) == 1
+    row = await repo.get(review_id)
+    assert row["status"] == "pending"
+    assert row["control_message_id"] == 81
+    bot.delete_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_restart_reconciliation_cleans_partial_preview_and_marks_failed(review_db):
+    from telepost.storage.sqlite.reviews import NewReview, ReviewRepository
+
+    repo = ReviewRepository()
+    review_id = await repo.insert(NewReview(
+        idempotency_key="api:7:partial", source="api", status="preparing",
+        user_id=7, username="tester", title="", tags="#test", note="",
+        link="", anonymous=False, spoiler=False, media=[], documents=[],
+        review_chat_id=str(review.REVIEW_CHAT_ID), review_message_ids=[82],
+    ))
+    bot = AsyncMock()
+    bot.send_message.return_value = MagicMock(message_id=83)
+
+    assert await review.reconcile_incomplete_reviews(
+        bot, stale_seconds=0
+    ) == 1
+    row = await repo.get(review_id)
+    assert row["status"] == "failed"
+    assert row["control_message_id"] == 83
+    bot.delete_message.assert_awaited_once_with(
+        chat_id=-100123, message_id=82
+    )
 
 
 @pytest.mark.asyncio
@@ -559,6 +666,39 @@ async def test_oversized_photo_stages_as_document(review_db, monkeypatch, tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_review_displays_preview_but_publishes_immutable_original_document(
+    review_db, monkeypatch, tmp_path
+):
+    original = tmp_path / "huge.png"
+    preview = tmp_path / "preview.jpg"
+    original.write_bytes(b"original" * 1024)
+    preview.write_bytes(b"preview")
+    monkeypatch.setattr(review, "PHOTO_MAX_BYTES", 1024)
+    bot = AsyncMock()
+    bot.send_photo.return_value = _photo_message(
+        message_id=10, file_id="PREVIEW_PHOTO"
+    )
+    bot.send_document.return_value = _document_message(
+        message_id=20, file_id="ORIGINAL_DOC", filename="huge.png"
+    )
+
+    media, documents = await review._stage_local_files(
+        bot,
+        [{
+            "kind": "photo", "path": str(original),
+            "preview_path": str(preview), "filename": "huge.png",
+        }],
+        "caption", False, [],
+    )
+
+    assert media == []
+    assert documents == [{"file_id": "ORIGINAL_DOC", "filename": "huge.png"}]
+    assert bot.send_photo.await_args.kwargs["photo"].filename == "preview.jpg"
+    assert bot.send_document.await_args.kwargs["document"].filename == "huge.png"
+    assert original.read_bytes().startswith(b"original")
+
+
+@pytest.mark.asyncio
 async def test_album_failure_falls_back_to_single_sends(review_db, monkeypatch):
     """相册发送失败（小内存机器超时）时自动降级逐张发送，整份投稿不失败。"""
     bot = AsyncMock()
@@ -831,6 +971,29 @@ async def test_owner_can_approve_once(review_db):
         row = await cursor.fetchone()
     assert row["status"] == "published"
     assert row["published_message_id"] == 99
+
+
+@pytest.mark.asyncio
+async def test_approve_reject_race_has_one_atomic_winner(review_db):
+    from telepost.storage.sqlite.reviews import NewReview, ReviewRepository
+
+    repo = ReviewRepository()
+    review_id = await repo.insert(NewReview(
+        idempotency_key="api:7:race", source="api", user_id=7,
+        username="tester", title="", tags="#test", note="", link="",
+        anonymous=False, spoiler=False,
+        media=[{"type": "photo", "file_id": "STAGED"}], documents=[],
+        review_chat_id=str(review.REVIEW_CHAT_ID), review_message_ids=[10],
+    ))
+
+    (claimed, _), (rejected, _) = await asyncio.gather(
+        repo.claim_for_publishing(review_id, stale_seconds=300),
+        repo.reject(review_id, actor=123456789),
+    )
+
+    assert claimed is not rejected
+    row = await repo.get(review_id)
+    assert row["status"] == ("publishing" if claimed else "rejected")
 
 
 @pytest.mark.asyncio

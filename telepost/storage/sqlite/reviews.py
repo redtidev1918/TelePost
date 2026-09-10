@@ -48,6 +48,7 @@ class NewReview:
     pixiv_id: str = ""
     work_type: str = ""
     delivery_target: str = ""
+    status: str = "pending"
 
 
 class ReviewRepository:
@@ -65,7 +66,7 @@ class ReviewRepository:
             cur = await conn.execute(
                 "SELECT * FROM pending_reviews "
                 "WHERE idempotency_key=? AND ("
-                "  status IN ('pending', 'failed')"
+                "  status IN ('preparing', 'pending', 'failed')"
                 "  OR (status='published' AND decided_at >= ?)"
                 ")",
                 (idempotency_key, time.time() - dedup_window_seconds),
@@ -103,11 +104,12 @@ class ReviewRepository:
                     target_id, source_label, source_ref, scheduled_at,
                     pixiv_id, work_type, delivery_target,
                     created_at, updated_at
-                ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                          ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    review.idempotency_key, review.source, review.user_id,
+                    review.idempotency_key, review.source, review.status,
+                    review.user_id,
                     review.username, review.title, review.tags, review.note,
                     review.link, int(review.anonymous), int(review.spoiler),
                     json.dumps(review.media), json.dumps(review.documents),
@@ -119,6 +121,51 @@ class ReviewRepository:
                 ),
             )
             return cursor.lastrowid
+
+    async def update_staged(self, review_id: int, *, media: list,
+                            documents: list, preview_message_ids: List[int]) -> bool:
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "UPDATE pending_reviews SET media_json=?, documents_json=?, "
+                "review_message_ids=?, updated_at=?, error='' "
+                "WHERE id=? AND status='preparing'",
+                (json.dumps(media), json.dumps(documents),
+                 json.dumps(preview_message_ids), time.time(), int(review_id)),
+            )
+            return cur.rowcount == 1
+
+    async def finalize_control(self, review_id: int, message_id: int, *,
+                               ready: bool = True) -> bool:
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "UPDATE pending_reviews SET control_message_id=?, status=?, "
+                "updated_at=?, error=CASE WHEN ? THEN '' ELSE error END "
+                "WHERE id=? AND status IN ('preparing', 'failed')",
+                (int(message_id), "pending" if ready else "failed",
+                 time.time(), 1 if ready else 0, int(review_id)),
+            )
+            return cur.rowcount == 1
+
+    async def mark_preparation_failed(self, review_id: int, error: str, *,
+                                      clear_previews: bool = False) -> bool:
+        previews = ", review_message_ids='[]'" if clear_previews else ""
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "UPDATE pending_reviews SET status='failed', updated_at=?, "
+                f"error=?{previews} WHERE id=? AND status='preparing'",
+                (time.time(), str(error)[:500], int(review_id)),
+            )
+            return cur.rowcount == 1
+
+    async def list_incomplete(self, *, cutoff: float, limit: int = 100) -> list:
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM pending_reviews WHERE control_message_id IS NULL "
+                "AND status IN ('preparing', 'failed') AND updated_at <= ? "
+                "ORDER BY updated_at ASC LIMIT ?",
+                (cutoff, max(1, min(int(limit), 500))),
+            )
+            return list(await cur.fetchall())
 
     async def delete(self, review_id: int) -> None:
         async with db_manager.get_db() as conn:
