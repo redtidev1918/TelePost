@@ -142,6 +142,43 @@ class TestRouterRelay:
             await bot_runner.cleanup()
 
     @pytest.mark.asyncio
+    async def test_pixivflow_trigger_uses_health_probe(self, monkeypatch):
+        from aiohttp import web
+        import aiohttp
+
+        async def fake_health(_request):
+            return web.json_response({"status": "ok"})
+
+        async def fake_trigger(_request):
+            return web.json_response({"status": "ok", "note": "completed"})
+
+        child = web.Application()
+        child.router.add_get("/health", fake_health)
+        child.router.add_post("/internal/schedules/bot1-daily/run", fake_trigger)
+
+        monkeypatch.setenv("PIXIVFLOW_ENABLED", "true")
+        monkeypatch.setenv("PIXIVFLOW_TRIGGER_PORT", "18090")
+        monkeypatch.setattr(run_mod, "bot_webhook_port", lambda i: 18091 + i)
+        router_app = run_mod.build_router_app([1])
+        child_runner = web.AppRunner(child)
+        await child_runner.setup()
+        await web.TCPSite(child_runner, "127.0.0.1", 18090).start()
+        router_runner = web.AppRunner(router_app)
+        await router_runner.setup()
+        await web.TCPSite(router_runner, "127.0.0.1", 18092).start()
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    "http://127.0.0.1:18092/internal/schedules/bot1-daily/run",
+                    data=b"{}",
+                ) as resp:
+                    assert resp.status == 200
+                    assert (await resp.json())["note"] == "completed"
+        finally:
+            await router_runner.cleanup()
+            await child_runner.cleanup()
+
+    @pytest.mark.asyncio
     async def test_health_endpoint(self, monkeypatch):
         from aiohttp import web
         from aiohttp.test_utils import TestServer
