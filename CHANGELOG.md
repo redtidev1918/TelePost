@@ -10,6 +10,13 @@
 
 ---
 
+## [2.17.1](https://github.com/redtidev1918/TelePost/compare/v2.17.0...v2.17.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* **media:** send oversized-dimension images as documents ([#39](https://github.com/redtidev1918/TelePost/issues/39)) ([493b007](https://github.com/redtidev1918/TelePost/commit/493b0078d1cf2a64b320f621cdaefae25a040a2e))
+
 ## [2.17.0](https://github.com/redtidev1918/TelePost/compare/v2.16.1...v2.17.0) (2026-09-10)
 
 
