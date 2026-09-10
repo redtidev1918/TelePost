@@ -60,18 +60,14 @@ async def _wait_for_bot_port(port: int, timeout: float = 5.0) -> None:
             await asyncio.sleep(0.1)
 
 
-async def _probe_child_ready(port: int, *, timeout: float = 0.8) -> bool:
-    """Return True once a bot child answers GET /ready with 200.
-
-    Readiness (PTB app running) is distinct from a bound socket: after a cold
-    start the relay no longer 502s a webhook that arrives in the window between
-    'port open' and 'bot initialized'. Bounded and tolerant: any failure reads
-    as 'not ready yet' rather than raising into the relay.
-    """
+async def _probe_child_ready(
+    port: int, *, timeout: float = 0.8, path: str = "/ready"
+) -> bool:
+    """Return True once a child answers its readiness path with 200."""
     from aiohttp import ClientSession, ClientTimeout
     try:
         async with ClientSession(timeout=ClientTimeout(total=timeout)) as session:
-            async with session.get(f"http://127.0.0.1:{port}/ready") as resp:
+            async with session.get(f"http://127.0.0.1:{port}{path}") as resp:
                 return resp.status == 200
     except Exception:
         return False
@@ -515,7 +511,13 @@ def build_router_app(indices: list):
     app.router.add_get("/ready", ready)
     app.router.add_get("/version", version)
 
-    def make_relay(index: int, strip: str | None, prepend: str = "", port_override: int | None = None):
+    def make_relay(
+        index: int,
+        strip: str | None,
+        prepend: str = "",
+        port_override: int | None = None,
+        ready_path: str = "/ready",
+    ):
         async def relay(request):
             path_qs = request.path_qs
             if strip and path_qs.startswith(strip):
@@ -538,11 +540,11 @@ def build_router_app(indices: list):
                 # a wedged child fails fast as 502 instead of hanging the webhook.
                 ready_deadline = float(os.environ.get("ROUTER_CHILD_READY_TIMEOUT", "30"))
                 waited = 0.0
-                ready = await _probe_child_ready(port)
+                ready = await _probe_child_ready(port, path=ready_path)
                 while not ready and waited < ready_deadline:
                     await asyncio.sleep(0.2)
                     waited += 0.2
-                    ready = await _probe_child_ready(port)
+                    ready = await _probe_child_ready(port, path=ready_path)
                 if not ready:
                     raise TimeoutError(f"bot child on port {port} not ready after {ready_deadline}s")
                 session = request.app[session_key]
@@ -599,7 +601,7 @@ def build_router_app(indices: list):
     # split/standalone deployments this block is absent entirely.
     if pixivflow_enabled():
         trigger_port = int(os.environ.get("PIXIVFLOW_TRIGGER_PORT", "8090"))
-        trigger_relay = make_relay(indices[0], None, port_override=trigger_port)
+        trigger_relay = make_relay(indices[0], None, port_override=trigger_port, ready_path="/health")
         # Trigger runs are synchronous and can take several minutes; pin the
         # longest router timeout for this path so the wake request stays open
         # (it IS the activity lease) for the whole run instead of timing out.
