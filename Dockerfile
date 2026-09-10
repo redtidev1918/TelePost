@@ -23,6 +23,10 @@ RUN npm install --prefix /opt/pixivflow "pixivflow@${PIXIVFLOW_VERSION}" \
 
 FROM python:3.11-slim AS runtime-base
 
+ARG APP_VERSION=dev
+ARG GIT_SHA=dev
+ARG BUILD_DATE=dev
+
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -39,6 +43,11 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.t
     && rm -rf /wheels
 
 COPY . .
+# Bake build identity for /version + /health. Same shape scripts/build-release
+# writes for PyInstaller bundles; the shared releasegraph workflow supplies the
+# build-args (APP_VERSION/GIT_SHA). Defaults keep a local `docker build` on dev.
+RUN printf 'RELEASE_VERSION = "%s"\nRELEASE_COMMIT = "%s"\nBUILD_DATE = "%s"\n' \
+        "${APP_VERSION}" "${GIT_SHA}" "${BUILD_DATE}" > /app/_release_version.py
 RUN mkdir -p logs data data/search_index \
     && chmod -R 755 logs data
 

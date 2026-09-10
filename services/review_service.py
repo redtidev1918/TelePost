@@ -14,6 +14,7 @@ that a stale reclaim already moved again.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import logging
@@ -24,6 +25,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from telepost.observability.errors import classify as classify_error
 from telepost.storage.sqlite.reviews import ReviewRepository
 
 logger = logging.getLogger(__name__)
@@ -262,6 +264,59 @@ def _audit(action: str, review_id: int, actor: Any, result: str, **extra) -> Non
     }
     payload.update({k: v for k, v in extra.items() if v is not None})
     logger.info("review audit %s", payload)
+    _schedule_durable_audit(action, review_id, actor, source, payload)
+
+
+def _schedule_durable_audit(action: str, review_id: int, actor: Any,
+                            source: str, payload: dict) -> None:
+    """Fire-and-forget durable twin of the stdout audit line."""
+    from telepost.observability import audit as audit_mod
+
+    event = {
+        "set_spoiler": "review.set_spoiler",
+        "toggle_spoiler": "review.toggle_spoiler",
+    }.get(action, f"review.{action}")
+    # approve/reject durable events are emitted explicitly by the service with
+    # full row context (typed error class, execution id).
+    if action in ("approve", "reject"):
+        return
+    fields = {
+        "review_id": int(review_id) if review_id is not None else None,
+        "actor": f"telegram_user:{actor}" if isinstance(actor, int) else (
+            str(actor) if actor else ("mcp" if source == "mcp" else "api")
+        ),
+        "detail": {k: v for k, v in payload.items()
+                   if k not in {"event", "review_id", "actor"}},
+    }
+    try:
+        asyncio.get_running_loop().create_task(
+            audit_mod.record_event(event, **fields)
+        )
+    except RuntimeError:
+        pass
+
+
+async def _record_review_event(event: str, row, actor: Any, *,
+                               error_class: Optional[str] = None,
+                               detail: Optional[Dict[str, Any]] = None) -> None:
+    from telepost.observability import audit as audit_mod
+
+    fields: Dict[str, Any] = {
+        "review_id": int(row["id"]),
+        "actor": f"telegram_user:{actor}" if isinstance(actor, int) else (
+            str(actor) if actor else "api"
+        ),
+        "pixiv_id": row["pixiv_id"] or None,
+        "work_type": row["work_type"] or None,
+        "target_id": row["target_id"] or None,
+        "idempotency_key": row["idempotency_key"] or None,
+        "execution_id": audit_mod.execution_id_from_ref(row["source_ref"]),
+    }
+    if error_class:
+        fields["error_class"] = error_class
+    if detail:
+        fields["detail"] = detail
+    await audit_mod.record_event(event, **fields)
 
 
 class ReviewService:
@@ -403,6 +458,10 @@ class ReviewService:
                                review_id, exc_info=True)
         _audit("reject", int(review_id), actor, "ok",
                source=source, reason=safe_reason or None)
+        await _record_review_event(
+            "review.rejected", row, actor,
+            detail={"reason": safe_reason} if safe_reason else None,
+        )
         return ActionResult(int(review_id), "rejected", False)
 
     def failure_hint(self, error: BaseException) -> str:
@@ -436,6 +495,10 @@ class ReviewService:
             raise ReviewNotFoundError("审核记录不存在")
         if not claimed:
             if row["status"] == "published":
+                await _record_review_event(
+                    "publish.duplicate_suppressed", row, actor,
+                    detail={"reuse_reason": "already_published"},
+                )
                 return ActionResult(
                     review_id, "published", True,
                     row["published_message_id"], None,
@@ -455,6 +518,7 @@ class ReviewService:
                 logger.debug("审核 claim UI 通知失败: review_id=%s", review_id,
                              exc_info=True)
 
+        await _record_review_event("publish.started", row, actor)
         try:
             result = await self._publish(bot, row, current_spoiler)
         except Exception as error:
@@ -462,6 +526,11 @@ class ReviewService:
             await self._repo.mark_failed(review_id, str(error))
             _audit("approve", review_id, actor, "failed",
                    source=source, error=str(error)[:120])
+            await _record_review_event(
+                "review.failed", row, actor,
+                error_class=classify_error(error),
+                detail={"error": str(error)[:200]},
+            )
             raise PublishFailedError(
                 str(error)[:200],
                 retry_hint=self.failure_hint(error),
@@ -497,6 +566,14 @@ class ReviewService:
                 logger.warning("通知聊天投稿人通过结果失败: review_id=%s",
                                review_id, exc_info=True)
         _audit("approve", review_id, actor, "published", source=source)
+        await _record_review_event(
+            "review.approved", row, actor,
+            detail={"message_id": result.get("message_id")},
+        )
+        await _record_review_event(
+            "publish.completed", row, actor,
+            detail={"message_id": result.get("message_id")},
+        )
         return ActionResult(
             review_id, "published", False,
             result.get("message_id"), result.get("link"),

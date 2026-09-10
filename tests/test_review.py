@@ -963,6 +963,17 @@ async def test_owner_can_approve_once(review_db):
         await review.approve_review(update, context)
 
     publish.assert_awaited_once()
+    await asyncio.sleep(0)
+    async with db_manager.get_db() as conn:
+        audit_rows = [
+            row[0] for row in await (await conn.execute(
+                "SELECT event FROM audit_events WHERE review_id=?",
+                (queued["review_id"],),
+            )).fetchall()
+        ]
+    assert audit_rows.count("review.approved") == 1
+    assert audit_rows.count("publish.completed") == 1
+    assert audit_rows.count("publish.duplicate_suppressed") == 1
     async with db_manager.get_db() as conn:
         cursor = await conn.execute(
             "SELECT status, published_message_id FROM pending_reviews WHERE id=?",
