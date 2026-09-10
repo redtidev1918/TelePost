@@ -10,7 +10,7 @@
 
 ---
 
-## [Unreleased]
+## [2.16.1](https://github.com/redtidev1918/TelePost/compare/v2.16.0...v2.16.1) (2026-09-10)
 
 ### Fixed
 
