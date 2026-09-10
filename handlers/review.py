@@ -1,8 +1,15 @@
-"""Submission review queue for API and Telegram chat submissions.
+"""Submission review queue — Telegram adapter (thin facade).
 
-Uploads are staged in a private Telegram review chat.  The database keeps
-Telegram ``file_id`` values rather than local paths, so pending reviews survive
-Fly Machine restarts without retaining the original files on disk.
+Business rules (state machine, atomic claim, idempotency, DTOs) live in
+:mod:`services.review_service`; enqueue orchestration lives in
+:mod:`telepost.application.review_queue`; the review-chat preview upload
+(flood pacing, albums, file_id staging) lives in
+:class:`telepost.telegram.review_stager.TelegramReviewStager`.
+
+This module keeps the historical public names (used by tests, the API server,
+main.py and the callback router) and wires them to those components. The
+database stores Telegram ``file_id`` values, so pending reviews survive
+restarts without retaining uploaded files.
 """
 
 import asyncio
@@ -13,42 +20,32 @@ import re
 import subprocess
 import time
 import uuid
-from collections.abc import Awaitable, Callable
 from typing import Optional
 
-import aiosqlite
-from telegram import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    InputFile,
-    InputMediaAudio,
-    InputMediaDocument,
-    InputMediaPhoto,
-    InputMediaVideo,
-)
-from telegram.error import RetryAfter
-
 from config.settings import ADMIN_IDS, REVIEW_CHAT_ID
-from database.db_manager import get_db
-from handlers.publish import (
-    _file_id_of,
-    publish_from_file_ids,
-    reclassify_oversized_photos,
-    PHOTO_MAX_BYTES as _PHOTO_MAX_BYTES,
-)
 from services.review_service import (
     PublishFailedError,
     ReviewBusyError,
     ReviewError,
     ReviewNotFoundError,
-    ReviewStateError,
     ReviewService,
+    ReviewStateError,
 )
-from utils.helper_functions import build_caption
-
+from telepost.application.review_queue import (
+    PUBLISHED_DEDUP_WINDOW_SECONDS,
+    QueueCommand,
+    ReviewQueueService,
+    normalize_idempotency_key,
+    pixiv_id_from_link as _pixiv_id_impl,
+)
+from telepost.telegram.delivery.preparation import PHOTO_MAX_BYTES
+from telepost.telegram.delivery.sender import file_id_of as _file_id_of
+from telepost.telegram.review_stager import TelegramReviewStager
+from telepost.telegram import review_keyboard
 
 logger = logging.getLogger(__name__)
 
+# ---- configuration (module attributes stay monkeypatchable) --------------
 REVIEW_PREVIEW_INTERVAL_SECONDS = max(
     0.0, float(os.getenv("REVIEW_PREVIEW_INTERVAL_SECONDS", "0.75"))
 )
@@ -57,997 +54,297 @@ REVIEW_PREVIEW_TIMEOUT_SECONDS = max(
 )
 REVIEW_PREVIEW_MAX_ATTEMPTS = 5
 # 发布中途进程崩溃会把记录卡在 publishing；超过该秒数视为僵尸，允许重新认领。
-PUBLISHING_STALE_SECONDS = max(60.0, float(os.getenv("PUBLISHING_STALE_SECONDS", "300")))
-# 审核群预览是否回复上一条消息（形成回复链，多页图集在群内视觉上连成一组）。
-# 默认开启；置 0/false 恢复为全部平铺发送。
+from services.review_service import PUBLISHING_STALE_SECONDS  # noqa: E402
 REVIEW_PREVIEW_THREAD = str(
     os.getenv("REVIEW_PREVIEW_THREAD", "1")
 ).strip().lower() in {"1", "true", "yes", "on"}
-# 审核群相册每组媒体数（Telegram 上限 10；可通过环境变量下调，小内存机器上
-# 一次性打包太多大图会让 bot 进程 RSS 飙升、健康检查失败甚至 OOM，512 MiB
-# 机型建议 4~5；相册发送失败时会自动降级为逐张发送兜底）。
-REVIEW_ALBUM_SIZE = max(1, min(10, int(os.getenv("REVIEW_ALBUM_SIZE", "5"))))
-# 待审核记录默认永久保留，保证升级后不意外删除部署者的既有队列。受限部署可显式
-# 设置天数；清理时只删除 Telegram 审核群预览并把记录标记为 expired，不直接抹掉审计。
+REVIEW_ALBUM_SIZE = max(
+    1, min(10, int(os.getenv("REVIEW_ALBUM_SIZE", "5")))
+)
 PENDING_REVIEW_RETENTION_DAYS = max(
     0, int(os.getenv("PENDING_REVIEW_RETENTION_DAYS", "0"))
 )
 PENDING_REVIEW_CLEANUP_BATCH_SIZE = max(
     1, min(200, int(os.getenv("PENDING_REVIEW_CLEANUP_BATCH_SIZE", "100")))
 )
-# Telegram 图片单张上限（含相册）10 MiB，超过按文档发送；与频道发布共用同一阈值
-# （handlers.publish.PHOTO_MAX_BYTES），保留别名供本模块其余处引用。
-PHOTO_MAX_BYTES = _PHOTO_MAX_BYTES
-# 已发布作品在 N 秒内被同一 idempotency_key 再次投递时视为重复（PixivFlow 去重失效
-# 会把已发布作品重新投进审核群，造成"审核完了又转发"），跳过而不重建审核记录。
-PUBLISHED_DEDUP_WINDOW_SECONDS = 7 * 86400
-# "重抓/换一张" 的 run-once 串行跑完所有启用 schedule，每个受 plan.timeout（生产为
-# 1800s）watchdog 保护，2 个 schedule 最坏约 3600s；这里给足余量，避免把仍在下载的
-# 重抓进程提前掐断误报 "timed out"。
 REFETCH_TIMEOUT_SECONDS = 3900
+
+_PIXIV_ID_RE = re.compile(r"pixiv\.net/(?:artworks/|novel/show\.php\?id=)(\d+)")
+
+
+def _pixiv_id_from_link(link: str) -> str:
+    return _pixiv_id_impl(link)
+
+
+# ---- service singletons ---------------------------------------------------
+async def publish_from_file_ids(*args, **kwargs):
+    """Compatibility seam: tests/deployment monkey-patch this name.
+
+    Resolved lazily to avoid the handlers.publish ↔ handlers.review import
+    cycle; patching ``handlers.review.publish_from_file_ids`` replaces this
+    whole function, which is exactly the seam the tests rely on.
+    """
+    from handlers.publish import publish_from_file_ids as _impl
+    return await _impl(*args, **kwargs)
 
 
 async def _publish_from_file_ids(*args, **kwargs):
-    # Compatibility seam: tests and deployment monkey-patch the PTB adapter name;
-    # the actual transition still belongs to ReviewService.approve().
     return await publish_from_file_ids(*args, **kwargs)
 
 
 review_service = ReviewService(_publish_from_file_ids)
+queue_service = ReviewQueueService()
 
 
-def _review_keyboard(
-    review_id: int,
-    link: str = "",
-    *,
-    spoiler: bool = False,
-    source: str = "api",
-    pixiv_id: str = "",
-    failed: bool = False,
-) -> InlineKeyboardMarkup:
-    # 发布失败后主按钮改为显眼的重试；callback 仍是 approve，
-    # approve_review 对 failed 记录可重新 claim。
-    approve_label = "🔄 重试发布" if failed else "✅ 发布到频道"
-    rows = [[
-        InlineKeyboardButton(approve_label, callback_data=f"review_approve:{review_id}"),
-        InlineKeyboardButton("❌ 拒绝", callback_data=f"review_reject:{review_id}"),
-    ]]
-    # 审核员可在发布前决定频道遮罩；初始值沿用投稿者设置。
-    rows.append([
-        InlineKeyboardButton(
-            f"🔇 遮罩：{'开' if spoiler else '关'}",
-            callback_data=f"review_spoiler:{review_id}",
-        ),
-    ])
-    # 仅 Pixiv 自动投稿（HTTP API + 携带 pixivId）提供"重抓/换一张"。
-    if source == "api" and pixiv_id:
-        rows[-1].append(
-            InlineKeyboardButton(
-                "🔄 重抓/换一张",
-                callback_data=f"review_refetch:{review_id}",
-            )
-        )
-    if link:
-        rows.append([InlineKeyboardButton("🔗 查看原链接", url=link)])
-    return InlineKeyboardMarkup(rows)
+def _stager(bot) -> TelegramReviewStager:
+    # Read globals at call time so tests monkeypatching
+    # handlers.review.REVIEW_CHAT_ID / REVIEW_ALBUM_SIZE take effect.
+    stager = TelegramReviewStager(
+        bot,
+        globals()["REVIEW_CHAT_ID"],
+        album_size=globals()["REVIEW_ALBUM_SIZE"],
+        preview_interval=globals()["REVIEW_PREVIEW_INTERVAL_SECONDS"],
+        preview_timeout=globals()["REVIEW_PREVIEW_TIMEOUT_SECONDS"],
+        preview_max_attempts=globals()["REVIEW_PREVIEW_MAX_ATTEMPTS"],
+        thread=globals()["REVIEW_PREVIEW_THREAD"],
+        photo_max_bytes=globals()["PHOTO_MAX_BYTES"],
+        chat_id_getter=lambda: globals()["REVIEW_CHAT_ID"],
+    )
+    # Tests patch handlers.review.asyncio.sleep to fast-forward throttle waits.
+    stager._sleep = asyncio.sleep
+    return stager
+
+
+# ---- back-compat UI names -------------------------------------------------
+def _review_keyboard(review_id, link="", *, spoiler=False, source="api",
+                     pixiv_id="", failed=False):
+    return review_keyboard.review_keyboard(
+        review_id, link, spoiler=spoiler, source=source,
+        pixiv_id=pixiv_id, failed=failed,
+    )
 
 
 def _caption_data(*, tags, title, note, link, anonymous, spoiler, user_id, username):
     return {
-        "tags": tags,
-        "title": title,
-        "note": note,
-        "link": link,
+        "tags": tags, "title": title, "note": note, "link": link,
         "anonymous": "true" if anonymous else "false",
         "spoiler": "true" if spoiler else "false",
-        "user_id": user_id,
-        "username": username,
+        "user_id": user_id, "username": username,
     }
 
 
 def _result_from_row(row, *, reused: bool = False, reuse_reason: str = "") -> dict:
-    status = "pending_review" if row["status"] == "pending" else row["status"]
-    result = {
-        "status": status,
-        "review_id": row["id"],
-        "media_count": len(json.loads(row["media_json"] or "[]")),
-        "document_count": len(json.loads(row["documents_json"] or "[]")),
-        "reused": reused,
-    }
-    if reused:
-        # Distinguish an ACK-loss replay of the SAME intent from a DIFFERENT
-        # intent for a work already published by another slot/key.
-        result["reuse_reason"] = reuse_reason or "idempotent_replay"
-        result["matched_idempotency_key"] = row["idempotency_key"]
-        result["delivery_status"] = status
-    if row["published_message_id"]:
-        result["message_id"] = row["published_message_id"]
-    return result
+    return ReviewQueueService.result_from_row(
+        row, reused=reused, reuse_reason=reuse_reason
+    )
 
 
 def _source_label(source: str) -> str:
     return "Telegram 聊天" if source == "chat" else "HTTP API"
 
 
-def _thumbnail_file_id(message) -> str:
-    for attr in ("video", "animation", "document", "audio"):
-        value = getattr(message, attr, None)
-        thumbnail = getattr(value, "thumbnail", None) or getattr(value, "thumb", None)
-        if thumbnail and getattr(thumbnail, "file_id", ""):
-            return thumbnail.file_id
-    return ""
+# ---- back-compat preview staging delegates -------------------------------
+async def _stage_file_ids(bot, media, documents, caption: str, spoiler: bool,
+                          message_ids):
+    stager = _stager(bot)
+    staged_media, staged_documents, preview_ids = await stager.stage_file_ids(
+        media, documents, caption=caption, spoiler=spoiler
+    )
+    message_ids.extend(preview_ids)
+    return staged_media, staged_documents
 
 
-_PIXIV_ID_RE = re.compile(r"pixiv\.net/(?:artworks/|novel/show\.php\?id=)(\d+)")
+async def _stage_local_files(bot, files, caption: str, spoiler: bool, message_ids):
+    stager = _stager(bot)
+    staged_media, staged_documents, preview_ids = await stager.stage_local(
+        files, caption=caption, spoiler=spoiler
+    )
+    message_ids.extend(preview_ids)
+    return staged_media, staged_documents
 
 
-def _pixiv_id_from_link(link: str) -> str:
-    """Extract the Pixiv work id from a Pixiv link ('' if not a Pixiv link)."""
-    if not link:
-        return ""
-    m = _PIXIV_ID_RE.search(link)
-    return m.group(1) if m else ""
+def _make_media_item(kind, media, *, caption=None, spoiler=False, filename=None):
+    return _stager(None)._make_media_item(
+        kind, media, caption=caption, spoiler=spoiler, filename=filename
+    )
 
 
-async def _find_review(idempotency_key: str):
-    # 幂等：
-    # - pending / failed：仍在途（可重试），命中同一 key 时复用原记录；
-    # - published 且最近（PUBLISHED_DEDUP_WINDOW_SECONDS 内）：视为重复投递，返回
-    #   已发布记录让调用方跳过——防止 PixivFlow 去重失效时把已发布作品再次投进审核群
-    #   造成"审核完了又转发"；
-    # - rejected / 更早的 published：不阻断，允许创建新审核记录（换一张 / 重新考虑）。
-    async with get_db() as conn:
-        cursor = await conn.execute(
-            "SELECT * FROM pending_reviews "
-            "WHERE idempotency_key=? AND ("
-            "  status IN ('pending', 'failed')"
-            "  OR (status='published' AND decided_at >= ?)"
-            ")",
-            (idempotency_key, time.time() - PUBLISHED_DEDUP_WINDOW_SECONDS),
-        )
-        return await cursor.fetchone()
+def _album_family(kind: str):
+    return _stager(None)._family(kind)
+
+
+async def _send_local_preview_single(bot, item, caption, spoiler, *,
+                                     timeout_kwargs=None):
+    """Back-compat single local preview send (used by tests/older callers)."""
+    from telegram import InputFile
+    from telepost.telegram.delivery.sender import timeout_kwargs as _tk
+    timeouts = timeout_kwargs if timeout_kwargs is not None else _tk(
+        globals()["REVIEW_PREVIEW_TIMEOUT_SECONDS"]
+    )
+    handle = open(item["path"], "rb")
+    media = InputFile(handle, filename=item["filename"],
+                      read_file_handle=False, attach=True)
+    kwargs = dict(chat_id=REVIEW_CHAT_ID, caption=caption,
+                  parse_mode="HTML" if caption else None,
+                  reply_to_message_id=None, **timeouts)
+    try:
+        if item["kind"] == "photo":
+            return await bot.send_photo(photo=media, has_spoiler=spoiler, **kwargs)
+        if item["kind"] == "video":
+            return await bot.send_video(video=media, has_spoiler=spoiler, **kwargs)
+        if item["kind"] == "animation":
+            return await bot.send_animation(animation=media, has_spoiler=spoiler,
+                                            **kwargs)
+        if item["kind"] == "audio":
+            return await bot.send_audio(audio=media, **kwargs)
+        return await bot.send_document(document=media, filename=item["filename"],
+                                       **kwargs)
+    finally:
+        handle.close()
+
+
+def _review_timeout_kwargs() -> dict:
+    from telepost.telegram.delivery.sender import timeout_kwargs
+    return timeout_kwargs(REVIEW_PREVIEW_TIMEOUT_SECONDS)
+
+
+def _review_message_ids(row) -> list:
+    import json as _json
+    try:
+        ids = [int(v) for v in _json.loads(row["review_message_ids"] or "[]")]
+    except (TypeError, ValueError, _json.JSONDecodeError):
+        ids = []
+    control = row["control_message_id"]
+    if control:
+        ids.append(int(control))
+    return list(dict.fromkeys(ids))
 
 
 async def _delete_messages(bot, message_ids):
-    for message_id in message_ids:
-        try:
-            await bot.delete_message(chat_id=REVIEW_CHAT_ID, message_id=message_id)
-        except Exception:
-            logger.debug("清理审核群预览消息失败: %s", message_id, exc_info=True)
-
-
-def _review_message_ids(row) -> list[int]:
-    """Return every Telegram message owned by a review, without duplicates."""
-    try:
-        message_ids = [int(value) for value in json.loads(row["review_message_ids"] or "[]")]
-    except (TypeError, ValueError, json.JSONDecodeError):
-        message_ids = []
-    control_message_id = row["control_message_id"]
-    if control_message_id:
-        message_ids.append(int(control_message_id))
-    return list(dict.fromkeys(message_ids))
-
-
-async def _notify_reused_review(bot, row) -> None:
-    """Make an idempotent reuse visible without uploading the media again."""
-    labels = {
-        "pending": "待审核",
-        "failed": "发布失败，可重试",
-        "published": "已发布，本次未重复发布",
-    }
-    text = (
-        "♻️ 收到重复投稿，已复用现有审核\n"
-        f"审核：#{row['id']}\n"
-        f"状态：{labels.get(row['status'], row['status'])}\n"
-        "媒体未重复上传，原审核记录仍有效。"
-    )
-    kwargs = {
-        "chat_id": REVIEW_CHAT_ID,
-        "text": text,
-        "disable_web_page_preview": True,
-        **_review_timeout_kwargs(),
-    }
-    if str(row["review_chat_id"]) == str(REVIEW_CHAT_ID):
-        message_ids = _review_message_ids(row)
-        if message_ids:
-            kwargs.update(
-                reply_to_message_id=message_ids[-1],
-                allow_sending_without_reply=True,
-            )
-    await _send_preview_throttled(lambda: bot.send_message(**kwargs))
-    logger.info(
-        "重复投稿已在审核群提示: review_id=%s status=%s",
-        row["id"], row["status"],
-    )
-
-
-async def _reuse_review(bot, row, target_id: str = "", reuse_reason: str = "idempotent_replay") -> dict:
-    """Backfill source identity, notify reviewers, and return a reusable result."""
-    if target_id and not row["target_id"]:
-        async with get_db() as conn:
-            await conn.execute(
-                "UPDATE pending_reviews SET target_id=?, updated_at=? "
-                "WHERE id=? AND COALESCE(target_id, '')=''",
-                (target_id, time.time(), row["id"]),
-            )
-    await _notify_reused_review(bot, row)
-    return _result_from_row(row, reused=True, reuse_reason=reuse_reason)
-
-
-async def _find_published_work(target_id: str, work_type: str, pixiv_id: str):
-    """Find a recently PUBLISHED review for the same downstream work+target under a
-    DIFFERENT idempotency key. This is the cross-intent historical duplicate case
-    (e.g. a new occurrence selecting a work already posted by an older slot)."""
-    if not pixiv_id:
-        return None
-    async with get_db() as conn:
-        sql = (
-            "SELECT * FROM pending_reviews "
-            "WHERE status='published' AND work_type=? AND pixiv_id=? "
-            "AND decided_at >= ?"
-        )
-        params: list = [work_type, pixiv_id, time.time() - PUBLISHED_DEDUP_WINDOW_SECONDS]
-        if target_id:
-            sql += " AND target_id=?"
-            params.append(target_id)
-        sql += " ORDER BY decided_at DESC LIMIT 1"
-        cursor = await conn.execute(sql, params)
-        return await cursor.fetchone()
-
-
-async def expire_stale_reviews(bot, *, now: Optional[float] = None) -> int:
-    """Expire stale pending reviews and remove their Telegram review messages.
-
-    The SQLite row is retained as a small audit record and is removed later by
-    ``REVIEW_RETENTION_DAYS``.  Claiming rows as ``expired`` before Telegram I/O
-    prevents a concurrent approval from publishing an item while it is being
-    cleaned up.
-    """
-    if PENDING_REVIEW_RETENTION_DAYS <= 0:
-        return 0
-
-    current_time = time.time() if now is None else now
-    cutoff = current_time - PENDING_REVIEW_RETENTION_DAYS * 86400
-    rows = []
-    async with get_db() as conn:
-        await conn.execute("BEGIN IMMEDIATE")
-        cursor = await conn.execute(
-            "SELECT * FROM pending_reviews "
-            "WHERE status='pending' AND created_at < ? "
-            "ORDER BY created_at ASC LIMIT ?",
-            (cutoff, PENDING_REVIEW_CLEANUP_BATCH_SIZE),
-        )
-        candidates = await cursor.fetchall()
-        for row in candidates:
-            cursor = await conn.execute(
-                "UPDATE pending_reviews "
-                "SET status='expired', updated_at=?, decided_at=?, "
-                "error=? WHERE id=? AND status='pending'",
-                (
-                    current_time,
-                    current_time,
-                    f"pending review expired after {PENDING_REVIEW_RETENTION_DAYS} days",
-                    row["id"],
-                ),
-            )
-            if cursor.rowcount == 1:
-                rows.append(row)
-
-    for row in rows:
-        await _delete_messages(bot, _review_message_ids(row))
-        await _notify_chat_submitter(
-            bot,
-            row,
-            f"⌛ 你的投稿超过 {PENDING_REVIEW_RETENTION_DAYS} 天未审核，已自动过期。",
-        )
-
-    if rows:
-        logger.info(
-            "已过期并清理 %d 条待审核投稿（保留 %d 天）",
-            len(rows),
-            PENDING_REVIEW_RETENTION_DAYS,
-        )
-    return len(rows)
+    await _stager(bot).delete_preview_messages(message_ids)
 
 
 def _cleanup_local_files(files):
+    import os as _os
     directories = set()
-    for item in files:
+    for item in files or []:
         path = item.get("path")
         if not path:
             continue
-        directories.add(os.path.dirname(path))
+        directories.add(_os.path.dirname(path))
         try:
-            os.remove(path)
+            _os.remove(path)
         except FileNotFoundError:
             pass
         except OSError:
             logger.warning("删除 API 临时文件失败: %s", path, exc_info=True)
     for directory in directories:
         try:
-            os.rmdir(directory)
+            _os.rmdir(directory)
         except OSError:
             pass
 
 
-def _review_timeout_kwargs() -> dict:
-    return {
-        "read_timeout": REVIEW_PREVIEW_TIMEOUT_SECONDS,
-        "write_timeout": REVIEW_PREVIEW_TIMEOUT_SECONDS,
-        "connect_timeout": min(REVIEW_PREVIEW_TIMEOUT_SECONDS, 30.0),
-        "pool_timeout": min(REVIEW_PREVIEW_TIMEOUT_SECONDS, 30.0),
-    }
-
-
-def _make_media_item(kind: str, media, *, caption=None, spoiler=False, filename=None):
-    """Build an InputMedia* for a media group (album).
-
-    - photo/video carry has_spoiler for the R-18 blur cover;
-    - documents/audio do not support spoilers;
-    - caption is attached to the first item of the first album only.
-    """
-    parse_mode = "HTML" if caption else None
-    if kind == "photo":
-        return InputMediaPhoto(media=media, caption=caption, parse_mode=parse_mode, has_spoiler=spoiler)
-    if kind == "video":
-        return InputMediaVideo(media=media, caption=caption, parse_mode=parse_mode, has_spoiler=spoiler)
-    if kind == "audio":
-        return InputMediaAudio(media=media, caption=caption, parse_mode=parse_mode)
-    if filename:
-        return InputMediaDocument(media=media, filename=filename, caption=caption, parse_mode=parse_mode)
-    return InputMediaDocument(media=media, caption=caption, parse_mode=parse_mode)
-
-
-def _album_family(kind: str) -> Optional[str]:
-    """Return the compatible Telegram media-group family for a kind.
-
-    Photos and videos may share one album. Audio and documents each require
-    their own homogeneous album. Animations are not accepted by
-    ``sendMediaGroup`` and therefore stay standalone.
-    """
-    if kind in {"photo", "video"}:
-        return "visual"
-    if kind in {"audio", "document"}:
-        return kind
-    return None
-
-
-async def _send_local_preview_album(bot, chunk, caption, spoiler, *, reply_to_message_id=None):
-    """Send a chunk of local files as one Telegram media group (album)."""
-    async def _factory():
-        # RetryAfter must create fresh InputFile objects and reopen every file;
-        # reusing handles after an attempted upload can resend empty bodies.
-        # attach=True is REQUIRED for media groups: without it python-telegram-bot
-        # drops the "media" field of each InputMedia (no attach:// URI), and
-        # Telegram answers "Can't parse inputmedia: media not found".
-        open_handles = []
-        try:
-            media_group = []
-            for index, item in enumerate(chunk):
-                handle = open(item["path"], "rb")
-                open_handles.append(handle)
-                media = InputFile(
-                    handle,
-                    filename=item["filename"],
-                    read_file_handle=False,
-                    attach=True,
-                )
-                media_group.append(
-                    _make_media_item(
-                        item["kind"], media,
-                        caption=caption if index == 0 else None,
-                        spoiler=spoiler,
-                        filename=item["filename"],
-                    )
-                )
-            kwargs = dict(
-                chat_id=REVIEW_CHAT_ID,
-                media=media_group,
-                **_review_timeout_kwargs(),
-            )
-            if reply_to_message_id is not None:
-                kwargs["reply_to_message_id"] = reply_to_message_id
-            return await bot.send_media_group(**kwargs)
-        finally:
-            for handle in open_handles:
-                try:
-                    handle.close()
-                except Exception:
-                    logger.debug("关闭预览文件句柄失败", exc_info=True)
-
-    return await _send_preview_throttled(_factory)
-
-
-async def _send_local_preview_single(bot, item, caption, spoiler, *, reply_to_message_id=None):
-    """Send one local file as a standalone message (1-item fallback / odd file)."""
-    common = {"chat_id": REVIEW_CHAT_ID, **_review_timeout_kwargs()}
-    if reply_to_message_id is not None:
-        common["reply_to_message_id"] = reply_to_message_id
-    kind = item["kind"]
-
-    async def _factory():
-        handle = open(item["path"], "rb")
-        try:
-            media = InputFile(handle, filename=item["filename"], read_file_handle=False)
-            if kind == "photo":
-                return await bot.send_photo(photo=media, caption=caption, parse_mode="HTML" if caption else None, has_spoiler=spoiler, **common)
-            if kind == "video":
-                return await bot.send_video(video=media, caption=caption, parse_mode="HTML" if caption else None, has_spoiler=spoiler, **common)
-            if kind == "animation":
-                return await bot.send_animation(animation=media, caption=caption, parse_mode="HTML" if caption else None, has_spoiler=spoiler, **common)
-            if kind == "audio":
-                return await bot.send_audio(audio=media, caption=caption, parse_mode="HTML" if caption else None, **common)
-            return await bot.send_document(document=media, filename=item.get("filename"), caption=caption, parse_mode="HTML" if caption else None, **common)
-        finally:
-            handle.close()
-
-    return await _send_preview_throttled(_factory)
-
-
-async def _send_file_id_preview_album(bot, chunk, caption, spoiler, *, reply_to_message_id=None):
-    """Send a chunk of existing file_ids as one Telegram media group (album)."""
-    media_group = []
-    for index, item in enumerate(chunk):
-        item_caption = caption if index == 0 else None
-        media_group.append(
-            _make_media_item(
-                item["kind"], item["file_id"],
-                caption=item_caption,
-                spoiler=spoiler,
-                filename=item.get("filename"),
-            )
-        )
-    kwargs = dict(chat_id=REVIEW_CHAT_ID, media=media_group, **_review_timeout_kwargs())
-    if reply_to_message_id is not None:
-        kwargs["reply_to_message_id"] = reply_to_message_id
-    return await _send_preview_throttled(lambda: bot.send_media_group(**kwargs))
-
-
-async def _send_file_id_preview_single(bot, item, caption, spoiler, *, reply_to_message_id=None):
-    """Send one existing file_id as a standalone message."""
-    common = {"chat_id": REVIEW_CHAT_ID, **_review_timeout_kwargs()}
-    if reply_to_message_id is not None:
-        common["reply_to_message_id"] = reply_to_message_id
-    kind = item["kind"]
-    item_caption = caption
-    parse_mode = "HTML" if item_caption else None
-    kw = dict(caption=item_caption, parse_mode=parse_mode, **common)
-
-    if kind == "photo":
-        return await _send_preview_throttled(
-            lambda: bot.send_photo(photo=item["file_id"], has_spoiler=spoiler, **kw)
-        )
-    if kind == "video":
-        return await _send_preview_throttled(
-            lambda: bot.send_video(video=item["file_id"], has_spoiler=spoiler, **kw)
-        )
-    if kind == "animation":
-        return await _send_preview_throttled(
-            lambda: bot.send_animation(animation=item["file_id"], has_spoiler=spoiler, **kw)
-        )
-    if kind == "audio":
-        return await _send_preview_throttled(
-            lambda: bot.send_audio(audio=item["file_id"], **kw)
-        )
-    return await _send_preview_throttled(
-        lambda: bot.send_document(
-            document=item["file_id"], filename=item.get("filename"), **kw
-        )
+# ---- enqueue --------------------------------------------------------------
+async def queue_review_from_file_ids(
+    bot, media, documents, *, tags="", title="", note="", link="",
+    anonymous=False, spoiler=False, user_id, username="",
+    idempotency_key="", source="api", target_id="", source_label="",
+    source_ref="", scheduled_at="", work_type="", pixiv_id="",
+) -> dict:
+    """Stage a file_id submission and create a durable pending review."""
+    key = normalize_idempotency_key(user_id, idempotency_key, source)
+    command = QueueCommand(
+        user_id=user_id, username=username, tags=tags, title=title, note=note,
+        link=link, anonymous=anonymous, spoiler=spoiler, source=source,
+        idempotency_key=key, target_id=target_id, work_type=work_type,
+        pixiv_id=pixiv_id, source_label=source_label, source_ref=source_ref,
+        scheduled_at=scheduled_at, review_chat_id=str(REVIEW_CHAT_ID),
     )
-
-
-def _retry_after_seconds(exc: RetryAfter) -> float:
-    value = getattr(exc, "retry_after", 5) or 5
-    if hasattr(value, "total_seconds"):
-        value = value.total_seconds()
-    try:
-        return max(float(value), 0.0)
-    except (TypeError, ValueError):
-        return 5.0
-
-
-async def _send_preview_throttled(send_factory: Callable[[], Awaitable]):
-    """Send one review preview (album or message) with flood-control backoff.
-
-    Staging a multi-page album (e.g. a 24-page Pixiv work) sends media groups
-    to the review chat in a row; without pacing, Telegram answers with
-    RetryAfter / flood control. Wait out RetryAfter with exponential backoff
-    (cap 60 s per pause) so a longer flood window still recovers instead of
-    failing the whole submission.
-    """
-    last_error = None
-    for attempt in range(REVIEW_PREVIEW_MAX_ATTEMPTS):
-        try:
-            # A factory is required here: an awaited coroutine cannot be
-            # reused after RetryAfter. It also reopens local files per retry.
-            return await send_factory()
-        except RetryAfter as exc:
-            last_error = exc
-            wait = min(
-                (_retry_after_seconds(exc) * (2 ** attempt)) + 1.0,
-                60.0,
-            )
-            logger.warning(
-                "审核预览触发 Telegram 限流，等待 %.1fs 后重试（第 %d/%d 次）",
-                wait, attempt + 1, REVIEW_PREVIEW_MAX_ATTEMPTS,
-            )
-        except Exception as exc:
-            msg = str(exc).lower()
-            if not any(k in msg for k in ("flood", "retry after", "too many")):
-                raise
-            last_error = exc
-            wait = 5.0
-
-        if attempt + 1 >= REVIEW_PREVIEW_MAX_ATTEMPTS:
-            raise last_error
-        await asyncio.sleep(wait)
-
-    raise RuntimeError("审核预览重试次数已耗尽")
-
-
-async def _pace_review_preview(index: int) -> None:
-    if index > 0 and REVIEW_PREVIEW_INTERVAL_SECONDS > 0:
-        await asyncio.sleep(REVIEW_PREVIEW_INTERVAL_SECONDS)
-
-
-async def _stage_items(bot, items, caption, spoiler, message_ids, *, local):
-    """Stage files as media-group albums with a reply chain between groups.
-
-    Items are partitioned by Telegram-compatible album families. Each run of
-    up to REVIEW_ALBUM_SIZE compatible files becomes one album; a run of one,
-    and every animation, is sent standalone (so a single novel keeps caption).
-    When REVIEW_PREVIEW_THREAD is on, every following album / standalone
-    message replies to the last sent message, forming one visual thread.
-
-    Memory safety for small (512 MiB) machines: an album send that fails
-    (timeout / network / flood) automatically falls back to sending the chunk
-    one file at a time, so a large Pixiv set never fails the whole submission
-    and the RSS peak stays bounded by one file per request.
-
-    Oversized photos (> PHOTO_MAX_BYTES) are reclassified as documents before
-    partitioning: Telegram's photo uploads (single or media group) reject
-    files above 10 MiB, while documents accept up to 50 MiB. Without this a
-    single large original PNG page would fail the whole review staging.
-    """
-    # 超大原图（>9.5 MiB）Telegram 无法作为照片发送，改按文档投递；
-    # 与频道发布共用 handlers.publish.reclassify_oversized_photos。
-    if local:
-        items[:] = reclassify_oversized_photos(
-            items, max_bytes=PHOTO_MAX_BYTES
-        )
-
-    staged_media: list = []
-    staged_documents: list = []
-
-    # Partition into maximal compatible runs, chunked to the album cap.
-    ordered_runs: list[tuple[Optional[str], list]] = []
-    for item in items:
-        kind = item["kind"] if local else item["type"]
-        family = _album_family(kind)
-        if (
-            family is not None
-            and ordered_runs
-            and ordered_runs[-1][0] == family
-            and len(ordered_runs[-1][1]) < REVIEW_ALBUM_SIZE
-        ):
-            ordered_runs[-1][1].append(item)
-        else:
-            # None families (animations/unknowns) always become standalone.
-            ordered_runs.append((family, [item]))
-
-    async def _send_album(chunk, album_caption, reply_to):
-        if local:
-            return await _send_local_preview_album(
-                bot, chunk, album_caption, spoiler, reply_to_message_id=reply_to
-            )
-        return await _send_file_id_preview_album(
-            bot, chunk, album_caption, spoiler, reply_to_message_id=reply_to
-        )
-
-    async def _send_single(item, item_caption, reply_to):
-        if local:
-            return await _send_local_preview_single(
-                bot, item, item_caption, spoiler, reply_to_message_id=reply_to
-            )
-        return await _send_file_id_preview_single(
-            bot, item, item_caption, spoiler, reply_to_message_id=reply_to
-        )
-
-    last_message_id = None
-    album_index = 0
-
-    for family, chunk in ordered_runs:
-        reply_to = last_message_id if (REVIEW_PREVIEW_THREAD and last_message_id is not None) else None
-        is_album = family is not None and len(chunk) > 1
-        chunk_caption = caption if album_index == 0 else None
-
-        messages = None
-        if is_album:
-            await _pace_review_preview(album_index)
-            try:
-                messages = await _send_album(chunk, chunk_caption, reply_to)
-            except Exception as exc:
-                # 相册一次性打包多张大图时，小内存机器可能超时/连接中断；
-                # 降级为逐张发送，RSS 峰值只与单张文件相关，整份投稿不失败。
-                logger.warning(
-                    "审核相册发送失败（%s），降级为逐张发送 %d 个文件",
-                    exc, len(chunk),
-                )
-                messages = None
-
-        if messages is not None and len(messages) != len(chunk):
-            # Record the partial album first so the caller's cleanup deletes
-            # whatever Telegram actually received, then fail loudly.
-            for message in messages:
-                message_ids.append(message.message_id)
-            # Never persist a partial review: the caller deletes every known
-            # preview and temporary upload file on this exception.
-            raise RuntimeError(
-                f"审核相册返回消息数 {len(messages)} 与文件数 {len(chunk)} 不一致"
-            )
-
-        if messages is None:
-            # Fallback / standalone path: one message per file.
-            messages = []
-            for within, item in enumerate(chunk):
-                if is_album:
-                    # 降级逐张：每张之间按常规预览间隔限速
-                    await _pace_review_preview(1 if within > 0 else 0)
-                item_reply = reply_to if within == 0 else (
-                    last_message_id if (REVIEW_PREVIEW_THREAD and last_message_id is not None) else None
-                )
-                single_caption = chunk_caption if within == 0 else None
-                single_msg = await _send_single(item, single_caption, item_reply)
-                messages.append(single_msg)
-                for m in [single_msg]:
-                    message_ids.append(m.message_id)
-                last_message_id = single_msg.message_id
-        else:
-            for message in messages:
-                message_ids.append(message.message_id)
-            last_message_id = messages[-1].message_id
-
-        album_index += 1
-
-        for message, item in zip(messages, chunk):
-            file_id = _file_id_of(message)
-            if not file_id:
-                raise RuntimeError("审核群预览未返回 Telegram file_id")
-            item_kind = item["kind"] if local else item["type"]
-            if item_kind == "document":
-                staged_documents.append({
-                    "file_id": file_id,
-                    "filename": item.get("filename") or "file",
-                })
-            else:
-                staged_item = {"type": item_kind, "file_id": file_id}
-                thumbnail_file_id = _thumbnail_file_id(message)
-                if thumbnail_file_id:
-                    staged_item["thumbnail_file_id"] = thumbnail_file_id
-                staged_media.append(staged_item)
-
-    return staged_media, staged_documents
-
-
-async def _stage_local_files(bot, files, caption: str, spoiler: bool, message_ids):
-    return await _stage_items(
-        bot, files, caption, spoiler, message_ids, local=True
+    return await queue_service.enqueue(
+        command, _stager(bot), media=media, documents=documents
     )
-
-
-async def _stage_file_ids(bot, media, documents, caption: str, spoiler: bool, message_ids):
-    items = []
-    for item in media:
-        items.append({"kind": item["type"], "type": item["type"], "file_id": item["file_id"]})
-    for item in documents:
-        items.append({
-            "kind": "document", "type": "document",
-            "file_id": item["file_id"], "filename": item.get("filename") or "file",
-        })
-    return await _stage_items(
-        bot, items, caption, spoiler, message_ids, local=False
-    )
-
-
-async def _create_review(
-    bot,
-    *,
-    media,
-    documents,
-    review_message_ids,
-    idempotency_key,
-    source,
-    tags,
-    title,
-    note,
-    link,
-    anonymous,
-    spoiler,
-    user_id,
-    username,
-    target_id="",
-    source_label="",
-    source_ref="",
-    scheduled_at="",
-):
-    now = time.time()
-    review_id = None
-    for _attempt in range(2):
-        try:
-            async with get_db() as conn:
-                cursor = await conn.execute(
-                    """
-                    INSERT INTO pending_reviews (
-                        idempotency_key, source, status, user_id, username, title, tags, note, link,
-                        anonymous, spoiler, media_json, documents_json, review_chat_id,
-                        review_message_ids, target_id, source_label, source_ref, scheduled_at,
-                        created_at, updated_at
-                    ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        idempotency_key,
-                        source,
-                        user_id,
-                        username,
-                        title,
-                        tags,
-                        note,
-                        link,
-                        int(anonymous),
-                        int(spoiler),
-                        json.dumps(media),
-                        json.dumps(documents),
-                        str(REVIEW_CHAT_ID),
-                        json.dumps(review_message_ids),
-                        target_id,
-                        source_label,
-                        source_ref,
-                        scheduled_at,
-                        now,
-                        now,
-                    ),
-                )
-                review_id = cursor.lastrowid
-            break
-        except aiosqlite.IntegrityError:
-            # 同 key 已存在：pending/failed 复用原记录（新预览随后被清理）；
-            # 最近发布的视为重复投递直接跳过；rejected/更早的 published 不阻断——
-            # 删除旧记录与旧预览后重试插入，新预览消息继续保留复用。
-            async with get_db() as conn:
-                cursor = await conn.execute(
-                    "SELECT * FROM pending_reviews WHERE idempotency_key=?",
-                    (idempotency_key,),
-                )
-                existing = await cursor.fetchone()
-            if existing is None:
-                raise
-            if existing["status"] in ("pending", "failed"):
-                await _delete_messages(bot, review_message_ids)
-                return await _reuse_review(bot, existing, target_id)
-            if (
-                existing["status"] == "published"
-                and (existing["decided_at"] or 0) >= time.time() - PUBLISHED_DEDUP_WINDOW_SECONDS
-            ):
-                await _delete_messages(bot, review_message_ids)
-                logger.info(
-                    "跳过已发布作品的重复投递: idempotency_key=%s review_id=%s",
-                    idempotency_key, existing["id"],
-                )
-                return await _reuse_review(bot, existing, target_id)
-            await _delete_messages(bot, json.loads(existing["review_message_ids"] or "[]"))
-            if existing["control_message_id"]:
-                await _delete_messages(bot, [existing["control_message_id"]])
-            async with get_db() as conn:
-                await conn.execute("DELETE FROM pending_reviews WHERE id=?", (existing["id"],))
-            continue
-    if review_id is None:
-        raise RuntimeError("创建审核记录失败：幂等键冲突且无法覆盖旧记录")
-
-    provenance_line = ""
-    if source_label:
-        provenance_line = f"🏷️ {source_label}\n"
-    elif scheduled_at:
-        provenance_line = f"🕐 {scheduled_at}\n"
-
-    control_text = (
-        f"🕵️ 投稿待审核 #{review_id}\n"
-        + provenance_line
-        + f"投稿方式：{_source_label(source)}\n"
-        f"投稿人：{username}\n"
-        f"标题：{title or '（无）'}\n"
-        f"标签：{tags or '（无）'}\n"
-        f"文件：{len(media)} 个媒体 / {len(documents)} 个文档"
-    )
-    try:
-        # 控制消息同样走限流退避包装：它是紧跟在媒体相册后的文本发送，
-        # 恰好落在 Telegram flood 窗口内；裸 send_message 用 PTB 默认 5s
-        # read 超时，Telegram 慢回复（flood 排队/网络抖动）会 ReadTimeout
-        # 导致整条投稿回滚（预览已全部发出却被删），客户端只见 502。
-        control = await _send_preview_throttled(
-            lambda: bot.send_message(
-                chat_id=REVIEW_CHAT_ID,
-                text=control_text,
-                reply_to_message_id=(
-                    review_message_ids[-1]
-                    if REVIEW_PREVIEW_THREAD and review_message_ids
-                    else None
-                ),
-                reply_markup=_review_keyboard(
-                    review_id,
-                    link,
-                    spoiler=bool(spoiler),
-                    source=source,
-                    pixiv_id=_pixiv_id_from_link(link or ""),
-                ),
-                disable_web_page_preview=True,
-                **_review_timeout_kwargs(),
-            )
-        )
-        async with get_db() as conn:
-            await conn.execute(
-                "UPDATE pending_reviews SET control_message_id=?, updated_at=? WHERE id=?",
-                (control.message_id, time.time(), review_id),
-            )
-    except Exception:
-        async with get_db() as conn:
-            await conn.execute("DELETE FROM pending_reviews WHERE id=?", (review_id,))
-        await _delete_messages(bot, review_message_ids)
-        raise
-
-    logger.info(
-        "%s 投稿已进入审核队列: review_id=%s user=%s",
-        _source_label(source), review_id, user_id,
-    )
-    return {
-        "status": "pending_review",
-        "review_id": review_id,
-        "media_count": len(media),
-        "document_count": len(documents),
-        "reused": False,
-    }
-
-
-def _normalized_idempotency_key(user_id: int, value: str, source: str) -> str:
-    raw = (value or "").strip()[:240]
-    return f"{source}:{user_id}:{raw or uuid.uuid4().hex}"
 
 
 async def queue_review_from_files(
-    bot,
-    files,
-    *,
-    tags="",
-    title="",
-    note="",
-    link="",
-    anonymous=False,
-    spoiler=False,
-    user_id,
-    username="",
-    idempotency_key="",
-    source="api",
-    target_id="",
-    source_label="",
-    source_ref="",
-    scheduled_at="",
-    work_type="",
+    bot, files, *, tags="", title="", note="", link="",
+    anonymous=False, spoiler=False, user_id, username="",
+    idempotency_key="", source="api", target_id="", source_label="",
+    source_ref="", scheduled_at="", work_type="", pixiv_id="",
 ) -> dict:
     """Stage multipart API files and create a durable pending review."""
-    key = _normalized_idempotency_key(user_id, idempotency_key, source)
-    existing = await _find_review(key)
-    if existing is not None:
-        try:
-            return await _reuse_review(bot, existing, target_id, "idempotent_replay")
-        finally:
-            _cleanup_local_files(files)
-
-    pixiv_id = _pixiv_id_from_link(link or "")
-    if pixiv_id:
-        historical = await _find_published_work(target_id, work_type, pixiv_id)
-        if historical is not None and historical["idempotency_key"] != key:
-            try:
-                return _result_from_row(historical, reused=True, reuse_reason="duplicate_existing")
-            finally:
-                _cleanup_local_files(files)
-
-    data = _caption_data(
-        tags=tags, title=title, note=note, link=link,
-        anonymous=anonymous, spoiler=spoiler, user_id=user_id, username=username,
+    key = normalize_idempotency_key(user_id, idempotency_key, source)
+    resolved_pixiv = pixiv_id or _pixiv_id_from_link(link or "")
+    command = QueueCommand(
+        user_id=user_id, username=username, tags=tags, title=title, note=note,
+        link=link, anonymous=anonymous, spoiler=spoiler, source=source,
+        idempotency_key=key, target_id=target_id, work_type=work_type,
+        pixiv_id=resolved_pixiv, source_label=source_label,
+        source_ref=source_ref, scheduled_at=scheduled_at,
+        review_chat_id=str(REVIEW_CHAT_ID),
     )
-    preview_ids = []
-    try:
-        media, documents = await _stage_local_files(
-            bot, files, build_caption(data), spoiler, preview_ids
-        )
-        return await _create_review(
-            bot,
-            media=media,
-            documents=documents,
-            review_message_ids=preview_ids,
-            idempotency_key=key,
-            source=source,
-            tags=tags,
-            title=title,
-            note=note,
-            link=link,
-            anonymous=anonymous,
-            spoiler=spoiler,
-            user_id=user_id,
-            username=username,
-            target_id=target_id,
-            source_label=source_label,
-            source_ref=source_ref,
-            scheduled_at=scheduled_at,
-            pixiv_id=pixiv_id,
-            work_type=work_type,
-        )
-    except Exception:
-        await _delete_messages(bot, preview_ids)
-        raise
-    finally:
-        _cleanup_local_files(files)
-
-
-async def queue_review_from_file_ids(
-    bot,
-    media,
-    documents,
-    *,
-    tags="",
-    title="",
-    note="",
-    link="",
-    anonymous=False,
-    spoiler=False,
-    user_id,
-    username="",
-    idempotency_key="",
-    source="api",
-    target_id="",
-    source_label="",
-    source_ref="",
-    scheduled_at="",
-) -> dict:
-    """Stage an API file_id submission and create a durable pending review."""
-    key = _normalized_idempotency_key(user_id, idempotency_key, source)
-    existing = await _find_review(key)
-    if existing is not None:
-        return await _reuse_review(bot, existing, target_id)
-
-    data = _caption_data(
-        tags=tags, title=title, note=note, link=link,
-        anonymous=anonymous, spoiler=spoiler, user_id=user_id, username=username,
+    return await queue_service.enqueue(
+        command, _stager(bot), files=files
     )
-    preview_ids = []
+
+
+# ---- legacy reuse/expire helpers (used by maintenance job + tests) --------
+async def _find_review(idempotency_key: str):
+    from telepost.storage.sqlite.reviews import ReviewRepository
+    return await ReviewRepository().find_active_by_key(
+        idempotency_key, PUBLISHED_DEDUP_WINDOW_SECONDS
+    )
+
+
+async def _find_published_work(target_id, work_type, pixiv_id):
+    from telepost.storage.sqlite.reviews import ReviewRepository
+    return await ReviewRepository().find_published_work(
+        target_id, work_type, pixiv_id, PUBLISHED_DEDUP_WINDOW_SECONDS
+    )
+
+
+async def _notify_chat_submitter(bot, row, text: str):
+    if row["source"] != "chat":
+        return
     try:
-        staged_media, staged_documents = await _stage_file_ids(
-            bot, media, documents, build_caption(data), spoiler, preview_ids
-        )
-        return await _create_review(
-            bot,
-            media=staged_media,
-            documents=staged_documents,
-            review_message_ids=preview_ids,
-            idempotency_key=key,
-            source=source,
-            tags=tags,
-            title=title,
-            note=note,
-            link=link,
-            anonymous=anonymous,
-            spoiler=spoiler,
-            user_id=user_id,
-            username=username,
-            target_id=target_id,
-            source_label=source_label,
-            source_ref=source_ref,
-            scheduled_at=scheduled_at,
-        )
+        await bot.send_message(chat_id=row["user_id"], text=text)
     except Exception:
-        await _delete_messages(bot, preview_ids)
-        raise
+        logger.warning("通知聊天投稿人审核结果失败: review_id=%s", row["id"],
+                       exc_info=True)
 
 
+async def expire_stale_reviews(bot, *, now: Optional[float] = None) -> int:
+    """Expire stale pending reviews and remove their Telegram preview messages."""
+    if PENDING_REVIEW_RETENTION_DAYS <= 0:
+        return 0
+    from telepost.storage.sqlite.reviews import ReviewRepository
+
+    current_time = time.time() if now is None else now
+    cutoff = current_time - PENDING_REVIEW_RETENTION_DAYS * 86400
+    error = (
+        f"pending review expired after {PENDING_REVIEW_RETENTION_DAYS} days"
+    )
+    rows = await ReviewRepository().expire_pending(
+        cutoff=cutoff, now=current_time,
+        batch_size=PENDING_REVIEW_CLEANUP_BATCH_SIZE, error=error,
+    )
+    for row in rows:
+        await _delete_messages(bot, _review_message_ids(row))
+        await _notify_chat_submitter(
+            bot, row,
+            f"⌛ 你的投稿超过 {PENDING_REVIEW_RETENTION_DAYS} 天未审核，已自动过期。",
+        )
+    if rows:
+        logger.info("已过期并清理 %d 条待审核投稿（保留 %d 天）",
+                    len(rows), PENDING_REVIEW_RETENTION_DAYS)
+    return len(rows)
+
+
+async def _load_review_for_action(query, review_id):
+    return await review_service.get_row(review_id)
+
+
+# ---- callback handlers ----------------------------------------------------
 async def _answer(query, text=None, **kwargs):
     try:
         await query.answer(text=text, **kwargs)
@@ -1055,34 +352,11 @@ async def _answer(query, text=None, **kwargs):
         logger.debug("回应审核按钮失败", exc_info=True)
 
 
-async def _notify_chat_submitter(bot, row, text: str):
-    """Best-effort decision notice for interactive chat submitters only."""
-    if row["source"] != "chat":
-        return
-    try:
-        await bot.send_message(chat_id=row["user_id"], text=text)
-    except Exception:
-        logger.warning(
-            "通知聊天投稿人审核结果失败: review_id=%s", row["id"], exc_info=True
-        )
-
-
-async def _load_review_for_action(query, review_id):
-    """Fetch a pending/failed review row for a reviewer action."""
-    async with get_db() as conn:
-        cursor = await conn.execute(
-            "SELECT * FROM pending_reviews WHERE id=?", (review_id,)
-        )
-        return await cursor.fetchone()
-
-
 async def toggle_review_spoiler(update, context):
-    """审核员在发布前翻转该投稿的频道遮罩（初始值沿用投稿者设置）。"""
     query = update.callback_query
     if update.effective_user.id not in ADMIN_IDS:
         await _answer(query, "你没有审核权限", show_alert=True)
         return
-
     try:
         review_id = int(query.data.split(":", 1)[1])
     except (ValueError, IndexError):
@@ -1090,7 +364,7 @@ async def toggle_review_spoiler(update, context):
         return
 
     try:
-        result = await review_service.toggle_spoiler(
+        await review_service.toggle_spoiler(
             review_id, actor=update.effective_user.id
         )
     except ReviewNotFoundError:
@@ -1107,9 +381,7 @@ async def toggle_review_spoiler(update, context):
     try:
         await query.edit_message_reply_markup(
             reply_markup=_review_keyboard(
-                review_id,
-                row["link"],
-                spoiler=new_spoiler,
+                review_id, row["link"], spoiler=new_spoiler,
                 source=row["source"],
                 pixiv_id=_pixiv_id_from_link(row["link"] or ""),
             )
@@ -1119,12 +391,6 @@ async def toggle_review_spoiler(update, context):
 
 
 def _run_pixivflow_refetch(target_id: str = "") -> subprocess.CompletedProcess:
-    """触发 PixivFlow 立即重跑；已下载作品自动跳过并选取下一张。
-
-    使用 `run-once`（一次性命令，跑完即退出），而不是 `scheduler run`（守护进程
-    别名，永不退出，会在这里超时）。指定 target_id 时只重跑产生该审核的那一个
-    target（"换一张"秒级），否则重跑全部启用计划。
-    """
     config_path = os.getenv("PIXIVFLOW_CONFIG", "")
     command = ["pixivflow", "run-once"]
     if config_path:
@@ -1133,17 +399,16 @@ def _run_pixivflow_refetch(target_id: str = "") -> subprocess.CompletedProcess:
         command += ["--target", target_id]
     logger.info("审核群触发 PixivFlow 重抓: %s", " ".join(command))
     return subprocess.run(
-        command, cwd="/app", timeout=REFETCH_TIMEOUT_SECONDS, capture_output=True, text=True
+        command, cwd="/app", timeout=REFETCH_TIMEOUT_SECONDS,
+        capture_output=True, text=True,
     )
 
 
 async def refetch_review(update, context):
-    """审核员点"重抓/换一张"：后台触发 PixivFlow 重跑，新作品会作为新审核稿进入队列。"""
     query = update.callback_query
     if update.effective_user.id not in ADMIN_IDS:
         await _answer(query, "你没有审核权限", show_alert=True)
         return
-
     try:
         review_id = int(query.data.split(":", 1)[1])
     except (ValueError, IndexError):
@@ -1151,9 +416,7 @@ async def refetch_review(update, context):
         return
 
     if os.getenv("PIXIVFLOW_ENABLED", "false").strip().lower() not in {
-        "true",
-        "1",
-        "yes",
+        "true", "1", "yes"
     }:
         await _answer(query, "PixivFlow 未启用，无法重抓", show_alert=True)
         return
@@ -1162,10 +425,8 @@ async def refetch_review(update, context):
     if row is None:
         await _answer(query, "审核记录不存在", show_alert=True)
         return
-
     target_id = (row["target_id"] or "").strip() if "target_id" in row.keys() else ""
 
-    # 立刻给审核员反馈，下载在后台进行，完成后新稿会自行进队列。
     await _answer(
         query,
         "已触发重抓，新作品下载投递后会作为新审核稿进入本群（已发布的旧稿不受影响）。",
@@ -1191,7 +452,8 @@ async def refetch_review(update, context):
                 )
             else:
                 tail = ((proc.stderr or "") + (proc.stdout or ""))[-300:]
-                logger.warning("PixivFlow 重抓失败 code=%s: %s", proc.returncode, tail)
+                logger.warning("PixivFlow 重抓失败 code=%s: %s",
+                               proc.returncode, tail)
                 await context.bot.send_message(
                     chat_id=REVIEW_CHAT_ID,
                     text=f"⚠️ 重抓异常退出（{proc.returncode}）：{tail[:200]}",
@@ -1215,7 +477,6 @@ async def approve_review(update, context):
         await _answer(query, "你没有审核权限", show_alert=True)
         return
     await _answer(query)
-
     try:
         review_id = int(query.data.split(":", 1)[1])
     except (ValueError, IndexError):
@@ -1223,8 +484,8 @@ async def approve_review(update, context):
         return
 
     async def _show_publishing(row):
-        # 认领成功后立刻移除按钮，避免多图发布（可能数十秒）期间重复点击。
         try:
+            from telegram import InlineKeyboardMarkup
             await query.edit_message_text(
                 f"🚀 审核 #{review_id} 正在发布…多图+评论串可能要几十秒，请勿重复点击。",
                 reply_markup=InlineKeyboardMarkup([]),
@@ -1234,10 +495,8 @@ async def approve_review(update, context):
 
     try:
         result = await review_service.approve(
-            context.bot,
-            review_id,
-            actor=update.effective_user.id,
-            source="telegram",
+            context.bot, review_id,
+            actor=update.effective_user.id, source="telegram",
             on_claim=_show_publishing,
         )
     except ReviewNotFoundError:
@@ -1254,10 +513,8 @@ async def approve_review(update, context):
         await query.edit_message_text(
             f"⚠️ 审核 #{review_id} {error.retry_hint}：\n{error.message}",
             reply_markup=_review_keyboard(
-                review_id,
-                row["link"],
-                spoiler=bool(row["spoiler"]),
-                source=row["source"],
+                review_id, row["link"],
+                spoiler=bool(row["spoiler"]), source=row["source"],
                 pixiv_id=_pixiv_id_from_link(row["link"] or ""),
                 failed=True,
             ),
@@ -1276,7 +533,6 @@ async def reject_review(update, context):
         await _answer(query, "你没有审核权限", show_alert=True)
         return
     await _answer(query)
-
     try:
         review_id = int(query.data.split(":", 1)[1])
     except (ValueError, IndexError):
@@ -1285,10 +541,8 @@ async def reject_review(update, context):
 
     try:
         await review_service.reject(
-            context.bot,
-            review_id,
-            actor=update.effective_user.id,
-            source="telegram",
+            context.bot, review_id,
+            actor=update.effective_user.id, source="telegram",
         )
     except ReviewNotFoundError:
         await query.edit_message_text("❌ 审核记录不存在")
