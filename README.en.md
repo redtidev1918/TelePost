@@ -19,7 +19,7 @@ multi-bot support and an HTTP API.
 - Accept external automated submissions through a Bearer-token API
 - Let an AI agent read pending submissions and media safely (and suggest decisions) via the optional MCP sidecar
 - Switch between Polling, Webhook and `AUTO` modes
-- Auto-stop on Fly.io while keeping the webhook, waking on the next request
+- Run as an always-on service on Fly.io, receiving submissions over webhook instantly
 - Enforce a resource budget before image decoding; high-risk originals degrade safely to a preview or document
 - Keep review staging in a recoverable state and repair missing control messages on startup
 
@@ -71,18 +71,20 @@ service available), `/health` and `/api/v1/*`. Multi-bot entry points are always
 
 ## Fly.io with PixivFlow
 
-Recommended low-cost topology:
+Two apps on Fly.io:
 
 ```text
-PixivFlow 256 MiB, always-on scheduler
+PixivFlow 256 MiB, stopped by default, woken on demand (executor)
         │ Flycast/Fly Proxy HTTP
         ▼
-TelePost 512 MiB, auto-stop + auto-start, two bots
+TelePost 512 MiB, always-on, two bots (business plane)
 ```
 
-PixivFlow must stay resident to run jobs on cron; TelePost only handles inbound events, so it
-can auto-stop. Do not put both on one auto-stopping machine, or nothing can trigger the cron
-while it sleeps. Full steps: [Fly.io deployment](docs/FLYIO_DEPLOYMENT.md).
+TelePost must stay resident: it holds the channel publishing credentials and the review
+queue, so a stopped machine cannot answer submissions in time. The cost saving lives on the
+PixivFlow executor side — stopped by default, woken on demand, exiting when the batch is
+done. Do not colocate the two on one machine: they would share memory, lifecycle and failure
+domain. Full steps: [Fly.io deployment](docs/FLYIO_DEPLOYMENT.md).
 
 ## Common entry points
 
@@ -99,7 +101,7 @@ All commands are in the [command reference](docs/COMMANDS.md); automation is cov
 
 | Document | Purpose |
 |---|---|
-| [📥 Download](docs/download.md) | Single-file builds for Windows / macOS / Linux |
+| [Download](docs/download.md) | Single-file builds for Windows / macOS / Linux |
 | [English docs index](docs/en/README.md) | English entry point for the documentation site |
 | [Install & deploy](docs/INSTALL.md) | Single file, source, Docker, Fly.io |
 | [Configuration](docs/CONFIGURATION.md) | Environment variables, `config.ini`, multi-bot |

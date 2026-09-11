@@ -1,5 +1,5 @@
 - Getting Started
   - [Overview](/en/)
-  - [📥 Download](/en/download.md)
+  - [Download](/en/download.md)
   - [Install & Deploy](/en/INSTALL.md)
   - [Commands](/en/COMMANDS.md)

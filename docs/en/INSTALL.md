@@ -9,7 +9,7 @@
 | Release single file | Minimal dependencies, a single bot | No preinstalled Python |
 | Source + venv | Development, self-managed VPS | Python 3.9+ |
 | Docker / Compose | General production | Docker |
-| Fly.io | Webhook, autosleep | `flyctl` |
+| Fly.io | Webhook, always-on service | `flyctl` |
 
 PythonAnywhere's legacy WSGI adapter is **not a supported production path**: it cannot cover
 the full runtime lifecycle (multi-bot supervisor, webhook registration, review queue). Older
@@ -74,8 +74,8 @@ docker compose logs -f telepost
 ```
 
 `docker-compose.yml` uses `ghcr.io/redtidev1918/telepost:latest` by default and mounts
-`./data` and `./logs` into the container. Pin an explicit version in production, for example
-`2.10.39`, and back up `data/` before upgrading.
+`./data` and `./logs` into the container. Pin an explicit version in production (for example
+`2.17.3`) and back up `data/` before upgrading.
 
 If you need webhooks, map 8080 yourself and put a public HTTPS reverse proxy in front. Without
 a public address, keep `RUN_MODE=AUTO` or `POLLING`.
@@ -83,7 +83,7 @@ a public address, keep `RUN_MODE=AUTO` or `POLLING`.
 ## Fly.io
 
 Fly.io uses a prebuilt image, a persistent volume and webhooks. Full configurations for a
-single bot, two bots, and "PixivFlow always-on + TelePost autosleep" are in
+single bot, two bots, and "TelePost always-on + PixivFlow executor" are in
 [FLYIO_DEPLOYMENT.md](/FLYIO_DEPLOYMENT.md)（中文）.
 
 ## First-run checklist

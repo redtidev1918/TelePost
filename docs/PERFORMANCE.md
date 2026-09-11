@@ -11,7 +11,7 @@
 
 256 MiB 只描述 TelePost standalone 的起步档位，不是资源保证。双 Bot + PixivFlow combined
 runtime 的 Node、多个 Python 进程、图片上传和 ffmpeg 峰值相加，不能套用 standalone 数字。
-Fly.io 推荐拆成 PixivFlow 常驻、TelePost 自动休眠，并以生产 RSS 实测选择内存。
+Fly.io 上拆成常驻的 TelePost 与按需唤醒的 PixivFlow，并以生产 RSS 实测选择内存。
 
 ## 主要内存来源
 

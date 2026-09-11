@@ -1,6 +1,6 @@
 - 开始使用
   - [概览](/)
-  - [📥 下载](/download.md)
+  - [下载](/download.md)
   - [安装与部署](/INSTALL.md)
   - [命令参考](/COMMANDS.md)
 - 配置与部署

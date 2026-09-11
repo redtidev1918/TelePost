@@ -8,8 +8,8 @@ python3 -m venv .venv
 ./.venv/bin/python -m pytest -q --no-cov -o log_cli=false
 ```
 
-2.10.39 发布时的基线是 437 passed、1 skipped；以后以当前测试输出为准，不要把固定
-数量当成功条件。CI 使用 Python 3.11 和同一条免覆盖率命令。
+测试数量随版本变化，不要把它当成功条件；以当前测试输出为准。CI 使用 Python 3.11 和
+同一条免覆盖率命令。
 
 ## 常用选择
 

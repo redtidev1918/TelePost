@@ -21,7 +21,7 @@ UPLOAD ── /done_media 或 /skip_media ──▶ PREVIEW
 
 - 投稿字段的真相是 SQLite `submissions` 行；读写集中在 `utils/submission.py`。
 - ConversationHandler 状态由 `PicklePersistence` 保存到数据库同目录的
-  `persistence.pickle`，正常重启、Fly auto-stop 和发版后可以恢复会话。
+  `persistence.pickle`，正常重启和发版后可以恢复会话。
 - `SESSION_TIMEOUT` 到期后会清理过期会话；恢复能力不等于永久保留。
 - 多 Bot 为每个 Bot 使用独立的 `data/botN/`，数据库与 persistence 不共享。
 

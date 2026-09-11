@@ -20,16 +20,9 @@ curl -fsS 'https://api.telegram.org/bot<TOKEN>/getWebhookInfo'
 重点看 URL、`pending_update_count`、`last_error_date`、`last_error_message`。部署或冷启动
 期间的旧 502 可能继续显示；待处理数归零且新消息成功时，不是当前故障。
 
-Fly auto-stop 必须满足：
-
-```toml
-auto_stop_machines = "stop"
-auto_start_machines = true
-min_machines_running = 0
-```
-
-并使用 TelePost 2.10.39+。更早版本停机时会删除 Webhook，Machine 随后没有唤醒来源。
-PixivFlow 跨 App 投递应使用 `.flycast`，不是 `.internal`。
+Fly 上 TelePost 必须常驻：`auto_stop_machines=false`、`min_machines_running=1`。若
+`flyctl status` 显示 Machine 已停止，先排查是否误用了会自动停机的配置——已停机的业务端
+无法即时处理投稿。PixivFlow 跨 App 投递应使用 `.flycast`，不是 `.internal`。
 
 ## 启动失败
 
@@ -51,8 +44,8 @@ PixivFlow 跨 App 投递应使用 `.flycast`，不是 `.internal`。
 - 502：父路由已等待子进程端口最多 5 秒；若仍失败，检查健康宽限、子进程崩溃和同一时段日志。
 - 待处理数持续增加：查看同一时段应用日志，不要先 `deleteWebhook`。
 
-切换配置后由 TelePost 重新 `setWebhook`。手工删除 Webhook 会让已停止的 Fly Machine
-失去 Telegram 唤醒请求。
+切换配置后由 TelePost 重新 `setWebhook`。不要手工删除 Webhook：那会让 Telegram 更新
+无法到达服务。
 
 ## Polling conflict
 
@@ -77,7 +70,7 @@ Machine；同一 Token 不能同时 Polling，也不能同时使用 Polling 与 
 
 - 会话外发媒体会提示先 `/submit`。
 - `SESSION_TIMEOUT` 默认 900 秒；超时后重新 `/submit`。
-- 正常重启和 auto-stop 会从 `persistence.pickle` 恢复状态。
+- 正常重启会从 `persistence.pickle` 恢复状态。
 - persistence 或 SQLite 无写权限时，先修复整个 `data/` 的所有者/挂载。
 - 审核预览出现 FloodWait/timeout 时，保持默认节流和 120 秒超时，避免并发重发。
 

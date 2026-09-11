@@ -1,8 +1,7 @@
 # 架构与职责边界
 
-本页描述 `refactor/architecture-delivery` 引入的分层。目标：频道投递只有
-一个核心，Telegram handler 只做协议适配，领域逻辑不依赖 python-telegram-bot
-（PTB）与 SQLite。
+本页描述当前分层。目标：频道投递只有一个核心，Telegram handler 只做协议适配，
+领域逻辑不依赖 python-telegram-bot（PTB）与 SQLite。
 
 ## 分层
 
