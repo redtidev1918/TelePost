@@ -70,6 +70,8 @@ def main() -> int:
     lines = [
         f"# 📥 下载 {project}",
         "",
+        "**语言 / Language:** 中文 · [English](/en/download.md)",
+        "",
         "本页由 GitHub Actions 在每次发版时**自动更新**，始终指向最新 Release。",
         "",
         f"## 最新版本：`{tag}`（{published}）",
@@ -106,10 +108,38 @@ def main() -> int:
         lines.append("> 本仓库没有附带二进制资产；安装方式见文档。")
         lines.append("")
 
-    os.makedirs("docs", exist_ok=True)
+    # 英文镜像：与中文页同一份资产表，标题与列名英文化，保证中英一一对应。
+    en_map = {"通用": "All platforms", "Windows": "Windows", "macOS": "macOS",
+              "Linux": "Linux", "Android": "Android"}
+    lines_en = [
+        f"# 📥 Download {project}",
+        "",
+        "**Language / 语言:** [中文](/download.md) · English",
+        "",
+        "This page is **generated automatically** by GitHub Actions on every release and always points at the latest one.",
+        "",
+        f"## Latest version: `{tag}` ({published})",
+        "",
+        f"👉 [Release notes and checksums]({rel.get('html_url', '')})",
+        "",
+    ]
+    if assets:
+        lines_en.append("| Platform | File | Size | Download |")
+        lines_en.append("|---|---|---|---|")
+        for os_name, arch, fn, size_s, url in rows:
+            plat = en_map.get(os_name, os_name) + (f" · {arch}" if arch else "")
+            lines_en.append(f"| {plat} | `{fn}` | {size_s} | [⬇️ Download]({url}) |")
+        lines_en.append("")
+    else:
+        lines_en.append("> This repository ships no binary assets; see the docs for installation.")
+        lines_en.append("")
+
+    os.makedirs("docs/en", exist_ok=True)
     with open("docs/download.md", "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines))
-    print(f"docs/download.md <- {project} {tag} ({len(assets)} assets)")
+    with open("docs/en/download.md", "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines_en))
+    print(f"docs/download.md + docs/en/download.md <- {project} {tag} ({len(assets)} assets)")
     return 0
 
 
