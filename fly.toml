@@ -47,7 +47,10 @@ primary_region = ""
   WEBHOOK_PORT = "8080"
   WEBHOOK_PATH = "/webhook"
 
-  # 轻量分词器：多 bot 同机时优先省内存。
+  # 搜索索引与轻量分词器在双 bot 同机时是最容易被砍掉的内存开销，
+  # 生产一直以 SEARCH_ENABLED=false 运行（`simple` 只作为默认值保留）。
+  # 重新打开前先做内存验收，与下面的 memory_mb 一起评估。
+  SEARCH_ENABLED = "false"
   SEARCH_ANALYZER = "simple"
 
   # SQLite 页缓存（KB）。
@@ -55,9 +58,23 @@ primary_region = ""
 
   TZ = "Asia/Shanghai"
 
+  # run.py 的 relay 在把请求转给 bot 子进程前会等它就绪；生产放宽到 120s。
+  # PixivFlow 拆分出去后，慢启动的只有 bot 子进程本身，可在此基础上再收紧。
+  ROUTER_CHILD_READY_TIMEOUT = "120"
+
+  # 审核队列保留策略。这两个值与代码默认值不同（默认 PENDING 永不过期、
+  # 清理批大小 100），必须显式声明，否则切到模板会静默改变用户可见行为：
+  # 用户未审核的投稿应在 1 天后自动过期。
+  PENDING_REVIEW_RETENTION_DAYS = "1"
+  PENDING_REVIEW_CLEANUP_BATCH_SIZE = "20"
+
 [http_service]
   internal_port = 8080
-  force_https = true
+  # force_https=false 保留自拆分前的生产配置：独立 PixivFlow App 通过 Flycast
+  # 私网以明文 HTTP 调用本服务的投稿接口，force_https=true 会把它 301 到 HTTPS
+  # 而直接打断投递。Flycast/6PN 流量本身在 WireGuard 上加密；Telegram webhook
+  # 仍走公网 HTTPS，不受影响。
+  force_https = false
 
   # 常驻，不使用平台侧空闲推断停机。
   auto_stop_machines = false
@@ -65,12 +82,13 @@ primary_region = ""
   min_machines_running = 1
 
   # 常驻服务保留长期健康检查：它只确认进程还能接活，不会与停机互相拉扯
-  # （本服务本来就不应该停）。
+  # （本服务本来就不应该停）。PixivFlow 拆分出去以后，本机不再同时跑
+  # 10–40 分钟的下载批次，超时可以从生产的 30s 收紧。
   [[http_service.checks]]
     grace_period = "60s"
     interval = "30s"
     method = "GET"
-    timeout = "5s"
+    timeout = "10s"
     path = "/health"
 
 [[vm]]
