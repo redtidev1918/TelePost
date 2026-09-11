@@ -19,9 +19,9 @@ The detailed guides are currently written in Chinese. Start from the
 
 | Document | Content |
 | :-- | :-- |
-| [Install & deploy (中文)](/INSTALL.md) | Single file, source, Docker and Fly.io |
+| [Install & deploy](INSTALL.md) | Single file, source, Docker and Fly.io |
+| [Commands](COMMANDS.md) | User, admin and owner commands |
 | [Configuration (中文)](/CONFIGURATION.md) | Environment variables, `config.ini`, multi-bot |
-| [Commands (中文)](/COMMANDS.md) | User, admin and owner commands |
 | [HTTP API (中文)](/API.md) | Tokens, submissions, notifications and error codes |
 | [MCP review (中文)](/MCP_REVIEW.md) | AI-assisted review sidecar, media preview and read-only mode |
 | [Fly.io deployment (中文)](/FLYIO_DEPLOYMENT.md) | Auto-stop and split topology |

@@ -21,3 +21,5 @@
 - English
   - [Documentation](/en/)
   - [📥 Download](/en/download.md)
+  - [Install & deploy](/en/INSTALL.md)
+  - [Commands](/en/COMMANDS.md)
