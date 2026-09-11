@@ -2,6 +2,10 @@
 
 > TelePost 是一个 Telegram 频道投稿机器人：聊天投稿、审核队列、全文搜索、多 Bot 与 HTTP API。这里汇聚它的全部文档。
 
+> **English:** English pages live under [`/en/`](en/); see the
+> [English README](https://github.com/redtidev1918/TelePost/blob/main/README.en.md)
+> and the [Download page](/en/download.md).
+
 ## 📥 下载
 
 Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](download.md)（自动指向最新 Release；Intel Mac / Docker 安装见 [INSTALL](INSTALL.md)）。
@@ -14,7 +18,6 @@ Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](downloa
 | 了解所有 Telegram 命令 | [命令参考](COMMANDS.md) |
 | 精细配置（Token、频道、审核、多 Bot） | [配置参考](CONFIGURATION.md) |
 | 部署到 Fly.io | [Fly.io 部署](FLYIO_DEPLOYMENT.md) |
-| 部署到 PythonAnywhere | [PythonAnywhere 部署](PYTHONANYWHERE_DEPLOYMENT.md) |
 | 理解 Webhook 与 Polling 的区别 | [Webhook 与 Polling](WEBHOOK_MODE.md) |
 | 日常运维、升级、备份 | [运维手册](OPERATIONS.md) |
 | 排查问题 | [故障排查](TROUBLESHOOTING.md) |
@@ -37,7 +40,6 @@ Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](downloa
 | --- | --- |
 | [CONFIGURATION](CONFIGURATION.md) | 环境变量 / config.ini 逐项说明 |
 | [FLYIO_DEPLOYMENT](FLYIO_DEPLOYMENT.md) | Fly.io 部署与自动休眠 |
-| [PYTHONANYWHERE_DEPLOYMENT](PYTHONANYWHERE_DEPLOYMENT.md) | PythonAnywhere 部署状态 |
 | [WEBHOOK_MODE](WEBHOOK_MODE.md) | Webhook 与 Polling 两种模式 |
 
 ### 运维

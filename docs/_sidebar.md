@@ -6,7 +6,6 @@
 - 配置与部署
   - [配置参考](/CONFIGURATION.md)
   - [Fly.io 部署](/FLYIO_DEPLOYMENT.md)
-  - [PythonAnywhere 部署](/PYTHONANYWHERE_DEPLOYMENT.md)
   - [Webhook 与 Polling](/WEBHOOK_MODE.md)
 - 运维
   - [运维手册](/OPERATIONS.md)
@@ -16,5 +15,11 @@
   - [HTTP API](/API.md)
   - [MCP 投稿审核](/MCP_REVIEW.md)
   - [测试指南](/TESTING.md)
+  - [运行时架构](/internals/architecture.md)
   - [投稿状态机](/internals/submission-flow.md)
   - [删帖与软删除](/internals/moderation.md)
+- English
+  - [Documentation](/en/)
+  - [📥 Download](/en/download.md)
+  - [Install & deploy](/en/INSTALL.md)
+  - [Commands](/en/COMMANDS.md)

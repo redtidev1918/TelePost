@@ -1,5 +1,7 @@
 # TelePost
 
+**语言 / Language:** 中文 · [English](README.en.md)
+
 Telegram 频道投稿机器人，支持聊天投稿、审核队列、全文搜索、多 Bot 和 HTTP API。
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)

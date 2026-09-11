@@ -9,8 +9,9 @@
 | Docker / Compose | 通用生产环境 | Docker |
 | Fly.io | Webhook、自动休眠 | `flyctl` |
 
-PythonAnywhere 的旧适配不是当前受支持的生产路径，见
-[PYTHONANYWHERE_DEPLOYMENT.md](PYTHONANYWHERE_DEPLOYMENT.md)。
+PythonAnywhere 的旧 WSGI 适配**不是当前受支持的生产路径**：它覆盖不了完整运行生命周期
+（多 Bot supervisor、webhook 注册与审核队列）。旧文档曾把它描述为「已验证可用」，那是不准确的，
+不要按旧教程部署到生产。
 
 ## Release 单文件
 
