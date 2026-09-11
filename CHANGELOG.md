@@ -10,6 +10,13 @@
 
 ---
 
+## [2.17.3](https://github.com/redtidev1918/TelePost/compare/v2.17.2...v2.17.3) (2026-09-11)
+
+
+### Bug Fixes
+
+* **handlers:** 菜单命中后中止后续 group，消除「关于」等按钮的双重回复 ([#63](https://github.com/redtidev1918/TelePost/issues/63)) ([f1f380b](https://github.com/redtidev1918/TelePost/commit/f1f380b25f219515931300e3b6162dda52d855ed))
+
 ## [2.17.2](https://github.com/redtidev1918/TelePost/compare/v2.17.1...v2.17.2) (2026-09-10)
 
 
