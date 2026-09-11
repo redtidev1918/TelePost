@@ -1,5 +1,5 @@
 - 开始使用
-  - [文档中心](/)
+  - [概览](/)
   - [📥 下载](/download.md)
   - [安装与部署](/INSTALL.md)
   - [命令参考](/COMMANDS.md)
@@ -11,15 +11,10 @@
   - [运维手册](/OPERATIONS.md)
   - [故障排查](/TROUBLESHOOTING.md)
   - [性能与容量](/PERFORMANCE.md)
-- 开发者
+- 开发
   - [HTTP API](/API.md)
   - [MCP 投稿审核](/MCP_REVIEW.md)
   - [测试指南](/TESTING.md)
   - [运行时架构](/internals/architecture.md)
   - [投稿状态机](/internals/submission-flow.md)
   - [删帖与软删除](/internals/moderation.md)
-- English
-  - [Documentation](/en/)
-  - [📥 Download](/en/download.md)
-  - [Install & deploy](/en/INSTALL.md)
-  - [Commands](/en/COMMANDS.md)
