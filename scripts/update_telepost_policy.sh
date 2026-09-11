@@ -11,7 +11,7 @@ app_name=$1
 policy_file=$2
 script_dir=$(cd "$(dirname "$0")" && pwd)
 repo_dir=$(cd "$script_dir/.." && pwd)
-fly_config=${FLY_CONFIG:-$repo_dir/deploy.fly-multi-bot.toml}
+fly_config=${FLY_CONFIG:-$repo_dir/fly.toml}
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/telepost-policy.XXXXXX")
 secrets_file=$work_dir/policy.env
 trap 'rm -f "$secrets_file"; rmdir "$work_dir" 2>/dev/null || true' EXIT
