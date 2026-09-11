@@ -4,7 +4,7 @@
 import logging
 from datetime import datetime
 from telegram import Update, ReplyKeyboardRemove
-from telegram.ext import ConversationHandler, CallbackContext
+from telegram.ext import ConversationHandler, CallbackContext, ApplicationHandlerStop
 
 from database.db_manager import get_db
 from utils.blacklist import (
@@ -127,7 +127,13 @@ async def help_command(update: Update, context: CallbackContext):
 
 
 async def handle_menu_shortcuts(update: Update, context: CallbackContext) -> None:
-    """处理底部菜单（ReplyKeyboard）文本，映射到实际命令。"""
+    """处理底部菜单（ReplyKeyboard）文本，映射到实际命令。
+
+    命中任意分支后必须 **抛出** ApplicationHandlerStop：PTB 会顺序执行每一个
+    group，只有抛异常才会中断链路，仅仅 return 不会。否则同一条菜单文本在正常
+    回复之后还会落到 group=1000 的 catch_all，用户会额外收到一条
+    「🤔 这条消息我没看懂」。
+    """
     # 排除频道消息
     if update.channel_post or update.edited_channel_post:
         return
@@ -142,52 +148,58 @@ async def handle_menu_shortcuts(update: Update, context: CallbackContext) -> Non
         return
     
     text = (update.message.text or "").strip()
+    handled = False
     try:
         # 如果处于搜索输入模式，优先交给搜索输入处理
         if context.user_data.get('search_mode'):
             from handlers.search_handlers import handle_search_input
             await handle_search_input(update, context)
-            return
+            handled = True
         # 开始投稿：已由 ConversationHandler 的 entry（Regex「开始投稿」）接管，
         # 这里不再直接调 submit——直接调只建 DB 会话、不建立状态机内存状态，
         # 用户随后发的媒体会掉出状态机而静默无响应。
         # 我的统计
-        if text.endswith("我的统计"):
+        elif text.endswith("我的统计"):
             from handlers.stats_handlers import get_user_stats
             await get_user_stats(update, context)
-            return
+            handled = True
         # 我的投稿
-        if text.endswith("我的投稿"):
+        elif text.endswith("我的投稿"):
             from handlers.search_handlers import get_my_posts
             await get_my_posts(update, context)
-            return
+            handled = True
         # 热门内容
-        if text.endswith("热门内容"):
+        elif text.endswith("热门内容"):
             from handlers.stats_handlers import get_hot_posts
             await get_hot_posts(update, context)
-            return
+            handled = True
         # 标签云
-        if text.endswith("标签云"):
+        elif text.endswith("标签云"):
             from handlers.search_handlers import get_tag_cloud
             await get_tag_cloud(update, context)
-            return
+            handled = True
         # 搜索
-        if text.endswith("搜索"):
+        elif text.endswith("搜索"):
             await update.message.reply_text(
                 "🔍 请输入搜索关键词，或点击下方选项：",
                 reply_markup=Keyboards.search_options()
             )
-            return
+            handled = True
         # 帮助
-        if text.endswith("帮助"):
+        elif text.endswith("帮助"):
             await help_command(update, context)
-            return
+            handled = True
         # 关于
-        if text.endswith("关于"):
+        elif text.endswith("关于"):
             await update.message.reply_text(MessageFormatter.about_message(), parse_mode="HTML")
-            return
+            handled = True
     except Exception as e:
+        # 处理失败时不中止链路，交由 catch_all 给出兜底指引
         logger.error(f"处理菜单快捷操作失败: {e}")
+        return
+
+    if handled:
+        raise ApplicationHandlerStop()
 
 
 async def settings(update: Update, context: CallbackContext):

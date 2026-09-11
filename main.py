@@ -131,7 +131,8 @@ async def check_conversation_timeout(update: Update, context: CallbackContext) -
     if is_blacklisted(user_id):
         logger.warning(f"黑名单用户 {user_id} 尝试发送消息")
         await update.message.reply_text("❌ 您已被列入黑名单，无法使用此机器人。")
-        return ApplicationHandlerStop()
+        # 必须 raise：return 不会中断后续 group，用户会再收到一条兜底回复
+        raise ApplicationHandlerStop()
     
     # 检查投稿会话是否超时。
     # 说明：会话活跃时间以 submissions.timestamp 为准（投稿流程每一步都会刷新）。
@@ -171,9 +172,14 @@ async def check_conversation_timeout(update: Update, context: CallbackContext) -
             except Exception as e:
                 logger.error(f"发送超时通知失败: {e}")
 
-            return ApplicationHandlerStop()
+            # 必须 raise：return 不会中断后续 group，超时通知后会再跟一条兜底回复
+            raise ApplicationHandlerStop()
 
         logger.debug(f"用户 {user_id} 会话活跃 ({time_diff:.2f}秒 < {TIMEOUT_SECONDS}秒)")
+    except ApplicationHandlerStop:
+        # 原样抛回：ApplicationHandlerStop 是 Exception 子类，
+        # 若不在此处先拦截，会被下面的 except Exception 吃掉而失效
+        raise
     except Exception as e:
         logger.error(f"检查会话超时时发生错误: {e}")
         # 出错时不阻止消息处理继续，而是让正常流程继续
@@ -215,7 +221,8 @@ async def orphan_media_guard(update: Update, context: CallbackContext) -> None:
         )
     except Exception as e:
         logger.warning("发送会话外媒体提示失败: %s", e)
-    return ApplicationHandlerStop()
+    # 必须 raise：否则 group=1000 的 catch_all 会对同一条媒体再回一次「我没看懂」
+    raise ApplicationHandlerStop()
 
 # 添加全局更新记录器
 async def log_all_updates(update: Update, context: CallbackContext) -> None:
