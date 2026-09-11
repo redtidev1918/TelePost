@@ -4,7 +4,7 @@
 `pixivflow-telepost-deploy/docs/ARCHITECTURE.md`，它是三仓库职责契约的唯一权威描述；
 本文件只回答「什么该做、什么绝对不该做」。
 
-## 一句话
+## 职责
 
 TelePost 决定 **「投稿如何审核与发布到 Telegram」**：Telegram 更新的接收与路由、会话式私聊投稿、
 HTTP 投稿接口、幂等键、审核队列、批准/驳回、发布与发布恢复。

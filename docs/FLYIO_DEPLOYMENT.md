@@ -1,36 +1,36 @@
 # Fly.io 部署
 
-TelePost 在 Fly.io 必须使用 Webhook。默认推荐固定版本镜像、持久卷和自动休眠；
-PixivFlow 有内部 Cron，必须拆到另一台常驻 Machine。
+TelePost 在 Fly.io 使用 Webhook 模式并**常驻**运行：投稿要求即时响应，平台侧空闲停机
+带来的冷启动延迟不可接受。省成本由独立的 PixivFlow 执行端承担（平时停止、按需唤醒）。
 
-## 推荐拓扑
+两份 Fly 配置、Secrets 与部署脚本的完整契约在
+[pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy)；
+本页只说明 TelePost 侧的部署与核对。
+
+## 拓扑
 
 ```text
-┌──────────────────────────────┐
-│ PixivFlow                    │
-│ shared-cpu-1x · 256 MiB      │
-│ always-on · min=1            │
-│ scheduler / downloader       │
-└──────────────┬───────────────┘
-               │ HTTP via Flycast/Fly Proxy
-               ▼
-┌──────────────────────────────┐
-│ TelePost                     │
-│ shared-cpu-1x · 512 MiB      │
-│ Bot 1 + Bot 2                │
-│ auto-stop · auto-start · min=0│
-└──────────────▲───────────────┘
-               │ Telegram Webhook / API
+┌────────────────────────────────┐
+│ PixivFlow（执行端）             │
+│ shared-cpu-1x · 256 MiB        │
+│ 平时 stopped · 按需唤醒 · 独立卷 │
+│ scheduler / downloader         │
+└───────────────┬────────────────┘
+                │ HTTP via Flycast
+                ▼
+┌────────────────────────────────┐
+│ TelePost（业务端）              │
+│ shared-cpu-1x · 512 MiB        │
+│ 常驻 · min=1 · 双 Bot           │
+└───────────────▲────────────────┘
+                │ Telegram Webhook / API
 ```
 
-- PixivFlow 在自己的 256 MiB Machine 常驻，才能按时运行 scheduler。
-- TelePost 只处理入站请求，空闲时可完全停止。
-- PixivFlow 使用 `<telepost-app>.flycast`，请求经过 Fly Proxy 后可唤醒 TelePost；不要用
-  `.internal` 直连已停止的 Machine。
+- TelePost 常驻（`auto_stop_machines = false`、`min_machines_running = 1`）：它持有频道
+  发布凭据与审核队列，停机期间的投稿无法及时响应。
+- PixivFlow 独立成 App，用「平时停止、按需唤醒」省钱。不要把它和 TelePost 合到一台
+  机器：那会共用内存、进程生命周期与故障域，是历史混部问题的根源。
 - 两个 App 与各自 Volume 放在同一区域，减少延迟和跨区域流量。
-
-完整的拆分模板与初始化工具在
-[pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy)。
 
 ## 单 Bot 部署
 
@@ -52,7 +52,7 @@ cd TelePost
 
 ```bash
 flyctl apps create <app>
-flyctl volumes create telepost_data --size 1 --region <region> --app <app>
+flyctl volumes create data --size 1 --region <region> --app <app>
 ```
 
 Volume 与 Machine 必须同区。不要省略挂载：数据库、API Token、运行时策略和投稿会话
@@ -74,9 +74,10 @@ flyctl secrets set --app <app> \
 
 ```bash
 flyctl deploy --app <app> \
-  --image ghcr.io/redtidev1918/telepost:2.10.39
+  --image ghcr.io/redtidev1918/telepost:<version>
 ```
 
+`<version>` 取 [Releases](https://github.com/redtidev1918/TelePost/releases) 中的具体标签。
 TelePost 启动时会自行调用 Telegram `setWebhook`；不需要手工注册。
 
 ### 5. 验证
@@ -95,8 +96,8 @@ curl -fsS 'https://api.telegram.org/bot<TOKEN>/getWebhookInfo'
 | 端点 | 语义 | 用途 |
 |---|---|---|
 | `/live` | 路由进程存活即 200，恒不阻塞 | 存活探针、外部保活 ping |
-| `/ready` | 所有 Bot 子进程 `initialize()+start()` 完成才 200，冷启动中 503 | **Fly 健康检查打这个**；proxy 会等它就绪再转发唤醒请求 |
-| `/health` | 路由存活 + 容量/存储指标，恒 200 | 观测与 auto-stop 唤醒入口，**不**代表业务就绪 |
+| `/ready` | 数据库迁移、Bot、投稿服务和审核恢复完成才 200，未就绪时 503 | 上游投递的消费屏障；**不是** Fly 健康检查路径 |
+| `/health` | 路由存活 + 容量/存储指标，恒 200 | Fly 长期健康检查与观测入口，**不**代表业务就绪 |
 
 API 健康响应中的 `bot_version` 应等于部署版本。
 `getWebhookInfo` 应核对 URL、`pending_update_count`、`last_error_date` 和
@@ -104,7 +105,7 @@ API 健康响应中的 `bot_version` 应等于部署版本。
 
 ## 多 Bot TelePost
 
-推荐直接使用部署套件的 `fly/telepost-split.toml`。核心 Secrets：
+多 Bot 直接使用部署套件的 `fly/deploy.telepost.toml`。核心 Secrets：
 
 ```bash
 flyctl secrets set --app <telepost-app> \
@@ -118,7 +119,7 @@ flyctl secrets set --app <telepost-app> \
 - `/webhook/bot1`、`/webhook/bot2`
 - `/api/bot1/v1/*`、`/api/bot2/v1/*`
 
-双 Bot 生产实例使用 512 MiB，并在受限环境关闭搜索：
+双 Bot 生产实例使用 512 MiB，并在受限环境关闭搜索。关键片段：
 
 ```toml
 [env]
@@ -129,15 +130,18 @@ flyctl secrets set --app <telepost-app> \
 
 [http_service]
   internal_port = 8080
-  auto_stop_machines = "suspend"
+  # PixivFlow 通过 Flycast 私网以明文 HTTP 调用投稿接口；force_https=true 会把它
+  # 301 到 HTTPS 并打断投递。Telegram webhook 仍走公网 HTTPS。
+  force_https = false
+  auto_stop_machines = false
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
 [[http_service.checks]]
   grace_period = "60s"
   interval = "30s"
   timeout = "10s"
-  path = "/ready"
+  path = "/health"
 
 [[vm]]
   cpu_kind = "shared"
@@ -145,67 +149,33 @@ flyctl secrets set --app <telepost-app> \
   memory_mb = 512
 ```
 
-Fly Proxy 的 autostop/autostart 只停止或启动现有 Machine，不会删除 Machine 或 Volume；
-配置语义见 [Fly.io 官方配置参考](https://fly.io/docs/reference/configuration/)。
+## 为什么业务端常驻
 
-## 为什么自动休眠现在可用
+- 常驻保留长期健康检查（`/health`），它只确认进程还能接活，不会与停机互相拉扯——
+  本服务本来就不应该停。
+- 每次冷启动都要重新建立 PTB 会话、Bot 子进程与审核恢复；期间用户会看到「机器人不回复」，
+  且上游投递只能延后。省下的钱不值得牺牲可靠性。
+- 省钱放在 PixivFlow 执行端：它平时停止、被触发唤醒、跑完自行退出，与 TelePost 的
+  即时响应诉求不冲突。
 
-从 TelePost 2.10.39 起：
+## PixivFlow 执行端
 
-- 正常关机只停止本地 HTTP 服务，不注销 Telegram Webhook。
-- 冷启动重新注册 Webhook 时不丢弃待处理更新。
-- 多 Bot 父路由先等子进程端口、再轮询子进程 `/ready`（有界，默认最多 30 秒），
-  Bot 未完成 `initialize()+start()` 前不会把 webhook 转发给半热的子进程。
-- 自动休眠使用 `suspend`：挂起期间与 `stop` 一样不计 CPU/RAM，但唤醒是 Firecracker
-  快照恢复（几百毫秒），不是完整冷启动。
-- Webhook secret 持久化在数据卷，跨重启/唤醒稳定，不会出现"重启到重新 setWebhook
-  之间所有更新 403"的窗口。
-- Telegram Webhook、HTTP API 和 PixivFlow 的 Flycast 请求都会经过 Fly Proxy，触发
-  `auto_start_machines=true`。
-
-休眠期间 TelePost 内部定时任务不会运行。这不影响 Telegram/PixivFlow 入站投递；需要
-准点执行的 scheduler 必须放在常驻的 PixivFlow App。
-
-验证冷启动：
-
-```bash
-flyctl machine suspend <machine-id> --app <app>
-flyctl machine status <machine-id> --app <app>
-# 唤醒期间 /ready 先返回 503、就绪后 200；/live 立即 200
-curl -fsS -w 'time=%{time_total}s\n' https://<app>.fly.dev/ready
-```
-
-最后再次检查两个 Webhook URL 和待处理数。
-
-## PixivFlow 常驻 App
-
-使用部署套件的 `fly/pixivflow-split.toml`。核心配置：
-
-```toml
-[env]
-  PIXIV_DOWNLOADER_CONFIG = "/app/data/pixivflow/config.json"
-  TELEPOST_API_BASE_URL = "http://<telepost-app>.flycast"
-  NODE_OPTIONS = "--max-old-space-size=96 --expose-gc"
-
-[[vm]]
-  cpu_kind = "shared"
-  cpus = 1
-  memory_mb = 256
-```
-
-它没有 HTTP service 和 autostop 配置，Machine 保持运行。TelePost App 需要一次性分配
-Flycast 私网地址：
+执行端平时停止、按需唤醒，配置在部署套件的 `fly/deploy.pixivflow.toml`。TelePost 侧
+需要一次性分配 Flycast 私网地址，供执行端投递：
 
 ```bash
 flyctl ips allocate-v6 --private --app <telepost-app>
 ```
+
+执行端通过 `http://<telepost-app>.flycast/api/botN/v1/*` 投递，由 Fly Proxy 转发；
+不要使用 `.internal`。TelePost 的 `/ready` 是其消费屏障：未就绪时执行端只延后重试。
 
 ## 安全升级
 
 1. 确认目标版本的 GitHub Release、GHCR amd64/arm64 manifest 和 CI 都成功。
 2. 对 Volume 建 snapshot。
 3. 更新原 Machine 的镜像，不重建 Volume。
-4. 检查 Machine ID、Volume ID、内存和 autostop 配置未变化。
+4. 检查 Machine ID、Volume ID、内存与常驻参数（`auto_stop_machines`、`min_machines_running`）未变化。
 5. 检查 `/health`、每个 Bot 的 API health、Webhook 和 SQLite `PRAGMA quick_check`。
 
 示例：

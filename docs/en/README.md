@@ -9,7 +9,7 @@
 
 | Document | Content |
 | :-- | :-- |
-| [📥 Download](download.md) | Single-file builds for Windows / macOS / Linux, auto-updated on every release |
+| [Download](download.md) | Single-file builds for Windows / macOS / Linux, auto-updated on every release |
 | [README (English)](https://github.com/redtidev1918/TelePost/blob/main/README.en.md) | Overview, quickest start and common commands |
 
 ## Chinese guides (English index)
@@ -24,7 +24,7 @@ The detailed guides are currently written in Chinese. Start from the
 | [Configuration (中文)](/CONFIGURATION.md) | Environment variables, `config.ini`, multi-bot |
 | [HTTP API (中文)](/API.md) | Tokens, submissions, notifications and error codes |
 | [MCP review (中文)](/MCP_REVIEW.md) | AI-assisted review sidecar, media preview and read-only mode |
-| [Fly.io deployment (中文)](/FLYIO_DEPLOYMENT.md) | Auto-stop and split topology |
+| [Fly.io deployment (中文)](/FLYIO_DEPLOYMENT.md) | Always-on business plane and split topology |
 | [Webhook and Polling (中文)](/WEBHOOK_MODE.md) | Mode selection, routing and security |
 | [Operations (中文)](/OPERATIONS.md) | Backups, upgrades, monitoring and releases |
 | [Troubleshooting (中文)](/TROUBLESHOOTING.md) | Unresponsive bot, OOM, submissions and search |

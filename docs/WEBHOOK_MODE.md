@@ -57,12 +57,8 @@ SECRET_TOKEN = replace-with-random-secret
 ## Webhook 生命周期
 
 - 启动时 TelePost 使用 Secret Token 调用 `setWebhook`，并保留 Telegram 已排队更新。
-- 正常关机或 Fly auto-stop 时只关闭本地服务器，**不会删除 Webhook**。
-- 下一次 Telegram POST 仍能到达 Fly Proxy 并唤醒 Machine。
+- 正常关机只关闭本地服务器，**不会删除 Webhook**；下次启动会重新注册。
 - 改用 Polling 时，PTB 会处理 Webhook/Polling 切换；不要并行运行第二个相同 Token 实例。
-
-这是 2.10.39 的关键行为。旧版本在关机时删除 Webhook，会让已停止的 Fly Machine
-失去唯一唤醒来源。
 
 ## 反向代理
 

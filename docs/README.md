@@ -1,16 +1,16 @@
 # TelePost 文档中心
 
-> TelePost 是一个 Telegram 频道投稿机器人：聊天投稿、审核队列、全文搜索、多 Bot 与 HTTP API。这里汇聚它的全部文档。
+TelePost 是一个 Telegram 频道投稿机器人：聊天投稿、审核队列、全文搜索、多 Bot 与 HTTP API。这里汇聚它的全部文档。
 
-> **English:** English pages live under [`/en/`](en/); see the
-> [English README](https://github.com/redtidev1918/TelePost/blob/main/README.en.md)
-> and the [Download page](/en/download.md).
+English pages live under [`/en/`](en/); see the
+[English README](https://github.com/redtidev1918/TelePost/blob/main/README.en.md)
+and the [Download page](/en/download.md).
 
-## 📥 下载
+## 下载
 
-Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](download.md)（自动指向最新 Release；Intel Mac / Docker 安装见 [INSTALL](INSTALL.md)）。
+Windows / macOS / Linux 免安装单文件版，见 [下载页](download.md)（自动指向最新 Release；Intel Mac / Docker 安装见 [INSTALL](INSTALL.md)）。
 
-## 🧭 按任务找文档
+## 按任务找文档
 
 | 你想做什么 | 路线 |
 | --- | --- |
@@ -25,7 +25,7 @@ Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](downloa
 | 接外部自动化投稿（HTTP API） | [HTTP API](API.md) |
 | 二次开发、改代码 | [投稿状态机](internals/submission-flow.md) · [删帖与软删除](internals/moderation.md) · [测试指南](TESTING.md) |
 
-## 📚 全部文档
+## 全部文档
 
 ### 开始使用
 
@@ -39,7 +39,7 @@ Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](downloa
 | 文档 | 内容 |
 | --- | --- |
 | [CONFIGURATION](CONFIGURATION.md) | 环境变量 / config.ini 逐项说明 |
-| [FLYIO_DEPLOYMENT](FLYIO_DEPLOYMENT.md) | Fly.io 部署与自动休眠 |
+| [FLYIO_DEPLOYMENT](FLYIO_DEPLOYMENT.md) | Fly.io 常驻业务端与拆分拓扑 |
 | [WEBHOOK_MODE](WEBHOOK_MODE.md) | Webhook 与 Polling 两种模式 |
 
 ### 运维
@@ -59,7 +59,7 @@ Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](downloa
 | [submission-flow](internals/submission-flow.md) | 内部设计：聊天投稿状态机 |
 | [moderation](internals/moderation.md) | 内部设计：删帖与软删除 |
 
-## 🔗 其他入口
+## 其他入口
 
 - 项目主页：<https://github.com/redtidev1918/TelePost>
 - npm 无（Python 项目）；PyInstaller 单文件见 [Releases](https://github.com/redtidev1918/TelePost/releases)

@@ -100,16 +100,15 @@ flyctl volumes snapshots list <volume-id> --app <app>
 
 snapshot 是回退保障，不替代异地备份。
 
-## Fly.io 省钱拓扑
+## Fly.io 拓扑
 
-- PixivFlow：256 MiB，常驻，自己的 Volume。
-- TelePost：512 MiB 双 Bot，`auto_stop_machines="stop"`、
-  `auto_start_machines=true`、`min_machines_running=0`。
-- PixivFlow 向 `http://<telepost-app>.flycast/api/botN/v1/*` 投递，由 Fly Proxy 唤醒
-  TelePost；不要使用 `.internal`。
+- TelePost：512 MiB 双 Bot，常驻（`auto_stop_machines=false`、`min_machines_running=1`），
+  自己的 Volume。
+- PixivFlow：256 MiB，独立执行端，平时停止、按需唤醒，自己的 Volume。
+- PixivFlow 向 `http://<telepost-app>.flycast/api/botN/v1/*` 投递，由 Fly Proxy 转发；
+  不要使用 `.internal`。
 
-TelePost 2.10.39+ 在停机时保留 Webhook，启动时不丢弃积压更新。完整配置见
-[FLYIO_DEPLOYMENT.md](FLYIO_DEPLOYMENT.md)。
+完整配置见 [FLYIO_DEPLOYMENT.md](FLYIO_DEPLOYMENT.md)。
 
 ## 安全升级与回退
 
@@ -137,9 +136,10 @@ curl -fsS https://<app>.fly.dev/api/bot1/v1/health
 curl -fsS https://<app>.fly.dev/api/bot2/v1/health
 ```
 
-必须确认 Machine ID、Volume ID、内存和 autostop 配置不变，镜像 digest 对应目标新版本。
-两个 Bot 的 API 健康端点均应返回目标版本。2.10.43 无数据库迁移，无需清理或重建历史数据；
-升级前后的只读完整性检查均应为 `ok`。相册降级回复、聊天遮罩和混合文件保存的回归测试见
+必须确认 Machine ID、Volume ID、内存、常驻参数（`auto_stop_machines`、`min_machines_running`）
+和健康检查不变，镜像 digest 对应目标新版本。
+两个 Bot 的 API 健康端点均应返回目标版本。升级前后各跑一次只读完整性检查，均应为 `ok`。
+相册降级回复、聊天遮罩和混合文件保存的回归测试见
 `tests/test_publish_reply.py`、`tests/test_publish_regressions.py` 和 `tests/test_streaming_uploads.py`。
 回退只需更新
 为上一版本镜像；除非数据本身损坏，不要用旧 snapshot 覆盖较新的数据库。

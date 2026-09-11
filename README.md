@@ -18,7 +18,7 @@ Telegram 频道投稿机器人，支持聊天投稿、审核队列、全文搜�
 - 通过 Bearer Token API 接收外部自动化投稿
 - 通过可选 MCP sidecar 让 AI Agent 安全读取待审核投稿和媒体、给出审核建议
 - 在 Polling、Webhook 与 `AUTO` 模式间切换
-- 在 Fly.io 保留 Webhook 后自动休眠，并由下一次请求唤醒
+- 在 Fly.io 以常驻服务运行，Webhook 即时接收投稿
 - 在图片解码前执行资源预算；高风险原图以预览或文档安全降级
 - 审核暂存采用可恢复状态，启动时修复缺失的控制消息
 
@@ -68,17 +68,18 @@ Webhook 和 Polling 都提供 `/live`（进程存活）、`/ready`（数据库�
 
 ## Fly.io 与 PixivFlow
 
-低成本推荐拓扑：
+Fly.io 上拆成两个应用：
 
 ```text
-PixivFlow 256 MiB，常驻调度
+PixivFlow 256 MiB，平时停止、按需唤醒（执行端）
         │ Flycast/Fly Proxy HTTP
         ▼
-TelePost 512 MiB，auto-stop + auto-start，双 Bot
+TelePost 512 MiB，常驻、双 Bot（业务端）
 ```
 
-PixivFlow 必须常驻才能按 Cron 执行；TelePost 只处理入站事件，可以自动休眠。不要把
-两者塞进一台会自动休眠的 Machine，否则休眠期间没有进程能触发 Cron。完整步骤见
+TelePost 必须常驻：它持有频道发布凭据与审核队列，停机期间的投稿无法及时响应。省成本
+放在 PixivFlow 执行端——它平时停止、被触发唤醒、跑完自行退出。不要把两者塞进同一台
+机器，那会共用内存、生命周期与故障域。完整步骤见
 [Fly.io 部署](docs/FLYIO_DEPLOYMENT.md)。
 
 ## 常用入口
@@ -100,7 +101,7 @@ PixivFlow 必须常驻才能按 Cron 执行；TelePost 只处理入站事件，�
 | [命令参考](docs/COMMANDS.md) | 用户、管理员和 Owner 命令 |
 | [HTTP API](docs/API.md) | Token、投稿、通知与错误 |
 | [MCP 投稿审核](docs/MCP_REVIEW.md) | AI 审稿、媒体预览、只读模式与人工确认 |
-| [Fly.io 部署](docs/FLYIO_DEPLOYMENT.md) | 自动休眠与拆分拓扑 |
+| [Fly.io 部署](docs/FLYIO_DEPLOYMENT.md) | 常驻业务端与拆分拓扑 |
 | [Webhook 与 Polling](docs/WEBHOOK_MODE.md) | 模式选择、路由和安全 |
 | [运维手册](docs/OPERATIONS.md) | 备份、升级、监控和发布 |
 | [故障排查](docs/TROUBLESHOOTING.md) | 无响应、OOM、投稿和搜索问题 |
