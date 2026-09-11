@@ -61,3 +61,5 @@ primary_region = ""
 # 3. 设置密钥: flyctl secrets set TOKEN=xxx CHANNEL_ID=@xxx OWNER_ID=xxx WEBHOOK_URL=https://xxx.fly.dev
 #    （代码兼容 BOT_TOKEN / TELEGRAM_BOT_TOKEN 作为别名）
 # 4. 后续部署使用: flyctl deploy
+
+# Branch-contract probe (negative): comment-only change inside the declared cutover scope.
