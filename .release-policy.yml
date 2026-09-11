@@ -75,7 +75,6 @@
             ],
             "allowedPaths": [
               "fly.toml",
-              "deploy.fly-multi-bot.toml",
               "docker-compose.yml",
               "Dockerfile"
             ]
