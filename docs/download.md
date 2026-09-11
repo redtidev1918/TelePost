@@ -1,5 +1,7 @@
 # 📥 下载 TelePost
 
+**语言 / Language:** 中文 · [English](/en/download.md)
+
 本页由 GitHub Actions 在每次发版时**自动更新**，始终指向最新 Release。
 
 ## 最新版本：`v2.17.2`（2026-09-10）
