@@ -10,6 +10,13 @@
 
 ---
 
+## [2.17.5](https://github.com/redtidev1918/TelePost/compare/v2.17.4...v2.17.5) (2026-09-12)
+
+
+### Bug Fixes
+
+* **submission:** keep slow submissions decidable and idempotent ([#67](https://github.com/redtidev1918/TelePost/issues/67)) ([ca72763](https://github.com/redtidev1918/TelePost/commit/ca72763038c294f590996974ae13f97dd5992c8e))
+
 ## [2.17.4](https://github.com/redtidev1918/TelePost/compare/v2.17.3...v2.17.4) (2026-09-12)
 
 
