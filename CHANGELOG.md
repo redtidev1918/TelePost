@@ -10,6 +10,14 @@
 
 ---
 
+## [2.17.4](https://github.com/redtidev1918/TelePost/compare/v2.17.3...v2.17.4) (2026-09-12)
+
+
+### Bug Fixes
+
+* **security:** 脱敏 main 上的生产 chatId 并加入全历史凭据门禁 ([cde20e2](https://github.com/redtidev1918/TelePost/commit/cde20e20096f34db6f1d93185dfc65b07b768597))
+* **security:** 补齐 Telegram bot token / chat id 检测规则 ([ba91b0e](https://github.com/redtidev1918/TelePost/commit/ba91b0efc9cec41077c57da765816d0303c4ba71))
+
 ## [2.17.3](https://github.com/redtidev1918/TelePost/compare/v2.17.2...v2.17.3) (2026-09-11)
 
 
