@@ -126,16 +126,34 @@ _BUSINESS_STATUS = {
 }
 
 
+# Terminal remote review states. They must never be reported as an accepted
+# delivery, and retrying the same idempotency key can only return the same row.
+_FAILED_DELIVERY_STATUSES = ("failed", "rejected", "invalid", "expired")
+
+
+def _is_failed_status(status) -> bool:
+    return str(status or "").strip().lower() in _FAILED_DELIVERY_STATUSES
+
+
 def _business_ack(result: dict) -> web.Response:
     """Normalize a facade result dict to the formal business ACK envelope."""
     reason = result.get("reuse_reason") or ""
-    if reason == "idempotent_replay":
+    if reason == "idempotent_replay" and _is_failed_status(result.get("status")):
+        # A reuse only ACKs successfully when the REUSED RECORD is itself on the
+        # success path. Reporting a reused `failed` record as 200 /
+        # idempotent_replay told callers "already accepted" for a submission
+        # that never reached the review queue, so a downstream failure was
+        # recorded as an end-to-end success by the client. The row is terminal
+        # for this idempotency key (a retry returns the same failed record).
+        business = "permanent_failure"
+        http_status = 400
+    elif reason == "idempotent_replay":
         business = "idempotent_replay"
         http_status = 200
     elif reason == "duplicate_existing":
         business = "duplicate_existing"
         http_status = 200
-    elif result.get("status") in ("failed",):
+    elif _is_failed_status(result.get("status")):
         business = "permanent_failure"
         http_status = 400
     else:
