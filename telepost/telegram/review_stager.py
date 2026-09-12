@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from collections.abc import Awaitable, Callable
 from typing import List, Optional, Tuple
 
@@ -85,7 +86,11 @@ class TelegramReviewStager:
         self._thread = thread
         self._sleep = sleep
         self._photo_max_bytes = photo_max_bytes
+        self._preview_timeout = preview_timeout
         self._timeouts = timeout_kwargs(preview_timeout)
+        # Monotonic deadline of the CURRENT staging call, or None when the
+        # caller does not require bounded staging (background repair / tests).
+        self._staging_deadline: Optional[float] = None
 
     # ---- StagingPort ---------------------------------------------------
     async def stage_local(self, files, *, caption: str, spoiler: bool,
@@ -174,7 +179,7 @@ class TelegramReviewStager:
         text = review_keyboard.reused_notice_text(row)
         kwargs = {
             "chat_id": self.chat_id, "text": text,
-            "disable_web_page_preview": True, **self._timeouts,
+            "disable_web_page_preview": True, **self._timeouts_now(),
         }
         message_ids = _review_message_ids(row)
         if str(row["review_chat_id"]) == str(self.chat_id) and message_ids:
@@ -211,14 +216,47 @@ class TelegramReviewStager:
                           or pixiv_id_from_link(command.link or "")),
             ),
             disable_web_page_preview=True,
-            **self._timeouts,
+            **self._timeouts_now(),
         ))
         return message.message_id
+
+    # ---- staging budget -------------------------------------------------
+    def set_staging_deadline(self, deadline: Optional[float]) -> None:
+        """Bound how long the CURRENT staging call may take (monotonic clock).
+
+        Submissions are staged inline inside the HTTP request, while the routing
+        layer answers 502 for anything slower than its own timeout
+        (``ROUTER_TIMEOUT_SECONDS``). Unbounded retries therefore handed callers
+        a synthetic 502 for a submission that was still running, which makes
+        "not processed" and "processed and failed" indistinguishable. Every
+        remaining Telegram call is capped to the remaining budget here, so the
+        request always answers by itself before the router gives up.
+        """
+        self._staging_deadline = deadline
+
+    def _budget_left(self) -> Optional[float]:
+        if self._staging_deadline is None:
+            return None
+        return self._staging_deadline - time.monotonic()
+
+    def _timeouts_now(self) -> dict:
+        left = self._budget_left()
+        if left is None or left >= self._preview_timeout:
+            return self._timeouts
+        return timeout_kwargs(max(left, 1.0))
+
+    def _require_budget(self) -> None:
+        left = self._budget_left()
+        if left is not None and left <= 0:
+            raise RuntimeError(
+                "审核预览暂存超时（submission staging timeout），本次投稿未完成"
+            )
 
     # ---- throttle ------------------------------------------------------
     async def _send_throttled(self, factory: Callable[[], Awaitable]):
         last_error = None
         for attempt in range(self._max_attempts):
+            self._require_budget()
             try:
                 return await factory()
             except RetryAfter as exc:
@@ -242,6 +280,11 @@ class TelegramReviewStager:
                 wait = 5.0
             if attempt + 1 >= self._max_attempts:
                 raise last_error
+            left = self._budget_left()
+            if left is not None:
+                # Never sleep past the staging deadline: the next attempt would
+                # be rejected anyway, and the request must answer in time.
+                wait = min(wait, max(left, 0.0))
             await self._sleep(wait)
         raise RuntimeError("审核预览重试次数已耗尽")
 
@@ -289,7 +332,7 @@ class TelegramReviewStager:
                         caption=caption if index == 0 else None,
                         spoiler=spoiler, filename=item["filename"],
                     ))
-                kwargs = dict(chat_id=self.chat_id, media=group, **self._timeouts)
+                kwargs = dict(chat_id=self.chat_id, media=group, **self._timeouts_now())
                 if reply_to is not None:
                     kwargs["reply_to_message_id"] = reply_to
                 return await self._bot.send_media_group(**kwargs)
@@ -302,7 +345,7 @@ class TelegramReviewStager:
         return await self._send_throttled(factory)
 
     async def _local_single(self, item, caption, spoiler, reply_to):
-        common = {"chat_id": self.chat_id, **self._timeouts}
+        common = {"chat_id": self.chat_id, **self._timeouts_now()}
         if reply_to is not None:
             common["reply_to_message_id"] = reply_to
         kind = item["kind"]
@@ -348,7 +391,7 @@ class TelegramReviewStager:
             )
             for index, item in enumerate(chunk)
         ]
-        kwargs = dict(chat_id=self.chat_id, media=group, **self._timeouts)
+        kwargs = dict(chat_id=self.chat_id, media=group, **self._timeouts_now())
         if reply_to is not None:
             kwargs["reply_to_message_id"] = reply_to
         return await self._send_throttled(
@@ -356,7 +399,7 @@ class TelegramReviewStager:
         )
 
     async def _file_id_single(self, item, caption, spoiler, reply_to):
-        common = {"chat_id": self.chat_id, **self._timeouts}
+        common = {"chat_id": self.chat_id, **self._timeouts_now()}
         if reply_to is not None:
             common["reply_to_message_id"] = reply_to
         kind = item["kind"]
