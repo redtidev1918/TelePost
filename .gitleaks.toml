@@ -1,0 +1,42 @@
+# gitleaks configuration — TelePost
+#
+# Goal: no real credential can enter the repository again, while values that are
+# provably not secrets stay legal.
+#
+# Scope note: used by .github/workflows/gitleaks.yml, which runs
+# gitleaks-action with GITLEAKS_LOG_OPTS (git mode, scanning the commit range of
+# the triggering event). Gitignored runtime data (`data/`) never appears in a
+# commit and therefore needs no allowlist entry.
+#
+# HARD RULE (verified 2026-09-12 with gitleaks 8.30.1): inside a single
+# [[allowlists]] block, `paths` and `regexes` are OR-ed, not AND-ed. A
+# directory-level `paths` entry therefore exempts *every* file below it from
+# scanning, whatever else the block contains — the sibling repositories shipped
+# exactly that mistake (`paths = ['^data/', 'security-fixes/']`) and it made a
+# real GCP API key undetectable in 5/5 field-shape variants. Never allowlist by
+# directory in this file; allowlist by exact value or unambiguous shape.
+#
+# A scan of this repository with `useDefault = true` and no allowlists reports
+# 0 findings, so the entries below are defensive only.
+
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Unambiguously synthetic values and redaction markers.
+#
+# Value-shape only, deliberately WITHOUT any `paths` entry (see hard rule above).
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Synthetic fixtures and redaction markers (shape-only, no path scoping)"
+regexes = [
+  # Telegram bot tokens whose secret part is literally 35 x 'A'.
+  '''\d{8,10}:A{35}''',
+  # Telegram-shaped tokens carrying an explicit synthetic marker.
+  '''\d{8,10}:[A-Za-z0-9_-]*(?:EXAMPLE|SYNTHETIC|FAKE|DUMMY|PLACEHOLDER|NOT_A_REAL|REDACTED)[A-Za-z0-9_-]*''',
+  # Synthetic Telegram chat id used by fixtures.
+  '''-1001234567890''',
+  # Fingerprints / redaction markers that are safe to commit.
+  '''sha256:[0-9a-f]{64}''',
+  '''<REDACTED>''',
+]
