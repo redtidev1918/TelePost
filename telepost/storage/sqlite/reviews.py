@@ -167,6 +167,31 @@ class ReviewRepository:
             )
             return list(await cur.fetchall())
 
+    async def touch_preparing(self, review_id: int) -> bool:
+        """Renew the liveness marker of an IN-FLIGHT preparation.
+
+        A request that is still staging its previews and a request that died
+        mid-staging are indistinguishable in this table: both leave
+        ``status='preparing'`` with ``control_message_id IS NULL``. That is
+        exactly the predicate ``list_incomplete`` uses to decide what the
+        reconciliation sweep may repair, so a submission whose staging outlives
+        the staleness window was treated as crash leftovers and destroyed by
+        the sweeper while its own handler was still running. A live handler
+        renews ``updated_at`` here, so ``updated_at <= cutoff`` really means
+        "nobody has signalled liveness for N seconds".
+
+        Scoped to ``status='preparing'`` so a heartbeat can never resurrect a
+        row another writer already moved on (staged/pending/failed/published),
+        and returns whether the row was still ours to renew.
+        """
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "UPDATE pending_reviews SET updated_at=? "
+                "WHERE id=? AND status='preparing'",
+                (time.time(), int(review_id)),
+            )
+            return cur.rowcount == 1
+
     async def delete(self, review_id: int) -> None:
         async with db_manager.get_db() as conn:
             await conn.execute("DELETE FROM pending_reviews WHERE id=?",

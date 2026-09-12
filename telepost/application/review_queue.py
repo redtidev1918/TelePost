@@ -14,8 +14,10 @@ Idempotency contract
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -27,6 +29,19 @@ from ..observability.errors import classify as classify_error
 from ..storage.sqlite.reviews import NewReview, ReviewRepository
 
 logger = logging.getLogger(__name__)
+
+# The routing layer (run.py) answers 502 for any request slower than
+# ROUTER_TIMEOUT_SECONDS (300s default), which reports an IN-FLIGHT submission
+# as a transport failure. Staging must therefore finish its own Telegram work
+# well inside that budget, and must renew its review row often enough that the
+# periodic reconciliation sweep (60s staleness) can tell a live request apart
+# from a crashed one.
+STAGING_DEADLINE_SECONDS = float(
+    os.environ.get("REVIEW_STAGING_DEADLINE_SECONDS", "240")
+)
+PREPARATION_HEARTBEAT_SECONDS = float(
+    os.environ.get("REVIEW_HEARTBEAT_SECONDS", "20")
+)
 
 
 def _actor(user_id: Any = None) -> str:
@@ -109,9 +124,37 @@ class StagingPort(Protocol):
 
 class ReviewQueueService:
     def __init__(self, repo: Optional[ReviewRepository] = None,
-                 dedup_window_seconds: int = PUBLISHED_DEDUP_WINDOW_SECONDS):
+                 dedup_window_seconds: int = PUBLISHED_DEDUP_WINDOW_SECONDS,
+                 staging_deadline_seconds: float = STAGING_DEADLINE_SECONDS,
+                 heartbeat_seconds: float = PREPARATION_HEARTBEAT_SECONDS):
         self._repo = repo or ReviewRepository()
         self._dedup_window = dedup_window_seconds
+        self._staging_deadline_seconds = staging_deadline_seconds
+        self._heartbeat_seconds = heartbeat_seconds
+
+    # ---- in-flight liveness ---------------------------------------------
+    async def _heartbeat_preparing(self, review_id: int) -> None:
+        """Renew the review row while this request is genuinely working.
+
+        Without it a submission whose staging outlived the sweep's staleness
+        window was indistinguishable from a crash leftover, so the sweeper
+        deleted the previews this request had just uploaded and marked the
+        review failed (see ReviewRepository.touch_preparing).
+        """
+        try:
+            while True:
+                await asyncio.sleep(self._heartbeat_seconds)
+                if not await self._repo.touch_preparing(review_id):
+                    return  # left 'preparing': this request lost the row
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug("审核准备心跳失败: review_id=%s", review_id, exc_info=True)
+
+    @staticmethod
+    async def _stop_heartbeat(task: "asyncio.Task") -> None:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
     # ---- result mapping --------------------------------------------------
     @staticmethod
@@ -189,6 +232,16 @@ class ReviewQueueService:
 
         await _record("review.created", command, review_id=review_id)
 
+        # A live staging request and a crashed one look identical in the ledger
+        # (status='preparing', control_message_id NULL), so the reconciliation
+        # sweep used to hijack submissions whose staging outlived its staleness
+        # window. Renew the row while we work on it, and bound the staging so
+        # this request answers before the router's timeout turns it into a
+        # synthetic 502 (which hides whether the submission was processed).
+        heartbeat = asyncio.create_task(self._heartbeat_preparing(review_id))
+        set_deadline = getattr(stager, "set_staging_deadline", None)
+        if callable(set_deadline):
+            set_deadline(time.monotonic() + self._staging_deadline_seconds)
         media_decisions: list = []
         try:
             # Pass the id list in-out: when staging fails mid-way, ids of
@@ -234,6 +287,10 @@ class ReviewQueueService:
             if is_local:
                 await stager.cleanup_files(files)
             raise
+        finally:
+            if callable(set_deadline):
+                set_deadline(None)
+            await self._stop_heartbeat(heartbeat)
 
         try:
             staged = await self._repo.update_staged(
