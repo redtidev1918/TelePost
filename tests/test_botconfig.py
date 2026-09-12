@@ -41,7 +41,7 @@ def test_build_bot_env_loads_only_its_persisted_policy(tmp_path):
 
 
 @pytest.mark.parametrize("raw, expected", [
-    ("https://t.me/c/4318193445/12", "-1004318193445"),
+    ("https://t.me/c/1234567890/12", "-1001234567890"),
     ("https://t.me/example_channel", "@example_channel"),
     ("-100123456789", "-100123456789"),
 ])
