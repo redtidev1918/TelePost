@@ -10,6 +10,13 @@
 
 ---
 
+## [2.20.1](https://github.com/redtidev1918/TelePost/compare/v2.20.0...v2.20.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* **docker:** webapp-builder needs api/openapi.yaml for generate:api ([#79](https://github.com/redtidev1918/TelePost/issues/79)) ([2852572](https://github.com/redtidev1918/TelePost/commit/2852572582236bc08359d205539e179fb4437d78))
+
 ## [2.20.0](https://github.com/redtidev1918/TelePost/compare/v2.19.0...v2.20.0) (2026-09-13)
 
 
