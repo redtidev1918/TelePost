@@ -13,6 +13,17 @@ COPY requirements.txt .
 RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 
 
+# Build the Telegram Mini App static bundle (webapp/dist). Node toolchain and
+# node_modules stay in this stage; the runtime image only receives dist/.
+FROM node:24-bookworm-slim AS webapp-builder
+
+WORKDIR /build/webapp
+COPY webapp/package.json webapp/package-lock.json ./
+RUN npm ci || npm install
+COPY webapp/ ./
+RUN npm run generate:api && npm run build
+
+
 # The combined Fly profile needs Node and PixivFlow, but not npm at runtime.
 FROM node:24-bookworm-slim AS pixivflow-builder
 
@@ -43,6 +54,8 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.t
     && rm -rf /wheels
 
 COPY . .
+# Telegram Mini App bundle (built in webapp-builder; dist only, no node_modules).
+COPY --from=webapp-builder /build/webapp/dist /app/webapp/dist
 # Bake build identity for /version + /health. Same shape scripts/build-release
 # writes for PyInstaller bundles; the shared releasegraph workflow supplies the
 # build-args (APP_VERSION/GIT_SHA). Defaults keep a local `docker build` on dev.

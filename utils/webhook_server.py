@@ -160,7 +160,12 @@ class WebhookServer:
         if os.getenv("API_ENABLED", "true").lower() != "false":
             from utils.api_server import add_api_routes
             add_api_routes(self.web_app, self.application)
-        
+
+        # Telegram Mini App static hosting（同域 /app/，§68-§69）。
+        # webapp/dist 由镜像构建阶段产出；不存在（未构建）时这些路由自动
+        # 缺席，Bot/API 完全不受影响（MINIAPP_ENABLED 亦可关闭 surface）。
+        self._mount_miniapp_static()
+
         # 创建并启动 runner
         self.runner = web.AppRunner(self.web_app)
         await self.runner.setup()
@@ -176,6 +181,33 @@ class WebhookServer:
         if self.runner:
             await self.runner.cleanup()
             logger.info("Webhook 服务器已停止")
+
+    def _mount_miniapp_static(self):
+        """Serve the Mini App build at /app/* when it exists (same-domain §68).
+
+        aiohttp's add_static handles index.html resolution, hashed assets and
+        range requests. The dist directory is baked into the Docker image by a
+        dedicated Node build stage; a source checkout without an npm build
+        simply skips these routes. SPA routes (/app/, /app/review/...) resolve
+        to index.html via a catch-all.
+        """
+        import os as _os
+        dist_dir = _os.path.join(_os.path.dirname(_os.path.dirname(
+            _os.path.abspath(__file__))), "webapp", "dist")
+        if not _os.path.isdir(dist_dir):
+            logger.info("Mini App dist 未构建，跳过 /app/* 静态挂载")
+            return
+        self.web_app.router.add_static("/app/", dist_dir, show_index=False)
+        from aiohttp import web as _web
+
+        async def _spa_fallback(request):
+            index_path = _os.path.join(dist_dir, "index.html")
+            if not _os.path.isfile(index_path):
+                return _web.Response(status=404, text="not found")
+            return _web.FileResponse(index_path)
+
+        self.web_app.router.add_route(_web.get, "/app/{tail:.*}", _spa_fallback)
+        logger.info("Mini App 静态挂载: /app/ → %s", dist_dir)
 
 
 async def setup_webhook(application, webhook_url: str, webhook_path: str, secret_token: str):
