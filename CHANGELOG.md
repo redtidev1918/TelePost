@@ -10,6 +10,13 @@
 
 ---
 
+## [2.18.0](https://github.com/redtidev1918/TelePost/compare/v2.17.6...v2.18.0) (2026-09-13)
+
+
+### Features
+
+* **review:** remote, repeatable, stateful review refetch ([#73](https://github.com/redtidev1918/TelePost/issues/73)) ([80ee189](https://github.com/redtidev1918/TelePost/commit/80ee1899a22a185cc12c012e8b4f3da986e050d0))
+
 ## [2.17.6](https://github.com/redtidev1918/TelePost/compare/v2.17.5...v2.17.6) (2026-09-13)
 
 
