@@ -47,6 +47,7 @@
 | `/optimize_index` | 合并 Whoosh 索引段 |
 
 审核群的批准、拒绝、剧透切换和 Pixiv 重抓按钮同样要求 Admin。
+重抓需要 `PIXIVFLOW_REFETCH_BASE_URL` 和 `PIXIVFLOW_REFETCH_TOKEN`，只重跑原审核稿的 `target_id`；受理后会在审核群确认，新作品仍需人工审核。
 
 ## `/botconfig`（仅 Owner）
 

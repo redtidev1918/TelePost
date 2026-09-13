@@ -17,9 +17,11 @@ import json
 import logging
 import os
 import re
-import subprocess
 import time
 import uuid
+from urllib.error import HTTPError
+from urllib.parse import quote, urlparse
+from urllib.request import Request, urlopen
 from typing import Optional
 
 from config.settings import ADMIN_IDS, REVIEW_CHAT_ID
@@ -67,7 +69,7 @@ PENDING_REVIEW_RETENTION_DAYS = max(
 PENDING_REVIEW_CLEANUP_BATCH_SIZE = max(
     1, min(200, int(os.getenv("PENDING_REVIEW_CLEANUP_BATCH_SIZE", "100")))
 )
-REFETCH_TIMEOUT_SECONDS = 3900
+REFETCH_TIMEOUT_SECONDS = 120
 
 _PIXIV_ID_RE = re.compile(r"pixiv\.net/(?:artworks/|novel/show\.php\?id=)(\d+)")
 
@@ -400,18 +402,27 @@ async def toggle_review_spoiler(update, context):
         logger.debug("刷新审核键盘失败（遮罩已入库）: review_id=%s", review_id)
 
 
-def _run_pixivflow_refetch(target_id: str = "") -> subprocess.CompletedProcess:
-    config_path = os.getenv("PIXIVFLOW_CONFIG", "")
-    command = ["pixivflow", "run-once"]
-    if config_path:
-        command += ["--config", config_path]
-    if target_id:
-        command += ["--target", target_id]
-    logger.info("审核群触发 PixivFlow 重抓: %s", " ".join(command))
-    return subprocess.run(
-        command, cwd="/app", timeout=REFETCH_TIMEOUT_SECONDS,
-        capture_output=True, text=True,
+def _submit_pixivflow_refetch(target_id: str, request_id: str) -> dict:
+    base = os.environ["PIXIVFLOW_REFETCH_BASE_URL"].rstrip("/")
+    token = os.environ["PIXIVFLOW_REFETCH_TOKEN"]
+    parsed = urlparse(base)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
+        raise ValueError("无效的 PixivFlow 重抓地址")
+    url = f"{base}/internal/targets/{quote(target_id, safe='')}/refetch"
+    request = Request(
+        url,
+        data=json.dumps({"requestId": request_id}).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="POST",
     )
+    try:
+        with urlopen(request, timeout=REFETCH_TIMEOUT_SECONDS) as response:
+            result = json.load(response)
+            if response.status != 202 or result.get("status") != "accepted":
+                raise RuntimeError(f"PixivFlow 拒绝重抓（HTTP {response.status}）")
+            return result
+    except HTTPError as error:
+        raise RuntimeError(f"PixivFlow 拒绝重抓（HTTP {error.code}）") from error
 
 
 async def refetch_review(update, context):
@@ -425,55 +436,35 @@ async def refetch_review(update, context):
         await _answer(query, "无效的审核记录", show_alert=True)
         return
 
-    if os.getenv("PIXIVFLOW_ENABLED", "false").strip().lower() not in {
-        "true", "1", "yes"
-    }:
-        await _answer(query, "PixivFlow 未启用，无法重抓", show_alert=True)
-        return
-
     row = await _load_review_for_action(query, review_id)
     if row is None:
         await _answer(query, "审核记录不存在", show_alert=True)
         return
     target_id = (row["target_id"] or "").strip() if "target_id" in row.keys() else ""
+    if not target_id:
+        await _answer(query, "这条审核稿缺少抓取目标，无法重抓", show_alert=True)
+        return
+    if not os.getenv("PIXIVFLOW_REFETCH_BASE_URL") or not os.getenv("PIXIVFLOW_REFETCH_TOKEN"):
+        await _answer(query, "PixivFlow 重抓服务未配置", show_alert=True)
+        return
 
-    await _answer(
-        query,
-        "已触发重抓，新作品下载投递后会作为新审核稿进入本群（已发布的旧稿不受影响）。",
-        show_alert=True,
-    )
-    try:
-        await context.bot.send_message(
-            chat_id=REVIEW_CHAT_ID,
-            text=f"🔄 审核 #{review_id} 由管理员触发重抓，PixivFlow 正在后台重新下载，请稍候……",
-        )
-    except Exception:
-        logger.debug("发送重抓提示失败", exc_info=True)
+    request_id = str(uuid.uuid4())
+    await _answer(query, "正在向 PixivFlow 提交重抓请求，结果会发到本群", show_alert=True)
 
     async def _do_refetch():
         try:
-            proc = await asyncio.to_thread(_run_pixivflow_refetch, target_id)
-            if proc.returncode == 0:
-                tail = (proc.stdout or "")[-300:]
-                logger.info("PixivFlow 重抓完成: %s", tail)
-                await context.bot.send_message(
-                    chat_id=REVIEW_CHAT_ID,
-                    text="✅ 重抓完成，新投稿已进入审核队列（无新作品时会提示空结果）。",
-                )
-            else:
-                tail = ((proc.stderr or "") + (proc.stdout or ""))[-300:]
-                logger.warning("PixivFlow 重抓失败 code=%s: %s",
-                               proc.returncode, tail)
-                await context.bot.send_message(
-                    chat_id=REVIEW_CHAT_ID,
-                    text=f"⚠️ 重抓异常退出（{proc.returncode}）：{tail[:200]}",
-                )
+            result = await asyncio.to_thread(_submit_pixivflow_refetch, target_id, request_id)
+            logger.info("PixivFlow 重抓已受理: review_id=%s slot_id=%s", review_id, result.get("slotId"))
+            await context.bot.send_message(
+                chat_id=REVIEW_CHAT_ID,
+                text=f"🔄 审核 #{review_id} 的重抓已受理，PixivFlow 将重新处理 {target_id}；有新作品时会进入审核队列。",
+            )
         except Exception as exc:
             logger.warning("PixivFlow 重抓任务异常: %s", exc, exc_info=True)
             try:
                 await context.bot.send_message(
                     chat_id=REVIEW_CHAT_ID,
-                    text=f"⚠️ 重抓任务出错：{str(exc)[:200]}",
+                    text=f"⚠️ 审核 #{review_id} 重抓请求未确认受理：{str(exc)[:200]}",
                 )
             except Exception:
                 pass
