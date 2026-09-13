@@ -224,7 +224,9 @@ curl -X POST 'https://example.com/api/bot1/v1/notifications' \
 
 审核管理端点仅供专用 review token 或 owner token 使用；普通投稿 token 只有读取权限。
 MCP sidecar 推荐设置 `TELEPOST_MCP_REVIEW_TOKEN`，并可通过
-`TELEPOST_REVIEW_API_MODE=readonly` 禁止 HTTP 写操作。完整配置见 [MCP 投稿审核](MCP_REVIEW.md)。
+`TELEPOST_REVIEW_API_MODE=readonly` 禁止 **API token / MCP** 的 HTTP 写操作（无人值守自动化的
+安全兜底）。Mini App 里的**人工审核**（reviewer/admin 通过签名会话 approve/reject/refetch）
+不受该开关限制——那是明确的人工动作，仍受 RBAC 约束。完整配置见 [MCP 投稿审核](MCP_REVIEW.md)。
 
 - `GET /api/v1/reviews`：待审核摘要列表，支持 `limit`、`cursor`
 - `GET /api/v1/reviews/{id}`：完整文本元数据和媒体索引
