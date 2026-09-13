@@ -10,6 +10,13 @@
 
 ---
 
+## [2.19.0](https://github.com/redtidev1918/TelePost/compare/v2.18.0...v2.19.0) (2026-09-13)
+
+
+### Features
+
+* **miniapp:** Telegram Mini App submission & moderation platform ([#74](https://github.com/redtidev1918/TelePost/issues/74)) ([0d05ff2](https://github.com/redtidev1918/TelePost/commit/0d05ff2fbe6934c01df830c9d425f534919113c2))
+
 ## [2.18.0](https://github.com/redtidev1918/TelePost/compare/v2.17.6...v2.18.0) (2026-09-13)
 
 
