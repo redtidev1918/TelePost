@@ -264,3 +264,54 @@ class TestReviewRBAC:
             assert resp.status == 403
         finally:
             await client.close()
+
+class TestMiniAppReadonlyExemption:
+    @pytest.mark.asyncio
+    async def test_miniapp_reviewer_can_approve_even_in_readonly_mode(self, monkeypatch):
+        """A human Mini App review action is not gated by the MCP/API read-only
+        automation switch (TELEPOST_REVIEW_API_MODE=readonly)."""
+        from services import review_service as review_service_mod
+
+        monkeypatch.setenv("TELEPOST_REVIEW_API_MODE", "readonly")
+        app, _ = _make_app(monkeypatch, _REVIEWER, reviewer=True)
+        monkeypatch.setenv("MINIAPP_SESSION_SECRET", "s" * 40)
+        token = _session_token(100, ["submitter", "reviewer", "admin"])
+        client = await _client(app)
+        try:
+            with patch.object(
+                review_service_mod.ReviewService,
+                "approve",
+                AsyncMock(return_value=review_service_mod.ActionResult(
+                    7, "published", False, 1, "https://t.me/c/1/1",
+                )),
+            ):
+                resp = await client.post(
+                    "/api/v1/reviews/7/approve",
+                    json={"spoiler": False},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                assert resp.status == 200
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_api_token_write_still_blocked_in_readonly_mode(self, monkeypatch):
+        """API-token (automation) writes remain blocked when the mode is readonly."""
+        monkeypatch.setenv("TELEPOST_REVIEW_API_MODE", "readonly")
+        monkeypatch.setenv("OWNER_ID", "5073758941")
+        app, _ = _make_app(monkeypatch, _SUBMITTER, reviewer=False)
+        token_row = {"id": 1, "telegram_user_id": 5073758941, "name": "owner-token"}
+        monkeypatch.setattr(api_server, "authenticate",
+                            AsyncMock(return_value=token_row))
+        client = await _client(app)
+        try:
+            resp = await client.post(
+                "/api/v1/reviews/7/approve",
+                json={"spoiler": False},
+                headers={"Authorization": "Bearer tp_ownertoken"},
+            )
+            assert resp.status == 403
+            body = await resp.json()
+            assert body["error"]["code"] == "permission_denied"
+        finally:
+            await client.close()
