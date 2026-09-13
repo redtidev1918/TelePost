@@ -65,6 +65,25 @@ python check_config.py             # 配置自检
 跨仓库的只读生产校验在部署仓库：`./scripts/verify-production.sh`、`./scripts/smoke-telepost.sh`、
 `./scripts/verify-webhooks.sh`（不会打印密钥）。
 
+## 审核群「重抓」不变量
+
+拆分部署下，TelePost 的重抓是**远程服务间工作流**（`split-worker`）：
+
+- TelePost **绝不**在 Bot 容器里 shell-out 或同容器拉起 PixivFlow 来重抓；
+  只调用独立 PixivFlow 的受认证 `POST /internal/targets/{id}/refetch`。
+- TelePost **绝不**操作 Fly Machines API；唤醒交给 Fly `auto_start_machines` 代理。
+- 每次重抓 attempt 都是 durable 的（`refetch_attempts`）；同一审核链同时最多一个活跃 attempt
+  （数据层 partial UNIQUE index 强制）。
+- 按钮点击幂等：同一 `callback_query.id` 的 webhook 重投收敛到**同一个** attempt / requestId；
+  只有新的主动点击（新 callback id）才创建新一代。
+- `no_alternative` 只属于某一次 attempt，不代表该审核链永久耗尽；之后可再次点击。
+- 当前候选与该链历史候选（`refetch_seen_candidates`）永不重新进入同一链；替换成功后
+  旧稿标记 `superseded`，旧按钮直接拒绝，不产生分叉。
+- 当前稿件保持有效，直到新稿**已落库成功**才转 `superseded`（commit-after-success）；
+  失败的 attempt 之后当前稿件不变。
+- 迟到的异步结果（approve/reject/expire 之后到达）只会标记 attempt `obsolete`，
+  绝不覆盖终态审核结论。
+
 ## 已知待办（本仓库范围）
 
 - `ROADMAP.md` 中与「拆分拓扑」相关的条目若已完成，请更新；不要再保留第二份 Fly 拓扑文件。

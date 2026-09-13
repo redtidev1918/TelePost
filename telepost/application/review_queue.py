@@ -102,6 +102,9 @@ class QueueCommand:
     source_ref: str = ""
     scheduled_at: str = ""
     review_chat_id: str = ""
+    # Request UUID of a remote refetch attempt ("重抓") that produced this
+    # submission; empty for scheduled/original submissions.
+    refetch_request_id: str = ""
 
 
 class StagingPort(Protocol):
@@ -371,7 +374,10 @@ class ReviewQueueService:
             work_type=command.work_type,
             delivery_target=command.target_id,
             status="preparing",
+            refetch_request_id=command.refetch_request_id,
         )
+        if command.refetch_request_id:
+            return await self._reserve_replacement(new_review, stager)
         for _attempt in range(2):
             try:
                 review_id = await self._repo.insert(new_review)
@@ -415,6 +421,89 @@ class ReviewQueueService:
         else:
             raise RuntimeError("创建审核记录失败：幂等键冲突且无法覆盖旧记录")
 
+        # Every review's current candidate belongs in seen-history (spec §7/§41).
+        # The DB-driven migration bootstrap only covers rows existing at
+        # init_db time, so freshly created originals seed here in the same
+        # connection that reserved them.
+        if pixiv_id:
+            try:
+                from telepost.storage.sqlite.refetch import RefetchRepository
+                async with db_manager.get_db() as conn:
+                    cur = await conn.execute(
+                        "SELECT * FROM pending_reviews WHERE id=?", (review_id,)
+                    )
+                    inserted = await cur.fetchone()
+                    if inserted is not None:
+                        await RefetchRepository().seed_original_seen(conn, inserted)
+            except Exception:
+                logger.debug("写入候选历史失败: review_id=%s", review_id, exc_info=True)
+
+        return review_id
+
+    async def _reserve_replacement(self, new_review: NewReview,
+                                   stager: StagingPort) -> int:
+        """Reserve a review produced by a remote refetch, in ONE transaction.
+
+        The submission carries ``refetch_request_id``. In a single SQLite
+        transaction we:
+          1. resolve the still-active attempt + its source review;
+          2. verify the source is still ``pending`` (stale-result protection);
+          3. insert the NEW review row (durable proof of success);
+          4. supersede the old review, write seen-history and mark the attempt
+             ``replaced`` (commit-after-success).
+
+        If the source left ``pending`` before the result landed, the attempt
+        becomes ``obsolete`` and the new review stays an ordinary standalone
+        submission — a late async result never overwrites a reviewer decision.
+        """
+        from database import db_manager
+        from telepost.storage.sqlite.refetch import RefetchRepository
+
+        refetch_repo = RefetchRepository()
+        async with db_manager.get_db() as conn:
+            attempt, source = await refetch_repo.resolve_replacement(
+                conn, new_review.refetch_request_id
+            )
+            if attempt is not None and source is not None and source["status"] == "pending":
+                chain_id, _ = await refetch_repo.chain_of_review(conn, source)
+                new_review.review_chain_id = chain_id
+                # The new review IS the generation this attempt promised.
+                new_review.generation = int(attempt["generation"] or 0)
+                new_review.supersedes_review_id = source["id"]
+            try:
+                review_id = await self._repo.insert_into(conn, new_review)
+            except Exception as exc:
+                import aiosqlite
+                if not isinstance(exc, aiosqlite.IntegrityError):
+                    raise
+                # Unlikely: the same submission key raced in. Reuse like the
+                # normal path instead of creating a second review.
+                existing = await self._repo.find_active_by_key(
+                    new_review.idempotency_key, self._dedup_window
+                )
+                if existing is None:
+                    raise
+                raise ReusedReview(
+                    self.result_from_row(existing, reused=True), []
+                ) from exc
+            if attempt is not None and new_review.supersedes_review_id is not None:
+                await refetch_repo.finalize_replacement(
+                    conn,
+                    attempt=attempt,
+                    new_review_id=review_id,
+                    new_candidate_id=new_review.pixiv_id or "",
+                    source_review_id=new_review.supersedes_review_id,
+                    review_chain_id=new_review.review_chain_id,
+                    generation=new_review.generation,
+                )
+            elif attempt is not None:
+                # Source no longer pending: the attempt is stale, not replaced.
+                await conn.execute(
+                    "UPDATE refetch_attempts SET state='obsolete', finished_at=? "
+                    "WHERE request_id=? AND state IN ('requested','admitted')",
+                    (time.time(), new_review.refetch_request_id),
+                )
+        # Telegram preview staging continues with the same row identity.
         return review_id
 
     async def reconcile_incomplete(self, stager: StagingPort, *,
@@ -528,4 +617,5 @@ def _command_from_row(row) -> QueueCommand:
         pixiv_id=row["pixiv_id"] or "", source_label=row["source_label"] or "",
         source_ref=row["source_ref"] or "", scheduled_at=row["scheduled_at"] or "",
         review_chat_id=str(row["review_chat_id"] or ""),
+        refetch_request_id=row["refetch_request_id"] or "",
     )
