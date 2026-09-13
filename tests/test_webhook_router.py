@@ -285,3 +285,51 @@ class TestReadinessProbes:
         finally:
             await router_runner.cleanup()
             await child_runner.cleanup()
+
+
+class TestMiniAppStaticRelay:
+    @pytest.mark.asyncio
+    async def test_router_forwards_app_path_to_child(self, monkeypatch):
+        """/app/* must reach the bot child untouched (same-domain static, §68)."""
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+
+        received = {}
+
+        async def fake_static(request):
+            received["path"] = request.path
+            received["query"] = request.query_string
+            return web.Response(text="index-html")
+
+        async def fake_ready(_request):
+            return web.json_response({"status": "ok", "ready": True})
+
+        bot_app = web.Application()
+        bot_app.router.add_get("/app/", fake_static)
+        bot_app.router.add_get("/app/{tail:.*}", fake_static)
+        bot_app.router.add_get("/ready", fake_ready)
+        monkeypatch.setattr(run_mod, "bot_webhook_port", lambda i: 8083)
+
+        router_app = run_mod.build_router_app([1])
+        bot_runner = web.AppRunner(bot_app)
+        await bot_runner.setup()
+        bot_site = web.TCPSite(bot_runner, "127.0.0.1", 8083)
+        await bot_site.start()
+        router_runner = web.AppRunner(router_app)
+        await router_runner.setup()
+        router_site = web.TCPSite(router_runner, "127.0.0.1", 18081)
+        await router_site.start()
+
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    "http://127.0.0.1:18081/app/review/12?x=1"
+                ) as resp:
+                    assert resp.status == 200
+                    assert await resp.text() == "index-html"
+            assert received["path"] == "/app/review/12"
+            assert received["query"] == "x=1"
+        finally:
+            await bot_runner.cleanup()
+            await router_runner.cleanup()

@@ -591,6 +591,10 @@ def build_router_app(indices: list):
         api_relay = make_relay(index, api_prefix, prepend="/api")
         app.router.add_route("*", api_prefix, api_relay)
         app.router.add_route("*", api_prefix + "/{tail:.*}", api_relay)
+        # Telegram Mini App static hosting：/app/* 直接转发到子进程（同域，§68）
+        app_relay = make_relay(index, None)  # no strip/prepend: child serves /app/*
+        app.router.add_route("*", "/app", app_relay)
+        app.router.add_route("*", "/app/{tail:.*}", app_relay)
 
     # Combined-image integration bridge (NOT core TelePost behavior): when an
     # external automation engine (PixivFlow) runs in the same container in

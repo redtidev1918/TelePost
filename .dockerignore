@@ -64,3 +64,8 @@ fly.toml
 *.pyc
 *.pyo
 .cache
+
+# WebApp（dist 由 Dockerfile webapp-builder 阶段产出；node_modules 不进 runtime）
+webapp/node_modules
+webapp/dist
+webapp/coverage
