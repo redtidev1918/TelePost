@@ -10,6 +10,13 @@
 
 ---
 
+## [2.20.4](https://github.com/redtidev1918/TelePost/compare/v2.20.3...v2.20.4) (2026-09-13)
+
+
+### Bug Fixes
+
+* **webapp:** override valibot to 1.5.0 (ReDoS GHSA-vqpr-j7v3-hqw9) ([#85](https://github.com/redtidev1918/TelePost/issues/85)) ([fc0f3a8](https://github.com/redtidev1918/TelePost/commit/fc0f3a81978ca247ed5a5bd31abea73d51d3835d))
+
 ## [2.20.3](https://github.com/redtidev1918/TelePost/compare/v2.20.2...v2.20.3) (2026-09-13)
 
 
