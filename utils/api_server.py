@@ -508,13 +508,16 @@ def add_api_routes(web_app, application) -> None:
             return _error(401, "invalid_token", "token 无效或已吊销")
         uid = principal["telegram_user_id"]
         used = _rate_cache.get(f"api:{uid}") or 0
-        return _ok({
+        payload = {
             "telegram_user_id": uid,
             "name": principal["name"],
             "surface": principal["surface"],
             "submissions_last_hour": used,
             "rate_limit_per_hour": SUBMIT_LIMIT_PER_HOUR,
-        })
+        }
+        if principal["surface"] == "mini_app":
+            payload["roles"] = _principal_roles(principal)
+        return _ok(payload)
 
     async def miniapp_session(request):
         """POST /api/v1/miniapp/session — validate Telegram initData, mint a session.
@@ -1036,6 +1039,70 @@ def add_api_routes(web_app, application) -> None:
             return _ok(result.to_dict())
         return await _run_review_action(action)
 
+    async def refetch_review_api(request):
+        """POST /api/v1/reviews/{id}/refetch — Mini App refetch command.
+
+        Reuses the SAME application command as the Bot button
+        (:func:`telepost.application.refetch.request_refetch`), so the two
+        surfaces share one state machine / one idempotency / one audit trail
+        (§39, §41). Reviewer RBAC is enforced server-side (§14).
+        """
+        async def action():
+            actor_row, auth_error = await _review_auth(request, write=True)
+            if auth_error:
+                return auth_error
+            try:
+                review_id = int(request.match_info["review_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_review_id", "review_id 必须是整数")
+            from telepost.application.refetch import (
+                RefetchAlreadyRunningError,
+                RefetchError,
+                RefetchNotConfiguredError,
+                RefetchNotFoundError,
+                RefetchStateError,
+                request_refetch,
+            )
+            try:
+                result = await request_refetch(
+                    review_id,
+                    actor=_action_actor(actor_row),
+                    surface=actor_row.get("scope") or "api",
+                )
+            except RefetchNotFoundError as exc:
+                return _error(404, exc.code, str(exc))
+            except RefetchStateError as exc:
+                return _error(409, exc.code, str(exc))
+            except RefetchAlreadyRunningError as exc:
+                return _ok({"state": "running", "request_id": None,
+                            "message": str(exc)}, status=202)
+            except RefetchNotConfiguredError as exc:
+                return _error(503, exc.code, str(exc))
+            except RefetchError as exc:
+                return _error(409, exc.code, str(exc))
+            return _ok(result, status=202)
+        return await _run_review_action(action)
+
+    async def refetch_review_state(request):
+        """GET /api/v1/reviews/{id}/refetch — attempt + lineage (read-only)."""
+        async def action():
+            actor_row, auth_error = await _review_auth(request, write=False)
+            if auth_error:
+                return auth_error
+            try:
+                review_id = int(request.match_info["review_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_review_id", "review_id 必须是整数")
+            from telepost.application.refetch import (
+                RefetchNotFoundError,
+                get_refetch_state,
+            )
+            try:
+                return _ok(await get_refetch_state(review_id))
+            except RefetchNotFoundError as exc:
+                return _error(404, exc.code, str(exc))
+        return await _run_review_action(action)
+
     async def delivery_lookup(request):
         """Authenticated reconciliation lookup for a downstream work.
         Lets the caller (e.g. PixivFlow doctor) ask 'did target X already
@@ -1194,6 +1261,8 @@ def add_api_routes(web_app, application) -> None:
     web_app.router.add_post("/api/v1/reviews/{review_id}/approve", approve_review)
     web_app.router.add_post("/api/v1/reviews/{review_id}/reject", reject_review)
     web_app.router.add_patch("/api/v1/reviews/{review_id}/spoiler", set_review_spoiler)
+    web_app.router.add_post("/api/v1/reviews/{review_id}/refetch", refetch_review_api)
+    web_app.router.add_get("/api/v1/reviews/{review_id}/refetch", refetch_review_state)
     web_app.router.add_get("/api/v1/health", health)
     web_app.router.add_get("/api/v1/me", me)
     web_app.router.add_post("/api/v1/submissions", create_submission)
