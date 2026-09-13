@@ -10,6 +10,13 @@
 
 ---
 
+## [2.20.0](https://github.com/redtidev1918/TelePost/compare/v2.19.0...v2.20.0) (2026-09-13)
+
+
+### Features
+
+* **webapp:** same-domain static hosting for the Mini App (dist → /app/) ([#77](https://github.com/redtidev1918/TelePost/issues/77)) ([9c718e0](https://github.com/redtidev1918/TelePost/commit/9c718e02ad372a74769be77a583348a17b961bfd))
+
 ## [2.19.0](https://github.com/redtidev1918/TelePost/compare/v2.18.0...v2.19.0) (2026-09-13)
 
 
