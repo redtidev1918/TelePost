@@ -87,3 +87,17 @@ python check_config.py             # 配置自检
 ## 已知待办（本仓库范围）
 
 - `ROADMAP.md` 中与「拆分拓扑」相关的条目若已完成，请更新；不要再保留第二份 Fly 拓扑文件。
+
+## Telegram Mini App 不变量（presentation adapter, §88/§149）
+
+- Mini App 是 **presentation / UI adapter**：业务状态只属于 TelePost 的
+  domain / application / storage。禁止为网页方便直接改 DB 或把 review transition
+  复制成 TypeScript 状态机。
+- Bot 与 Mini App 必须使用**同一组 application service**（例如 `request_refetch`
+  同时服务 Bot 按钮和 `POST /api/v1/reviews/{id}/refetch`）。禁止第二个实现。
+- 浏览器永不接收：Bot token、长效 TelePost admin token、PixivFlow service secret。
+  `POST /api/v1/miniapp/session` 是唯一 Mini App 认证入口，服务器用 `init-data-py`
+  验证 `initData`（绝不信任 `initDataUnsafe` 里的身份）。
+- 授权只发生在服务器：RBAC 复用 `ADMIN_IDS`/`OWNER_ID`，deep link 只给导航。
+- `webapp/` 的测试/构建是独立生命周期（`npm run typecheck|lint|test|build`），
+  但业务正确性必须靠 Python 侧的 domain/application 测试保证。

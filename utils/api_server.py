@@ -1,7 +1,10 @@
 """
-HTTP API（/api/v1）—— 供外部项目自动化投稿
+HTTP API（/api/v1）—— 供外部项目自动化投稿 / Telegram Mini App
 
-认证：Authorization: Bearer tp_xxx（token 由 TG 内 /gen_token 生成，绑定 Telegram 用户）
+认证（两种 Principal，统一进应用层，§81-§82）：
+* API token：``Authorization: Bearer tp_xxx``（TG 内 /gen_token 生成，绑定 Telegram 用户）。
+* Mini App session：``Authorization: Bearer ma_v1.xxx``（经 /api/v1/miniapp/session 签发，
+  服务器验证过 Telegram initData 后的短期身份；不暴露任何 Bot/API 秘密）。
 错误格式：{"ok": false, "error": {"code": "...", "message": "..."}}
 """
 import asyncio
@@ -12,6 +15,7 @@ import os
 import shutil
 import time
 import uuid
+from typing import Optional
 
 from aiohttp import web
 
@@ -59,6 +63,65 @@ def _error(status: int, code: str, message: str) -> web.Response:
     )
 
 
+# ---- Principal bridge (§82): API token OR Mini App session -------------
+# Every authenticated handler resolves a *principal* dict with one shape, so
+# business code never parses Authorization headers itself.
+
+def _bearer_token(request) -> str:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:].strip()
+    return ""
+
+
+async def _resolve_principal(request) -> Optional[dict]:
+    """Resolve the caller to a unified principal (None when unauthenticated).
+
+    Order: Mini App session (ma_v1.*) first, then the API token (tp_*).
+    """
+    token = _bearer_token(request)
+    from telepost.miniapp import session as miniapp_session
+    if token.startswith("ma_v1."):
+        principal = miniapp_session.verify_session(token)
+        if principal is None:
+            return None
+        return {
+            "telegram_user_id": principal.telegram_user_id,
+            "name": principal.username or f"user{principal.telegram_user_id}",
+            "roles": principal.roles,
+            "surface": "mini_app",
+        }
+    row = await authenticate(token)
+    if row is None:
+        return None
+    return {
+        "telegram_user_id": int(row["telegram_user_id"] or 0),
+        "name": row["name"] or f"user{row['telegram_user_id']}",
+        "roles": None,  # API tokens reuse the Bot's OWNER_ID/ADMIN_IDS rule
+        "surface": "api",
+    }
+
+
+def _principal_roles(principal: dict):
+    roles = principal.get("roles")
+    if roles:
+        return list(roles)
+    from telepost.miniapp import rbac as miniapp_rbac
+    uid = principal.get("telegram_user_id")
+    return miniapp_rbac.roles_for(uid if uid else None)
+
+
+def _principal_is_reviewer(principal: dict) -> bool:
+    """Reviewer decision for any principal (Mini App roles or Bot identity)."""
+    from telepost.miniapp import rbac as miniapp_rbac
+    return miniapp_rbac.can_review(_principal_roles(principal))
+
+
+def _principal_is_owner(principal: dict) -> bool:
+    uid = principal.get("telegram_user_id")
+    return uid is not None and OWNER_ID is not None and int(uid) == int(OWNER_ID)
+
+
 async def _audit_submission(event: str, *, user_id, idempotency_key="",
                             target_id="", work_type="", pixiv_id="",
                             source_ref="", review_id=None, detail=None) -> None:
@@ -74,6 +137,51 @@ async def _audit_submission(event: str, *, user_id, idempotency_key="",
         execution_id=audit_mod.execution_id_from_ref(source_ref),
         detail=detail,
     )
+
+
+async def _own_submissions(user_id, *, limit: int, cursor: Optional[str]):
+    """Own-submission history: strictly user-scoped, keyset paged.
+
+    Mirrors the review-summary shape (status/title/tags/counts) without giving
+    users cross-user access or internal decision fields (§24-§25). Reads go
+    through a repository method, never SQL inside the frontend.
+    """
+    created_cursor: Optional[float] = None
+    id_cursor: Optional[int] = None
+    if cursor:
+        import re as _re
+        match = _re.fullmatch(r"(\d+(?:\.\d+)?):(\d+)", cursor)
+        if not match:
+            raise ReviewError("invalid cursor", details={"cursor": cursor})
+        created_cursor, id_cursor = float(match.group(1)), int(match.group(2))
+
+    from telepost.storage.sqlite.reviews import ReviewRepository
+
+    def _summary(row) -> dict:
+        import json as _json
+        return {
+            "review_id": row["id"],
+            "status": "pending_review" if row["status"] == "pending" else row["status"],
+            "title": row["title"] or "",
+            "tags": [t for t in (row["tags"] or "").split() if t],
+            "media_count": len(_json.loads(row["media_json"] or "[]")),
+            "document_count": len(_json.loads(row["documents_json"] or "[]")),
+            "spoiler": bool(row["spoiler"]),
+            "created_at": row["created_at"],
+            "source": row["source"] or "api",
+        }
+
+    rows = await ReviewRepository().list_by_user(
+        user_id, limit=limit + 1,
+        created_cursor=created_cursor, id_cursor=id_cursor,
+    )
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    items = [_summary(row) for row in rows]
+    next_cursor = None
+    if has_more and rows:
+        next_cursor = f"{rows[-1]['created_at']}:{rows[-1]['id']}"
+    return items, next_cursor
 
 
 def _result_reused_id(result: dict):
@@ -334,16 +442,31 @@ async def _review_auth(request, *, write: bool):
             return None, _error(403, "permission_denied", "Review API is read-only")
         return {"telegram_user_id": None, "name": actor, "scope": "review"}, None
 
-    row = await authenticate(token)
-    if row is None:
+    principal = await _resolve_principal(request)
+    if principal is None:
         return None, _error(401, "invalid_token", "token 无效或已吊销")
-    if write and OWNER_ID is not None and int(row["telegram_user_id"] or 0) != int(OWNER_ID):
-        return None, _error(403, "permission_denied", "Only owner token may modify reviews")
-    if write and OWNER_ID is None:
-        return None, _error(403, "permission_denied", "OWNER_ID is required for review writes")
+    if principal["surface"] == "api":
+        # Legacy API-token path: owner-only writes (unchanged contract).
+        if write and OWNER_ID is not None and int(principal["telegram_user_id"] or 0) != int(OWNER_ID):
+            return None, _error(403, "permission_denied", "Only owner token may modify reviews")
+        if write and OWNER_ID is None:
+            return None, _error(403, "permission_denied", "OWNER_ID is required for review writes")
+        if write and _review_mode() == "readonly":
+            return None, _error(403, "permission_denied", "Review API is read-only")
+        return {"telegram_user_id": principal["telegram_user_id"],
+                "name": principal["name"], "scope": "api"}, None
+
+    # Mini App principal: server-side RBAC (§13-§14, §83).
+    if not _principal_is_reviewer(principal):
+        return None, _error(403, "permission_denied", "需要审核权限")
     if write and _review_mode() == "readonly":
         return None, _error(403, "permission_denied", "Review API is read-only")
-    return row, None
+    return {
+        "telegram_user_id": principal["telegram_user_id"],
+        "name": principal["name"],
+        "roles": principal["roles"],
+        "scope": "mini_app",
+    }, None
 
 
 def _review_error(exc: ReviewError) -> web.Response:
@@ -380,23 +503,95 @@ def add_api_routes(web_app, application) -> None:
                     "chat_review_required": CHAT_REVIEW_REQUIRED})
 
     async def me(request):
-        row = await authenticate(_bearer(request) or "")
-        if row is None:
+        principal = await _resolve_principal(request)
+        if principal is None:
             return _error(401, "invalid_token", "token 无效或已吊销")
-        used = _rate_cache.get(f"api:{row['telegram_user_id']}") or 0
-        return _ok({
-            "telegram_user_id": row["telegram_user_id"],
-            "name": row["name"],
+        uid = principal["telegram_user_id"]
+        used = _rate_cache.get(f"api:{uid}") or 0
+        payload = {
+            "telegram_user_id": uid,
+            "name": principal["name"],
+            "surface": principal["surface"],
             "submissions_last_hour": used,
             "rate_limit_per_hour": SUBMIT_LIMIT_PER_HOUR,
+        }
+        if principal["surface"] == "mini_app":
+            payload["roles"] = _principal_roles(principal)
+        return _ok(payload)
+
+    async def miniapp_session(request):
+        """POST /api/v1/miniapp/session — validate Telegram initData, mint a session.
+
+        A Mini App never touches a bot token or a long-lived API token: it only
+        sends ``initData``; the server verifies it, derives roles, and returns
+        a short-lived session (Bearer ma_v1.*). The raw initData is never
+        logged or persisted (§9-§11, §56, §58).
+        """
+        from telepost.miniapp import auth as miniapp_auth
+        from telepost.miniapp import rbac as miniapp_rbac
+        from telepost.miniapp import session as miniapp_session
+
+        if not miniapp_auth.init_data_enabled():
+            return _error(403, "miniapp_disabled", "Mini App 未启用")
+        try:
+            payload = await request.json()
+        except Exception:
+            return _error(400, "invalid_json", "JSON 解析失败")
+        if not isinstance(payload, dict):
+            return _error(400, "invalid_json", "JSON body 必须是对象")
+        init_data = str(payload.get("initData") or payload.get("init_data") or "").strip()
+        try:
+            user = await asyncio.to_thread(miniapp_auth.validate_init_data, init_data)
+        except miniapp_auth.InitDataError as exc:
+            return _error(401, exc.code, str(exc)[:200])
+        uid = int(user["telegram_user_id"])
+        roles = miniapp_rbac.roles_for(uid)
+        token = miniapp_session.issue_session(
+            uid, roles, username=user.get("username", "")
+        )
+        await _audit_submission(
+            "miniapp.session_created", user_id=uid,
+            detail={"surface": "mini_app", "roles": roles},
+        )
+        return _ok({
+            "token": token,
+            "expires_in": miniapp_session.session_ttl_seconds(),
+            "user": {
+                "telegram_user_id": uid,
+                "username": user.get("username", ""),
+                "roles": roles,
+            },
         })
 
-    async def create_submission(request):
-        token_row = await authenticate(_bearer(request) or "")
-        if token_row is None:
+    async def my_submissions(request):
+        """GET /api/v1/me/submissions — the caller's own submission history.
+
+        Server filters strictly by the authenticated telegram_user_id (§24-§25);
+        a user can never see another user's rows. Mini App principal or API
+        token both work.
+        """
+        principal = await _resolve_principal(request)
+        if principal is None:
             return _error(401, "invalid_token", "token 无效或已吊销")
-        user_id = token_row["telegram_user_id"]
-        username = token_row["name"] or f"user{user_id}"
+        uid = principal["telegram_user_id"]
+        if not uid:
+            return _error(403, "permission_denied", "Missing user identity")
+        try:
+            limit = int(request.query.get("limit", "20"))
+        except (TypeError, ValueError):
+            return _error(400, "invalid_limit", "limit 必须是整数")
+        limit = max(1, min(limit, 100))
+        cursor = request.query.get("cursor") or None
+        from services.review_service import ReviewService
+        items, next_cursor = await _own_submissions(uid, limit=limit, cursor=cursor)
+        return _ok({"items": items, "next_cursor": next_cursor})
+
+    async def create_submission(request):
+        principal = await _resolve_principal(request)
+        if principal is None:
+            return _error(401, "invalid_token", "token 无效或已吊销")
+        user_id = principal["telegram_user_id"]
+        username = principal["name"] or f"user{user_id}"
 
         # 限频
         used = _rate_cache.get(f"api:{user_id}") or 0
@@ -752,6 +947,20 @@ def add_api_routes(web_app, application) -> None:
             return None, _error(400, "invalid_json", "JSON body 必须是对象")
         return payload, None
 
+    def _action_source(request, actor_row) -> str:
+        if actor_row.get("scope") == "mini_app":
+            return "mini_app"
+        if request.headers.get("X-TelePost-Source", "").lower() == "mcp":
+            return "mcp"
+        return "http"
+
+    def _action_actor(actor_row):
+        """Actor identity: telegram_user_id when known (Mini App / user token)."""
+        uid = actor_row.get("telegram_user_id")
+        if uid is not None:
+            return uid
+        return actor_row.get("name") or None
+
     async def approve_review(request):
         async def action():
             actor_row, auth_error = await _review_auth(request, write=True)
@@ -767,12 +976,12 @@ def add_api_routes(web_app, application) -> None:
                 review_id = int(request.match_info["review_id"])
             except (TypeError, ValueError):
                 return _error(400, "invalid_review_id", "review_id 必须是整数")
-            source = "mcp" if request.headers.get("X-TelePost-Source", "").lower() == "mcp" else "http"
+            source = _action_source(request, actor_row)
             result = await review_service.approve(
                 bot,
                 review_id,
                 spoiler=spoiler,
-                actor=actor_row["name"] if actor_row["telegram_user_id"] is None else actor_row["telegram_user_id"],
+                actor=_action_actor(actor_row),
                 source=source,
                 notify_chat_submitter=True,
             )
@@ -794,12 +1003,12 @@ def add_api_routes(web_app, application) -> None:
                 review_id = int(request.match_info["review_id"])
             except (TypeError, ValueError):
                 return _error(400, "invalid_review_id", "review_id 必须是整数")
-            source = "mcp" if request.headers.get("X-TelePost-Source", "").lower() == "mcp" else "http"
+            source = _action_source(request, actor_row)
             result = await review_service.reject(
                 bot,
                 review_id,
                 reason=reason,
-                actor=actor_row["name"] if actor_row["telegram_user_id"] is None else actor_row["telegram_user_id"],
+                actor=_action_actor(actor_row),
                 source=source,
                 notify_chat_submitter=True,
             )
@@ -820,14 +1029,78 @@ def add_api_routes(web_app, application) -> None:
                 review_id = int(request.match_info["review_id"])
             except (TypeError, ValueError):
                 return _error(400, "invalid_review_id", "review_id 必须是整数")
-            source = "mcp" if request.headers.get("X-TelePost-Source", "").lower() == "mcp" else "http"
+            source = _action_source(request, actor_row)
             result = await review_service.set_spoiler(
                 review_id,
                 payload["spoiler"],
-                actor=actor_row["name"] if actor_row["telegram_user_id"] is None else actor_row["telegram_user_id"],
+                actor=_action_actor(actor_row),
                 source=source,
             )
             return _ok(result.to_dict())
+        return await _run_review_action(action)
+
+    async def refetch_review_api(request):
+        """POST /api/v1/reviews/{id}/refetch — Mini App refetch command.
+
+        Reuses the SAME application command as the Bot button
+        (:func:`telepost.application.refetch.request_refetch`), so the two
+        surfaces share one state machine / one idempotency / one audit trail
+        (§39, §41). Reviewer RBAC is enforced server-side (§14).
+        """
+        async def action():
+            actor_row, auth_error = await _review_auth(request, write=True)
+            if auth_error:
+                return auth_error
+            try:
+                review_id = int(request.match_info["review_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_review_id", "review_id 必须是整数")
+            from telepost.application.refetch import (
+                RefetchAlreadyRunningError,
+                RefetchError,
+                RefetchNotConfiguredError,
+                RefetchNotFoundError,
+                RefetchStateError,
+                request_refetch,
+            )
+            try:
+                result = await request_refetch(
+                    review_id,
+                    actor=_action_actor(actor_row),
+                    surface=actor_row.get("scope") or "api",
+                )
+            except RefetchNotFoundError as exc:
+                return _error(404, exc.code, str(exc))
+            except RefetchStateError as exc:
+                return _error(409, exc.code, str(exc))
+            except RefetchAlreadyRunningError as exc:
+                return _ok({"state": "running", "request_id": None,
+                            "message": str(exc)}, status=202)
+            except RefetchNotConfiguredError as exc:
+                return _error(503, exc.code, str(exc))
+            except RefetchError as exc:
+                return _error(409, exc.code, str(exc))
+            return _ok(result, status=202)
+        return await _run_review_action(action)
+
+    async def refetch_review_state(request):
+        """GET /api/v1/reviews/{id}/refetch — attempt + lineage (read-only)."""
+        async def action():
+            actor_row, auth_error = await _review_auth(request, write=False)
+            if auth_error:
+                return auth_error
+            try:
+                review_id = int(request.match_info["review_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_review_id", "review_id 必须是整数")
+            from telepost.application.refetch import (
+                RefetchNotFoundError,
+                get_refetch_state,
+            )
+            try:
+                return _ok(await get_refetch_state(review_id))
+            except RefetchNotFoundError as exc:
+                return _error(404, exc.code, str(exc))
         return await _run_review_action(action)
 
     async def delivery_lookup(request):
@@ -976,6 +1249,9 @@ def add_api_routes(web_app, application) -> None:
             logger.debug("记录重抓终态审计失败: request_id=%s", request_id, exc_info=True)
         return _ok({"ok": True, "attempt_state": applied})
 
+    web_app.router.add_post("/api/v1/miniapp/session", miniapp_session)
+    web_app.router.add_get("/api/v1/me/submissions", my_submissions)
+
     web_app.router.add_get("/api/v1/reviews/policy", review_policy)
     web_app.router.add_get("/api/v1/reviews", list_reviews)
     web_app.router.add_get("/api/v1/reviews/{review_id}", get_review)
@@ -985,6 +1261,8 @@ def add_api_routes(web_app, application) -> None:
     web_app.router.add_post("/api/v1/reviews/{review_id}/approve", approve_review)
     web_app.router.add_post("/api/v1/reviews/{review_id}/reject", reject_review)
     web_app.router.add_patch("/api/v1/reviews/{review_id}/spoiler", set_review_spoiler)
+    web_app.router.add_post("/api/v1/reviews/{review_id}/refetch", refetch_review_api)
+    web_app.router.add_get("/api/v1/reviews/{review_id}/refetch", refetch_review_state)
     web_app.router.add_get("/api/v1/health", health)
     web_app.router.add_get("/api/v1/me", me)
     web_app.router.add_post("/api/v1/submissions", create_submission)

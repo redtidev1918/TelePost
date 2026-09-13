@@ -373,6 +373,30 @@ class ReviewRepository:
                 )
             return list(await cur.fetchall())
 
+    async def list_by_user(self, user_id: int, *, limit: int,
+                           created_cursor: Optional[float] = None,
+                           id_cursor: Optional[int] = None) -> list:
+        """Own-submission history: strictly user-scoped, keyset paged.
+
+        Returns every review row the user submitted, newest first; a user can
+        never query another user's rows (§25 privacy boundary enforced here).
+        """
+        async with db_manager.get_db() as conn:
+            if created_cursor is None:
+                cur = await conn.execute(
+                    "SELECT * FROM pending_reviews WHERE user_id=? "
+                    "ORDER BY created_at DESC, id DESC LIMIT ?",
+                    (int(user_id), limit),
+                )
+            else:
+                cur = await conn.execute(
+                    "SELECT * FROM pending_reviews WHERE user_id=? "
+                    "AND (created_at, id) < (?, ?) "
+                    "ORDER BY created_at DESC, id DESC LIMIT ?",
+                    (int(user_id), created_cursor, id_cursor, limit),
+                )
+            return list(await cur.fetchall())
+
     async def _select_in_conn(self, conn, review_id: int):
         cur = await conn.execute(
             "SELECT * FROM pending_reviews WHERE id=?", (review_id,)

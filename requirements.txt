@@ -32,3 +32,6 @@ whoosh>=2.7.4
 # 2. 重新安装依赖：pip install -r requirements.txt
 # 3. 修改 config.ini: [SEARCH] ANALYZER = jieba 或 simple
 # 4. 重启应用（自动适配索引）
+
+# Telegram Mini App server-side initData verification (MIT, maintained)
+init-data-py==1.0.0

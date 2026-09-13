@@ -5,6 +5,7 @@
   - [命令参考](/COMMANDS.md)
 - 配置与部署
   - [配置参考](/CONFIGURATION.md)
+  - [Telegram Mini App](/MINIAPP.md)
   - [Fly.io 部署](/FLYIO_DEPLOYMENT.md)
   - [Webhook 与 Polling](/WEBHOOK_MODE.md)
 - 运维

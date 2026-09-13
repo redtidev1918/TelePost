@@ -17,6 +17,9 @@ Telegram 频道投稿机器人，支持聊天投稿、审核队列、全文搜�
 - 用一个 supervisor 运行多个相互隔离的 Bot
 - 通过 Bearer Token API 接收外部自动化投稿
 - 通过可选 MCP sidecar 让 AI Agent 安全读取待审核投稿和媒体、给出审核建议
+- **Telegram Mini App**（可选增强）：Telegram 内直接投稿、查看自己的投稿状态，
+  审核员在 Mini App 里处理审核队列（批准/拒绝/剧透/重抓）——与 Bot 共用同一套
+  后端 domain/application/state machine/审计
 - 在 Polling、Webhook 与 `AUTO` 模式间切换
 - 在 Fly.io 保留 Webhook 后自动休眠，并由下一次请求唤醒
 - 在图片解码前执行资源预算；高风险原图以预览或文档安全降级
@@ -90,6 +93,18 @@ PixivFlow 必须常驻才能按 Cron 执行；TelePost 只处理入站事件，�
 - 测试：`./.venv/bin/python -m pytest -q --no-cov -o log_cli=false`
 
 全部命令见[命令参考](docs/COMMANDS.md)，自动化调用见 [HTTP API](docs/API.md)。
+
+## Telegram Mini App
+
+```text
+普通用户: Telegram → Mini App → 投稿 / 我的投稿
+审核员:   Telegram → Mini App → 审核队列 / 审核详情（通过、拒绝、剧透、重抓）
+```
+
+- 叠加在既有 Bot 之上：Bot 的 quick actions + 通知 + fallback 全部保留。
+- 认证：服务器用 `init-data-py` 验证 Telegram `initData`，签发短期 session；
+  Bot token / 长效 API token 从不进入浏览器（§9-§12）。
+- 一线部署说明见 [`docs/MINIAPP.md`](docs/MINIAPP.md)。
 
 ## 文档
 

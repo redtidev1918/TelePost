@@ -139,6 +139,16 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/ErrorResponse'}
+    reviewState:
+      description: Review is not in the expected state (busy / already resolved)
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    reviewNotFound:
+      description: Review does not exist
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
 paths:
   /health:
     get:
@@ -416,3 +426,186 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
+
+  # ---- Telegram Mini App (§41-§42, §84) ----------------------------------
+  /miniapp/session:
+    post:
+      summary: Validate Telegram initData and mint a short-lived Mini App session
+      description: |
+        The Mini App sends the raw `initData` from `window.Telegram.WebApp`.
+        The server verifies the Telegram signature (against the bot token),
+        derives roles, and returns a short-lived `ma_v1.*` bearer session.
+        Never send bot tokens or long-lived API tokens to the browser; this is
+        the only Mini App auth path (§9-§12, §84).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [initData]
+              properties:
+                initData: {type: string, description: Raw Telegram WebApp initData}
+      responses:
+        '200':
+          description: Session minted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean, const: true}
+                  data:
+                    type: object
+                    required: [token, expires_in, user]
+                    properties:
+                      token: {type: string, description: 'Bearer session (ma_v1.*)'}
+                      expires_in: {type: integer}
+                      user:
+                        type: object
+                        properties:
+                          telegram_user_id: {type: integer}
+                          username: {type: string}
+                          roles:
+                            type: array
+                            items: {type: string, enum: [submitter, reviewer, admin]}
+        '401':
+          description: initData missing/tampered/expired
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        '403':
+          description: Mini App disabled (MINIAPP_ENABLED=false)
+  /me/submissions:
+    get:
+      summary: The caller's own submission history (strictly user-scoped, §24-§25)
+      parameters:
+        - {name: cursor, in: query, required: false, schema: {type: string}}
+        - {name: limit, in: query, required: false, schema: {type: integer, maximum: 100}}
+      responses:
+        '200':
+          description: Own submissions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            review_id: {type: integer}
+                            status: {type: string}
+                            title: {type: string}
+                            tags: {type: array, items: {type: string}}
+                            media_count: {type: integer}
+                            document_count: {type: integer}
+                            spoiler: {type: boolean}
+                            created_at: {type: number}
+                            source: {type: string}
+                      next_cursor: {type: [string, 'null']}
+        '401': {$ref: '#/components/responses/unauthorized'}
+  /reviews/{review_id}/refetch:
+    post:
+      summary: Request a remote candidate replacement ("重抓") for a pending review
+      description: |
+        Same application command as the Bot button — the Mini App never gets a
+        second implementation (§39). Reviewer RBAC is enforced server-side.
+        Answers 202 once the attempt is durable; the remote PixivFlow worker
+        reports the terminal verdict asynchronously (GET this endpoint).
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '202':
+          description: Attempt admitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  data:
+                    type: object
+                    properties:
+                      state: {type: string, enum: [requested, admitted]}
+                      request_id: {type: string}
+                      replayed: {type: boolean}
+                      already_running: {type: boolean}
+                      review_chain_id: {type: string}
+                      generation: {type: integer}
+                      target_id: {type: string}
+        '401': {$ref: '#/components/responses/unauthorized'}
+        '403': {description: Requires reviewer role}
+        '404': {description: Review not found}
+        '409': {description: Review not pending / one active attempt}
+        '503': {description: PixivFlow refetch not configured}
+    get:
+      summary: Read-only refetch attempt + candidate lineage for a review (§35-§36)
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          description: Attempt + lineage
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  data:
+                    type: object
+                    properties:
+                      review_id: {type: integer}
+                      review_chain_id: {type: string}
+                      generation: {type: integer}
+                      supersedes_review_id: {type: [integer, 'null']}
+                      attempt:
+                        type: [object, 'null']
+                        properties:
+                          request_id: {type: string}
+                          state: {type: string, enum: [requested, admitted, replaced, no_alternative, failed, obsolete]}
+                          generation: {type: integer}
+                          source_review_id: {type: integer}
+                          result_candidate_id: {type: string}
+                          failure_code: {type: string}
+                          scanned: {type: integer}
+                      lineage:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            generation: {type: integer}
+                            candidate_id: {type: string}
+                            source: {type: string}
+        '401': {$ref: '#/components/responses/unauthorized'}
+        '403': {description: Requires reviewer role}
+        '404': {description: Review not found}
+  /refetch/outcomes:
+    post:
+      summary: PixivFlow reports a terminal refetch verdict (no_alternative|failed)
+      description: |
+        Internal service endpoint; authenticated with the same per-bot submit
+        token PixivFlow already holds. Idempotent per attempt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [request_id, disposition]
+              properties:
+                request_id: {type: string}
+                disposition: {type: string, enum: [no_alternative, failed]}
+                reason: {type: string}
+                scanned: {type: integer}
+                skipped: {type: object}
+      responses:
+        '200': {description: Accepted / idempotent replay / obsolete}
+        '401': {$ref: '#/components/responses/unauthorized'}
+        '404': {description: Unknown attempt}

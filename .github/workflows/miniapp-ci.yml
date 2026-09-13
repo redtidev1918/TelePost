@@ -1,0 +1,52 @@
+name: Mini App CI
+
+# 独立于 releasegraph 托管流程的增量门禁：TelePost Python 全量 + webapp 前端
+# （install/typecheck/lint/test/build）。gitleaks 由既有 gitleaks.yml 覆盖。
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install deps
+        run: pip install -r requirements-dev.txt -r requirements-mcp.txt
+      - name: Run Python suite
+        env:
+          TOKEN: test_token_123456789
+          CHANNEL_ID: '@test'
+          OWNER_ID: '123456789'
+        run: pytest -q
+
+  webapp:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webapp
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Install
+        run: npm ci || npm install
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm test
+      - name: Generate API client + build
+        run: npm run generate:api && npm run build

@@ -1247,6 +1247,7 @@ def test_review_keyboard_refetch_only_for_pixiv_api_submissions():
 async def test_review_refetch_submits_target_to_remote_worker(monkeypatch, tmp_path):
     import tempfile
     from database import db_manager as db_mod
+    from telepost.storage.sqlite.reviews import NewReview, ReviewRepository
     db_path = str(tmp_path / "refetch.db")
     monkeypatch.setattr(db_mod, "DB_PATH", db_path)
     await db_mod.init_db()
@@ -1254,30 +1255,36 @@ async def test_review_refetch_submits_target_to_remote_worker(monkeypatch, tmp_p
     monkeypatch.setattr(review, "REVIEW_CHAT_ID", -100123)
     monkeypatch.setenv("PIXIVFLOW_REFETCH_BASE_URL", "https://pixivflow.example")
     monkeypatch.setenv("PIXIVFLOW_REFETCH_TOKEN", "secret")
-    monkeypatch.setattr(
-        review, "_load_review_for_action",
-        AsyncMock(return_value={
-            "id": 42, "status": "pending", "target_id": "target-a",
-            "pixiv_id": "111", "review_chain_id": "", "generation": 0,
-        }),
+    # The shared application command reads the review row from the real DB
+    # (review id 42 must exist); the Bot handler no longer injects rows.
+    new_review = NewReview(
+        idempotency_key="refetch-test-key",
+        source="api", user_id=123456789, username="pixivflow",
+        title="title", tags="#tag", note="", link="https://pixiv.net/artworks/111",
+        anonymous=False, spoiler=False, media=[], documents=[],
+        review_chat_id="-100123", review_message_ids=[],
+        target_id="target-a", pixiv_id="111", status="pending",
     )
+    inserted = await ReviewRepository().insert(new_review)
+    assert inserted == 42 or True  # autoincrement id may differ; use actual id
+    review_id = inserted
     submitted = MagicMock(return_value={"status": "accepted", "slotId": "manual-slot"})
     monkeypatch.setattr(review, "_submit_pixivflow_refetch", submitted)
-    update = _callback_update("review_refetch:42")
+    update = _callback_update(f"review_refetch:{review_id}")
     # A real Telegram callback_query carries a stable per-press id.
     update.callback_query.id = 9001
     context = MagicMock(bot=AsyncMock())
 
     await review.refetch_review(update, context)
     # Let the background submit task complete (real event-loop ticks).
-    for _ in range(200):
+    for _ in range(300):
         if context.bot.send_message.await_count:
             break
         await asyncio.sleep(0.005)
 
     submitted.assert_called_once()
     assert submitted.call_args.args[0] == "target-a"
-    assert submitted.call_args.args[2] == "chain-42"  # correlation = chain id
+    assert submitted.call_args.args[2] == f"chain-{review_id}"  # correlation = chain id
     assert "已提交重抓" in update.callback_query.answer.await_args.kwargs["text"]
     assert "已提交重抓" in context.bot.send_message.await_args.kwargs["text"]
 

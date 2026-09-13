@@ -480,11 +480,10 @@ def _refetch_replay_text(row) -> str:
 async def refetch_review(update, context):
     """审核群「重抓/换一张」：把当前 pending 审核稿替换为另一个候选。
 
-    Semantics: refetch = REPLACE the candidate shown to reviewers, never
-    re-download the same work. The scan runs on the remote PixivFlow worker
-    (Fly auto-wake); this handler makes the attempt durable, enforces one
-    active attempt per review chain at the data layer, and converges transport
-    retries of the same button press onto the same attempt/request id.
+    Thin Telegram adapter over the shared application command
+    (:func:`telepost.application.refetch.request_refetch`) — the Mini App API
+    calls the exact same service, so Bot and Mini App share one state machine,
+    one idempotency and one audit trail (§39, §4).
     """
     query = update.callback_query
     if update.effective_user.id not in ADMIN_IDS:
@@ -496,30 +495,14 @@ async def refetch_review(update, context):
         await _answer(query, "无效的审核记录", show_alert=True)
         return
 
-    row = await _load_review_for_action(query, review_id)
-    if row is None:
-        await _answer(query, "审核记录不存在", show_alert=True)
-        return
-
-    # Review-state gate: only a still-pending review may be replaced.
-    if row["status"] == "superseded":
-        await _answer(query, "该审核稿已被替换，请在最新审核稿上操作", show_alert=True)
-        return
-    if row["status"] != "pending":
-        await _answer(query, "该审核稿已结束，请操作最新审核稿", show_alert=True)
-        return
-
-    target_id = (row["target_id"] or "").strip() if "target_id" in row.keys() else ""
-    if not target_id:
-        await _answer(query, "这条审核稿缺少抓取目标，无法重抓", show_alert=True)
-        return
-    if not os.getenv("PIXIVFLOW_REFETCH_BASE_URL") or not os.getenv("PIXIVFLOW_REFETCH_TOKEN"):
-        await _answer(query, "PixivFlow 重抓服务未配置", show_alert=True)
-        return
-
-    from database import db_manager
-    from telepost.storage.sqlite.refetch import RefetchRepository
-    refetch_repo = RefetchRepository()
+    from telepost.application.refetch import (
+        RefetchAlreadyRunningError,
+        RefetchError,
+        RefetchNotConfiguredError,
+        RefetchNotFoundError,
+        RefetchStateError,
+        request_refetch,
+    )
 
     # Stable per-click identity: the Telegram callback_query.id is unique per
     # press and stable across webhook redelivery of that same press, so a
@@ -532,83 +515,48 @@ async def refetch_review(update, context):
         else f"cb:{review_id}:{uuid.uuid4().hex}"
     )
 
-    existing = await refetch_repo.find_by_callback_key(callback_key)
-    if existing is not None:
-        await _answer(query, _refetch_replay_text(existing), show_alert=True)
-        await _record_refetch_event(
-            "review.refetch_replayed", review_id=review_id,
-            request_id=existing["request_id"], chain_id=existing["review_chain_id"],
-            generation=existing["generation"], actor=update.effective_user.id,
+    async def _notify_review_group(outcome: str, payload) -> None:
+        if outcome == "accepted":
+            text = (
+                f"🔄 审核 #{review_id} 已提交重抓，PixivFlow 正在查找新的候选作品；"
+                "有新作品时会替换进审核队列。"
+            )
+        else:
+            text = f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，请稍后重试。"
+        try:
+            await context.bot.send_message(chat_id=REVIEW_CHAT_ID, text=text)
+        except Exception:
+            logger.debug("发送重抓提示失败: review_id=%s", review_id, exc_info=True)
+
+    try:
+        result = await request_refetch(
+            review_id, actor=update.effective_user.id,
+            surface="telegram_bot", callback_key=callback_key,
+            on_remote_result=_notify_review_group,
         )
+    except RefetchNotFoundError:
+        await _answer(query, "审核记录不存在", show_alert=True)
         return
-
-    async with db_manager.get_db() as conn:
-        chain_id, _ = await refetch_repo.chain_of_review(conn, row)
-    generation = await refetch_repo.next_generation(chain_id)
-
-    attempt, refused = await refetch_repo.create_attempt(
-        callback_key=callback_key,
-        review_chain_id=chain_id,
-        generation=generation,
-        source_review_id=review_id,
-        source_candidate_id=row["pixiv_id"] or "",
-    )
-    if refused == "already_running":
+    except RefetchStateError as exc:
+        await _answer(query, str(exc), show_alert=True)
+        return
+    except RefetchAlreadyRunningError:
         await _answer(query, "正在重抓，请稍候", show_alert=True)
-        await _record_refetch_event(
-            "review.refetch_already_running", review_id=review_id,
-            request_id="", chain_id=chain_id, generation=generation,
-            actor=update.effective_user.id,
-        )
         return
-    request_id = attempt["request_id"]
-    await _record_refetch_event(
-        "review.refetch_requested", review_id=review_id,
-        request_id=request_id, chain_id=chain_id, generation=generation,
-        actor=update.effective_user.id,
-    )
+    except RefetchNotConfiguredError as exc:
+        await _answer(query, str(exc), show_alert=True)
+        return
+    except RefetchError as exc:
+        await _answer(query, str(exc)[:200], show_alert=True)
+        return
+
+    if result.get("replayed"):
+        # Same click redelivered: answer with the attempt's current state.
+        await _answer(query, _refetch_replay_text(
+            {"state": result["state"]} if result["state"] else {}), show_alert=True)
+        return
 
     await _answer(query, "已提交重抓，找到新候选后会替换进本群", show_alert=True)
-
-    async def _do_refetch():
-        try:
-            result = await asyncio.to_thread(
-                _submit_pixivflow_refetch, target_id, request_id, chain_id
-            )
-            if not await refetch_repo.mark_admitted(request_id, result.get("slotId", "")):
-                # Attempt already terminal (rare race); nothing more to record.
-                return
-            logger.info("PixivFlow 重抓已受理: review_id=%s request_id=%s slot_id=%s",
-                        review_id, request_id, result.get("slotId"))
-            await _record_refetch_event(
-                "review.refetch_remote_accepted", review_id=review_id,
-                request_id=request_id, chain_id=chain_id, generation=generation,
-                actor=update.effective_user.id,
-                detail_slot=result.get("slotId"),
-            )
-            await context.bot.send_message(
-                chat_id=REVIEW_CHAT_ID,
-                text=f"🔄 审核 #{review_id} 已提交重抓，PixivFlow 正在查找新的候选作品；有新作品时会替换进审核队列。",
-            )
-        except Exception as exc:
-            code = _classify_refetch_error(exc)
-            await refetch_repo.mark_failed(request_id, code)
-            logger.warning("PixivFlow 重抓提交失败: review_id=%s request_id=%s: %s",
-                           review_id, request_id, exc, exc_info=True)
-            await _record_refetch_event(
-                "review.refetch_failed", review_id=review_id,
-                request_id=request_id, chain_id=chain_id, generation=generation,
-                actor=update.effective_user.id, error_class=code,
-            )
-            try:
-                await context.bot.send_message(
-                    chat_id=REVIEW_CHAT_ID,
-                    text=f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，请稍后重试。",
-                )
-            except Exception:
-                pass
-
-    asyncio.create_task(_do_refetch())
 
 
 async def approve_review(update, context):
