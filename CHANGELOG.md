@@ -10,6 +10,15 @@
 
 ---
 
+## [2.17.6](https://github.com/redtidev1918/TelePost/compare/v2.17.5...v2.17.6) (2026-09-13)
+
+
+### Bug Fixes
+
+* **delivery:** classify media from the final artifact, not from source metadata ([8f9519f](https://github.com/redtidev1918/TelePost/commit/8f9519ff3d5600a03c23e3c019073f7045f6e29f))
+* **delivery:** keep artwork order in album plans and retry rejected photos once ([6196833](https://github.com/redtidev1918/TelePost/commit/619683397778e9dbdc1c686c003e137b30f1b413))
+* **delivery:** 依据最终产物分类媒体，让压缩后达标的大图回到 photo 而不是 document ([87fbd07](https://github.com/redtidev1918/TelePost/commit/87fbd0716a96f5c144c783d14c94de5fb72d93e5))
+
 ## [2.17.5](https://github.com/redtidev1918/TelePost/compare/v2.17.4...v2.17.5) (2026-09-12)
 
 
