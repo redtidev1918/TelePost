@@ -1243,6 +1243,30 @@ def test_review_keyboard_refetch_only_for_pixiv_api_submissions():
     assert not any(b.callback_data and b.callback_data.startswith("review_refetch:") for b in _keyboard_buttons(nonpixiv))
 
 
+@pytest.mark.asyncio
+async def test_review_refetch_submits_target_to_remote_worker(monkeypatch):
+    monkeypatch.setattr(review, "ADMIN_IDS", [123456789])
+    monkeypatch.setattr(review, "REVIEW_CHAT_ID", -100123)
+    monkeypatch.setenv("PIXIVFLOW_REFETCH_BASE_URL", "https://pixivflow.example")
+    monkeypatch.setenv("PIXIVFLOW_REFETCH_TOKEN", "secret")
+    monkeypatch.setattr(review, "_load_review_for_action", AsyncMock(return_value={"target_id": "target-a"}))
+    submitted = MagicMock(return_value={"status": "accepted", "slotId": "manual-slot"})
+    monkeypatch.setattr(review, "_submit_pixivflow_refetch", submitted)
+    update = _callback_update("review_refetch:42")
+    context = MagicMock(bot=AsyncMock())
+
+    await review.refetch_review(update, context)
+    for _ in range(10):
+        if context.bot.send_message.await_count:
+            break
+        await asyncio.sleep(0)
+
+    submitted.assert_called_once()
+    assert submitted.call_args.args[0] == "target-a"
+    assert "正在向 PixivFlow 提交" in update.callback_query.answer.await_args.kwargs["text"]
+    assert "已受理" in context.bot.send_message.await_args.kwargs["text"]
+
+
 def test_pixiv_id_extraction():
     assert review._pixiv_id_from_link("https://www.pixiv.net/artworks/149075080") == "149075080"
     assert review._pixiv_id_from_link("https://www.pixiv.net/novel/show.php?id=29004386") == "29004386"

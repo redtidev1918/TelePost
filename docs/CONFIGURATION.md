@@ -126,6 +126,17 @@ Secret。默认数据目录为 `data/botN/`，父路由固定提供：
 - `/webhook/botN`
 - `/api/botN/v1/*`
 
+## PixivFlow 独立执行端与重抓
+
+生产拆分部署时，TelePost 保持常驻，PixivFlow 平时停止；审核群重抓使用以下配置：
+
+| 变量 | 用途 |
+|---|---|
+| `PIXIVFLOW_REFETCH_BASE_URL` | PixivFlow 的 HTTPS 地址，例如 `https://pixivflow-scheduler.fly.dev` |
+| `PIXIVFLOW_REFETCH_TOKEN` | 与 PixivFlow 端同名 Secret 一致的专用 Bearer；与定时触发令牌分离 |
+
+重抓只接受有 `target_id` 的审核稿。Bot 向 `/internal/targets/{targetId}/refetch` 提交 UUID 幂等请求；PixivFlow 先写入手动 Slot，再在后台执行。失败会回报审核群。不要用 `PIXIVFLOW_ENABLED=true` 尝试唤醒独立执行端。
+
 ## PixivFlow 联合进程（兼容模式）
 
 `PIXIVFLOW_ENABLED=true` 会让 TelePost supervisor 同时拉起 PixivFlow。相关变量：
@@ -139,8 +150,7 @@ Secret。默认数据目录为 `data/botN/`，父路由固定提供：
 该模式需要包含 Node/PixivFlow 的 `runtime-pixivflow` 镜像，并且必须常驻才能运行 Cron。
 合一台镜像需带 `ffmpeg`：PixivFlow 处理 ugoira（Pixiv 动图）时会把帧 ZIP 转成循环 GIF，
 运行时 spawn `python3` + `ffmpeg`；缺 ffmpeg 时动图只会以 ZIP + 帧 JSON 文档形式投递。
-Fly.io 省钱部署应把 PixivFlow 拆到独立常驻 Machine，TelePost 保持自动休眠
-（拆分时 ffmpeg 由 PixivFlow 自己的镜像提供，TelePost 镜像无需安装）。
+Fly.io 拆分部署由独立 PixivFlow Machine 按需唤醒；TelePost 常驻。此兼容模式不用于该拓扑。
 
 ## `config.ini`
 
