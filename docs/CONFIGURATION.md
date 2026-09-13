@@ -43,6 +43,16 @@
 `AUTO` 只有在 `WEBHOOK_URL` 是公网 HTTPS 地址时才选择 Webhook；自动选择的 Webhook
 注册失败会回退 Polling。强制 `WEBHOOK` 失败则退出。
 
+## Telegram Mini App（可选增强，§152-§153）
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `MINIAPP_ENABLED` | `false` | 是否启用 Mini App surface。`false` 只关闭小程序入口，**不影响** Bot 与 HTTP API（上线安全开关） |
+| `MINIAPP_SESSION_SECRET` | （无） | Mini App session 签名密钥（≥32 字符，独立随机 secret）。未配置时 `POST /miniapp/session` 直接 fail-closed |
+| `MINIAPP_SESSION_TTL` | `1800` | Session 生命周期秒数（60–43200） |
+
+完整架构、认证链路、构建与同域托管见 [`docs/MINIAPP.md`](MINIAPP.md)。
+
 ## 搜索与存储
 
 | 变量 | 默认 | 说明 |
