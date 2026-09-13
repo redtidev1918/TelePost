@@ -46,5 +46,8 @@
   },
   "allowScripts": {
     "esbuild@0.25.12": true
+  },
+  "overrides": {
+    "valibot": "^1.5.0"
   }
 }
