@@ -12,10 +12,14 @@ Turns an ordered list of :class:`MediaItem` into concrete send batches:
 Two orderings are supported because channel delivery and review-chat preview
 historically differ:
 
+* ``INPUT``  – **default**: keep the original artwork order and split it into
+  maximal same-family runs. Telegram only forces a split when a family genuinely
+  cannot share a media group (animation/audio are never album members, and
+  documents are only homogeneous with documents), so a gallery whose items are
+  all photos stays one ordered album instead of being regrouped into "photos
+  first, documents last";
 * ``FAMILY`` – stable family order visual → animation → audio → document, used
-  by channel publishing (preserves ``handlers.publish._item_batches``);
-* ``INPUT``  – split the input order into maximal same-family runs, used by the
-  review-chat preview (preserves original upload order).
+  by channel publishing (preserves ``handlers.publish._item_batches``).
 """
 from __future__ import annotations
 
@@ -37,7 +41,10 @@ ALBUM_FAMILIES = {
     MediaKind.VIDEO: "visual",
     MediaKind.DOCUMENT: "document",
 }
-FAMILY_ORDER = {"visual": 0, MediaKind.ANIMATION: 1, MediaKind.AUDIO: 2, "document": 3}
+#: Family keys are the plain strings returned by :func:`family_of` (a
+#: ``MediaKind`` member is a ``str`` subclass, so mixing both shapes only works
+#: by accident of str-mixin hashing — keep this dict string-only).
+FAMILY_ORDER = {"visual": 0, "animation": 1, "audio": 2, "document": 3}
 
 
 def family_of(kind: MediaKind) -> str:
@@ -104,8 +111,12 @@ def _chunk_runs(ordering: PlanningOrder, items: List[MediaItem],
 def plan_delivery(items: List[MediaItem], *, album_size: int = 10,
                   reply_mode: ReplyMode = ReplyMode.CHAIN,
                   anchor_message_id: Optional[int] = None,
-                  ordering: PlanningOrder = PlanningOrder.FAMILY) -> DeliveryPlan:
-    """Partition items into batches; album-capable runs longer than one become albums."""
+                  ordering: PlanningOrder = PlanningOrder.INPUT) -> DeliveryPlan:
+    """Partition items into batches; album-capable runs longer than one become albums.
+
+    The default ``INPUT`` ordering keeps the artwork order the submitter sent:
+    items only leave their run when Telegram forbids sharing a media group.
+    """
     if album_size < 1:
         raise ValueError("album_size must be >= 1")
     batches: List[Batch] = []
