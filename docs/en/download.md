@@ -4,17 +4,17 @@
 
 This page is **generated automatically** by GitHub Actions on every release and always points at the latest one.
 
-## Latest version: `v2.20.3` (2026-09-13)
+## Latest version: `v2.20.4` (2026-09-13)
 
-👉 [Release notes and checksums](https://github.com/redtidev1918/TelePost/releases/tag/v2.20.3)
+👉 [Release notes and checksums](https://github.com/redtidev1918/TelePost/releases/tag/v2.20.4)
 
 | Platform | File | Size | Download |
 |---|---|---|---|
-| Linux · x64 | `telepost-2.20.3-linux-x64.tar.gz` | 31.9 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.3/telepost-2.20.3-linux-x64.tar.gz) |
-| Linux · x64 | `telepost-linux-x64` | 32.2 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.3/telepost-linux-x64) |
-| Windows · x64 | `telepost-2.20.3-windows-x64.zip` | 20.4 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.3/telepost-2.20.3-windows-x64.zip) |
-| Windows · x64 | `telepost-windows-x64.exe` | 20.7 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.3/telepost-windows-x64.exe) |
-| macOS · arm64 | `telepost-2.20.3-macos-arm64.tar.gz` | 17.2 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.3/telepost-2.20.3-macos-arm64.tar.gz) |
-| macOS · arm64 | `telepost-macos-arm64` | 17.4 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.3/telepost-macos-arm64) |
-| All platforms | `RELEASE-METADATA.json` | 3 KB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.3/RELEASE-METADATA.json) |
-| All platforms | `SHA256SUMS` | 1 KB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.3/SHA256SUMS) |
+| Linux · x64 | `telepost-2.20.4-linux-x64.tar.gz` | 31.9 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.4/telepost-2.20.4-linux-x64.tar.gz) |
+| Linux · x64 | `telepost-linux-x64` | 32.2 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.4/telepost-linux-x64) |
+| Windows · x64 | `telepost-2.20.4-windows-x64.zip` | 20.4 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.4/telepost-2.20.4-windows-x64.zip) |
+| Windows · x64 | `telepost-windows-x64.exe` | 20.7 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.4/telepost-windows-x64.exe) |
+| macOS · arm64 | `telepost-2.20.4-macos-arm64.tar.gz` | 17.2 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.4/telepost-2.20.4-macos-arm64.tar.gz) |
+| macOS · arm64 | `telepost-macos-arm64` | 17.4 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.4/telepost-macos-arm64) |
+| All platforms | `RELEASE-METADATA.json` | 3 KB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.4/RELEASE-METADATA.json) |
+| All platforms | `SHA256SUMS` | 1 KB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.20.4/SHA256SUMS) |
