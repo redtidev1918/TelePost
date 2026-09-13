@@ -55,8 +55,14 @@ def test_huge_rgba_never_enters_full_decode(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 def test_small_file_with_oversized_dimensions_falls_back_to_document(tmp_path, monkeypatch):
-    """Telegram rejects such photos with Photo_invalid_dimensions even though
-    the file is tiny; the original must go out as a document instead."""
+    """A 5-byte PNG stub cannot be decoded, so no compliant photo exists.
+
+    The primary violation is still reported (this used to be a blanket
+    document fallback for *every* oversized-dimension image — see
+    ``test_high_resolution_small_bytes_jpeg_is_downscaled_to_a_photo`` in
+    ``test_media_delivery_pipeline.py`` for the real fix), but
+    the fallback reason is now explicit: the decode budget, not the dimensions.
+    """
     source = tmp_path / "wide.png"
     source.write_bytes(b"small")
 
@@ -82,7 +88,8 @@ def test_small_file_with_oversized_dimensions_falls_back_to_document(tmp_path, m
     assert result.reason is preparation.PreparationDecision.DOCUMENT_FALLBACK
     assert result.kind is MediaKind.DOCUMENT
     assert result.delivery_source == str(source)
-    assert result.decision["reason"] == "photo_dimensions_too_large"
+    assert result.decision["violation"] == "photo_dimensions_exceeded"
+    assert result.decision["fallback_reason"] == "decode_budget_exceeded"
 
 
 @pytest.mark.unit
@@ -199,7 +206,7 @@ def test_compression_failure_uses_preview_then_document(tmp_path, monkeypatch):
         source.stat().st_size, "PNG", 100, 100, "RGBA", 1
     )
     monkeypatch.setattr(preparation, "probe_image", lambda _path: probe)
-    monkeypatch.setattr(preparation, "compress_photo", lambda *_a: None)
+    monkeypatch.setattr(preparation, "compress_photo", lambda *_a, **_kw: None)
 
     policy = preparation.MediaPreparationPolicy()
     assert policy.prepare(
