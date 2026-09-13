@@ -171,6 +171,115 @@ async def init_db():
                 "WHERE pixiv_id <> ''"
             )
 
+            # Review lineage for repeatable "重抓/换一张":
+            #  - review_chain_id: stable identity of one logical review, shared
+            #    by A → B → C replacement generations of the same review thread.
+            #  - generation: 0 for the original, +1 per successful replacement.
+            #  - supersedes_review_id: the review this one replaced (NULL/link
+            #    to 0 for originals). Guards stale-button clicks and keeps the
+            #    chain walkable without parsing Telegram captions.
+            #  - refetch_request_id: request UUID of the refetch attempt that
+            #    produced THIS review (empty for scheduled/original submissions).
+            #    PixivFlow carries it in the submission payload; on arrival the
+            #    old review is superseded only after this row is durably created
+            #    (commit-after-success).
+            for column, ddl in (
+                ("review_chain_id", "TEXT NOT NULL DEFAULT ''"),
+                ("generation", "INTEGER NOT NULL DEFAULT 0"),
+                ("supersedes_review_id", "INTEGER"),
+                ("refetch_request_id", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                try:
+                    await conn.execute(
+                        f"ALTER TABLE pending_reviews ADD COLUMN {column} {ddl}"
+                    )
+                except Exception:
+                    pass  # column already exists
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_pending_reviews_chain '
+                'ON pending_reviews(review_chain_id, generation)'
+            )
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_pending_reviews_supersedes '
+                'ON pending_reviews(supersedes_review_id) WHERE supersedes_review_id IS NOT NULL'
+            )
+
+            # Bootstrap lineage for EVERY existing review: a chain is anchored at
+            # the first review we know about ("chain-<id>"), so old pending rows
+            # stay refetchable with no re-submission. New replacements inherit
+            # their source's chain id, so the original anchor never changes.
+            await conn.execute(
+                "UPDATE pending_reviews SET review_chain_id = 'chain-' || id "
+                "WHERE review_chain_id = '' OR review_chain_id IS NULL"
+            )
+
+            # Durable refetch attempts: one row per user click / transport retry.
+            #   state: requested → admitted → replaced | no_alternative | failed
+            #          | obsolete.
+            #   request_id  = durable idempotency key sent to PixivFlow; the same
+            #                 id always maps to the same attempt (same slot).
+            #   callback_key = Telegram callback_query.id (or a persisted UUID
+            #                 fallback) so webhook redelivery of the SAME click
+            #                 reuses the attempt instead of starting a second one.
+            # The partial UNIQUE index is the DATA-LAYER one-active-per-chain
+            # guard: only one non-terminal attempt may exist per review chain.
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS refetch_attempts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    callback_key TEXT NOT NULL UNIQUE,
+                    request_id TEXT NOT NULL UNIQUE,
+                    review_chain_id TEXT NOT NULL,
+                    generation INTEGER NOT NULL DEFAULT 0,
+                    source_review_id INTEGER NOT NULL,
+                    source_candidate_id TEXT NOT NULL DEFAULT '',
+                    result_candidate_id TEXT NOT NULL DEFAULT '',
+                    state TEXT NOT NULL DEFAULT 'requested',
+                    slot_id TEXT NOT NULL DEFAULT '',
+                    failure_code TEXT NOT NULL DEFAULT '',
+                    scanned INTEGER NOT NULL DEFAULT 0,
+                    skipped_duplicate INTEGER NOT NULL DEFAULT 0,
+                    skipped_invalid INTEGER NOT NULL DEFAULT 0,
+                    skipped_unavailable INTEGER NOT NULL DEFAULT 0,
+                    created_at REAL NOT NULL,
+                    started_at REAL,
+                    finished_at REAL
+                )
+            ''')
+            await conn.execute(
+                'CREATE UNIQUE INDEX IF NOT EXISTS idx_refetch_one_active '
+                "ON refetch_attempts(review_chain_id) "
+                "WHERE state IN ('requested','admitted')"
+            )
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_refetch_attempts_chain '
+                'ON refetch_attempts(review_chain_id, created_at DESC)'
+            )
+
+            # Candidate history per review chain: every work already shown to
+            # reviewers for this chain. (review_chain_id, candidate_id) is the
+            # semantic unique key; candidate identity is the canonical Pixiv work
+            # id (pending_reviews.pixiv_id), never parsed from captions.
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS refetch_seen_candidates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    review_chain_id TEXT NOT NULL,
+                    candidate_id TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'original',
+                    generation INTEGER NOT NULL DEFAULT 0,
+                    created_at REAL NOT NULL,
+                    UNIQUE(review_chain_id, candidate_id)
+                )
+            ''')
+            # Bootstrap seen-history for existing reviews (current candidate only;
+            # older chain history is not reconstructible and is documented as the
+            # migration boundary). INSERT OR IGNORE keeps this idempotent.
+            await conn.execute(
+                "INSERT OR IGNORE INTO refetch_seen_candidates "
+                "(review_chain_id, candidate_id, source, generation, created_at) "
+                "SELECT review_chain_id, pixiv_id, 'original', generation, created_at "
+                "FROM pending_reviews WHERE pixiv_id <> ''"
+            )
+
             # API 运维通知的持久幂等记录。不同 token 所绑定的用户可以复用同一业务键；
             # 同一用户在 Bot 重启后仍不会重复发送同一条通知。
             await conn.execute('''

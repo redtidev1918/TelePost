@@ -282,6 +282,16 @@ def _fields_scheduled_at(payload) -> str:
     return _clean_provenance_text(payload.get("scheduled_at", ""), 40)
 
 
+def _fields_refetch_request_id(payload) -> str:
+    """Request UUID of the remote refetch attempt that produced this submission.
+
+    When non-empty, this submission IS a replacement: the review chain advances
+    and the source review is superseded only after this row is durable
+    (commit-after-success). Empty for scheduled/original submissions.
+    """
+    return _clean_provenance_text(payload.get("refetch_request_id", ""), 40)
+
+
 def _fields_bool(payload, key: str) -> bool:
     return str(payload.get(key, "false")).lower() in ("true", "1", "yes")
 
@@ -454,6 +464,7 @@ def add_api_routes(web_app, application) -> None:
                         source_label=_fields_source_label(payload),
                         source_ref=_fields_source_ref(payload),
                         scheduled_at=_fields_scheduled_at(payload),
+                        refetch_request_id=_fields_refetch_request_id(payload),
                         **provenance,
                     )
                     result = await queue_review_from_file_ids(
@@ -593,6 +604,7 @@ def add_api_routes(web_app, application) -> None:
                     source_label=_fields_source_label(fields),
                     source_ref=_fields_source_ref(fields),
                     scheduled_at=_fields_scheduled_at(fields),
+                    refetch_request_id=_fields_refetch_request_id(fields),
                     **provenance,
                 )
                 result = await queue_review_from_files(
@@ -867,6 +879,103 @@ def add_api_routes(web_app, application) -> None:
             "source": "review" if review_row is not None else "direct",
         })
 
+    async def refetch_outcome(request):
+        """PixivFlow reports a TERMINAL refetch verdict back to the review.
+
+        Body (machine-readable, JSON):
+          request_id  — the attempt's request UUID (PixivFlow slot identity);
+          disposition — 'no_alternative' | 'failed';
+          reason / scanned / skipped{duplicate,invalid,unavailable} — optional
+          diagnostics.
+
+        Authentication is the SAME service token as submissions (the per-bot
+        SUBMIT_TOKEN PixivFlow already holds); no new credential is introduced.
+        Idempotent: an already-terminal attempt answers 200 without re-notifying.
+        Stale results (source review no longer pending) become 'obsolete' and
+        never overwrite a reviewer decision.
+        """
+        token_row = await authenticate(_bearer(request) or "")
+        if token_row is None:
+            return _error(401, "invalid_token", "token 无效或已吊销")
+        try:
+            payload = await request.json()
+        except Exception:
+            return _error(400, "invalid_json", "JSON body 必须是对象")
+        if not isinstance(payload, dict):
+            return _error(400, "invalid_json", "JSON body 必须是对象")
+        request_id = str(payload.get("request_id") or "").strip()[:240]
+        disposition = str(payload.get("disposition") or "").strip()
+        if not request_id:
+            return _error(400, "missing_request_id", "request_id 必填")
+        if disposition not in ("no_alternative", "failed"):
+            return _error(400, "invalid_disposition",
+                          "disposition 必须是 no_alternative 或 failed")
+        skipped = payload.get("skipped") if isinstance(payload.get("skipped"), dict) else {}
+        try:
+            scanned = int(payload.get("scanned") or 0)
+        except (TypeError, ValueError):
+            scanned = 0
+        try:
+            dup = int(skipped.get("duplicate") or 0)
+            inv = int(skipped.get("invalid") or 0)
+            una = int(skipped.get("unavailable") or 0)
+        except (TypeError, ValueError):
+            dup = inv = una = 0
+
+        from telepost.storage.sqlite.refetch import RefetchRepository
+        repo = RefetchRepository()
+        attempt, applied, changed = await repo.apply_outcome(
+            request_id, disposition,
+            reason=str(payload.get("reason") or "")[:400],
+            scanned=scanned, skipped_duplicate=dup,
+            skipped_invalid=inv, skipped_unavailable=una,
+        )
+        if applied == "not_found":
+            return _error(404, "unknown_attempt", "attempt 不存在")
+        if applied == "obsolete":
+            # Source review was decided while the refetch was running: the
+            # verdict is recorded as obsolete, and we never disturb the review.
+            return _ok({"ok": True, "attempt_state": applied})
+        if not changed:
+            # Already-terminal replay (same verdict redelivered): converge with
+            # the same state, never re-notify the review group.
+            return _ok({"ok": True, "attempt_state": applied, "replayed": True})
+
+        review_id = attempt["source_review_id"] if attempt else None
+        try:
+            if applied == "no_alternative":
+                text = (
+                    f"📭 审核 #{review_id} 没有找到新的可替换作品，当前稿件保持不变。\n"
+                    "稍后有新候选时可以再次重抓。"
+                )
+            else:  # failed
+                text = f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，请稍后重试。"
+            await application.bot.send_message(
+                chat_id=REVIEW_CHAT_ID, text=text
+            )
+        except Exception:
+            logger.warning("发送重抓终态通知失败: request_id=%s",
+                           request_id, exc_info=True)
+        try:
+            from telepost.observability import audit
+            await audit.record_event(
+                "review.refetch_" + applied,
+                review_id=review_id,
+                execution_id=request_id,
+                actor="pixivflow_service",
+                error_class=None if applied == "no_alternative" else "remote_outcome",
+                detail={
+                    "request_id": request_id,
+                    "disposition": applied,
+                    "reason": str(payload.get("reason") or "")[:400],
+                    "scanned": scanned,
+                    "skipped": {"duplicate": dup, "invalid": inv, "unavailable": una},
+                },
+            )
+        except Exception:
+            logger.debug("记录重抓终态审计失败: request_id=%s", request_id, exc_info=True)
+        return _ok({"ok": True, "attempt_state": applied})
+
     web_app.router.add_get("/api/v1/reviews/policy", review_policy)
     web_app.router.add_get("/api/v1/reviews", list_reviews)
     web_app.router.add_get("/api/v1/reviews/{review_id}", get_review)
@@ -881,6 +990,7 @@ def add_api_routes(web_app, application) -> None:
     web_app.router.add_post("/api/v1/submissions", create_submission)
     web_app.router.add_get("/api/v1/deliveries/lookup", delivery_lookup)
     web_app.router.add_post("/api/v1/notifications", create_notification)
+    web_app.router.add_post("/api/v1/refetch/outcomes", refetch_outcome)
     logger.info("API 路由已注册: /api/v1/*")
     _ensure_upload_sweeper()
 

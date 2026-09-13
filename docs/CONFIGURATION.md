@@ -128,14 +128,41 @@ Secret。默认数据目录为 `data/botN/`，父路由固定提供：
 
 ## PixivFlow 独立执行端与重抓
 
-生产拆分部署时，TelePost 保持常驻，PixivFlow 平时停止；审核群重抓使用以下配置：
+生产拆分部署时，TelePost 保持常驻，PixivFlow 平时停止（Fly `auto_start_machines` 会在收到
+HTTPS 请求时自动唤醒）；审核群重抓使用以下配置：
 
 | 变量 | 用途 |
 |---|---|
 | `PIXIVFLOW_REFETCH_BASE_URL` | PixivFlow 的 HTTPS 地址，例如 `https://pixivflow-scheduler.fly.dev` |
 | `PIXIVFLOW_REFETCH_TOKEN` | 与 PixivFlow 端同名 Secret 一致的专用 Bearer；与定时触发令牌分离 |
 
-重抓只接受有 `target_id` 的审核稿。Bot 向 `/internal/targets/{targetId}/refetch` 提交 UUID 幂等请求；PixivFlow 先写入手动 Slot，再在后台执行。失败会回报审核群。不要用 `PIXIVFLOW_ENABLED=true` 尝试唤醒独立执行端。
+### 重抓的语义：换一个候选
+
+「重抓」= 为当前 **pending** 审核稿寻找一个**新的、该审核链尚未展示过**的候选作品，成功后用它
+**替换**当前候选；不是重新下载同一个作品。流程：
+
+```text
+审核群点「重抓」 → TelePost 持久化一次 attempt（一链同时只允许一个活跃 attempt）
+→ POST /internal/targets/{targetId}/refetch（携带 UUID requestId + 审核链 correlation）
+→ Fly 代理唤醒已停止的 PixivFlow → 写入 durable manual Slot → 后台执行
+→ 找到新候选：新稿作为独立审核稿进入本群，旧稿在**新稿落库成功后**标记为 superseded
+→ 没有新候选：PixivFlow 回报 no_alternative，当前稿件保持不变，之后可再次重抓
+→ 真正失败：回报 failed，当前稿件保持不变
+```
+
+- 幂等：同一次按钮点击（同一 `callback_query.id`）的 webhook 重投复用同一个 requestId 与
+  同一个 manual Slot，绝不产生第二次执行；只有**用户再次主动点击**才创建新一代 attempt。
+- 一个审核链同一时刻只能有一个活跃重抓；处理中重复点击返回「正在重抓，请稍候」。
+- 审批竞态安全：重抓运行期间若审核人已批准/拒绝，迟到的结果标记为 obsolete，
+  不会覆盖审核结论、不会创建虚假的 superseded。
+- 旧按钮安全：已被替换（superseded）或已结束的审核稿上的按钮被点击时直接拒绝，
+  不会产生历史分叉。
+- 审核链 lineage：`review_chain_id`（同一条审核线）、`generation`（0 = 原稿，
+  每成功替换一次 +1）、`supersedes_review_id`（被替换的旧稿）。候选历史
+  `refetch_seen_candidates` 以 (chain, work id) 唯一约束记录该链已展示过的作品。
+- 不接受 `target_id` 为空、或未配置上面的两个变量；不要用 `PIXIVFLOW_ENABLED=true`
+  尝试唤醒独立执行端（那是同容器兼容模式的开关，拆分拓扑不适用）。
+- 内部 token 只在服务间 Bearer 请求头传递，绝不进群消息、日志或审计。
 
 ## PixivFlow 联合进程（兼容模式）
 

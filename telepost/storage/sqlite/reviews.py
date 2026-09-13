@@ -49,6 +49,12 @@ class NewReview:
     work_type: str = ""
     delivery_target: str = ""
     status: str = "pending"
+    # Review lineage (populated by the replacement path, empty otherwise).
+    review_chain_id: str = ""
+    generation: int = 0
+    supersedes_review_id: Optional[int] = None
+    # Request UUID of the refetch attempt that produced this review.
+    refetch_request_id: str = ""
 
 
 class ReviewRepository:
@@ -93,34 +99,49 @@ class ReviewRepository:
             return await cur.fetchone()
 
     async def insert(self, review: NewReview) -> int:
-        now = time.time()
         async with db_manager.get_db() as conn:
-            cursor = await conn.execute(
-                """
-                INSERT INTO pending_reviews (
-                    idempotency_key, source, status, user_id, username, title,
-                    tags, note, link, anonymous, spoiler, media_json,
-                    documents_json, review_chat_id, review_message_ids,
-                    target_id, source_label, source_ref, scheduled_at,
-                    pixiv_id, work_type, delivery_target,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                          ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    review.idempotency_key, review.source, review.status,
-                    review.user_id,
-                    review.username, review.title, review.tags, review.note,
-                    review.link, int(review.anonymous), int(review.spoiler),
-                    json.dumps(review.media), json.dumps(review.documents),
-                    str(review.review_chat_id),
-                    json.dumps(review.review_message_ids),
-                    review.target_id, review.source_label, review.source_ref,
-                    review.scheduled_at, review.pixiv_id, review.work_type,
-                    review.delivery_target, now, now,
-                ),
-            )
-            return cursor.lastrowid
+            return await self.insert_into(conn, review)
+
+    async def insert_into(self, conn, review: NewReview) -> int:
+        """Insert on the caller's connection (for atomic replacement linking).
+
+        Keeps the INSERT and the refetch-replacement UPDATEs in one SQLite
+        transaction, so the "new review exists" proof of success and the
+        "old review superseded" effect can never split across a crash.
+        """
+        now = time.time()
+        cursor = await conn.execute(
+            """
+            INSERT INTO pending_reviews (
+                idempotency_key, source, status, user_id, username, title,
+                tags, note, link, anonymous, spoiler, media_json,
+                documents_json, review_chat_id, review_message_ids,
+                target_id, source_label, source_ref, scheduled_at,
+                pixiv_id, work_type, delivery_target,
+                review_chain_id, generation, supersedes_review_id,
+                refetch_request_id,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                review.idempotency_key, review.source, review.status,
+                review.user_id,
+                review.username, review.title, review.tags, review.note,
+                review.link, int(review.anonymous), int(review.spoiler),
+                json.dumps(review.media), json.dumps(review.documents),
+                str(review.review_chat_id),
+                json.dumps(review.review_message_ids),
+                review.target_id, review.source_label, review.source_ref,
+                review.scheduled_at, review.pixiv_id, review.work_type,
+                review.delivery_target,
+                review.review_chain_id, int(review.generation),
+                review.supersedes_review_id,
+                review.refetch_request_id,
+                now, now,
+            ),
+        )
+        return cursor.lastrowid
 
     async def update_staged(self, review_id: int, *, media: list,
                             documents: list, preview_message_ids: List[int]) -> bool:

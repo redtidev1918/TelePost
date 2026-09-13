@@ -253,6 +253,7 @@ async def queue_review_from_file_ids(
     anonymous=False, spoiler=False, user_id, username="",
     idempotency_key="", source="api", target_id="", source_label="",
     source_ref="", scheduled_at="", work_type="", pixiv_id="",
+    refetch_request_id="",
 ) -> dict:
     """Stage a file_id submission and create a durable pending review."""
     key = normalize_idempotency_key(user_id, idempotency_key, source)
@@ -262,6 +263,7 @@ async def queue_review_from_file_ids(
         idempotency_key=key, target_id=target_id, work_type=work_type,
         pixiv_id=pixiv_id, source_label=source_label, source_ref=source_ref,
         scheduled_at=scheduled_at, review_chat_id=str(REVIEW_CHAT_ID),
+        refetch_request_id=refetch_request_id,
     )
     return await queue_service.enqueue(
         command, _stager(bot), media=media, documents=documents
@@ -273,6 +275,7 @@ async def queue_review_from_files(
     anonymous=False, spoiler=False, user_id, username="",
     idempotency_key="", source="api", target_id="", source_label="",
     source_ref="", scheduled_at="", work_type="", pixiv_id="",
+    refetch_request_id="",
 ) -> dict:
     """Stage multipart API files and create a durable pending review."""
     key = normalize_idempotency_key(user_id, idempotency_key, source)
@@ -284,6 +287,7 @@ async def queue_review_from_files(
         pixiv_id=resolved_pixiv, source_label=source_label,
         source_ref=source_ref, scheduled_at=scheduled_at,
         review_chat_id=str(REVIEW_CHAT_ID),
+        refetch_request_id=refetch_request_id,
     )
     return await queue_service.enqueue(
         command, _stager(bot), files=files
@@ -402,16 +406,20 @@ async def toggle_review_spoiler(update, context):
         logger.debug("刷新审核键盘失败（遮罩已入库）: review_id=%s", review_id)
 
 
-def _submit_pixivflow_refetch(target_id: str, request_id: str) -> dict:
+def _submit_pixivflow_refetch(target_id: str, request_id: str,
+                              correlation_id: str = "") -> dict:
     base = os.environ["PIXIVFLOW_REFETCH_BASE_URL"].rstrip("/")
     token = os.environ["PIXIVFLOW_REFETCH_TOKEN"]
     parsed = urlparse(base)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
         raise ValueError("无效的 PixivFlow 重抓地址")
     url = f"{base}/internal/targets/{quote(target_id, safe='')}/refetch"
+    body = {"requestId": request_id}
+    if correlation_id:
+        body["correlationId"] = correlation_id
     request = Request(
         url,
-        data=json.dumps({"requestId": request_id}).encode(),
+        data=json.dumps(body).encode(),
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         method="POST",
     )
@@ -425,7 +433,59 @@ def _submit_pixivflow_refetch(target_id: str, request_id: str) -> dict:
         raise RuntimeError(f"PixivFlow 拒绝重抓（HTTP {error.code}）") from error
 
 
+def _classify_refetch_error(exc: Exception) -> str:
+    message = str(exc)
+    lowered = message.lower()
+    if "http 401" in lowered or "http 403" in lowered:
+        return "unauthorized"
+    if "http 404" in lowered:
+        return "not_found"
+    if "http 5" in lowered:
+        return "remote_error"
+    if "timed out" in lowered or "timeout" in lowered or "超时" in message:
+        return "timeout"
+    return "network_error"
+
+
+async def _record_refetch_event(event: str, *, review_id: int, request_id: str,
+                                chain_id: str, generation: int, actor: Optional[int],
+                                **fields) -> None:
+    from telepost.observability import audit
+    try:
+        await audit.record_event(
+            event, review_id=review_id, actor=f"telegram_user:{actor}" if actor else None,
+            execution_id=request_id, detail={
+                "request_id": request_id,
+                "review_chain_id": chain_id,
+                "generation": generation,
+                **fields,
+            },
+        )
+    except Exception:
+        logger.debug("记录重抓审计事件失败: %s", event, exc_info=True)
+
+
+def _refetch_replay_text(row) -> str:
+    state = row["state"]
+    return {
+        "requested": "正在重抓，请稍候",
+        "admitted": "正在重抓，请稍候",
+        "replaced": "重抓已完成，新候选已进入审核队列",
+        "no_alternative": "没有找到新的可替换作品，当前稿件保持不变。稍后有新候选时可以再次重抓。",
+        "failed": "重抓失败，当前稿件未变，请稍后重试",
+        "obsolete": "该审核稿已结束，请操作最新审核稿",
+    }.get(state, "正在重抓，请稍候")
+
+
 async def refetch_review(update, context):
+    """审核群「重抓/换一张」：把当前 pending 审核稿替换为另一个候选。
+
+    Semantics: refetch = REPLACE the candidate shown to reviewers, never
+    re-download the same work. The scan runs on the remote PixivFlow worker
+    (Fly auto-wake); this handler makes the attempt durable, enforces one
+    active attempt per review chain at the data layer, and converges transport
+    retries of the same button press onto the same attempt/request id.
+    """
     query = update.callback_query
     if update.effective_user.id not in ADMIN_IDS:
         await _answer(query, "你没有审核权限", show_alert=True)
@@ -440,6 +500,15 @@ async def refetch_review(update, context):
     if row is None:
         await _answer(query, "审核记录不存在", show_alert=True)
         return
+
+    # Review-state gate: only a still-pending review may be replaced.
+    if row["status"] == "superseded":
+        await _answer(query, "该审核稿已被替换，请在最新审核稿上操作", show_alert=True)
+        return
+    if row["status"] != "pending":
+        await _answer(query, "该审核稿已结束，请操作最新审核稿", show_alert=True)
+        return
+
     target_id = (row["target_id"] or "").strip() if "target_id" in row.keys() else ""
     if not target_id:
         await _answer(query, "这条审核稿缺少抓取目标，无法重抓", show_alert=True)
@@ -448,23 +517,93 @@ async def refetch_review(update, context):
         await _answer(query, "PixivFlow 重抓服务未配置", show_alert=True)
         return
 
-    request_id = str(uuid.uuid4())
-    await _answer(query, "正在向 PixivFlow 提交重抓请求，结果会发到本群", show_alert=True)
+    from database import db_manager
+    from telepost.storage.sqlite.refetch import RefetchRepository
+    refetch_repo = RefetchRepository()
+
+    # Stable per-click identity: the Telegram callback_query.id is unique per
+    # press and stable across webhook redelivery of that same press, so a
+    # transport retry converges on ONE attempt (and ONE request id) while a NEW
+    # intentional click (new id) starts a new generation.
+    callback_id = getattr(query, "id", None)
+    callback_key = (
+        f"cb:{review_id}:{callback_id}"
+        if callback_id is not None
+        else f"cb:{review_id}:{uuid.uuid4().hex}"
+    )
+
+    existing = await refetch_repo.find_by_callback_key(callback_key)
+    if existing is not None:
+        await _answer(query, _refetch_replay_text(existing), show_alert=True)
+        await _record_refetch_event(
+            "review.refetch_replayed", review_id=review_id,
+            request_id=existing["request_id"], chain_id=existing["review_chain_id"],
+            generation=existing["generation"], actor=update.effective_user.id,
+        )
+        return
+
+    async with db_manager.get_db() as conn:
+        chain_id, _ = await refetch_repo.chain_of_review(conn, row)
+    generation = await refetch_repo.next_generation(chain_id)
+
+    attempt, refused = await refetch_repo.create_attempt(
+        callback_key=callback_key,
+        review_chain_id=chain_id,
+        generation=generation,
+        source_review_id=review_id,
+        source_candidate_id=row["pixiv_id"] or "",
+    )
+    if refused == "already_running":
+        await _answer(query, "正在重抓，请稍候", show_alert=True)
+        await _record_refetch_event(
+            "review.refetch_already_running", review_id=review_id,
+            request_id="", chain_id=chain_id, generation=generation,
+            actor=update.effective_user.id,
+        )
+        return
+    request_id = attempt["request_id"]
+    await _record_refetch_event(
+        "review.refetch_requested", review_id=review_id,
+        request_id=request_id, chain_id=chain_id, generation=generation,
+        actor=update.effective_user.id,
+    )
+
+    await _answer(query, "已提交重抓，找到新候选后会替换进本群", show_alert=True)
 
     async def _do_refetch():
         try:
-            result = await asyncio.to_thread(_submit_pixivflow_refetch, target_id, request_id)
-            logger.info("PixivFlow 重抓已受理: review_id=%s slot_id=%s", review_id, result.get("slotId"))
+            result = await asyncio.to_thread(
+                _submit_pixivflow_refetch, target_id, request_id, chain_id
+            )
+            if not await refetch_repo.mark_admitted(request_id, result.get("slotId", "")):
+                # Attempt already terminal (rare race); nothing more to record.
+                return
+            logger.info("PixivFlow 重抓已受理: review_id=%s request_id=%s slot_id=%s",
+                        review_id, request_id, result.get("slotId"))
+            await _record_refetch_event(
+                "review.refetch_remote_accepted", review_id=review_id,
+                request_id=request_id, chain_id=chain_id, generation=generation,
+                actor=update.effective_user.id,
+                detail_slot=result.get("slotId"),
+            )
             await context.bot.send_message(
                 chat_id=REVIEW_CHAT_ID,
-                text=f"🔄 审核 #{review_id} 的重抓已受理，PixivFlow 将重新处理 {target_id}；有新作品时会进入审核队列。",
+                text=f"🔄 审核 #{review_id} 已提交重抓，PixivFlow 正在查找新的候选作品；有新作品时会替换进审核队列。",
             )
         except Exception as exc:
-            logger.warning("PixivFlow 重抓任务异常: %s", exc, exc_info=True)
+            code = _classify_refetch_error(exc)
+            await refetch_repo.mark_failed(request_id, code)
+            logger.warning("PixivFlow 重抓提交失败: review_id=%s request_id=%s: %s",
+                           review_id, request_id, exc, exc_info=True)
+            await _record_refetch_event(
+                "review.refetch_failed", review_id=review_id,
+                request_id=request_id, chain_id=chain_id, generation=generation,
+                actor=update.effective_user.id, error_class=code,
+            )
             try:
                 await context.bot.send_message(
                     chat_id=REVIEW_CHAT_ID,
-                    text=f"⚠️ 审核 #{review_id} 重抓请求未确认受理：{str(exc)[:200]}",
+                    text=f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，请稍后重试。",
                 )
             except Exception:
                 pass
