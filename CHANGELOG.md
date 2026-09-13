@@ -10,6 +10,13 @@
 
 ---
 
+## [2.20.2](https://github.com/redtidev1918/TelePost/compare/v2.20.1...v2.20.2) (2026-09-13)
+
+
+### Bug Fixes
+
+* **webapp:** serve /app/* via one handler (static + SPA fallback) ([#81](https://github.com/redtidev1918/TelePost/issues/81)) ([241643b](https://github.com/redtidev1918/TelePost/commit/241643b39acf5f594823e54097019c9e644d1240))
+
 ## [2.20.1](https://github.com/redtidev1918/TelePost/compare/v2.20.0...v2.20.1) (2026-09-13)
 
 
