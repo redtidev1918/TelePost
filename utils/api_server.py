@@ -457,10 +457,11 @@ async def _review_auth(request, *, write: bool):
                 "name": principal["name"], "scope": "api"}, None
 
     # Mini App principal: server-side RBAC (§13-§14, §83).
+    # TELEPOST_REVIEW_API_MODE=readonly constrains API-token/MCP write (an
+    # unattended-automation safety switch); a human reviewer acting in the
+    # Mini App is an explicit manual action and stays writable regardless.
     if not _principal_is_reviewer(principal):
         return None, _error(403, "permission_denied", "需要审核权限")
-    if write and _review_mode() == "readonly":
-        return None, _error(403, "permission_denied", "Review API is read-only")
     return {
         "telegram_user_id": principal["telegram_user_id"],
         "name": principal["name"],
