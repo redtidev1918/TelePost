@@ -122,8 +122,14 @@ def test_documents_form_their_own_albums():
 
 def test_family_order_puts_visuals_first():
     items = [_fid("document", 1), _fid("photo", 1)]
-    plan = plan_delivery(items)
+    plan = plan_delivery(items, ordering=PlanningOrder.FAMILY)
     assert plan.batches[0].family == "visual"
+
+
+def test_default_ordering_keeps_the_artwork_order():
+    items = [_fid("document", 1), _fid("photo", 1), _fid("photo", 2)]
+    plan = plan_delivery(items)
+    assert [b.family for b in plan.batches] == ["document", "visual"]
 
 
 def test_input_ordering_preserves_upload_order_runs():
