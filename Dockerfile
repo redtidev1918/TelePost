@@ -17,11 +17,12 @@ RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 # node_modules stay in this stage; the runtime image only receives dist/.
 FROM node:24-bookworm-slim AS webapp-builder
 
-WORKDIR /build/webapp
-COPY webapp/package.json webapp/package-lock.json ./
-RUN npm ci || npm install
-COPY webapp/ ./
-RUN npm run generate:api && npm run build
+WORKDIR /build
+COPY webapp/package.json webapp/package-lock.json webapp/
+RUN cd webapp && npm ci || npm install
+COPY webapp/ webapp/
+COPY api/openapi.yaml api/openapi.yaml
+RUN cd webapp && npm run generate:api && npm run build
 
 
 # The combined Fly profile needs Node and PixivFlow, but not npm at runtime.
