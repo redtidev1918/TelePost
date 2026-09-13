@@ -10,6 +10,13 @@
 
 ---
 
+## [2.20.3](https://github.com/redtidev1918/TelePost/compare/v2.20.2...v2.20.3) (2026-09-13)
+
+
+### Bug Fixes
+
+* **api:** Mini App human review writes are not gated by readonly mode ([#83](https://github.com/redtidev1918/TelePost/issues/83)) ([56466c7](https://github.com/redtidev1918/TelePost/commit/56466c7a409010cb50e5dc77718c9b1c517244d9))
+
 ## [2.20.2](https://github.com/redtidev1918/TelePost/compare/v2.20.1...v2.20.2) (2026-09-13)
 
 
