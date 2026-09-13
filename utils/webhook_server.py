@@ -185,29 +185,46 @@ class WebhookServer:
     def _mount_miniapp_static(self):
         """Serve the Mini App build at /app/* when it exists (same-domain §68).
 
-        aiohttp's add_static handles index.html resolution, hashed assets and
-        range requests. The dist directory is baked into the Docker image by a
-        dedicated Node build stage; a source checkout without an npm build
-        simply skips these routes. SPA routes (/app/, /app/review/...) resolve
-        to index.html via a catch-all.
+        All /app/* requests go through ONE handler: existing files (hashed
+        assets) are served directly, any other path (SPA routes such as
+        /app/review/12, or /app/ itself) returns index.html. aiohttp's
+        add_static is avoided for its index/route-ordering quirks. The dist
+        directory is baked into the Docker image by a dedicated Node build
+        stage (or pointed at by MINIAPP_DIST_DIR); a source checkout without
+        an npm build simply skips these routes.
         """
         import os as _os
-        dist_dir = _os.path.join(_os.path.dirname(_os.path.dirname(
-            _os.path.abspath(__file__))), "webapp", "dist")
+        from aiohttp import web as _web
+
+        dist_dir = _os.environ.get("MINIAPP_DIST_DIR") or _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+            "webapp", "dist")
         if not _os.path.isdir(dist_dir):
             logger.info("Mini App dist 未构建，跳过 /app/* 静态挂载")
             return
-        self.web_app.router.add_static("/app/", dist_dir, show_index=False)
-        from aiohttp import web as _web
 
-        async def _spa_fallback(request):
-            index_path = _os.path.join(dist_dir, "index.html")
-            if not _os.path.isfile(index_path):
+        def _resolve(request) -> str:
+            if request.path in ("/app", "/app/"):
+                return _os.path.join(dist_dir, "index.html")
+            rel = request.path[len("/app/"):].lstrip("/") or "index.html"
+            candidate = _os.path.abspath(_os.path.join(dist_dir, rel))
+            # Path traversal guard: the resolved file must stay inside dist.
+            if not candidate.startswith(_os.path.abspath(dist_dir)):
+                return _os.path.join(dist_dir, "index.html")
+            if _os.path.isfile(candidate):
+                return candidate
+            return _os.path.join(dist_dir, "index.html")
+
+        async def _app_handler(request):
+            target = _resolve(request)
+            if not _os.path.isfile(target):
                 return _web.Response(status=404, text="not found")
-            return _web.FileResponse(index_path)
+            return _web.FileResponse(target)
 
-        self.web_app.router.add_route(_web.get, "/app/{tail:.*}", _spa_fallback)
+        self.web_app.router.add_get("/app", _app_handler)
+        self.web_app.router.add_get("/app/{tail:.*}", _app_handler)
         logger.info("Mini App 静态挂载: /app/ → %s", dist_dir)
+
 
 
 async def setup_webhook(application, webhook_url: str, webhook_path: str, secret_token: str):
