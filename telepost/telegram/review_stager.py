@@ -28,7 +28,9 @@ from ..application.review_queue import pixiv_id_from_link
 from .delivery.preparation import (
     PHOTO_MAX_BYTES,
     cleanup_prepared_dicts,
+    is_photo_constraint_error,
     reclassify_oversized_dicts as reclassify_oversized,
+    retry_photo_derivative,
 )
 from .delivery.sender import file_id_of, timeout_kwargs
 from . import review_keyboard
@@ -344,22 +346,102 @@ class TelegramReviewStager:
                         logger.debug("关闭预览文件句柄失败", exc_info=True)
         return await self._send_throttled(factory)
 
+    def _photo_send(self, path, filename, caption, spoiler, common):
+        async def factory():
+            handle = open(path, "rb")
+            try:
+                media = InputFile(handle, filename=filename,
+                                  read_file_handle=False, attach=True)
+                return await self._bot.send_photo(
+                    photo=media, caption=caption,
+                    parse_mode="HTML" if caption else None,
+                    has_spoiler=spoiler, **common)
+            finally:
+                handle.close()
+        return factory
+
+    def _document_send(self, path, filename, caption, common):
+        async def factory():
+            handle = open(path, "rb")
+            try:
+                media = InputFile(handle, filename=filename,
+                                  read_file_handle=False, attach=True)
+                return await self._bot.send_document(
+                    document=media, filename=filename, caption=caption,
+                    parse_mode="HTML" if caption else None, **common)
+            finally:
+                handle.close()
+        return factory
+
+    async def _local_photo_single(self, item, caption, spoiler, reply_to):
+        """Send one local photo; Telegram's verdict, not ours, is the last word.
+
+        On a photo-constraint rejection (dimensions / ratio / size) the artifact
+        gets exactly ONE bounded re-process and is retried as a photo; only if
+        that also fails does it go out as a document.
+        """
+        common = {"chat_id": self.chat_id, **self._timeouts_now()}
+        if reply_to is not None:
+            common["reply_to_message_id"] = reply_to
+        path = item["path"]
+        filename = item.get("filename") or "file"
+        try:
+            return await self._send_throttled(
+                self._photo_send(path, filename, caption, spoiler, common)
+            )
+        except Exception as exc:
+            if not is_photo_constraint_error(exc):
+                raise
+            logger.warning(
+                "审核预览照片被 Telegram 拒绝（%s），执行一次上限内的重新压缩: %s",
+                exc, filename,
+            )
+
+        derivative = retry_photo_derivative(path, max_bytes=self._photo_max_bytes)
+        if derivative:
+            try:
+                return await self._send_throttled(
+                    self._photo_send(
+                        derivative, f"{os.path.splitext(filename)[0]}.jpg",
+                        caption, spoiler, common,
+                    )
+                )
+            except Exception as retry_exc:
+                if not is_photo_constraint_error(retry_exc):
+                    raise
+                logger.warning(
+                    "审核预览照片二次压缩后仍被拒绝（%s），改按文档发送: %s",
+                    retry_exc, filename,
+                )
+            finally:
+                try:
+                    os.remove(derivative)
+                except OSError:
+                    pass
+
+        # No bounded photo attempt is left: a document is the only legal target.
+        # ``_stage`` reads item["kind"] after the send, so this item is staged
+        # (and later published) as a document too.
+        item["kind"] = "document"
+        item["preparation_reason"] = "photo_constraint_document_fallback"
+        return await self._send_throttled(
+            self._document_send(path, filename, caption, common)
+        )
+
     async def _local_single(self, item, caption, spoiler, reply_to):
         common = {"chat_id": self.chat_id, **self._timeouts_now()}
         if reply_to is not None:
             common["reply_to_message_id"] = reply_to
         kind = item["kind"]
 
+        if kind == "photo":
+            return await self._local_photo_single(item, caption, spoiler, reply_to)
+
         async def factory():
             handle = open(item["path"], "rb")
             try:
                 media = InputFile(handle, filename=item["filename"],
                                   read_file_handle=False, attach=True)
-                if kind == "photo":
-                    return await self._bot.send_photo(
-                        photo=media, caption=caption,
-                        parse_mode="HTML" if caption else None,
-                        has_spoiler=spoiler, **common)
                 if kind == "video":
                     return await self._bot.send_video(
                         video=media, caption=caption,
