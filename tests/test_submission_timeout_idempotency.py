@@ -117,14 +117,29 @@ async def test_reconciler_does_not_hijack_live_submission(review_db):
                         media=[{"x": 1}], documents=[])
     )
     await asyncio.wait_for(entered.wait(), timeout=5)
-    await asyncio.sleep(0.06)           # several heartbeats while still in flight
 
+    # 证明心跳确实在续命：等到 updated_at 被刷新两次，再按「观测到的年龄」推导
+    # staleness 窗口。以前这里 sleep(0.06) 后固定 stale_seconds=0.03 —— 在慢 CI
+    # runner 上，最后一次心跳到 reconcile 读取 time.time() 之间的调度抖动就会超过
+    # 0.03s，活行被误判为 crash leftover，release 的 Test 步骤随机失败
+    # （2026-09-13 TelePost release 2.17.6 build-plan 实测 1 failed）。
+    repo = ReviewRepository()
+    stamps = []
+    deadline = time.monotonic() + 10
+    while len(stamps) < 2 and time.monotonic() < deadline:
+        probe = await repo.find_active_by_key("api:9:live", 0)
+        stamp = probe["updated_at"] if probe else None
+        if stamp is not None and (not stamps or stamp > stamps[-1]):
+            stamps.append(stamp)
+        await asyncio.sleep(0.005)
+    assert len(stamps) == 2, "heartbeat never renewed the row while staging"
+
+    age = max(0.0, time.time() - stamps[-1])
     swept = await ReviewQueueService().reconcile_incomplete(
-        _Stager(), stale_seconds=0.03
+        _Stager(), stale_seconds=max(0.03, age * 20)
     )
     assert swept == 0, "the sweep repaired a live, heartbeating submission"
 
-    repo = ReviewRepository()
     row = await repo.find_active_by_key("api:9:live", 0)
     assert row["status"] == "preparing", "live row was moved by the sweep"
     assert stager.deleted == [], "live previews were deleted by the sweep"
