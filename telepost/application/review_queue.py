@@ -44,15 +44,18 @@ PREPARATION_HEARTBEAT_SECONDS = float(
 )
 
 
-def _actor(user_id: Any = None) -> str:
-    return f"telegram_user:{user_id}" if user_id else "api"
+def _actor(command: "QueueCommand") -> str:
+    """Render the acting principal for audit, independent of ownership."""
+    if command.actor_kind == "service":
+        return f"service:{command.actor_subject or 'unknown'}"
+    return f"telegram_user:{command.user_id}"
 
 
-def _common(command: QueueCommand) -> dict:
+def _common(command: "QueueCommand") -> dict:
     return {
         "idempotency_key": command.idempotency_key or None,
         "execution_id": audit.execution_id_from_ref(command.source_ref),
-        "actor": _actor(command.user_id),
+        "actor": _actor(command),
         "target_id": command.target_id or None,
         "work_type": command.work_type or None,
         "pixiv_id": command.pixiv_id or None,
@@ -105,6 +108,13 @@ class QueueCommand:
     # Request UUID of a remote refetch attempt ("重抓") that produced this
     # submission; empty for scheduled/original submissions.
     refetch_request_id: str = ""
+    # Identity / provenance (§identity): verified human owner of this
+    # submission (NULL for service/automatic submissions; never derived from
+    # the API-token owner) + the acting principal kind/subject.
+    submitter_user_id: Optional[int] = None
+    submitter_username: str = ""
+    actor_kind: str = "user"  # 'user' | 'service'
+    actor_subject: str = ""
 
 
 class StagingPort(Protocol):
@@ -389,6 +399,10 @@ class ReviewQueueService:
             delivery_target=command.target_id,
             status="preparing",
             refetch_request_id=command.refetch_request_id,
+            submitter_user_id=command.submitter_user_id,
+            submitter_username=command.submitter_username,
+            actor_kind=command.actor_kind,
+            actor_subject=command.actor_subject,
         )
         if command.refetch_request_id:
             return await self._reserve_replacement(new_review, stager)
@@ -480,6 +494,18 @@ class ReviewQueueService:
                 )
                 obsolete = True
             if not obsolete:
+                # Review-chain ownership §identity: the replacement belongs to
+                # the SAME submission lineage as the source review. The acting
+                # principal is the delivering service, but ownership follows the
+                # source — a human-owned chain keeps its human submitter, a
+                # service-owned chain stays unowned. Legacy display identity
+                # (user_id/username) follows the chain as well.
+                new_review.user_id = int(source["user_id"] or 0)
+                new_review.username = source["username"] or ""
+                new_review.submitter_user_id = source["submitter_user_id"]
+                new_review.submitter_username = (
+                    source["submitter_username"] or ""
+                )
                 try:
                     review_id = await self._repo.insert_into(conn, new_review)
                 except Exception as exc:

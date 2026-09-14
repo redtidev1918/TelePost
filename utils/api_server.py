@@ -78,6 +78,12 @@ async def _resolve_principal(request) -> Optional[dict]:
     """Resolve the caller to a unified principal (None when unauthenticated).
 
     Order: Mini App session (ma_v1.*) first, then the API token (tp_*).
+
+    ``kind`` separates the ACTING principal class (§identity):
+    * ``user``    — a verified Telegram human (Mini App session);
+    * ``service`` — an API token (automatic/third-party delivery). A service
+      principal MUST NOT become a submission owner; ownership is only ever set
+      through an explicit verified human submitter.
     """
     token = _bearer_token(request)
     from telepost.miniapp import session as miniapp_session
@@ -86,19 +92,25 @@ async def _resolve_principal(request) -> Optional[dict]:
         if principal is None:
             return None
         return {
+            "kind": "user",
             "telegram_user_id": principal.telegram_user_id,
             "name": principal.username or f"user{principal.telegram_user_id}",
             "roles": principal.roles,
             "surface": "mini_app",
+            "actor_subject": f"telegram:{principal.telegram_user_id}",
         }
     row = await authenticate(token)
     if row is None:
         return None
     return {
+        "kind": "service",
         "telegram_user_id": int(row["telegram_user_id"] or 0),
         "name": row["name"] or f"user{row['telegram_user_id']}",
         "roles": None,  # API tokens reuse the Bot's OWNER_ID/ADMIN_IDS rule
         "surface": "api",
+        "token_id": int(row["id"] or 0),
+        "token_name": row["name"] or "",
+        "actor_subject": f"api_token:{row['id'] or 0}",
     }
 
 
@@ -124,11 +136,18 @@ def _principal_is_owner(principal: dict) -> bool:
 
 async def _audit_submission(event: str, *, user_id, idempotency_key="",
                             target_id="", work_type="", pixiv_id="",
-                            source_ref="", review_id=None, detail=None) -> None:
+                            source_ref="", review_id=None, detail=None,
+                            actor_kind="user", actor_subject="") -> None:
     from telepost.observability import audit as audit_mod
+    if actor_kind == "service":
+        actor = f"service:{actor_subject or 'api'}"
+    elif user_id:
+        actor = f"telegram_user:{user_id}"
+    else:
+        actor = "api"
     await audit_mod.record_event(
         event,
-        actor=f"telegram_user:{user_id}" if user_id else "api",
+        actor=actor,
         idempotency_key=idempotency_key or None,
         target_id=target_id or None,
         work_type=work_type or None,
@@ -140,11 +159,11 @@ async def _audit_submission(event: str, *, user_id, idempotency_key="",
 
 
 async def _own_submissions(user_id, *, limit: int, cursor: Optional[str]):
-    """Own-submission history: strictly user-scoped, keyset paged.
+    """Own-submission history: strictly user-scoped on the VERIFIED submitter.
 
-    Mirrors the review-summary shape (status/title/tags/counts) without giving
-    users cross-user access or internal decision fields (§24-§25). Reads go
-    through a repository method, never SQL inside the frontend.
+    Only rows with explicit human attribution (submitter_user_id == the current
+    verified Telegram user) are returned (§identity). Service/automatic
+    submissions created by an API token bound to this user do NOT appear.
     """
     created_cursor: Optional[float] = None
     id_cursor: Optional[int] = None
@@ -171,7 +190,7 @@ async def _own_submissions(user_id, *, limit: int, cursor: Optional[str]):
             "source": row["source"] or "api",
         }
 
-    rows = await ReviewRepository().list_by_user(
+    rows = await ReviewRepository().list_by_submitter(
         user_id, limit=limit + 1,
         created_cursor=created_cursor, id_cursor=id_cursor,
     )
@@ -482,6 +501,21 @@ async def _review_auth(request, *, write: bool):
     }, None
 
 
+async def _review_owner_principal(request) -> Optional[int]:
+    """Verified HUMAN principal id for owner-scope reads (§identity).
+
+    Returns the current user's telegram_user_id ONLY for ``kind=user``
+    principals (Mini App sessions). Service/api-token principals never qualify,
+    so an automatic submission can never be read back through an owner-scope
+    path as if a human owned it.
+    """
+    principal = await _resolve_principal(request)
+    if principal is None or principal.get("kind") != "user":
+        return None
+    uid = principal.get("telegram_user_id")
+    return int(uid) if uid else None
+
+
 def _review_error(exc: ReviewError) -> web.Response:
     return _error(exc.http_status, exc.code, str(exc)[:200])
 
@@ -634,13 +668,33 @@ def add_api_routes(web_app, application) -> None:
         user_id = principal["telegram_user_id"]
         username = principal["name"] or f"user{user_id}"
 
+        # Identity/provenance split (§identity): a service principal (API
+        # token) NEVER becomes a submission owner. Only a verified human
+        # principal (Mini App session) sets submitter_user_id; the API-token
+        # owner is the request actor, not the submitter.
+        principal_kind = principal.get(
+            "kind", "service" if principal.get("surface") == "api" else "user"
+        )
+        if principal_kind == "user":
+            submitter_user_id = int(user_id) if user_id else None
+            submitter_username = username or ""
+            actor_subject = principal.get("actor_subject") or f"telegram:{user_id}"
+        else:
+            submitter_user_id = None
+            submitter_username = ""
+            actor_subject = principal.get("actor_subject") or (
+                f"api_token:{principal.get('token_id') or 0}"
+            )
+        actor_kind = principal_kind
+
         # 限频
         used = _rate_cache.get(f"api:{user_id}") or 0
         if SUBMIT_LIMIT_PER_HOUR > 0 and used >= SUBMIT_LIMIT_PER_HOUR:
             return _error(429, "rate_limited",
                           f"每小时最多 {SUBMIT_LIMIT_PER_HOUR} 次投稿，请稍后再试")
         _rate_cache.set(f"api:{user_id}", used + 1, ttl=3600)
-        await _audit_submission("submission.received", user_id=user_id)
+        await _audit_submission("submission.received", user_id=user_id,
+                                actor_kind=actor_kind, actor_subject=actor_subject)
 
         if (request.content_type or "").startswith("application/json"):
             # file_id 直投：素材已在 Telegram 服务器（file_id 归属本 bot），零媒体传输
@@ -651,7 +705,8 @@ def add_api_routes(web_app, application) -> None:
             if not isinstance(payload, dict):
                 return _error(400, "invalid_json", "JSON body 必须是对象")
             if _invalid_refetch_request_id(payload):
-                await _audit_submission("submission.invalid_refetch_provenance", user_id=user_id)
+                await _audit_submission("submission.invalid_refetch_provenance", user_id=user_id,
+                                        actor_kind=actor_kind, actor_subject=actor_subject)
                 return _error(400, "invalid_refetch_provenance", "refetch_request_id 必须是 UUID")
 
             media = payload.get("media") or []
@@ -688,6 +743,10 @@ def add_api_routes(web_app, application) -> None:
                     "spoiler": _fields_bool(payload, "spoiler"),
                     "user_id": user_id,
                     "username": username,
+                    "submitter_user_id": submitter_user_id,
+                    "submitter_username": submitter_username,
+                    "actor_kind": actor_kind,
+                    "actor_subject": actor_subject,
                 }
                 # JSON file_id clients always receive the four provenance
                 # kwargs (empty string means "absent"); multipart omits them.
@@ -733,6 +792,7 @@ def add_api_routes(web_app, application) -> None:
                 work_type=provenance.get("work_type", ""),
                 pixiv_id=provenance.get("pixiv_id", ""),
                 source_ref=_fields_source_ref(payload),
+                actor_kind=actor_kind, actor_subject=actor_subject,
             )
             if not result.get("reused"):
                 await _notify_refetch_replacement(
@@ -836,6 +896,10 @@ def add_api_routes(web_app, application) -> None:
                 "spoiler": spoiler,
                 "user_id": user_id,
                 "username": username,
+                "submitter_user_id": submitter_user_id,
+                "submitter_username": submitter_username,
+                "actor_kind": actor_kind,
+                "actor_subject": actor_subject,
             }
             provenance = {}
             for _name, _value in (
@@ -878,6 +942,7 @@ def add_api_routes(web_app, application) -> None:
             work_type=provenance.get("work_type", ""),
             pixiv_id=provenance.get("pixiv_id", ""),
             source_ref=_fields_source_ref(fields),
+            actor_kind=actor_kind, actor_subject=actor_subject,
         )
         if not result.get("reused"):
             await _notify_refetch_replacement(
@@ -959,7 +1024,19 @@ def add_api_routes(web_app, application) -> None:
         async def action():
             _, error = await _review_auth(request, write=False)
             if error:
-                return error
+                # Owner-scope read: a verified human submitter may view (but
+                # never mutate) their OWN review rows (§identity).
+                owner_uid = _review_owner_principal(request)
+                if owner_uid is None:
+                    return error
+                try:
+                    review_id = int(request.match_info["review_id"])
+                except (TypeError, ValueError):
+                    return _error(400, "invalid_review_id", "review_id 必须是整数")
+                row = await review_service.get_review(review_id)
+                if int(getattr(row, "submitter_user_id", None) or 0) != owner_uid:
+                    return error
+                return _ok(row.to_dict())
             try:
                 review_id = int(request.match_info["review_id"])
             except (TypeError, ValueError):
@@ -972,7 +1049,17 @@ def add_api_routes(web_app, application) -> None:
         async def action():
             _, error = await _review_auth(request, write=False)
             if error:
-                return error
+                # Owner-scope media read for the review's verified submitter.
+                owner_uid = _review_owner_principal(request)
+                if owner_uid is None:
+                    return error
+                try:
+                    review_id = int(request.match_info["review_id"])
+                except (TypeError, ValueError):
+                    return _error(400, "invalid_review_id", "review_id 必须是整数")
+                row = await review_service.get_review(review_id)
+                if int(getattr(row, "submitter_user_id", None) or 0) != owner_uid:
+                    return error
             try:
                 review_id = int(request.match_info["review_id"])
                 index = int(request.match_info["index"])

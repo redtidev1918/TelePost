@@ -107,6 +107,9 @@ class ReviewItem:
     spoiler: bool
     submitter_name: Optional[str]
     submitter_id: Optional[int]
+    # Verified human owner of the review chain (§identity); NULL for
+    # service/automatic submissions regardless of submitter_id (request actor).
+    submitter_user_id: Optional[int]
     source_label: Optional[str]
     source_ref: Optional[str]
     scheduled_at: Optional[str]
@@ -231,6 +234,10 @@ def _to_item(row) -> ReviewItem:
         spoiler=bool(row["spoiler"]),
         submitter_name=row["username"] or None,
         submitter_id=row["user_id"],
+        submitter_user_id=(
+            row["submitter_user_id"]
+            if "submitter_user_id" in row.keys() else None
+        ),
         source_label=row["source_label"] or None,
         source_ref=row["source_ref"] or None,
         scheduled_at=row["scheduled_at"] or None,
