@@ -10,6 +10,13 @@
 
 ---
 
+## [2.21.0](https://github.com/redtidev1918/TelePost/compare/v2.20.4...v2.21.0) (2026-09-14)
+
+
+### Features
+
+* **review:** auto-clean superseded old review cards after retention ([#87](https://github.com/redtidev1918/TelePost/issues/87)) ([ac53e30](https://github.com/redtidev1918/TelePost/commit/ac53e30dda6641913036d832bd07c33800c42e8f))
+
 ## [2.20.4](https://github.com/redtidev1918/TelePost/compare/v2.20.3...v2.20.4) (2026-09-13)
 
 
