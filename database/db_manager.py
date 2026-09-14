@@ -242,7 +242,8 @@ async def init_db():
                     skipped_unavailable INTEGER NOT NULL DEFAULT 0,
                     created_at REAL NOT NULL,
                     started_at REAL,
-                    finished_at REAL
+                    finished_at REAL,
+                    last_progress_notified_at REAL
                 )
             ''')
             await conn.execute(
@@ -254,6 +255,15 @@ async def init_db():
                 'CREATE INDEX IF NOT EXISTS idx_refetch_attempts_chain '
                 'ON refetch_attempts(review_chain_id, created_at DESC)'
             )
+            # Older TelePost databases: add the progress-watchdog column
+            # idempotently (the CREATE TABLE above carries it for fresh DBs).
+            try:
+                await conn.execute(
+                    "ALTER TABLE refetch_attempts "
+                    "ADD COLUMN last_progress_notified_at REAL"
+                )
+            except Exception:
+                pass  # column already exists
 
             # Candidate history per review chain: every work already shown to
             # reviewers for this chain. (review_chain_id, candidate_id) is the

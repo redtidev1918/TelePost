@@ -85,6 +85,8 @@
 | `PENDING_REVIEW_CLEANUP_BATCH_SIZE` | `100` | 每轮最多过期 1–200 条 |
 | `REVIEW_RETENTION_DAYS` | `30` | 已决审核和 API 通知幂等记录保留天数 |
 | `SUPERSEDED_RETENTION_DAYS` | `30` | 被替换（重抓成功）的旧审核卡保留天数；到期后删除其 Telegram 预览/控制消息与记录，血缘（attempt/seen）保留；`0` 不清理 |
+| `REFETCH_PROGRESS_REMIND_MINUTES` | `5` | 重抓受理后超过该分钟数仍无终态，向审核群发一次「仍在处理中」提醒（同一 attempt 每窗口至多一次）；`0` 关闭提醒 |
+| `REFETCH_STALE_TIMEOUT_MINUTES` | `45` | 重抓受理后超过该分钟数仍无任何终态回报（机器掉线/结果丢失），判为 failed 并通知用户「可稍后重试」；`0` 关闭超时判定 |
 | `API_MAX_FILES` | `50` | HTTP API 单次投稿文件数上限；多页/超大作品可调大（如 100），父路由只限总字节不数文件 |
 
 Telegram 只保证 Bot 可删除 48 小时内消息；需要自动清理审核群时通常把待审保留设为 1 天。
@@ -173,6 +175,9 @@ HTTPS 请求时自动唤醒）；审核群重抓使用以下配置：
   `refetch_seen_candidates` 以 (chain, work id) 唯一约束记录该链已展示过的作品。
 - 旧稿（superseded）在保留 `SUPERSEDED_RETENTION_DAYS` 天后由定期维护删除群里的旧卡与
   记录（尝试删消息失败不阻断）；attempt 与候选历史永久保留作审计。
+- 进度可感知：受理后 `REFETCH_PROGRESS_REMIND_MINUTES` 无终态会发「仍在处理中」提醒；
+  `REFETCH_STALE_TIMEOUT_MINUTES` 仍无终态则判定 failed 并通知，用户可再次点击；
+  成功替换、无候选、失败都各有明确群消息，不会看起来卡死。
 - 不接受 `target_id` 为空、或未配置上面的两个变量；不要用 `PIXIVFLOW_ENABLED=true`
   尝试唤醒独立执行端（那是同容器兼容模式的开关，拆分拓扑不适用）。
 - 内部 token 只在服务间 Bearer 请求头传递，绝不进群消息、日志或审计。

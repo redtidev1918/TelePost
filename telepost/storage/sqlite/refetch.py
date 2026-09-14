@@ -132,6 +132,51 @@ class RefetchRepository:
             )
             return cur.rowcount == 1
 
+    async def mark_replaced(self, request_id: str,
+                            result_candidate_id: str) -> bool:
+        """Terminal 'replaced' (replacement delivered and linked).
+
+        The normal path runs inside the submission transaction
+        (``finalize_replacement``); this is the explicit transition for
+        callers/tests that already know the replacement landed.
+        """
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "UPDATE refetch_attempts SET state='replaced', "
+                "result_candidate_id=?, finished_at=? "
+                "WHERE request_id=? AND state IN ('requested', 'admitted')",
+                (result_candidate_id, time.time(), request_id),
+            )
+            return cur.rowcount == 1
+
+    async def active_since(self, cutoff_remind: float, cutoff_fail: float) -> list:
+        """Active attempts (requested/admitted) that have been waiting too long.
+
+        Used by the progress watchdog: rows older than ``cutoff_remind`` deserve
+        a "still running" reminder; rows older than ``cutoff_fail`` must be
+        failed (no terminal outcome ever arrived). Bounded batch, oldest first.
+        """
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM refetch_attempts "
+                "WHERE state IN ('requested', 'admitted') AND created_at <= ? "
+                "ORDER BY created_at ASC LIMIT 50",
+                (cutoff_remind,),
+            )
+            out = []
+            for row in await cur.fetchall():
+                out.append((row, "stale" if row["created_at"] <= cutoff_fail else "remind"))
+            return out
+
+    async def bump_progress_notified(self, request_id: str, at: float) -> bool:
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "UPDATE refetch_attempts SET last_progress_notified_at=? "
+                "WHERE request_id=?",
+                (at, request_id),
+            )
+            return cur.rowcount == 1
+
     async def resolve_replacement(self, conn, request_id: str):
         """Resolve a submission's refetch correlation inside an open connection.
 
