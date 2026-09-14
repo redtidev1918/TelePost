@@ -32,7 +32,7 @@ async def _row(*, source="api", user_id=5073758941, username="pixivflow",
             ) VALUES (?, ?, 'pending', ?, ?, -1001, '[]', '[]',
                       ?, ?, ?, 'chain-x', ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (idempotency_key or f"k{int(now*1000)}-{user_id}", source,
+            (idempotency_key or f"k{int(now*1000)}-{user_id}-{refetch_request_id or '' or supersedes_review_id or int(now*1e6)}", source,
              user_id, username, target_id, source_label, source_ref,
              supersedes_review_id, refetch_request_id or "",
              submitter_user_id, submitter_username, actor_kind, actor_subject,

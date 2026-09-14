@@ -50,3 +50,21 @@ jobs:
         run: npm test
       - name: Generate API client + build
         run: npm run generate:api && npm run build
+  browser-e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webapp
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Install
+        run: npm ci || npm install
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Run browser E2E (vite dev server managed by Playwright webServer)
+        run: npx playwright test --reporter=line
