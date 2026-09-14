@@ -10,6 +10,13 @@
 
 ---
 
+## [2.23.0](https://github.com/redtidev1918/TelePost/compare/v2.22.0...v2.23.0) (2026-09-14)
+
+
+### Features
+
+* **publish:** append 点击投稿 channel footer link on real publish ([b557e06](https://github.com/redtidev1918/TelePost/commit/b557e0664c2c266698d01526223aa8c51bfce3d3))
+
 ## [2.22.0](https://github.com/redtidev1918/TelePost/compare/v2.21.1...v2.22.0) (2026-09-14)
 
 
