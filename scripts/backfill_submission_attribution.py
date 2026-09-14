@@ -70,6 +70,8 @@ SELECT id, status, source, user_id, username, target_id, source_ref,
 
 
 def classify(row: Dict[str, Any]) -> str:
+    if row.get("submitter_user_id") and row.get("actor_kind") == "user":
+        return "human_verified"
     if (row["target_id"] or "").strip() \
             or (row["source_ref"] or "").strip() \
             or (row["source_label"] or "").startswith("PixivFlow") \
@@ -169,12 +171,15 @@ def main() -> int:
                 # actor is always the service, but the OWNER is the chain root's
                 # owner (human chain stays human, service chain stays unowned).
                 actor_kind, actor_subject = "service", "pixivflow_delivery"
-                if root_kind == "human_chat":
-                    submitter_id = root["user_id"]
-                    submitter_name = root["username"] or ""
+                if root_kind in {"human_chat", "human_verified"}:
+                    submitter_id = root["submitter_user_id"] or root["user_id"]
+                    submitter_name = root["submitter_username"] or root["username"] or ""
                     report["chain_propagated"] += 1
                 else:
                     submitter_id, submitter_name = None, ""
+            elif kind == "human_verified":
+                submitter_id, submitter_name = row["submitter_user_id"], row["submitter_username"] or ""
+                actor_kind, actor_subject = row["actor_kind"], row["actor_subject"]
             elif kind == "service":
                 submitter_id, submitter_name = None, ""
                 actor_kind, actor_subject = "service", "pixivflow_delivery"
@@ -190,7 +195,7 @@ def main() -> int:
 
             if kind == "service":
                 report["classified_service"] += 1
-            elif kind == "human_chat":
+            elif kind in {"human_chat", "human_verified"}:
                 report["classified_human_chat"] += 1
             else:
                 report["legacy_unknown"] += 1
