@@ -10,6 +10,13 @@
 
 ---
 
+## [2.26.0](https://github.com/redtidev1918/TelePost/compare/v2.25.0...v2.26.0) (2026-09-14)
+
+
+### Features
+
+* local media preview, tag hint and explicit submission disposition ([#106](https://github.com/redtidev1918/TelePost/issues/106)) ([dee1e85](https://github.com/redtidev1918/TelePost/commit/dee1e859e826fa0098648360faa0cd71a236eb11))
+
 ## [2.25.0](https://github.com/redtidev1918/TelePost/compare/v2.24.2...v2.25.0) (2026-09-14)
 
 
