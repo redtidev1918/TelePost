@@ -188,6 +188,22 @@ class ReviewRepository:
             )
             return list(await cur.fetchall())
 
+    async def list_old_superseded(self, *, cutoff: float, limit: int = 100) -> list:
+        """Old chain versions (status='superseded') past their retention cut-off.
+
+        Used by the Telegram-side sweep: rows are returned so the caller can
+        delete their preview/control messages first, then delete the row.
+        Lineage (refetch_attempts / refetch_seen_candidates) is never touched
+        by this method — the audit trail survives the card cleanup.
+        """
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM pending_reviews WHERE status='superseded' "
+                "AND updated_at <= ? ORDER BY updated_at ASC LIMIT ?",
+                (cutoff, max(1, min(int(limit), 500))),
+            )
+            return list(await cur.fetchall())
+
     async def touch_preparing(self, review_id: int) -> bool:
         """Renew the liveness marker of an IN-FLIGHT preparation.
 
