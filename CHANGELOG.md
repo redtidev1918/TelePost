@@ -10,6 +10,13 @@
 
 ---
 
+## [2.24.2](https://github.com/redtidev1918/TelePost/compare/v2.24.1...v2.24.2) (2026-09-14)
+
+
+### Bug Fixes
+
+* terminal schedule outcome notifications and remove ghost mention entities ([ae7e64b](https://github.com/redtidev1918/TelePost/commit/ae7e64b656f01b9bf7912aafc659f381083f4306))
+
 ## [2.24.1](https://github.com/redtidev1918/TelePost/compare/v2.24.0...v2.24.1) (2026-09-14)
 
 
