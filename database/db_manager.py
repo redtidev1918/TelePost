@@ -309,6 +309,18 @@ async def init_db():
                     UNIQUE(review_chain_id, candidate_id)
                 )
             ''')
+            # Durable dedup for terminal SCHEDULE outcome notifications
+            # (§schedule-notify): one terminal summary per slot is ever sent to
+            # the review/admin group, even when the same external clock replays
+            # the slot or PixivFlow redelivers the outcome outbox intent.
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS schedule_outcome_notifications (
+                    slot_id TEXT PRIMARY KEY,
+                    sent_at REAL NOT NULL,
+                    status TEXT NOT NULL DEFAULT ''
+                )
+            ''')
+
             # Bootstrap seen-history for existing reviews (current candidate only;
             # older chain history is not reconstructible and is documented as the
             # migration boundary). INSERT OR IGNORE keeps this idempotent.
