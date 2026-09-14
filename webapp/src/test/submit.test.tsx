@@ -7,7 +7,15 @@ import * as React from 'react';
 import { SubmitPage } from '../pages/Submit/SubmitPage';
 import * as client from '../api/client';
 
-let ctxUppy: any = null;
+interface UppyLike {
+  addFile: (file: { data: unknown; name: string; type: string }) => void;
+  getState: () => { files: Record<string, unknown> };
+  on: (event: string, handler: () => void) => void;
+  off: (event: string, handler: () => void) => void;
+  destroy: () => void;
+}
+
+let ctxUppy: UppyLike | null = null;
 
 /**
  * The SPECIFIC Uppy react layer is replaced with a thin reactive fake backed by
@@ -16,7 +24,7 @@ let ctxUppy: any = null;
  */
 vi.mock('@uppy/react', () => ({
   Dashboard: () => null,
-  UppyContextProvider: ({ uppy, children }: any) => {
+  UppyContextProvider: ({ uppy, children }: { uppy: UppyLike; children: React.ReactNode }) => {
     ctxUppy = uppy;
     return children;
   },
@@ -24,16 +32,16 @@ vi.mock('@uppy/react', () => ({
     getInputProps: () => ({
       type: 'file',
       multiple: true,
-      onChange: (event: any) => {
+      onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
         const selected: File[] = Array.from(event.target.files ?? []);
         for (const file of selected) {
-          ctxUppy.addFile({ data: file, name: file.name, type: file.type });
+          ctxUppy?.addFile({ data: file, name: file.name, type: file.type });
         }
       },
     }),
     getButtonProps: () => ({ type: 'button', onClick: () => {} }),
   }),
-  useUppyState: (uppy: any, selector: any) => {
+  useUppyState: (uppy: UppyLike, selector: (state: unknown) => unknown) => {
     const [state, setState] = React.useState(() => selector(uppy.getState()));
     React.useEffect(() => {
       const update = () => setState(selector(uppy.getState()));
