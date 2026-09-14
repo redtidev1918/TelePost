@@ -233,12 +233,15 @@ async def _own_submission_detail(user_id: int, review_id: int) -> dict:
     """Owner-scoped detail for one logical submission (user-safe fields only)."""
     from telepost.storage.sqlite.reviews import ReviewRepository
 
+    from services.review_service import ReviewNotFoundError
+
     repo = ReviewRepository()
     row = await repo.get(review_id)
     if row is None:
-        raise ReviewError("review not found", details={"review_id": review_id})
+        raise ReviewNotFoundError("review not found", details={"review_id": review_id})
     if int(row["submitter_user_id"] or 0) != int(user_id):
-        raise ReviewError("review not found", details={"review_id": review_id})
+        # Never reveal that someone else's submission exists.
+        raise ReviewNotFoundError("review not found", details={"review_id": review_id})
     chain_id = row["review_chain_id"] or f"review-{row['id']}"
     head = await repo.head_of_chain(chain_id)
     source = head if head is not None else row
