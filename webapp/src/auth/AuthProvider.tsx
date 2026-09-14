@@ -26,7 +26,10 @@ export interface SessionUser {
   roles: string[];
 }
 
-export type AuthStatus = 'loading' | 'authenticated' | 'unauthorized' | 'disabled';
+export type AuthStatus =
+  | 'loading' | 'authenticating' | 'authenticated' | 'outside_telegram'
+  | 'miniapp_disabled' | 'invalid_init_data' | 'expired_init_data'
+  | 'auth_failed' | 'server_unavailable';
 
 interface AuthContextValue {
   status: AuthStatus;
@@ -54,10 +57,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const bootstrap = useCallback(async () => {
     const initData = getLaunchInitData();
     if (!initData) {
-      // Outside Telegram (or dev mock missing): keep UI read-only.
-      setStatus('unauthorized');
+      setStatus('outside_telegram');
       return;
     }
+    setStatus('authenticating');
     try {
       await bootstrapSession(initData);
       const me = await queryClient.fetchQuery({
@@ -72,12 +75,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       setStatus('authenticated');
     } catch (error) {
-      if (error instanceof ApiError && error.code === 'miniapp_disabled') {
-        setStatus('disabled');
-      } else {
-        clearSession();
-        setStatus('unauthorized');
-      }
+      clearSession();
+      setUser(null);
+      if (error instanceof ApiError && error.code === 'miniapp_disabled') setStatus('miniapp_disabled');
+      else if (error instanceof ApiError && error.code === 'init_data_expired') setStatus('expired_init_data');
+      else if (error instanceof ApiError && error.code.startsWith('invalid_init_data')) setStatus('invalid_init_data');
+      else if (error instanceof ApiError && error.status < 500) setStatus('auth_failed');
+      else setStatus('server_unavailable');
     }
   }, [queryClient]);
 
@@ -87,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (getLaunchInitData()) {
       void bootstrap();
     } else {
-      setStatus('unauthorized');
+      setStatus('outside_telegram');
     }
   }, [bootstrap]);
 
@@ -95,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSession();
     queryClient.clear();
     setUser(null);
-    setStatus('unauthorized');
+    setStatus('auth_failed');
   }, [queryClient]);
 
   const value = useMemo<AuthContextValue>(() => {

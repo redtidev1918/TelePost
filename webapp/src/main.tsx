@@ -8,8 +8,7 @@ import '@telegram-apps/telegram-ui/dist/styles.css';
 import './index.css';
 import { App } from './app/App';
 
-// Telegram SDK must initialise synchronously. Dev/tests only: production runs
-// inside the real Telegram WebView which injects window.Telegram.WebApp.
+// The SDK reads Telegram launch params; mock only in local development.
 if (!isTMA() && import.meta.env.DEV) {
   mockTelegramEnv({
     launchParams: {
@@ -17,6 +16,7 @@ if (!isTMA() && import.meta.env.DEV) {
         ['user', JSON.stringify({ id: 12345, first_name: 'Dev', username: 'devuser' })],
         ['auth_date', String(Math.floor(Date.now() / 1000))],
         ['hash', 'dev'],
+        ['signature', 'dev'],
       ]),
       tgWebAppVersion: '8.0',
       tgWebAppPlatform: 'ios',

@@ -12,11 +12,14 @@
  * the launch URL (set by the menu-button script); it defaults to bot1 when
  * absent (single-bot deployments, dev).
  */
+import { retrieveRawInitData } from '@telegram-apps/sdk';
 
 /** API base prefix for the bot this Mini App instance talks to. */
+let selectedBot = 'bot1';
 export function apiBase(): string {
-  const bot = new URLSearchParams(window.location.search).get('bot') || 'bot1';
-  return `/api/${bot}/v1`;
+  const bot = new URLSearchParams(window.location.search).get('bot');
+  if (bot && /^bot[1-9]\d*$/.test(bot)) selectedBot = bot;
+  return `/api/${selectedBot}/v1`;
 }
 
 export type ApiErrorCode =
@@ -99,8 +102,14 @@ export async function bootstrapSession(
   return sessionPromise;
 }
 
-/** Read initData from the Telegram WebView (§9: client field is display-only). */
+/** Read raw signed initData from the SDK, then the legacy WebApp bridge. */
 export function getLaunchInitData(): string {
+  try {
+    const raw = retrieveRawInitData();
+    if (raw) return raw;
+  } catch {
+    // No SDK launch params: the legacy bridge may still be available.
+  }
   const tg = (window as unknown as { Telegram?: { WebApp?: { initData?: string } } })
     .Telegram?.WebApp;
   return tg?.initData || '';
@@ -117,12 +126,18 @@ export async function apiFetch<T>(
     ...(init?.headers as Record<string, string> | undefined),
     Authorization: `Bearer ${currentSession.token}`,
   };
-  const response = await fetch(`${apiBase()}${path}`, { ...init, headers });
+  let response = await fetch(`${apiBase()}${path}`, { ...init, headers });
   if (response.status === 401 && currentSession) {
-    // Session expired (natural TTL): clear so the caller can re-bootstrap
-    // with the current Telegram initData (§108).
     clearSession();
-    throw new ApiError(401, 'session_expired', '会话已过期，请重新打开小程序');
+    const initData = getLaunchInitData();
+    if (!initData) throw new ApiError(401, 'session_expired', '会话已过期，请重新打开小程序');
+    await bootstrapSession(initData);
+    headers.Authorization = `Bearer ${currentSession!.token}`;
+    response = await fetch(`${apiBase()}${path}`, { ...init, headers });
+    if (response.status === 401) {
+      clearSession();
+      throw new ApiError(401, 'session_expired', '会话已过期，请重新打开小程序');
+    }
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
