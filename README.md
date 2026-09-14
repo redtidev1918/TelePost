@@ -104,6 +104,8 @@ PixivFlow 必须常驻才能按 Cron 执行；TelePost 只处理入站事件，�
 - 叠加在既有 Bot 之上：Bot 的 quick actions + 通知 + fallback 全部保留。
 - 认证：服务器用 `init-data-py` 验证 Telegram `initData`，签发短期 session；
   Bot token / 长效 API token 从不进入浏览器（§9-§12）。
+- 启动数据由 Telegram SDK 读取，两个 Bot 各用自己的 `?bot=botN` 菜单入口；
+  `/app` 可访问只证明静态资源就绪，仍须在 Telegram 内验证登录和操作。
 - 一线部署说明见 [`docs/MINIAPP.md`](docs/MINIAPP.md)。
 
 ## 文档

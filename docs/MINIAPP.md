@@ -19,7 +19,8 @@ Telegram
 1. Mini App 是 presentation adapter；业务状态只在 TelePost domain/application/storage。
 2. Bot 与 Mini App 共用同一组 command/service；禁止复制业务逻辑到前端或后端第二套。
 3. 浏览器永不接触 Bot token、长效 TelePost admin token、PixivFlow service secret。
-4. Telegram `initData` 必须由服务器验证（`init-data-py`），前端 `initDataUnsafe` 仅展示。
+4. 前端从 `@telegram-apps/sdk` 读取原始 launch `initData`（WebApp bridge 仅兼容后备）；
+   服务器用 `init-data-py` 验证，绝不信任 `initDataUnsafe` 身份。
 5. 授权只认服务器（RBAC：submitter / reviewer / admin，reviewer 身份复用
    `ADMIN_IDS`/`OWNER_ID`，单一来源）。
 6. Mini App deep link（`startapp=review_123`）只表达导航意图，不构成授权。
@@ -51,14 +52,18 @@ npm run build        # → webapp/dist/
 
 ## 部署（同域托管，§68-§69）
 
-推荐把 `webapp/dist/` 静态托管在 TelePost 所在域（例如 `https://telepost.example/app/`），
-API 保持 `/api/v1/`。这样 Mini App 与 API 同源：无 CORS、Cookie/会话最简单。
+镜像构建 `webapp/dist/`，TelePost 在同域 `/app/` 提供静态资源并通过
+`/api/botN/v1/` 路由各 Bot API。
 
 1. 构建 `webapp/dist`。
-2. 用你现有静态服务把 dist 挂到 `/app/`（S3/CDN、nginx、或 TelePost 侧的 sidecar 均可）。
+2. 确认镜像包含 dist，`/app/` 与 `/api/botN/v1/health` 可访问。
 3. 配置 `MINIAPP_ENABLED=true` + `MINIAPP_SESSION_SECRET` + `MINIAPP_SESSION_TTL`。
-4. Telegram BotFather → 你的 Bot → Menu Button → Mini App URL 填 `https://telepost.example/app/`。
+4. 分别配置两个 Bot 的私聊 Menu Button：bot1 用 `/app/?bot=bot1`，
+   bot2 用 `/app/?bot=bot2`；可复用部署仓库的 `scripts/setup-miniapp-menu.sh`。
 5. 健康检查 `/api/v1/health`（或新增字段）确认 `miniapp_enabled`。
+
+静态资源 HTTP 200 只是传输检查；上线验收需从真实 Telegram 菜单打开，
+确认 session、`/me`、首页、审核队列和一次审核操作。
 
 ### CSP（§71）
 

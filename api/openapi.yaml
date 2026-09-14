@@ -117,6 +117,10 @@ components:
         source_label: {type: string, maxLength: 120}
         source_ref: {type: string, maxLength: 255}
         scheduled_at: {type: string, maxLength: 64}
+        refetch_request_id:
+          type: string
+          format: uuid
+          description: Canonical UUID of an admitted refetch attempt. Unresolved templates are rejected.
     NotificationRequest:
       type: object
       required: [text]
@@ -223,6 +227,7 @@ paths:
                 target_id: {type: string}
                 work_type: {type: string}
                 pixiv_id: {type: string}
+                refetch_request_id: {type: string, format: uuid}
       responses:
         '201':
           description: Published or queued for review
@@ -432,7 +437,8 @@ paths:
     post:
       summary: Validate Telegram initData and mint a short-lived Mini App session
       description: |
-        The Mini App sends the raw `initData` from `window.Telegram.WebApp`.
+        The Mini App sends raw `initData` from the Telegram SDK launch context
+        (`retrieveRawInitData()`), with the WebApp bridge as a compatibility fallback.
         The server verifies the Telegram signature (against the bot token),
         derives roles, and returns a short-lived `ma_v1.*` bearer session.
         Never send bot tokens or long-lived API tokens to the browser; this is

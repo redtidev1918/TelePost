@@ -400,6 +400,18 @@ def _fields_refetch_request_id(payload) -> str:
     return _clean_provenance_text(payload.get("refetch_request_id", ""), 40)
 
 
+def _invalid_refetch_request_id(payload) -> bool:
+    value = payload.get("refetch_request_id", "")
+    if value is None or value == "":
+        return False
+    if not isinstance(value, str):
+        return True
+    try:
+        return str(uuid.UUID(value)) != value
+    except ValueError:
+        return True
+
+
 def _fields_bool(payload, key: str) -> bool:
     return str(payload.get(key, "false")).lower() in ("true", "1", "yes")
 
@@ -638,6 +650,9 @@ def add_api_routes(web_app, application) -> None:
                 return _error(400, "invalid_json", "JSON 解析失败")
             if not isinstance(payload, dict):
                 return _error(400, "invalid_json", "JSON body 必须是对象")
+            if _invalid_refetch_request_id(payload):
+                await _audit_submission("submission.invalid_refetch_provenance", user_id=user_id)
+                return _error(400, "invalid_refetch_provenance", "refetch_request_id 必须是 UUID")
 
             media = payload.get("media") or []
             documents = payload.get("documents") or []
@@ -699,6 +714,8 @@ def add_api_routes(web_app, application) -> None:
                     result = await publish_from_file_ids(
                         bot, media, documents, **provenance, **common,
                     )
+            except ValueError as e:
+                return _failure_ack(e)
             except Exception as e:
                 action = "进入审核队列" if API_REVIEW_REQUIRED else "发布到频道"
                 logger.error(f"API file_id 投稿失败: {e}", exc_info=True)
@@ -782,6 +799,9 @@ def add_api_routes(web_app, application) -> None:
         except Exception as e:
             return _error(400, "invalid_multipart", f"multipart 解析失败: {e}")
 
+        if _invalid_refetch_request_id(fields):
+            await _audit_submission("submission.invalid_refetch_provenance", user_id=user_id)
+            return _error(400, "invalid_refetch_provenance", "refetch_request_id 必须是 UUID")
         if not files:
             return _error(400, "missing_files", "至少需要一个 files 字段")
         if len(files) > MAX_FILES:

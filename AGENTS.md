@@ -83,6 +83,11 @@ python check_config.py             # 配置自检
   失败的 attempt 之后当前稿件不变。
 - 迟到的异步结果（approve/reject/expire 之后到达）只会标记 attempt `obsolete`，
   绝不覆盖终态审核结论。
+- PixivFlow 拥有执行状态，TelePost 拥有审核状态。正常重抓必须由替换投稿或
+  `refetch/outcomes` 主动到达业务终态；watchdog 只是崩溃兜底。已受理 attempt
+  不可仅凭本地时间判失败，应先查 PixivFlow durable slot。
+- 替换稿必须在预览和控制卡准备成功后，与旧稿 `superseded`、attempt `replaced`
+  同事务提交。来源不明或过期的 `refetch_request_id` 不能作为普通投稿落库。
 
 ## 已知待办（本仓库范围）
 
@@ -101,3 +106,6 @@ python check_config.py             # 配置自检
 - 授权只发生在服务器：RBAC 复用 `ADMIN_IDS`/`OWNER_ID`，deep link 只给导航。
 - `webapp/` 的测试/构建是独立生命周期（`npm run typecheck|lint|test|build`），
   但业务正确性必须靠 Python 侧的 domain/application 测试保证。
+- Telegram launch data 以 `@telegram-apps/sdk` 的原始 initData 为主；
+  `window.Telegram.WebApp` 仅为兼容后备。`/app` 返回 HTTP 200 不等于
+  真实 Telegram Mini App 完成认证与业务操作。
