@@ -27,9 +27,12 @@ from telegram.ext import ConversationHandler, CallbackContext
 
 from config.settings import (
     CHANNEL_ID,
-    CHAT_REVIEW_REQUIRED,
     NOTIFY_OWNER,
     OWNER_ID,
+)
+from telepost.domain.submission import (
+    SubmissionDisposition,
+    chat_disposition,
 )
 from database.db_manager import get_db, cleanup_old_data
 from models.state import STATE
@@ -1026,7 +1029,7 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
         )
         spoiler_flag = spoiler_value.lower() == "true"
 
-        if CHAT_REVIEW_REQUIRED:
+        if chat_disposition() == SubmissionDisposition.REVIEW_REQUIRED:
             from handlers.review import queue_review_from_file_ids
 
             review_media, review_documents = _review_items(media_list, doc_list)

@@ -49,16 +49,25 @@ export class ApiError extends Error {
   }
 }
 
+/** Presentation-only profile of the verified Mini App user (§identity). */
+export interface SessionUserProfile {
+  telegram_user_id?: number;
+  username?: string;
+  display_name?: string;
+}
+
 interface SessionState {
   token: string;
   expiresAt: number;
+  /** Verified Telegram user profile from the session endpoint (display only). */
+  user?: SessionUserProfile;
 }
 
 let currentSession: SessionState | null = null;
 let sessionPromise: Promise<SessionState> | null = null;
 
-export function setSession(token: string, ttlSeconds: number): void {
-  currentSession = { token, expiresAt: Date.now() + ttlSeconds * 1000 };
+export function setSession(token: string, ttlSeconds: number, user?: SessionUserProfile): void {
+  currentSession = { token, expiresAt: Date.now() + ttlSeconds * 1000, user };
 }
 
 export function clearSession(): void {
@@ -67,6 +76,11 @@ export function clearSession(): void {
 
 export function hasSession(): boolean {
   return currentSession !== null && Date.now() < currentSession.expiresAt;
+}
+
+/** The verified Mini App user, for WebView display only (never an authority). */
+export function getSessionUser(): SessionUserProfile | null {
+  return currentSession?.user ?? null;
 }
 
 /** Establish a session from Telegram initData (server-verified, §9-§11). */
@@ -92,7 +106,8 @@ export async function bootstrapSession(
         body?.error?.message || '登录失败', body);
     }
     const data = body?.data;
-    setSession(data.token, data.expires_in || 1800);
+    const user = (data?.user as SessionUserProfile | undefined) ?? undefined;
+    setSession(data.token, data.expires_in || 1800, user);
     return currentSession!;
   })().finally(() => {
     sessionPromise = null;

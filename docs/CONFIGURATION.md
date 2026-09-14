@@ -73,9 +73,16 @@
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `API_REVIEW_REQUIRED` | `false` | HTTP API 投稿进入审核群 |
+| `API_REVIEW_REQUIRED` | `false` | HTTP API 投稿进入审核群（生产为 `true`） |
 | `CHAT_REVIEW_REQUIRED` | `false` | Telegram 聊天投稿进入审核群 |
 | `REVIEW_CHAT_ID` | 空 | 任一审核开关启用时必填，且不能等于频道 |
+
+**默认处置不变量（`SubmissionDisposition`）**：原生 Telegram Chat 投稿默认直接发布到频道
+（`CHAT_REVIEW_REQUIRED=false`）；进入审核是可配置策略，不是默认。HTTP API（Mini App 投稿、
+PixivFlow 自动稿）在生产默认进入审核队列（`API_REVIEW_REQUIRED=true`）。两个入口默认值可以不同，
+但共享同一 domain/service（`QueueCommand → ReviewQueueService`）；重构任一入口不得静默改变
+另一入口的默认处置。预览/确认按钮与文案必须反映实际处置（“提交审核” / “确认发布”），
+不得统一为“投稿成功”。
 | `REVIEW_ALBUM_SIZE` | `5` | 审核预览每组 1–10 个 |
 | `REVIEW_PREVIEW_INTERVAL_SECONDS` | `0.75` | 预览组之间的节流间隔 |
 | `REVIEW_PREVIEW_TIMEOUT_SECONDS` | `120` | 单次审核预览 Telegram I/O 超时 |

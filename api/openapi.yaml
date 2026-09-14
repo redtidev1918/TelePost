@@ -207,6 +207,8 @@ paths:
                     properties:
                       telegram_user_id: {type: integer}
                       name: {type: string}
+                      username: {type: string}
+                      display_name: {type: string}
                       submissions_last_hour: {type: integer}
                       rate_limit_per_hour: {type: integer}
         '401': {$ref: '#/components/responses/unauthorized'}

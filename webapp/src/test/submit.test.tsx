@@ -9,6 +9,8 @@ import * as client from '../api/client';
 
 interface UppyLike {
   addFile: (file: { data: unknown; name: string; type: string }) => void;
+  removeFile: (id: string) => void;
+  removeFiles: () => void;
   getState: () => { files: Record<string, unknown> };
   on: (event: string, handler: () => void) => void;
   off: (event: string, handler: () => void) => void;
@@ -85,6 +87,9 @@ async function addFiles(names: string[]) {
 beforeEach(() => {
   vi.restoreAllMocks();
   ctxUppy = null;
+  // jsdom has no createObjectURL; the Submit preview depends on it.
+  URL.createObjectURL = vi.fn(() => 'blob:mock');
+  URL.revokeObjectURL = vi.fn();
 });
 
 afterEach(() => {
@@ -153,5 +158,62 @@ describe('SubmitPage (Uppy React integration)', () => {
     fireEvent.click(screen.getByTestId('submit'));
     expect(await screen.findByText('请先添加至少一个文件')).toBeTruthy();
     expect(call).not.toHaveBeenCalled();
+  });
+});
+describe('SubmitPage tag UX + preview (tag hint, real media, submitter)', () => {
+  it('shows the separator hint under the tag input', () => {
+    renderPage();
+    const hint = screen.getByTestId('tag-hint');
+    expect(hint.textContent).toContain('空格');
+    expect(hint.textContent).toContain('英文逗号');
+    expect(hint.textContent).toContain('中文逗号');
+    expect(hint.textContent).toContain('ボテ腹, R18 pregnancy');
+  });
+
+  it('preview renders the real selected image (blob URL), submitter and caption', async () => {
+    client.setSession('tok', 3600, { telegram_user_id: 42, username: 'devuser' });
+    vi.spyOn(client, 'apiFetch').mockResolvedValue({ caption: '🏷 #e2e\n投稿人：devuser' });
+    renderPage();
+      await addFiles(['photo.png']);
+      fireEvent.change(screen.getByPlaceholderText('标签（必填，如 #示例 #壁纸）'), {
+        target: { value: 'ボテ腹, R18' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: '预览投稿' }));
+      await waitFor(() => expect(screen.getByTestId('preview-panel')).toBeTruthy());
+      // Real image preview: an <img> backed by a blob object URL.
+      const img = screen.getByTestId('preview-media-0').querySelector('img') as HTMLImageElement;
+      expect(img).toBeTruthy();
+      expect(img.getAttribute('src')).toBe('blob:mock');
+      // Friendly submitter: @username, never the raw ID.
+      expect(screen.getByTestId('preview-submitter').textContent).toContain('@devuser');
+      expect(screen.getByTestId('preview-panel').textContent).toContain('🏷 ボテ腹, R18');
+      // Server caption is rendered from the shared formatter.
+      await waitFor(() => expect(screen.getByTestId('preview-caption').textContent).toContain('投稿人：devuser'));
+  });
+
+  it('back returns to the form and removed files vanish from the preview', async () => {
+    client.setSession('tok', 3600, { telegram_user_id: 42 });
+    vi.spyOn(client, 'apiFetch').mockResolvedValue({ caption: '' });
+    renderPage();
+      await addFiles(['a.png', 'b.png']);
+      fireEvent.change(screen.getByPlaceholderText('标签（必填，如 #示例 #壁纸）'), {
+        target: { value: '#x' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: '预览投稿' }));
+      await waitFor(() => expect(screen.getByTestId('preview-panel')).toBeTruthy());
+      expect(screen.getByTestId('preview-media-0')).toBeTruthy();
+      expect(screen.getByTestId('preview-media-1')).toBeTruthy();
+      // Back returns to the form (side-effect free).
+      fireEvent.click(screen.getByTestId('preview-back'));
+      await waitFor(() => expect(screen.queryByTestId('preview-panel')).toBeNull());
+      // Remove one file through Uppy's own state: preview then shows 1 media.
+      const ids = Object.keys(ctxUppy!.getState().files);
+      ctxUppy!.removeFile(ids[1]);
+      await waitFor(() =>
+        expect(screen.getByTestId('selected-files').textContent).toContain('已选择 1 个文件'),
+      );
+      fireEvent.click(screen.getByRole('button', { name: '预览投稿' }));
+      await waitFor(() => expect(screen.getByTestId('preview-media-0')).toBeTruthy());
+      expect(screen.queryByTestId('preview-media-1')).toBeNull();
   });
 });
