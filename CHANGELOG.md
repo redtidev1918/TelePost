@@ -10,6 +10,13 @@
 
 ---
 
+## [2.21.1](https://github.com/redtidev1918/TelePost/compare/v2.21.0...v2.21.1) (2026-09-14)
+
+
+### Bug Fixes
+
+* **webapp:** use per-bot API prefix from ?bot= launch param ([#89](https://github.com/redtidev1918/TelePost/issues/89)) ([5162182](https://github.com/redtidev1918/TelePost/commit/5162182f47d7c479895d9d3ea18c099d643a51bf))
+
 ## [2.21.0](https://github.com/redtidev1918/TelePost/compare/v2.20.4...v2.21.0) (2026-09-14)
 
 
