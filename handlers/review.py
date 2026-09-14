@@ -74,6 +74,16 @@ PENDING_REVIEW_CLEANUP_BATCH_SIZE = max(
 SUPERSEDED_RETENTION_DAYS = max(
     0, int(os.getenv("SUPERSEDED_RETENTION_DAYS", "30"))
 )
+# 重抓进展看门狗：受理后超过 REMIND 分钟仍未到终态，向审核群发一次“仍在处理”
+# 提醒（同一 attempt 至少间隔一个 REMIND 周期才再提醒）；超过 STALE 分钟仍无
+# 终态（PixivFlow 没回报、机器掉线等），把 attempt 判为 failed 并通知用户，
+# 用户可再次点击。两者为 0 时关闭对应行为。
+REFETCH_PROGRESS_REMIND_MINUTES = max(
+    0, int(os.getenv("REFETCH_PROGRESS_REMIND_MINUTES", "5"))
+)
+REFETCH_STALE_TIMEOUT_MINUTES = max(
+    0, int(os.getenv("REFETCH_STALE_TIMEOUT_MINUTES", "45"))
+)
 REFETCH_TIMEOUT_SECONDS = 120
 
 _PIXIV_ID_RE = re.compile(r"pixiv\.net/(?:artworks/|novel/show\.php\?id=)(\d+)")
@@ -382,6 +392,77 @@ async def cleanup_superseded_reviews(bot, *, now: Optional[float] = None) -> int
         logger.info("已清理 %d 条被替换的旧审核卡（保留 %d 天）",
                     len(rows), SUPERSEDED_RETENTION_DAYS)
     return len(rows)
+
+
+async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
+    """让重抓不再“看起来卡死”：进展提醒 + 超时失败通知。
+
+    Scans durable refetch attempts that are still active (requested/admitted):
+
+    * older than REFETCH_PROGRESS_REMIND_MINUTES and not reminded recently →
+      send a 「仍在处理中」 reminder to the review group, at most one per
+      remind window per attempt;
+    * older than REFETCH_STALE_TIMEOUT_MINUTES with no terminal outcome →
+      mark the attempt failed (``stale_timeout``) and notify, so the user
+      knows it ended and can click again. A still-working scan is never
+      cancelled here — the timeout only converges attempts that NEVER
+      reported anything (crashed machine, lost outcome report).
+
+    Returns the number of attempts acted on. Disabled when both knobs are 0.
+    """
+    from telepost.storage.sqlite.refetch import RefetchRepository
+
+    if REFETCH_PROGRESS_REMIND_MINUTES <= 0 and REFETCH_STALE_TIMEOUT_MINUTES <= 0:
+        return 0
+    current_time = time.time() if now is None else now
+    remind_seconds = REFETCH_PROGRESS_REMIND_MINUTES * 60
+    stale_seconds = REFETCH_STALE_TIMEOUT_MINUTES * 60
+    cutoff_remind = current_time - remind_seconds
+    cutoff_fail = current_time - stale_seconds
+
+    repo = RefetchRepository()
+    acted = 0
+    for row, kind in await repo.active_since(
+        cutoff_remind=cutoff_remind, cutoff_fail=cutoff_fail
+    ):
+        review_id = row["source_review_id"]
+        minutes = int((current_time - row["created_at"]) // 60)
+        if kind == "stale":
+            if stale_seconds <= 0:
+                continue
+            if await repo.mark_failed(row["request_id"], "stale_timeout"):
+                acted += 1
+                try:
+                    await context_bot_send(
+                        bot,
+                        f"⚠️ 审核 #{review_id} 重抓超时未完成（已运行约 {minutes} 分钟），"
+                        "当前稿件未变，请稍后重试。",
+                    )
+                except Exception:
+                    logger.debug("发送重抓超时通知失败: review_id=%s",
+                                 review_id, exc_info=True)
+            continue
+        if remind_seconds <= 0:
+            continue
+        last = row["last_progress_notified_at"] or 0
+        if current_time - last < remind_seconds:
+            continue  # already reminded within this window
+        await repo.bump_progress_notified(row["request_id"], current_time)
+        acted += 1
+        try:
+            await context_bot_send(
+                bot,
+                f"🔄 审核 #{review_id} 重抓仍在处理中（已运行约 {minutes} 分钟），"
+                "有新结果会第一时间在本群通知。",
+            )
+        except Exception:
+            logger.debug("发送重抓进展提醒失败: review_id=%s",
+                         review_id, exc_info=True)
+    return acted
+
+
+async def context_bot_send(bot, text: str) -> None:
+    await bot.send_message(chat_id=REVIEW_CHAT_ID, text=text)
 
 
 async def reconcile_incomplete_reviews(bot, *, stale_seconds: float = 60.0) -> int:

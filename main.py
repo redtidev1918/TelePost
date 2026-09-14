@@ -57,6 +57,7 @@ from handlers.botconfig import botconfig, botconfig_callback
 from handlers.review import (
     cleanup_superseded_reviews,
     expire_stale_reviews,
+    monitor_refetch_progress,
     reconcile_incomplete_reviews,
 )
 
@@ -673,6 +674,7 @@ def setup_application(application):
             await cleanup_old_data()
             await expire_stale_reviews(context.bot)
             await cleanup_superseded_reviews(context.bot)
+            await monitor_refetch_progress(context.bot)
             await reconcile_incomplete_reviews(context.bot)
 
         job_queue.run_repeating(cleanup_runtime_data, interval=300, first=10)
