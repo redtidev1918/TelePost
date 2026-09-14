@@ -69,6 +69,11 @@ PENDING_REVIEW_RETENTION_DAYS = max(
 PENDING_REVIEW_CLEANUP_BATCH_SIZE = max(
     1, min(200, int(os.getenv("PENDING_REVIEW_CLEANUP_BATCH_SIZE", "100")))
 )
+# 被替换（superseded）的旧审核卡保留天数；超过后由定期维护删除 Telegram
+# 预览/控制消息与行，血缘（attempt / seen）保留。0 = 不启用该清理。
+SUPERSEDED_RETENTION_DAYS = max(
+    0, int(os.getenv("SUPERSEDED_RETENTION_DAYS", "30"))
+)
 REFETCH_TIMEOUT_SECONDS = 120
 
 _PIXIV_ID_RE = re.compile(r"pixiv\.net/(?:artworks/|novel/show\.php\?id=)(\d+)")
@@ -343,6 +348,39 @@ async def expire_stale_reviews(bot, *, now: Optional[float] = None) -> int:
     if rows:
         logger.info("已过期并清理 %d 条待审核投稿（保留 %d 天）",
                     len(rows), PENDING_REVIEW_RETENTION_DAYS)
+    return len(rows)
+
+
+async def cleanup_superseded_reviews(bot, *, now: Optional[float] = None) -> int:
+    """Delete old superseded (replaced) review cards and their rows.
+
+    A superseded review is an OLD version of a review chain; once it is older
+    than ``SUPERSEDED_RETENTION_DAYS`` it has no live value — the new review
+    owns the chain. The sweep deletes its Telegram preview/control messages and
+    the row, but NEVER the lineage (``refetch_attempts`` /
+    ``refetch_seen_candidates``): the audit trail survives card cleanup.
+    ``0`` disables the sweep. Follows the same oldest-first batch shape as
+    ``expire_stale_reviews`` (guarded, idempotent deletes).
+    """
+    if SUPERSEDED_RETENTION_DAYS <= 0:
+        return 0
+    from telepost.storage.sqlite.reviews import ReviewRepository
+
+    current_time = time.time() if now is None else now
+    cutoff = current_time - SUPERSEDED_RETENTION_DAYS * 86400
+    rows = await ReviewRepository().list_old_superseded(
+        cutoff=cutoff, limit=PENDING_REVIEW_CLEANUP_BATCH_SIZE
+    )
+    for row in rows:
+        try:
+            await _delete_messages(bot, _review_message_ids(row))
+        except Exception:
+            logger.debug("删除旧审核卡消息失败: review_id=%s",
+                         row["id"], exc_info=True)
+        await ReviewRepository().delete(row["id"])
+    if rows:
+        logger.info("已清理 %d 条被替换的旧审核卡（保留 %d 天）",
+                    len(rows), SUPERSEDED_RETENTION_DAYS)
     return len(rows)
 
 

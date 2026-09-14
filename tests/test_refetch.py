@@ -601,3 +601,69 @@ async def test_submission_api_passes_refetch_request_id(refetch_db, monkeypatch)
         assert queue_mock.call_args.kwargs["refetch_request_id"] == ""
     finally:
         await client.close()
+
+
+# ---------------------------------------------------------------------------
+# Superseded old-card cleanup (SUPERSEDED_RETENTION_DAYS)
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_cleanup_superseded_deletes_old_card_keeps_lineage(refetch_db, monkeypatch):
+    import time as _t
+    old_id = await _insert_review(status="superseded", pixiv_id="111")
+    fresh_id = await _insert_review(status="superseded", pixiv_id="222")
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "UPDATE pending_reviews SET updated_at=? WHERE id=?",
+            (_t.time() - 40 * 86400, old_id),
+        )
+    # Lineage for the old chain must survive the card cleanup.
+    attempt, _ = await _attempt(
+        chain_id="chain-%d" % old_id, source_review_id=old_id, callback_id=9001)
+
+    monkeypatch.setattr(review, "SUPERSEDED_RETENTION_DAYS", 30)
+    deleted = AsyncMock()
+    monkeypatch.setattr(review, "_delete_messages", deleted)
+    bot = AsyncMock()
+
+    count = await review.cleanup_superseded_reviews(bot)
+    assert count == 1
+    deleted.assert_awaited_once()
+
+    async with db_manager.get_db() as conn:
+        cur = await conn.execute(
+            "SELECT id FROM pending_reviews WHERE id IN (?, ?)", (old_id, fresh_id)
+        )
+        remaining = [r[0] for r in await cur.fetchall()]
+        cur = await conn.execute(
+            "SELECT COUNT(*) FROM refetch_attempts WHERE review_chain_id=?",
+            ("chain-%d" % old_id,),
+        )
+        attempts_kept = (await cur.fetchone())[0]
+        cur = await conn.execute(
+            "SELECT COUNT(*) FROM refetch_seen_candidates WHERE review_chain_id=?",
+            ("chain-%d" % old_id,),
+        )
+        seen_kept = (await cur.fetchone())[0]
+    assert remaining == [fresh_id]          # only the fresh card survives
+    assert attempts_kept == 1               # lineage retained
+    assert seen_kept >= 1                   # candidate history retained
+
+
+@pytest.mark.asyncio
+async def test_cleanup_superseded_disabled_by_zero(refetch_db, monkeypatch):
+    old_id = await _insert_review(status="superseded", pixiv_id="111")
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "UPDATE pending_reviews SET updated_at=? WHERE id=?",
+            (time.time() - 40 * 86400, old_id),
+        )
+    monkeypatch.setattr(review, "SUPERSEDED_RETENTION_DAYS", 0)
+    deleted = AsyncMock()
+    monkeypatch.setattr(review, "_delete_messages", deleted)
+
+    count = await review.cleanup_superseded_reviews(AsyncMock())
+    assert count == 0
+    deleted.assert_not_awaited()
+    async with db_manager.get_db() as conn:
+        cur = await conn.execute("SELECT id FROM pending_reviews WHERE id=?", (old_id,))
+        assert (await cur.fetchone()) is not None

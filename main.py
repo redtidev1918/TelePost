@@ -54,7 +54,11 @@ from handlers.command_handlers import blacklist_add, blacklist_remove, blacklist
 from handlers.botconfig import botconfig, botconfig_callback
 
 # 投稿处理（状态机由 handlers.conversation 构建）
-from handlers.review import expire_stale_reviews, reconcile_incomplete_reviews
+from handlers.review import (
+    cleanup_superseded_reviews,
+    expire_stale_reviews,
+    reconcile_incomplete_reviews,
+)
 
 # 错误处理
 from handlers.error_handler import error_handler
@@ -668,6 +672,7 @@ def setup_application(application):
         async def cleanup_runtime_data(context):
             await cleanup_old_data()
             await expire_stale_reviews(context.bot)
+            await cleanup_superseded_reviews(context.bot)
             await reconcile_incomplete_reviews(context.bot)
 
         job_queue.run_repeating(cleanup_runtime_data, interval=300, first=10)
