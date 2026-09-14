@@ -10,6 +10,16 @@
 
 ---
 
+## [2.23.1](https://github.com/redtidev1918/TelePost/compare/v2.23.0...v2.23.1) (2026-09-14)
+
+
+### Bug Fixes
+
+* **refetch:** provenance-validated replacement + durable-slot watchdog; webapp SDK launch initData ([9c822a8](https://github.com/redtidev1918/TelePost/commit/9c822a8393fdda9c462e11d67e335ab3cb361697))
+* **refetch:** reconcile admitted attempts against PixivFlow durable slot ([ad91d9a](https://github.com/redtidev1918/TelePost/commit/ad91d9ae73577464919eb7876ec30a81af9d5a48))
+* **refetch:** validate provenance and finalize replacement after staging ([4944454](https://github.com/redtidev1918/TelePost/commit/49444548e852408ee5e24bcd6e454c40593a33eb))
+* **webapp:** read Telegram launch initData from the SDK, classify auth errors ([5728a68](https://github.com/redtidev1918/TelePost/commit/5728a6892284d52c9936cc06aae4572293e4de3c))
+
 ## [2.23.0](https://github.com/redtidev1918/TelePost/compare/v2.22.0...v2.23.0) (2026-09-14)
 
 
