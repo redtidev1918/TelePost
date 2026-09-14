@@ -46,7 +46,21 @@ def _build_preview_text(row) -> str:
     lines.append(f"🔞 剧透：{'是' if (row['spoiler'] or '') == 'true' else '否'}")
     lines.append(f"🕵️ 匿名：{'是（频道内不显示投稿人）' if is_anon else '否（显示投稿人）'}")
     lines.append("")
-    lines.append("确认无误请点击下方按钮发布，或先快速修改。" if row["tags"] else "⚠️ 发布前必须填写标签；其余字段均可留空。")
+    from telepost.domain.submission import (
+        SubmissionDisposition,
+        chat_disposition as _chat_disposition,
+    )
+    review_first = _chat_disposition() == SubmissionDisposition.REVIEW_REQUIRED
+    if row["tags"]:
+        lines.append(
+            "确认无误请点击下方按钮提交审核，审核通过后发布到频道。" if review_first
+            else "确认无误请点击下方按钮发布到频道，或先快速修改。"
+        )
+    else:
+        lines.append(
+            "⚠️ 提交审核前必须填写标签；其余字段均可留空。" if review_first
+            else "⚠️ 发布前必须填写标签；其余字段均可留空。"
+        )
     return "\n".join(lines)
 
 
@@ -54,9 +68,17 @@ def _build_preview_keyboard(row=None) -> InlineKeyboardMarkup:
     is_anon = (row["anonymous"] if row and hasattr(row, "keys") and "anonymous" in row.keys() else "false") == "true"
     is_spoiler = (row["spoiler"] if row and hasattr(row, "keys") and "spoiler" in row.keys() else "false") == "true"
     has_tags = bool(row and hasattr(row, "keys") and "tags" in row.keys() and row["tags"])
+    from telepost.domain.submission import (
+        SubmissionDisposition,
+        chat_disposition as _chat_disposition,
+    )
+    review_first = _chat_disposition() == SubmissionDisposition.REVIEW_REQUIRED
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ 确认发布" if has_tags else "🏷️ 填写标签后发布",
-                              callback_data="publish" if has_tags else "edit_tag")],
+        [InlineKeyboardButton(
+            "✅ 提交审核" if (has_tags and review_first) else
+            ("✅ 确认发布" if has_tags else
+             ("🏷️ 填写标签后提交审核" if review_first else "🏷️ 填写标签后发布")),
+            callback_data="publish" if has_tags else "edit_tag")],
         [InlineKeyboardButton("🏷️ 改标签", callback_data="edit_tag"),
          InlineKeyboardButton("🔖 改标题", callback_data="edit_title")],
         [InlineKeyboardButton("📝 改简介", callback_data="edit_note"),

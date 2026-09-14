@@ -32,8 +32,11 @@ HTTP 投稿接口、幂等键、审核队列、批准/驳回、发布与发布�
    成本由 PixivFlow 侧「平时 stopped、按需唤醒」来省。
 2. **不要在同一个容器/机器里再跑一个 PixivFlow。** 那会共用内存、进程生命周期、机器生命周期与
    故障域，是历史混部问题的根源。PixivFlow 现在是部署仓库里的独立 App + 独立卷。
-3. **不要有任何自动批准或直发频道的路径。** 任何作品（包括 PixivFlow 每日自动投稿）都必须进入
-   审核队列，**人工批准后**才由本服务发布。不接受自动批准、不接受 bypass。
+3. **投稿处置必须显式建模（`SubmissionDisposition`）。** 原生 Telegram Chat 投稿默认
+   `DIRECT_PUBLISH`（直接发布到频道），`CHAT_REVIEW_REQUIRED=true` 才进入审核队列；HTTP API
+   （Mini App / 服务，含 PixivFlow 自动稿）默认 `REVIEW_REQUIRED`（生产
+   `API_REVIEW_REQUIRED=true`）——自动投稿必须进入审核队列、**人工批准后**才发布，不接受自动批准。
+   两个入口默认值可以不同，但共享同一 domain/service；重构任一入口**不得**静默改变另一入口的默认处置。
 4. **不要删掉 `force_https = false`。** 独立 PixivFlow App 通过 Flycast 私网以明文 HTTP 调用投稿
    接口，`force_https = true` 会把它 301 到 HTTPS 并直接打断投递（Flycast/6PN 本身在 WireGuard 上加密）。
 5. **不要在别处注册/删除 webhook。** webhook 的负责人只有本仓库的 `webhook_server.py`。
@@ -93,6 +96,17 @@ python check_config.py             # 配置自检
 ## 已知待办（本仓库范围）
 
 - `ROADMAP.md` 中与「拆分拓扑」相关的条目若已完成，请更新；不要再保留第二份 Fly 拓扑文件。
+
+## 投稿 UX 与预览不变量（§submission-disposition, §preview-ux）
+
+- **Preview 必须 side-effect free**：Mini App 本地媒体预览用浏览器能力
+  （`URL.createObjectURL`，remove/unmount/提交成功后 revoke），caption 预览来自服务端
+  formatter；绝不为预览上传审核群再删消息（制造垃圾审核消息与 ghost mention）。
+- **Tag 前端只做 UX 提示**：helper text 明确空格 / 英文逗号 / 中文逗号分隔；拆分、去重、
+  规范化、补 `#`、非法字符处理仍是服务端 `process_tags` 的唯一职责。
+- **Mini App Web UI 显示 `@username` 是 DOM 展示**，与 Telegram 消息 entity 无关；审核群 /
+  system 消息仍然零 mention-capable entity。显示身份与通知意图始终分离。
+- `nickname/display_name` 只是 presentation metadata；ownership 权威仍是 `submitter_user_id`。
 
 ## Telegram Mini App 不变量（presentation adapter, §88/§149）
 

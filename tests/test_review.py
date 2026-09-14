@@ -1074,7 +1074,7 @@ async def test_chat_submission_enters_review_and_notifies_after_approval(
     update.effective_user.username = "chat_user"
     context = MagicMock()
     context.bot = bot
-    monkeypatch.setattr(publish, "CHAT_REVIEW_REQUIRED", True)
+    monkeypatch.setattr("config.settings.CHAT_REVIEW_REQUIRED", True)
 
     await publish.publish_submission(update, context)
 

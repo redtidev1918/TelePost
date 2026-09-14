@@ -94,7 +94,10 @@ async def _resolve_principal(request) -> Optional[dict]:
         return {
             "kind": "user",
             "telegram_user_id": principal.telegram_user_id,
-            "name": principal.username or f"user{principal.telegram_user_id}",
+            "name": principal.username or principal.display_name
+                     or f"user{principal.telegram_user_id}",
+            "username": principal.username,
+            "display_name": principal.display_name,
             "roles": principal.roles,
             "surface": "mini_app",
             "actor_subject": f"telegram:{principal.telegram_user_id}",
@@ -547,6 +550,28 @@ def detect_kind(filename: str, content_type: str) -> str:
     return "document"
 
 
+def _api_review() -> bool:
+    """API (Mini App / service) submissions route to the review queue when the
+    operator policy says so (API_REVIEW_REQUIRED=true). Domain-owned disposition
+    (§submission-disposition): the HTTP entry point shares the ReviewQueueService
+    but its default may differ from the native chat default.
+
+    The domain model is the SSOT; the module-level import is ALSO honoured so
+    established tests that monkeypatch ``api_server.API_REVIEW_REQUIRED`` keep
+    working (both derive from the same environment at import time)."""
+    from telepost.domain.submission import SubmissionDisposition, api_disposition
+
+    if api_disposition() == SubmissionDisposition.REVIEW_REQUIRED:
+        return True
+    return bool(API_REVIEW_REQUIRED)
+
+
+def _display_name_of(user: dict) -> str:
+    """Presentation-only display name (never an ownership key; §identity)."""
+    parts = [str(user.get(k, "") or "").strip() for k in ("first_name", "last_name")]
+    return " ".join(p for p in parts if p)[:128]
+
+
 def _review_mode() -> str:
     return os.getenv("TELEPOST_REVIEW_API_MODE", "readwrite").strip().lower()
 
@@ -655,6 +680,8 @@ def add_api_routes(web_app, application) -> None:
         payload = {
             "telegram_user_id": uid,
             "name": principal["name"],
+            "username": principal.get("username", ""),
+            "display_name": principal.get("display_name", ""),
             "surface": principal["surface"],
             "submissions_last_hour": used,
             "rate_limit_per_hour": SUBMIT_LIMIT_PER_HOUR,
@@ -690,8 +717,10 @@ def add_api_routes(web_app, application) -> None:
             return _error(401, exc.code, str(exc)[:200])
         uid = int(user["telegram_user_id"])
         roles = miniapp_rbac.roles_for(uid)
+        display_name = _display_name_of(user)
         token = miniapp_session.issue_session(
-            uid, roles, username=user.get("username", "")
+            uid, roles, username=user.get("username", ""),
+            display_name=display_name,
         )
         await _audit_submission(
             "miniapp.session_created", user_id=uid,
@@ -703,6 +732,7 @@ def add_api_routes(web_app, application) -> None:
             "user": {
                 "telegram_user_id": uid,
                 "username": user.get("username", ""),
+                "display_name": display_name,
                 "roles": roles,
             },
         })
@@ -932,7 +962,7 @@ def add_api_routes(web_app, application) -> None:
                     "work_type": _fields_work_type(payload),
                     "pixiv_id": _fields_pixiv_id(payload),
                 }
-                if API_REVIEW_REQUIRED:
+                if _api_review():
                     from handlers.review import queue_review_from_file_ids
                     queue_kwargs = dict(
                         source_label=_fields_source_label(payload),
@@ -952,9 +982,9 @@ def add_api_routes(web_app, application) -> None:
             except ValueError as e:
                 return _failure_ack(e)
             except Exception as e:
-                action = "进入审核队列" if API_REVIEW_REQUIRED else "发布到频道"
+                action = "进入审核队列" if _api_review() else "发布到频道"
                 logger.error(f"API file_id 投稿失败: {e}", exc_info=True)
-                code = "review_queue_failed" if API_REVIEW_REQUIRED else "publish_failed"
+                code = "review_queue_failed" if _api_review() else "publish_failed"
                 return _error(502, code, f"{action}失败: {str(e)[:200]}")
             logger.info(
                 "API file_id 投稿已处理: user=%s status=%s",
@@ -1086,7 +1116,7 @@ def add_api_routes(web_app, application) -> None:
             ):
                 if _value:
                     provenance[_name] = _value
-            if API_REVIEW_REQUIRED:
+            if _api_review():
                 from handlers.review import queue_review_from_files
                 queue_kwargs = dict(
                     source_label=_fields_source_label(fields),

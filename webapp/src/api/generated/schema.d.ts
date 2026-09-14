@@ -77,6 +77,8 @@ export interface paths {
                             data?: {
                                 telegram_user_id?: number;
                                 name?: string;
+                                username?: string;
+                                display_name?: string;
                                 submissions_last_hour?: number;
                                 rate_limit_per_hour?: number;
                             };

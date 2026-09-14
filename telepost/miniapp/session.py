@@ -78,6 +78,7 @@ class MiniAppPrincipal:
 
     telegram_user_id: int
     username: str = ""
+    display_name: str = ""
     roles: List[str] = field(default_factory=list)
     session_id: str = ""
 
@@ -89,7 +90,8 @@ def _sign(payload: bytes, secret: str, /) -> bytes:
     return hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).digest()
 
 
-def _encode(uid: int, roles: List[str], ttl: int, now: float, /) -> str:
+def _encode(uid: int, roles: List[str], ttl: int, now: float, /,
+          username: str = "", display_name: str = "") -> str:
     jti = secrets.token_hex(8)
     payload = {
         "uid": int(uid),
@@ -97,6 +99,8 @@ def _encode(uid: int, roles: List[str], ttl: int, now: float, /) -> str:
         "exp": int(now + ttl),
         "nbf": int(now - _CLOCK_SKEW_SECONDS),
         "jti": jti,
+        "un": str(username)[:64],
+        "dn": str(display_name)[:128],
     }
     body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
     sig = _sign(body, session_secret())
@@ -104,12 +108,14 @@ def _encode(uid: int, roles: List[str], ttl: int, now: float, /) -> str:
 
 
 def issue_session(telegram_user_id: int, roles: List[str], *,
-                  ttl: Optional[int] = None, username: str = "") -> str:
+                  ttl: Optional[int] = None, username: str = "",
+                  display_name: str = "") -> str:
     """Issue a signed session for a *server-verified* Telegram user."""
     if not isinstance(telegram_user_id, int) or telegram_user_id <= 0:
         raise ValueError("telegram_user_id must be a positive integer")
     ttl = session_ttl_seconds() if ttl is None else int(ttl)
-    return _encode(telegram_user_id, roles, ttl, time.time())
+    return _encode(telegram_user_id, roles, ttl, time.time(),
+                   username=username, display_name=display_name)
 
 
 def verify_session(token: str, *, now: Optional[float] = None) -> Optional[MiniAppPrincipal]:
@@ -144,6 +150,8 @@ def verify_session(token: str, *, now: Optional[float] = None) -> Optional[MiniA
         uid = int(payload["uid"])
         roles = [str(r) for r in payload.get("roles", [])]
         jti = str(payload.get("jti", ""))
+        username = str(payload.get("un", ""))
+        display_name = str(payload.get("dn", ""))
     except (KeyError, TypeError, ValueError):
         return None
     if uid <= 0:
@@ -152,6 +160,8 @@ def verify_session(token: str, *, now: Optional[float] = None) -> Optional[MiniA
         return None
     return MiniAppPrincipal(
         telegram_user_id=uid,
+        username=username,
+        display_name=display_name,
         roles=roles,
         session_id=jti,
     )
@@ -163,6 +173,7 @@ def principal_from_json(data: dict) -> Optional[MiniAppPrincipal]:
         return MiniAppPrincipal(
             telegram_user_id=int(data["telegram_user_id"]),
             username=str(data.get("username", "")),
+            display_name=str(data.get("display_name", "")),
             roles=[str(r) for r in data.get("roles", [])],
             session_id=str(data.get("session_id", "")),
         )

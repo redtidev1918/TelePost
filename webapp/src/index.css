@@ -101,6 +101,16 @@ body {
   padding: 0 16px 8px;
 }
 
+/* Tag input hint (submit UX): pure presentation; process_tags stays the only
+   tag authority server-side. */
+.tag-hint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--tgui--subtitle_text_color, #7d8b99);
+  margin-top: 6px;
+  padding: 0 2px;
+}
+
 .mutation-help {
   font-size: 13px;
   line-height: 1.5;
