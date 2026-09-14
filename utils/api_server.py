@@ -253,6 +253,48 @@ async def _own_submission_detail(user_id: int, review_id: int) -> dict:
     return base
 
 
+_TARGET_TYPE_LABEL = {"illustration": "插画", "novel": "小说"}
+
+_TARGET_STATUS_TEXT = {
+    "submitted": "✅ 已提交",
+    "no_candidate": "❌ 未找到合适作品",
+    "duplicate": "❌ 候选均为历史重复",
+    "failed": "❌ 执行失败",
+    "delivery_failed": "❌ 投递失败",
+    "skipped": "➖ 跳过",
+}
+
+_OVERALL = {
+    "success": ("✅", "执行完成"),
+    "partial": ("⚠️", "部分完成"),
+    "failed": ("❌", "执行失败"),
+}
+
+
+def build_schedule_outcome_text(schedule_id: str, status: str,
+                                targets: list, duration_ms=None) -> str:
+    """Terminal schedule summary for the review/admin group (§schedule-notify).
+
+    All terminal outcomes (success/partial/failed) are reported. The text uses
+    user-facing labels only — no slot/cell/outbox jargon — and never contains
+    mention-capable entities (no @-anchors, no tg://user links, §ghost-mention).
+    """
+    emoji, verb = _OVERALL.get(status, ("ℹ️", "结束"))
+    lines = [f"{emoji} {schedule_id} {verb}"]
+    if targets:
+        for item in targets:
+            if not isinstance(item, dict):
+                continue
+            label = _TARGET_TYPE_LABEL.get(str(item.get("work_type") or ""),
+                                           str(item.get("target_id") or "任务"))
+            value = _TARGET_STATUS_TEXT.get(str(item.get("status") or ""),
+                                            str(item.get("status") or "未知"))
+            lines.append(f"{label}：{value}")
+    if status == "partial":
+        lines.append("已完成全部恢复尝试，本次不再重试。")
+    return "\n".join(lines)
+
+
 def _result_reused_id(result: dict):
     return result.get("review_id") or result.get("message_id")
 
@@ -1596,6 +1638,89 @@ def add_api_routes(web_app, application) -> None:
     web_app.router.add_post("/api/v1/submissions", create_submission)
     web_app.router.add_get("/api/v1/deliveries/lookup", delivery_lookup)
     web_app.router.add_post("/api/v1/notifications", create_notification)
+    async def schedule_outcome(request):
+        """PixivFlow reports a TERMINAL schedule occurrence verdict.
+
+        Every occurrence (success / partial / failed) must reach the review or
+        admin group: an operator should never have to notice a missing post to
+        learn that a run degraded. Durable + idempotent per slot_id: a replayed
+        delivery or a duplicate external trigger never sends a second summary.
+        """
+        token_row = await authenticate(_bearer(request) or "")
+        if token_row is None:
+            return _error(401, "invalid_token", "token 无效或已吊销")
+        try:
+            payload = await request.json()
+        except Exception:
+            return _error(400, "invalid_json", "JSON 解析失败")
+        if not isinstance(payload, dict):
+            return _error(400, "invalid_json", "JSON body 必须是对象")
+
+        schedule_id = str(payload.get("schedule_id") or "").strip()[:80]
+        slot_id = str(payload.get("slot_id") or "").strip()[:200]
+        if not schedule_id or not slot_id:
+            return _error(400, "missing_slot", "schedule_id/slot_id 必填")
+        status = str(payload.get("status") or "").strip()
+        if status not in ("success", "partial", "failed"):
+            return _error(400, "invalid_status",
+                          "status 必须是 success/partial/failed")
+        targets = payload.get("targets")
+        if targets is None:
+            targets = []
+        if not isinstance(targets, list):
+            return _error(400, "invalid_targets", "targets 必须是数组")
+        targets = [t for t in targets if isinstance(t, dict)][:20]
+
+        from database import db_manager as _db_manager
+        now = time.time()
+        async with _db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT sent_at FROM schedule_outcome_notifications WHERE slot_id=?",
+                (slot_id,),
+            )
+            existing = await cur.fetchone()
+            if existing is not None:
+                return _ok({"ok": True, "replayed": True, "status": status})
+            await conn.execute(
+                "INSERT OR IGNORE INTO schedule_outcome_notifications "
+                "(slot_id, sent_at, status) VALUES (?, ?, ?)",
+                (slot_id, now, status),
+            )
+            cur = await conn.execute("SELECT changes()")
+            row = await cur.fetchone()
+            inserted = int(row[0]) if row else 0
+        if not inserted:
+            return _ok({"ok": True, "replayed": True, "status": status})
+
+        text = build_schedule_outcome_text(schedule_id, status, targets)
+        delivered = False
+        if REVIEW_CHAT_ID:
+            try:
+                await application.bot.send_message(chat_id=REVIEW_CHAT_ID, text=text)
+                delivered = True
+            except Exception:
+                logger.warning("发送 schedule 终态通知失败: slot=%s", slot_id,
+                               exc_info=True)
+        else:
+            logger.info("未配置审核群，跳过 schedule 终态通知: slot=%s", slot_id)
+        try:
+            from telepost.observability import audit as audit_mod
+            await audit_mod.record_event(
+                "schedule.outcome_notified",
+                actor="service:schedule",
+                execution_id=slot_id,
+                detail={"schedule_id": schedule_id, "status": status,
+                        "delivered": delivered,
+                        "targets": [{"target_id": str(t.get("target_id") or "")[:64],
+                                     "work_type": str(t.get("work_type") or "")[:32],
+                                     "status": str(t.get("status") or "")[:32]}
+                                    for t in targets]},
+            )
+        except Exception:
+            logger.debug("审计 schedule.outcome_notified 失败", exc_info=True)
+        return _ok({"ok": True, "delivered": delivered, "status": status})
+
+    web_app.router.add_post("/api/v1/schedule/outcomes", schedule_outcome)
     web_app.router.add_post("/api/v1/refetch/outcomes", refetch_outcome)
     logger.info("API 路由已注册: /api/v1/*")
     _ensure_upload_sweeper()

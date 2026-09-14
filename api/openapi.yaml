@@ -594,6 +594,43 @@ paths:
                   refetch_count: {type: integer}
         '401': {$ref: '#/components/responses/unauthorized'}
         '404': {description: Not found or not owned by the caller}
+  /schedule/outcomes:
+    post:
+      summary: PixivFlow reports a TERMINAL schedule occurrence verdict
+      description: |
+        Called by the execution side for EVERY terminal occurrence
+        (success/partial/failed). Durable and idempotent per slot_id: a
+        duplicate clock trigger or an outbox replay never sends a second
+        Telegram summary. The terminal text goes to the configured review/admin
+        group and never contains mention-capable entities.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [schedule_id, slot_id, status]
+              properties:
+                schedule_id: {type: string}
+                slot_id: {type: string}
+                occurrence_at: {type: string}
+                status: {type: string, enum: [success, partial, failed]}
+                duration_ms: {type: integer}
+                cells: {type: object}
+                targets:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      target_id: {type: string}
+                      work_type: {type: string}
+                      status: {type: string}
+                      work_id: {type: [string, 'null']}
+                      error_code: {type: string}
+      responses:
+        '200': {description: Notified (or replayed idempotently)}
+        '400': {description: Validation error}
+        '401': {$ref: '#/components/responses/unauthorized'}
   /admin/status:
     get:
       summary: Operational status snapshot (admin-only)
