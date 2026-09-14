@@ -10,6 +10,13 @@
 
 ---
 
+## [2.25.0](https://github.com/redtidev1918/TelePost/compare/v2.24.2...v2.25.0) (2026-09-14)
+
+
+### Features
+
+* owner-safe media endpoints and attachment UI in the Mini App ([#104](https://github.com/redtidev1918/TelePost/issues/104)) ([62dea47](https://github.com/redtidev1918/TelePost/commit/62dea477037f55e7f1cf0041d59407f4a5f87f5e))
+
 ## [2.24.2](https://github.com/redtidev1918/TelePost/compare/v2.24.1...v2.24.2) (2026-09-14)
 
 
