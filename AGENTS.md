@@ -110,6 +110,21 @@ python check_config.py             # 配置自检
   `window.Telegram.WebApp` 仅为兼容后备。`/app` 返回 HTTP 200 不等于
   真实 Telegram Mini App 完成认证与业务操作。
 
+## Mini App 基础设施不变量（framework-first，硬约束）
+
+- **框架优先**：通用 Telegram/上传/缓存/分页/组件基础设施必须交给已安装的成熟库；
+  禁止自己重写 Telegram viewport adapter、safe-area system、文件管理器、upload queue、
+  retry manager、pagination framework、modal framework。
+- **布局**：底部导航**不得覆盖**路由内容（shell 预留真实测量高度 + SDK safe area，
+  不硬编码设备偏移）；Telegram viewport/safe-area 信息来自 `@telegram-apps/sdk`
+  （`viewportSafeAreaInsets` / TelegramUI `--tgui--safe_area_inset_*`），不是 iPhone hack。
+- **上传**：Uppy 拥有通用附件状态（选择/限制/去重/移除/进度/错误）；TelePost 禁止再维护
+  一套并行文件管理器。提交传输是 TelePost 业务 adapter（一次 multipart + 稳定幂等键），
+  Uppy 的 XHRUpload/Tus 只在业务契约需要时引入。
+- **「我的投稿」**：指人类属主的 logical submission（一个 review chain = 一条）；actor /
+  token 持有者 / transport / submitter 是四个概念；服务自动化没有人类 submitter；
+  refetch 代际折叠为一条投稿；状态映射在服务端完成，内部数据库态不外泄。
+
 ## 身份与归属不变量（硬约束，§identity）
 
 四个概念永远是四个，不许折叠：
