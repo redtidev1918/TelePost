@@ -1,13 +1,13 @@
+import { useBotNavigate } from './useBotNavigate';
 /**
  * Telegram BackButton integration (§141): detail pages register a back action
  * so users are not stuck closing the whole Mini App from the top-right.
  * Falls back to window.history.back() when the bridge is unavailable.
  */
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 export function useBackButton(to?: string) {
-  const navigate = useNavigate();
+  const navigate = useBotNavigate();
   useEffect(() => {
     const back = window.Telegram?.WebApp?.BackButton;
     if (!back) {

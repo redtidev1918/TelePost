@@ -1,3 +1,4 @@
+import { useBotNavigate } from '../../lib/useBotNavigate';
 import { useState } from 'react';
 import {
   Button,
@@ -8,17 +9,17 @@ import {
   Textarea,
 } from '@telegram-apps/telegram-ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   approveReview,
   fetchRefetchAttempt,
   fetchReview,
   rejectReview,
   requestRefetch,
-  reviewMediaUrl,
   setSpoiler,
   RefetchAttempt,
 } from '../../api/reviews';
+import { SubmissionMedia } from '../../components/SubmissionMedia';
 import { ApiError } from '../../api/client';
 import { useBackButton } from '../../lib/useBackButton';
 
@@ -42,47 +43,9 @@ const REFETCH_LABELS: Record<string, string> = {
   obsolete: '当前稿件已过期',
 };
 
-function MediaCarousel({ id, media }: { id: number; media: { index: number; kind: string }[] }) {
-  const [active, setActive] = useState(0);
-  const images = media.filter((m) => m.kind !== 'document' && m.kind !== 'audio');
-  if (images.length === 0) {
-    return <div className="page-empty">（无图片预览；文档/音频见元数据）</div>;
-  }
-  const current = images[Math.min(active, images.length - 1)];
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <img
-        src={reviewMediaUrl(id, current.index, 'preview')}
-        alt={`预览 ${active + 1}/${images.length}`}
-        style={{ width: '100%', borderRadius: 12, display: 'block' }}
-      />
-      {images.length > 1 && (
-        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-          {images.map((image, index) => (
-            <img
-              key={image.index}
-              src={reviewMediaUrl(id, image.index, 'thumbnail')}
-              alt=""
-              onClick={() => setActive(index)}
-              style={{
-                width: 56,
-                height: 56,
-                objectFit: 'cover',
-                borderRadius: 8,
-                border: index === active ? '2px solid var(--tgui--accent_text_color)' : '2px solid transparent',
-                cursor: 'pointer',
-              }}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function ReviewDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const navigate = useBotNavigate();
   const queryClient = useQueryClient();
   useBackButton('/review');
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -171,7 +134,10 @@ export function ReviewDetailPage() {
         <Cell subtitle={STATUS_LABELS[item.status] || item.status}>
           {item.title || '（无标题）'}
         </Cell>
-        <MediaCarousel id={item.id} media={item.media} />
+        {item.media.map((attachment) => (
+          <SubmissionMedia key={attachment.index}
+            path={`/reviews/${item.id}/media/${attachment.index}`} attachment={attachment} />
+        ))}
         {item.tags.length > 0 && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 16px 12px' }}>
             {item.tags.map((tag) => (
@@ -248,7 +214,7 @@ export function ReviewDetailPage() {
               size="s"
               mode="bezeled"
               loading={refetch.isPending}
-              disabled={refetch.isPending || !attempt || attempt.state === 'requested' || attempt.state === 'admitted' || attempt.state === 'running'}
+              disabled={refetch.isPending || refetchState.isPending || refetchState.isError || attempt?.state === 'requested' || attempt?.state === 'admitted' || attempt?.state === 'running'}
               onClick={() => void refetch.mutateAsync()}
             >
               🔄 重抓

@@ -1,7 +1,9 @@
+import { useBotNavigate } from '../../lib/useBotNavigate';
 import { Button, Cell, Section } from '@telegram-apps/telegram-ui';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { fetchMySubmission, LogicalSubmissionDetail } from '../../api/me';
+import { SubmissionMedia } from '../../components/SubmissionMedia';
 import { useBackButton } from '../../lib/useBackButton';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -21,7 +23,7 @@ const STATUS_LABELS: Record<string, string> = {
  */
 export function SubmissionDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const navigate = useBotNavigate();
   useBackButton('/mine');
   const submission = useQuery({
     queryKey: ['my-submission', id],
@@ -50,7 +52,7 @@ export function SubmissionDetailPage() {
         </Cell>
         {item.note && <Cell subtitle={item.note}>备注</Cell>}
         {item.tags.length > 0 && <Cell subtitle={item.tags.join(' ')}>标签</Cell>}
-        {item.link && (
+        {item.link && /^https?:\/\//i.test(item.link) && (
           <Cell
             subtitle={
               <a href={item.link} target="_blank" rel="noopener noreferrer">
@@ -66,6 +68,13 @@ export function SubmissionDetailPage() {
         >
           {item.spoiler ? '含剧透' : '无剧透'}
         </Cell>
+        <Cell subtitle={new Date(item.created_at * 1000).toLocaleString()}>投稿时间</Cell>
+        <Cell subtitle={new Date(item.updated_at * 1000).toLocaleString()}>更新时间</Cell>
+        {item.media?.map((attachment) => (
+          <SubmissionMedia key={attachment.index}
+            path={`/me/submissions/${item.current_review_id}/media/${attachment.index}`}
+            attachment={attachment} />
+        ))}
         {item.refetch_count > 0 && (
           <Cell subtitle={`已更换候选 ${item.refetch_count} 次`}>重抓记录</Cell>
         )}

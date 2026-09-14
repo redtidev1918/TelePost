@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useBotNavigate } from '../../lib/useBotNavigate';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   Cell,
@@ -13,7 +14,7 @@ import { Dashboard, UppyContextProvider, useFileInput, useUppyState } from '@upp
 import '@uppy/core/dist/style.min.css';
 import '@uppy/dashboard/dist/style.min.css';
 import '@uppy/react/dist/styles.css';
-import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { apiFetch, hasSession } from '../../api/client';
 
 /**
@@ -36,7 +37,7 @@ function formatSize(bytes?: number | null): string {
 }
 
 export function SubmitPage() {
-  const navigate = useNavigate();
+  const navigate = useBotNavigate();
   // One Uppy instance per mounted page, destroyed on unmount (§uppy lifecycle).
   const uppy = useMemo(
     () =>
@@ -118,14 +119,39 @@ function SubmitForm(props: FormProps) {
   const files = useUppyState(uppy, (state) => state.files);
   const fileInput = useFileInput({ multiple: true });
   const selected = Object.values(files);
+  const queryClient = useQueryClient();
+  const inFlight = useRef(false);
+  const [preview, setPreview] = useState('');
+  const [previewing, setPreviewing] = useState(false);
+  const previewSubmission = async () => {
+    setPreviewing(true);
+    try {
+      const result = await apiFetch<{ caption: string }>('/submissions/preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: props.title, tags: props.tags, note: props.note,
+          link: props.link, anonymous: props.anonymous, spoiler: props.spoiler }),
+      });
+      // The server owns caption formatting. Render its text safely, never HTML.
+      setPreview(new DOMParser().parseFromString(result.caption, 'text/html').body.textContent || '');
+    } catch (error) {
+      props.setSnack(`预览失败：${(error as Error).message}`);
+    } finally {
+      setPreviewing(false);
+    }
+  };
 
   const doSubmit = async () => {
+    if (inFlight.current) return;
     if (selected.length === 0) {
       props.setSnack('请先添加至少一个文件');
       return;
     }
     if (!props.tags.trim()) {
       props.setSnack('标签为必填项');
+      return;
+    }
+    if (props.link && !/^https?:\/\//i.test(props.link)) {
+      props.setSnack('链接必须以 http:// 或 https:// 开头');
       return;
     }
     if (!hasSession()) {
@@ -145,14 +171,19 @@ function SubmitForm(props: FormProps) {
     form.append('tags', props.tags);
     form.append('title', props.title);
     form.append('note', props.note);
-    form.append('link', props.link.startsWith('http') ? props.link : '');
+    form.append('link', props.link);
     form.append('anonymous', String(props.anonymous));
     form.append('spoiler', String(props.spoiler));
     form.append('idempotency_key', idempotencyKey);
+    inFlight.current = true;
     props.setSubmitting(true);
     props.setSnack('提交中…');
     try {
-      await apiFetch('/submissions', { method: 'POST', body: form });
+      const result = await apiFetch<{ status: string; review_id?: number }>('/submissions', { method: 'POST', body: form });
+      if (!result?.review_id || !['pending_review', 'pending', 'published', 'publishing'].includes(result.status)) {
+        throw new Error('尚未确认进入审核队列，请保留草稿并重试');
+      }
+      void queryClient.invalidateQueries({ queryKey: ['my-submissions'] });
       props.setSnack('投稿已提交 ✅');
       window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
       setTimeout(props.onSubmitted, 900);
@@ -160,6 +191,7 @@ function SubmitForm(props: FormProps) {
       props.setSnack(`提交失败：${(error as Error).message}`);
       window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
     } finally {
+      inFlight.current = false;
       props.setSubmitting(false);
     }
   };
@@ -249,6 +281,9 @@ function SubmitForm(props: FormProps) {
         </Cell>
       </Section>
       <div style={{ padding: '0 16px 12px', marginTop: 8 }}>
+        <Button mode="outline" stretched loading={previewing} disabled={previewing || props.submitting}
+          onClick={() => void previewSubmission()} style={{ marginBottom: 12 }}>预览投稿</Button>
+        {preview && <div data-testid="submission-preview" style={{ whiteSpace: 'pre-wrap', marginBottom: 12 }}>{preview}</div>}
         <Button
           size="l"
           stretched
@@ -260,7 +295,7 @@ function SubmitForm(props: FormProps) {
           {props.submitting ? '提交中…' : '提交审核'}
         </Button>
         <div className="mutation-help" style={{ marginTop: 8 }}>
-          重复点击不会产生重复投稿（同一幂等键，§23）。
+          提交失败时会保留附件和文字，可直接重试。
         </div>
       </div>
       {props.snack && (

@@ -1,7 +1,7 @@
+import { useBotNavigate } from '../../lib/useBotNavigate';
 import { useState } from 'react';
 import { Badge, Cell, Section, Spinner } from '@telegram-apps/telegram-ui';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import {
   fetchMySubmissions,
   LogicalSubmission,
@@ -54,7 +54,7 @@ function StatusBadge({ status }: { status: string }) {
  * up as an extra item, and service/automatic submissions never appear at all.
  */
 export function MySubmissionsPage() {
-  const navigate = useNavigate();
+  const navigate = useBotNavigate();
   const [filter, setFilter] = useState<MineFilter>('all');
   const query = useInfiniteQuery({
     queryKey: ['my-submissions'],

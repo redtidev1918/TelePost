@@ -1,4 +1,4 @@
-import { apiBase, apiFetch } from './client';
+import { apiFetch } from './client';
 
 export interface ReviewSummary {
   review_id: number;
@@ -88,15 +88,6 @@ export function fetchReviewQueue(
 
 export function fetchReview(id: number | string): Promise<ReviewDetail> {
   return apiFetch<ReviewDetail>(`/reviews/${id}`);
-}
-
-/** Media preview URL (bounded by server; never a local filesystem path §29). */
-export function reviewMediaUrl(
-  id: number | string,
-  index: number,
-  variant: 'thumbnail' | 'preview' | 'original' = 'preview',
-): string {
-  return `${apiBase()}/reviews/${id}/media/${index}?variant=${variant}`;
 }
 
 export function approveReview(

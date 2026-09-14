@@ -596,19 +596,17 @@ class ReviewService:
         media = item.media[index]
         if not media.file_id:
             raise MediaNotFoundError("媒体 file_id 不存在")
-        if media.kind in {"document", "audio"}:
+        if media.kind in {"document", "audio"} and variant != "original":
             raise PreviewUnavailableError(
                 "文档/音频不返回内容；请使用 get_review 查看元数据"
             )
 
-        if media.kind == "video" and variant == "original":
-            raise PreviewUnavailableError("视频 original 不直接返回；请使用 preview 封面")
         use_thumbnail_file_id = (
             variant in {"thumbnail", "preview"}
             and media.kind in {"video", "animation"}
             and media.thumbnail_file_id
         )
-        if media.kind in {"video", "animation"} and not use_thumbnail_file_id:
+        if variant != "original" and media.kind in {"video", "animation"} and not use_thumbnail_file_id:
             raise PreviewUnavailableError("Telegram 未提供可用封面；第一版不抽帧")
         file_id = media.thumbnail_file_id if use_thumbnail_file_id else media.file_id
         tg_file = await bot.get_file(file_id)

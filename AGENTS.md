@@ -1,7 +1,7 @@
 # AGENTS.md —— 本仓库是「业务平面」
 
 这份文件写给任何进入本仓库的智能体或工程师。先读
-`pixivflow-telepost-deploy/docs/ARCHITECTURE.md`，它是三仓库职责契约的唯一权威描述；
+`pixivflow-telepost-deploy/docs/reference/deployment-contract.md`，它是三仓库职责契约的唯一权威描述；
 本文件只回答「什么该做、什么绝对不该做」。
 
 ## 一句话
@@ -51,8 +51,9 @@ HTTP 投稿接口、幂等键、审核队列、批准/驳回、发布与发布�
 - **审核保留策略**：`PENDING_REVIEW_RETENTION_DAYS=1` 与
   `PENDING_REVIEW_CLEANUP_BATCH_SIZE=20` 与代码默认值不同，必须显式声明（否则会静默改变
   用户可见行为）。
-- **多 Bot 同机**：只有 webhook 模式能保证多 bot 同机 + 即时响应；`run.py` 路由进程占
-  `WEBHOOK_PORT`，`botN` 子进程占 `WEBHOOK_PORT+N`，路径 `/webhook/botN`。
+- **多 Bot 同机**：支持 polling 与 webhook；生产 ingress 以部署清单为准。
+  `run.py` 路由进程占 `WEBHOOK_PORT`，`botN` 子进程占 `WEBHOOK_PORT+N`；
+  webhook 模式的更新路径是 `/webhook/botN`。
 
 ## 改完请自证
 
@@ -163,3 +164,13 @@ api token 持有者                     绝不是 submitter
 | `source` / `target_id` / `source_ref` / `source_label` | provenance | 否 |
 
 禁止再出现 `principal.telegram_user_id → submission.owner` 这种实现。
+
+## Schedule 通知与 mention 不变量
+
+- PixivFlow 拥有 schedule 执行账本；TelePost 只接收并发送终态通知。
+- 每个 occurrence 的 success / partial / failed 都要到达审核群；发送失败或 claim
+  尚未完成返回可重试错误，不得提前写成功回执或 ACK 让上游 outbox 丢弃 intent。
+- Display identity 与 Telegram notification intent 分离；review/system 默认无 mention。
+  自动稿不能把 API credential holder 显示为人类投稿人。
+- Chat 与 Mini App 都收敛到 QueueCommand / ReviewQueueService；Mini App 发 bytes，
+  服务端 Telegram staging 才获得 file_id。

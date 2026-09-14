@@ -29,11 +29,12 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  height: 100dvh;
+  height: var(--tg-viewport-height, 100dvh);
   min-height: 0;
   box-sizing: border-box;
-  padding-left: var(--tgui--safe_area_inset_left, env(safe-area-inset-left));
-  padding-right: var(--tgui--safe_area_inset_right, env(safe-area-inset-right));
+  padding-top: calc(var(--tg-viewport-safe-area-inset-top, env(safe-area-inset-top)) + var(--tg-viewport-content-safe-area-inset-top, 0px));
+  padding-left: calc(var(--tg-viewport-safe-area-inset-left, env(safe-area-inset-left)) + var(--tg-viewport-content-safe-area-inset-left, 0px));
+  padding-right: calc(var(--tg-viewport-safe-area-inset-right, env(safe-area-inset-right)) + var(--tg-viewport-content-safe-area-inset-right, 0px));
 }
 
 .page {
@@ -42,7 +43,7 @@ body {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding: 12px 16px
-    calc(12px + var(--app-tabbar-reserve, 0px) + env(safe-area-inset-bottom));
+    calc(12px + var(--app-tabbar-reserve, 0px));
   box-sizing: border-box;
   width: 100%;
   max-width: 720px;
@@ -104,4 +105,7 @@ body {
   font-size: 13px;
   line-height: 1.5;
   color: var(--tgui--hint_color, #8e8e93);
+}
+.telegram-root {
+  --tgui--safe_area_inset_bottom: calc(var(--tg-viewport-safe-area-inset-bottom, env(safe-area-inset-bottom)) + var(--tg-viewport-content-safe-area-inset-bottom, 0px));
 }
