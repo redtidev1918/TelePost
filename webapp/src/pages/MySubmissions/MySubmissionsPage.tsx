@@ -1,27 +1,61 @@
-import { Cell, Section, Spinner } from '@telegram-apps/telegram-ui';
+import { useState } from 'react';
+import { Badge, Cell, Section, Spinner } from '@telegram-apps/telegram-ui';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { fetchMySubmissions, OwnSubmission } from '../../api/me';
+import {
+  fetchMySubmissions,
+  LogicalSubmission,
+  matchesFilter,
+  MineFilter,
+} from '../../api/me';
 
+/** User-facing status text (§38): database states never reach the list. */
 const STATUS_LABELS: Record<string, string> = {
-  pending_review: '待审核',
-  pending: '待审核',
+  preparing: '准备中',
+  in_review: '审核中',
   publishing: '发布中',
   published: '已发布',
-  failed: '失败',
-  rejected: '已拒绝',
+  rejected: '未通过',
+  failed: '处理失败',
   expired: '已过期',
-  superseded: '已被替换',
-  preparing: '准备中',
 };
 
-function Status({ status }: { status: string }) {
-  const label = STATUS_LABELS[status] || status;
-  return <span>{label}</span>;
+const FILTERS: { key: MineFilter; label: string }[] = [
+  { key: 'all', label: '全部' },
+  { key: 'active', label: '进行中' },
+  { key: 'done', label: '已完成' },
+  { key: 'other', label: '其他' },
+];
+
+function formatDay(seconds: number): string {
+  if (!seconds) return '';
+  const date = new Date(seconds * 1000);
+  const today = new Date();
+  const time = `${String(date.getHours()).padStart(2, '0')}:${String(
+    date.getMinutes(),
+  ).padStart(2, '0')}`;
+  if (date.toDateString() === today.toDateString()) return `今天 ${time}`;
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
 }
 
+function StatusBadge({ status }: { status: string }) {
+  const label = STATUS_LABELS[status] || status;
+  const mode = status === 'published'
+    ? 'primary'
+    : status === 'rejected' || status === 'failed'
+      ? 'critical'
+      : 'secondary';
+  return <Badge type="number" mode={mode}>{label}</Badge>;
+}
+
+/**
+ * 我的投稿 (§mine): the verified user's LOGICAL submissions, one row per review
+ * chain. Refetch generations collapse server-side, so a replacement never shows
+ * up as an extra item, and service/automatic submissions never appear at all.
+ */
 export function MySubmissionsPage() {
   const navigate = useNavigate();
+  const [filter, setFilter] = useState<MineFilter>('all');
   const query = useInfiniteQuery({
     queryKey: ['my-submissions'],
     queryFn: ({ pageParam }) => fetchMySubmissions(pageParam),
@@ -43,31 +77,59 @@ export function MySubmissionsPage() {
       </div>
     );
   }
-  const items: OwnSubmission[] =
-    query.data?.pages.flatMap((p) => p.items) ?? [];
-  if (items.length === 0) {
-    return <div className="page-empty">还没有投稿，去「投稿」页发一条吧。</div>;
-  }
+  const all: LogicalSubmission[] = query.data?.pages.flatMap((p) => p.items) ?? [];
+  const items = all.filter((item) => matchesFilter(item.status, filter));
 
   return (
-    <Section header="我的投稿">
-      {items.map((item) => (
-        <Cell
-          key={item.review_id}
-          onClick={() => navigate(`/mine/${item.review_id}`)}
-          after={item.media_count ? `📎 ${item.media_count}` : undefined}
-          subtitle={
-            <Status status={item.status} />
-          }
-        >
-          {item.title || `投稿 #${item.review_id}`}
-        </Cell>
-      ))}
-      {query.hasNextPage && (
-        <Cell onClick={() => void query.fetchNextPage()} after="↓">
-          加载更多
-        </Cell>
-      )}
-    </Section>
+    <div>
+      <Section header="我的投稿">
+        <div className="mine-filters" data-testid="mine-filters">
+          {FILTERS.map((entry) => (
+            <button
+              key={entry.key}
+              type="button"
+              data-testid={`filter-${entry.key}`}
+              className={filter === entry.key ? 'mine-filter mine-filter--on' : 'mine-filter'}
+              onClick={() => setFilter(entry.key)}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+        {all.length === 0 && (
+          <div className="page-empty">还没有投稿，去「投稿」页发一条吧。</div>
+        )}
+        {all.length > 0 && items.length === 0 && (
+          <div className="page-empty">该分类下暂无投稿。</div>
+        )}
+        {items.map((item) => (
+          <Cell
+            key={item.review_chain_id || item.submission_id}
+            data-testid="mine-item"
+            onClick={() => navigate(`/mine/${item.current_review_id}`)}
+            after={<StatusBadge status={item.status} />}
+            subtitle={
+              <div className="mine-meta">
+                {item.media_count + item.document_count > 0 &&
+                  `${item.media_count + item.document_count} 个文件 · `}
+                {formatDay(item.updated_at)}
+                {item.refetch_count > 0 && ` · 已更换候选 ${item.refetch_count} 次`}
+              </div>
+            }
+          >
+            {item.title || '未命名投稿'}
+          </Cell>
+        ))}
+        {query.hasNextPage && filter === 'all' && (
+          <Cell
+            data-testid="load-more"
+            onClick={() => void query.fetchNextPage()}
+            after="↓"
+          >
+            加载更多
+          </Cell>
+        )}
+      </Section>
+    </div>
   );
 }

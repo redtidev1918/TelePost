@@ -1054,6 +1054,12 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                 username=username,
                 idempotency_key=f"submission:{data['timestamp']}",
                 source="chat",
+                # Chat submissions are explicit human submissions: the acting
+                # Telegram user IS the verified submitter (§identity).
+                submitter_user_id=user_id,
+                submitter_username=username,
+                actor_kind="user",
+                actor_subject=f"telegram:{user_id}",
             )
             await _reply_to_user(
                 f"✅ 投稿已进入审核队列（#{review_result['review_id']}）。\n"

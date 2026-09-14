@@ -1,10 +1,18 @@
 /**
  * App shell: Telegram UI chrome + AuthProvider + routes.
  *
+ * Layout contract (§layout): one viewport-height column. The route content is
+ * the ONLY scrolling region and reserves the fixed BottomNav's measured height,
+ * so no route's last element (submit button, last card, action row) can ever be
+ * covered. The reserve is measured from the real TelegramUI Tabbar at runtime —
+ * never a hard-coded device offset — and TelegramUI/AppRoot owns the platform
+ * safe-area insets.
+ *
  * Routing (§44): submitter sees Home/Submit/MySubmissions; reviewer sees the
  * ReviewQueue/ReviewDetail additionally. Server-side RBAC remains the
  * authority — the router only hides what the verified roles say (§45).
  */
+import { useCallback, useRef } from 'react';
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Tabbar } from '@telegram-apps/telegram-ui';
 import { AuthProvider, useAuth } from '../auth/AuthProvider';
@@ -38,6 +46,42 @@ const ERROR_TEXT: Partial<Record<ReturnType<typeof useAuth>['status'], { title: 
   server_unavailable: { title: '无法连接服务器，请稍后重试。' },
 };
 
+/**
+ * Publish the fixed BottomNav's real height as a CSS variable so scrolling
+ * content reserves exactly that much space (measured, never guessed).
+ */
+function useBottomNavReserve() {
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const listenerRef = useRef<(() => void) | null>(null);
+  return useCallback((node: HTMLDivElement | null) => {
+    const root = document.documentElement;
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    if (listenerRef.current) {
+      window.removeEventListener('resize', listenerRef.current);
+      listenerRef.current = null;
+    }
+    if (!node) {
+      root.style.setProperty('--app-tabbar-reserve', '0px');
+      return;
+    }
+    // TelegramUI's Tabbar renders as a fixed-position child, so the wrapper
+    // itself measures 0: measure the real tabbar element inside it.
+    const target = (node.firstElementChild as HTMLElement) ?? node;
+    const apply = () => {
+      const height = Math.ceil(target.getBoundingClientRect().height);
+      root.style.setProperty('--app-tabbar-reserve', `${height}px`);
+    };
+    listenerRef.current = apply;
+    apply();
+    if (typeof ResizeObserver !== 'undefined') {
+      observerRef.current = new ResizeObserver(apply);
+      observerRef.current.observe(target);
+    }
+    window.addEventListener('resize', apply);
+  }, []);
+}
+
 export function App() {
   return (
     <AuthProvider>
@@ -50,6 +94,7 @@ function Shell() {
   const { status, isReviewer } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const navRef = useBottomNavReserve();
 
   if (status === 'loading' || status === 'authenticating') {
     // Never flash an error before we positively know it: session boot is
@@ -69,6 +114,8 @@ function Shell() {
     );
   }
 
+  const visibleNav = NAV.filter((item) => item.show(isReviewer));
+
   return (
     <div className="app-safe">
       <main className="page">
@@ -83,16 +130,18 @@ function Shell() {
           )}
         </Routes>
       </main>
-      <Tabbar>
-        {NAV.filter((item) => item.show(isReviewer)).map((item) => (
-          <Tabbar.Item
-            key={item.path}
-            text={item.label}
-            selected={location.pathname.startsWith(item.path)}
-            onClick={() => navigate(item.path)}
-          />
-        ))}
-      </Tabbar>
+      <div ref={navRef} className="bottom-nav">
+        <Tabbar data-testid="bottom-nav">
+          {visibleNav.map((item) => (
+            <Tabbar.Item
+              key={item.path}
+              text={item.label}
+              selected={location.pathname.startsWith(item.path)}
+              onClick={() => navigate(item.path)}
+            />
+          ))}
+        </Tabbar>
+      </div>
     </div>
   );
 }

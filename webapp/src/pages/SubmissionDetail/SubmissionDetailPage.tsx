@@ -1,47 +1,52 @@
 import { Button, Cell, Section } from '@telegram-apps/telegram-ui';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { fetchReview, ReviewDetail } from '../../api/reviews';
+import { fetchMySubmission, LogicalSubmissionDetail } from '../../api/me';
 import { useBackButton } from '../../lib/useBackButton';
 
 const STATUS_LABELS: Record<string, string> = {
-  pending: '待审核',
+  preparing: '准备中',
+  in_review: '审核中',
   publishing: '发布中',
   published: '已发布',
-  failed: '失败',
-  rejected: '已拒绝',
+  rejected: '未通过',
+  failed: '处理失败',
   expired: '已过期',
-  superseded: '已被替换',
 };
 
+/**
+ * Owner-scoped detail (§44): uses the user-safe /me/submissions/{id} DTO, so a
+ * plain submitter never needs reviewer privileges and never sees internal
+ * lineage/audit fields.
+ */
 export function SubmissionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   useBackButton('/mine');
-  const review = useQuery({
-    queryKey: ['review', id],
-    queryFn: () => fetchReview(id!),
+  const submission = useQuery({
+    queryKey: ['my-submission', id],
+    queryFn: () => fetchMySubmission(id!),
   });
 
-  if (review.isLoading) {
+  if (submission.isLoading) {
     return <div className="page-loading">加载中…</div>;
   }
-  if (review.isError || !review.data) {
+  if (submission.isError || !submission.data) {
     return (
       <div className="page-error">
-        {review.isError ? (review.error as Error).message : '未找到'}
+        {submission.isError ? (submission.error as Error).message : '未找到'}
         <div style={{ marginTop: 12 }}>
           <Button onClick={() => navigate('/mine')}>返回我的投稿</Button>
         </div>
       </div>
     );
   }
-  const item: ReviewDetail = review.data;
+  const item: LogicalSubmissionDetail = submission.data;
   return (
     <div>
-      <Section header={`投稿 #${item.id}`}>
+      <Section header="投稿详情">
         <Cell subtitle={STATUS_LABELS[item.status] || item.status}>
-          {item.title || '（无标题）'}
+          {item.title || '未命名投稿'}
         </Cell>
         {item.note && <Cell subtitle={item.note}>备注</Cell>}
         {item.tags.length > 0 && <Cell subtitle={item.tags.join(' ')}>标签</Cell>}
@@ -56,9 +61,14 @@ export function SubmissionDetailPage() {
             链接
           </Cell>
         )}
-        <Cell subtitle={`${item.media.length} 个媒体 / 文件`}>
+        <Cell
+          subtitle={`${item.media_count} 个媒体 · ${item.document_count} 个文件`}
+        >
           {item.spoiler ? '含剧透' : '无剧透'}
         </Cell>
+        {item.refetch_count > 0 && (
+          <Cell subtitle={`已更换候选 ${item.refetch_count} 次`}>重抓记录</Cell>
+        )}
       </Section>
       <div style={{ marginTop: 16 }}>
         <Button mode="bezeled" onClick={() => navigate('/mine')}>

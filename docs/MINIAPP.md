@@ -100,3 +100,15 @@ connect-src 'self';
   不需要 Tus）。
 - 审核队列第一版用 15s polling，不引入 WebSocket/SSE（§37）。
 - Attachment Menu 不在本轮上线前置（Bot API 限制），deep link 已覆盖直达入口（§171）。
+
+## Framework ownership（本轮硬约束）
+
+- Telegram 平台能力（viewport/safe-area/launch data）来自 `@telegram-apps/sdk`；
+  TelegramUI 负责通用视觉组件（Tabbar/Section/Cell/Badge…）。
+- 附件状态（选择/限制/去重/移除/进度/错误）由 Uppy 通过官方 `@uppy/react`
+  integration 负责；TelePost 只保留「一次 multipart + 稳定幂等键」的提交 adapter。
+  禁止重回 imperative Dashboard 挂载或自写文件管理器。
+- 底部导航不覆盖内容：`.page` 是唯一滚动区，预留运行时测量的 Tabbar 高度
+  （`--app-tabbar-reserve`）+ SDK safe area；不硬编码设备偏移。
+- `我的投稿` = human-owned logical submission：一个 review chain 一条（refetch
+  代际折叠）、`/me/submissions/{id}` 为用户安全详情；服务/自动化稿永不出现。
