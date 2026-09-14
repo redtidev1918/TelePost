@@ -42,7 +42,11 @@ async function mockApi(page: Page, roles: string[] = ['submitter', 'reviewer', '
         contentType: 'application/json',
         body: JSON.stringify({
           ok: true,
-          data: { token: 'ma_v1.e2e.token', expires_in: 3600 },
+          data: {
+            token: 'ma_v1.e2e.token',
+            expires_in: 3600,
+            user: { telegram_user_id: 99999, username: 'e2e', display_name: 'E2E' },
+          },
         }),
       });
     }
@@ -55,6 +59,8 @@ async function mockApi(page: Page, roles: string[] = ['submitter', 'reviewer', '
           data: {
             telegram_user_id: 99999,
             name: 'E2E',
+            username: 'e2e',
+            display_name: 'E2E',
             surface: 'mini_app',
             submissions_last_hour: 0,
             rate_limit_per_hour: 5,
@@ -223,5 +229,84 @@ test.describe('My Submissions: logical rows', () => {
     expect(text).not.toContain('review-');
     // Filters are rendered.
     await expect(page.getByTestId('filter-active')).toBeVisible();
+  });
+});
+test.describe('Tag UX: separator hint is explicit', () => {
+  test('helper text names space, comma and full-width comma', async ({ page }) => {
+    await openApp(page, '/submit');
+    const hint = page.getByTestId('tag-hint');
+    await expect(hint).toBeVisible();
+    await expect(hint).toContainText('空格');
+    await expect(hint).toContainText('英文逗号');
+    await expect(hint).toContainText('中文逗号');
+    await expect(hint).toContainText('ボテ腹, R18 pregnancy');
+  });
+});
+
+test.describe('Preview: real local media, no Telegram side effects', () => {
+  test('selected image renders a real thumbnail in the preview', async ({ page }) => {
+    await openApp(page, '/submit');
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.getByTestId('add-files').click(),
+    ]);
+    // A real PNG header so the browser can decode and display it.
+    const png = Buffer.from(
+      '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489' +
+      '0000000d4944415478da63f8cfc0f01f0005000101000000ffff03000006000557bfabd4' +
+      '0000000049454e44ae426082',
+      'hex',
+    );
+    await chooser.setFiles({ name: 'photo.png', mimeType: 'image/png', buffer: png });
+    await page.getByPlaceholder('标签（必填，如 #示例 #壁纸）').fill('#e2e');
+    await page.getByRole('button', { name: /预览投稿/ }).click();
+
+    await expect(page.getByTestId('preview-panel')).toBeVisible();
+    // The preview shows the actual image (blob object URL), not a filename icon.
+    const img = page.getByTestId('preview-media-0').locator('img');
+    await expect(img).toBeVisible();
+    const src = await img.getAttribute('src');
+    expect(src).toMatch(/^blob:/);
+  });
+
+  test('submitter line prefers @username in the WebView DOM', async ({ page }) => {
+    await openApp(page, '/submit');
+    // Preview opens without files only after validation; add one to reach it.
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.getByTestId('add-files').click(),
+    ]);
+    await chooser.setFiles({ name: 'a.png', mimeType: 'image/png', buffer: Buffer.from('aaa') });
+    await page.getByPlaceholder('标签（必填，如 #示例 #壁纸）').fill('#e2e');
+    await page.getByRole('button', { name: /预览投稿/ }).click();
+    await expect(page.getByTestId('preview-submitter')).toContainText('@e2e');
+  });
+
+  test('preview always mirrors the current selection (clear then re-add)', async ({ page }) => {
+    await openApp(page, '/submit');
+    const add = async (files: Array<{ name: string; mimeType: string; buffer: Buffer }>) => {
+      const [chooser] = await Promise.all([
+        page.waitForEvent('filechooser'),
+        page.getByTestId('add-files').click(),
+      ]);
+      await chooser.setFiles(files);
+    };
+    await add([
+      { name: 'a.png', mimeType: 'image/png', buffer: Buffer.from('aaa') },
+      { name: 'b.png', mimeType: 'image/png', buffer: Buffer.from('bbb') },
+    ]);
+    await page.getByPlaceholder('标签（必填，如 #示例 #壁纸）').fill('#e2e');
+    await page.getByRole('button', { name: /预览投稿/ }).click();
+    await expect(page.getByTestId('preview-media-0')).toBeVisible();
+    await expect(page.getByTestId('preview-media-1')).toBeVisible();
+    // Back, clear every attachment (Uppy state; revokes object URLs), re-add one.
+    await page.getByTestId('preview-back').click();
+    await page.getByTestId('clear-files').click();
+    await expect(page.getByTestId('selected-files')).toContainText('尚未选择文件');
+    await add([{ name: 'a.png', mimeType: 'image/png', buffer: Buffer.from('aaa') }]);
+    await page.getByRole('button', { name: /预览投稿/ }).click();
+    // The preview reflects the CURRENT selection: only one media tile remains.
+    await expect(page.getByTestId('preview-media-0')).toBeVisible();
+    await expect(page.getByTestId('preview-media-1')).toHaveCount(0);
   });
 });

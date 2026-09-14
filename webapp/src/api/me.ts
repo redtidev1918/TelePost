@@ -4,6 +4,9 @@ import { apiFetch } from './client';
 export interface MePayload {
   telegram_user_id: number;
   name: string;
+  /** Presentation metadata (§identity) — never an ownership key. */
+  username?: string;
+  display_name?: string;
   surface: string;
   submissions_last_hour: number;
   rate_limit_per_hour: number;
