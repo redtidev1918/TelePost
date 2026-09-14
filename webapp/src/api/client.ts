@@ -5,7 +5,19 @@
  * initData; the server returns a short-lived session token (ma_v1.*) kept in
  * memory only (§12). Every protected call attaches it via the session module
  * (never localStorage, never in the bundle).
+ *
+ * Multi-bot: the production router exposes per-bot API prefixes
+ * (/api/botN/v1/*) and does not forward bare /api/v1/*. The Mini App is served
+ * from one shared URL, so the bot is selected by a `?bot=botN` query param on
+ * the launch URL (set by the menu-button script); it defaults to bot1 when
+ * absent (single-bot deployments, dev).
  */
+
+/** API base prefix for the bot this Mini App instance talks to. */
+export function apiBase(): string {
+  const bot = new URLSearchParams(window.location.search).get('bot') || 'bot1';
+  return `/api/${bot}/v1`;
+}
 
 export type ApiErrorCode =
   | 'invalid_token'
@@ -67,7 +79,7 @@ export async function bootstrapSession(
     return sessionPromise;
   }
   sessionPromise = (async () => {
-    const response = await fetch('/api/v1/miniapp/session', {
+    const response = await fetch(`${apiBase()}/miniapp/session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
@@ -105,7 +117,7 @@ export async function apiFetch<T>(
     ...(init?.headers as Record<string, string> | undefined),
     Authorization: `Bearer ${currentSession.token}`,
   };
-  const response = await fetch(`/api/v1${path}`, { ...init, headers });
+  const response = await fetch(`${apiBase()}${path}`, { ...init, headers });
   if (response.status === 401 && currentSession) {
     // Session expired (natural TTL): clear so the caller can re-bootstrap
     // with the current Telegram initData (§108).
