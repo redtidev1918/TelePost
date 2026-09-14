@@ -1,6 +1,10 @@
 /**
  * Auth provider: boots the Telegram Mini App session once, exposes the
- * verified server-side user + roles, and re-bootstraps on 401 (§108).
+ * verified server-side user + roles, and re-bootstraps on 401.
+ *
+ * Error taxonomy (§27): only the ABSENCE of Telegram launch data is
+ * "outside_telegram". A server/auth/signature failure while inside Telegram
+ * must show a precise error, never the misleading "open in Telegram" hint.
  */
 import {
   createContext,
@@ -26,7 +30,14 @@ export interface SessionUser {
   roles: string[];
 }
 
-export type AuthStatus = 'loading' | 'authenticated' | 'unauthorized' | 'disabled';
+export type AuthStatus =
+  | 'loading'
+  | 'outside_telegram'
+  | 'authenticating'
+  | 'authenticated'
+  | 'miniapp_disabled'
+  | 'auth_failed'
+  | 'server_unavailable';
 
 interface AuthContextValue {
   status: AuthStatus;
@@ -46,6 +57,32 @@ const AuthContext = createContext<AuthContextValue>({
   isAdmin: false,
 });
 
+/** Session-boot errors the server can answer with. */
+const INIT_DATA_ERROR_CODES = new Set([
+  'missing_init_data',
+  'invalid_init_data_signature',
+  'invalid_init_data_format',
+  'init_data_expired',
+  'invalid_token',
+]);
+
+function classifyBootstrapError(error: unknown): AuthStatus {
+  if (error instanceof ApiError) {
+    if (error.code === 'miniapp_disabled') {
+      return 'miniapp_disabled';
+    }
+    if (INIT_DATA_ERROR_CODES.has(error.code)) {
+      return 'auth_failed';
+    }
+    if (error.status >= 500) {
+      return 'server_unavailable';
+    }
+    return 'auth_failed';
+  }
+  // Network failure / JSON parse / unknown transport error.
+  return 'server_unavailable';
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<AuthStatus>('loading');
@@ -54,10 +91,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const bootstrap = useCallback(async () => {
     const initData = getLaunchInitData();
     if (!initData) {
-      // Outside Telegram (or dev mock missing): keep UI read-only.
-      setStatus('unauthorized');
+      // No Telegram launch context at all: this is a plain browser.
+      setStatus('outside_telegram');
       return;
     }
+    setStatus('authenticating');
     try {
       await bootstrapSession(initData);
       const me = await queryClient.fetchQuery({
@@ -72,22 +110,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       setStatus('authenticated');
     } catch (error) {
-      if (error instanceof ApiError && error.code === 'miniapp_disabled') {
-        setStatus('disabled');
-      } else {
-        clearSession();
-        setStatus('unauthorized');
-      }
+      clearSession();
+      setUser(null);
+      setStatus(classifyBootstrapError(error));
+      // Re-bootstrap on the next explicit navigation / retry.
     }
   }, [queryClient]);
 
   useEffect(() => {
-    // Boot when inside Telegram (initData present) or under dev/test where a
-    // mock bridge provides one; otherwise show the "open in Telegram" hint.
+    // Boot when inside Telegram (SDK launch params or bridge initData present);
+    // otherwise this is a plain browser and we show outside_telegram. Loading
+    // state is kept until we positively know which case this is, so the UI
+    // never flashes a wrong error before Home renders.
     if (getLaunchInitData()) {
       void bootstrap();
     } else {
-      setStatus('unauthorized');
+      setStatus('outside_telegram');
     }
   }, [bootstrap]);
 
@@ -95,7 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSession();
     queryClient.clear();
     setUser(null);
-    setStatus('unauthorized');
+    setStatus('outside_telegram');
   }, [queryClient]);
 
   const value = useMemo<AuthContextValue>(() => {
