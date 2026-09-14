@@ -594,6 +594,68 @@ paths:
                   refetch_count: {type: integer}
         '401': {$ref: '#/components/responses/unauthorized'}
         '404': {description: Not found or not owned by the caller}
+  /admin/status:
+    get:
+      summary: Operational status snapshot (admin-only)
+      description: |
+        Requires a verified user session with the admin role. Returns queue
+        counts, active refetch attempts, recent failures, blacklist size,
+        current policy and runtime version. Never contains credentials.
+      responses:
+        '200': {description: Snapshot}
+        '401': {$ref: '#/components/responses/unauthorized'}
+        '403': {description: Requires admin role}
+  /admin/policy:
+    get:
+      summary: Read effective runtime policy (admin-only)
+      responses:
+        '200': {description: Toggle values + overrides}
+        '403': {description: Requires admin role}
+    patch:
+      summary: Toggle api_review / chat_review / show_submitter (admin-only, audited)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                api_review: {type: string, enum: [on, off]}
+                chat_review: {type: string, enum: [on, off]}
+                show_submitter: {type: string, enum: [on, off]}
+      responses:
+        '200': {description: Applied (+ reload_scheduled)}
+        '409': {description: Review chat not configured / queue not empty}
+        '403': {description: Requires admin role}
+  /admin/blacklist:
+    get:
+      summary: List blacklist entries (admin-only)
+      responses:
+        '200': {description: Entries}
+        '403': {description: Requires admin role}
+    post:
+      summary: Add a blacklist entry (admin-only, audited, idempotent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id: {type: integer}
+                reason: {type: string}
+      responses:
+        '201': {description: Added}
+        '403': {description: Requires admin role}
+  /admin/blacklist/{user_id}:
+    delete:
+      summary: Remove a blacklist entry (admin-only, audited)
+      parameters:
+        - {name: user_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {description: Removed}
+        '403': {description: Requires admin role}
   /reviews/{review_id}/refetch:
     post:
       summary: Request a remote candidate replacement ("重抓") for a pending review
