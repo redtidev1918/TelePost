@@ -304,7 +304,36 @@ class PublicationService:
     @staticmethod
     def _caption(data: dict) -> str:
         from utils.helper_functions import build_caption
-        return build_caption(data)
+        footer = _channel_footer()
+        if not footer:
+            return build_caption(data)
+        # 预留 footer 的字符空间，保证总长不超 Telegram 上限且不切坏 HTML。
+        return build_caption(data, max_length=1024 - len(footer)) + footer
+
+
+def _channel_footer() -> str:
+    """频道发布 footer：正式发布时才追加，审核预览与排队均不经过这里。
+
+    语义：让频道读者点「点击投稿」进入本 bot 发起投稿。链接由
+    ``CHANNEL_FOOTER_LINK`` 配置（空 = 关闭）；链接文本可用
+    ``CHANNEL_FOOTER_TEXT`` 覆盖（默认「点击投稿」）。返回完整 HTML
+    片段（含前导换行）或空字符串。
+    """
+    try:
+        from config.settings import CHANNEL_FOOTER_LINK, CHANNEL_FOOTER_TEXT
+    except Exception:
+        return ""
+    link = (CHANNEL_FOOTER_LINK or "").strip()
+    if not link:
+        return ""
+    # 只接受 http(s) 链接，且必须是干净 URL，避免把任意 HTML 塞进 caption。
+    if not link.startswith(("http://", "https://")):
+        return ""
+    text = (CHANNEL_FOOTER_TEXT or "点击投稿").strip() or "点击投稿"
+    import html as _html
+    safe_link = _html.escape(link, quote=True)
+    safe_text = _html.escape(text, quote=False)
+    return f'\n\n<a href="{safe_link}">{safe_text}</a>'
 
 
 def _legacy_link(message_id: int) -> str:
