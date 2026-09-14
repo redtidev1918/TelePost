@@ -1,6 +1,6 @@
+import { useBotNavigate } from '../../lib/useBotNavigate';
 import { Cell, Section, Spinner } from '@telegram-apps/telegram-ui';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthProvider';
 import { fetchMe } from '../../api/me';
 
@@ -12,7 +12,7 @@ const ROLE_LABELS: Record<string, string> = {
 
 export function HomePage() {
   const { user, isReviewer } = useAuth();
-  const navigate = useNavigate();
+  const navigate = useBotNavigate();
   const me = useQuery({ queryKey: ['me'], queryFn: fetchMe });
 
   return (

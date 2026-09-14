@@ -1,10 +1,10 @@
+import { useBotNavigate } from '../../lib/useBotNavigate';
 import { Cell, Section, Spinner } from '@telegram-apps/telegram-ui';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import { fetchReviewQueue, ReviewSummary } from '../../api/reviews';
 
 export function ReviewQueuePage() {
-  const navigate = useNavigate();
+  const navigate = useBotNavigate();
   const query = useInfiniteQuery({
     queryKey: ['review-queue'],
     queryFn: ({ pageParam }) => fetchReviewQueue(pageParam),

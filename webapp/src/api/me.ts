@@ -1,3 +1,4 @@
+import type { SubmissionAttachment } from '../components/SubmissionMedia';
 import { apiFetch } from './client';
 
 export interface MePayload {
@@ -37,6 +38,7 @@ export interface LogicalSubmission {
 export interface LogicalSubmissionDetail extends LogicalSubmission {
   note: string;
   link: string;
+  media: SubmissionAttachment[];
 }
 
 export interface OwnSubmissionPage {

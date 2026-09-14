@@ -1,3 +1,4 @@
+import { useBotNavigate } from '../lib/useBotNavigate';
 /**
  * App shell: Telegram UI chrome + AuthProvider + routes.
  *
@@ -13,7 +14,7 @@
  * authority — the router only hides what the verified roles say (§45).
  */
 import { useCallback, useRef } from 'react';
-import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { Route, Routes, useLocation } from 'react-router-dom';
 import { Tabbar } from '@telegram-apps/telegram-ui';
 import { AuthProvider, useAuth } from '../auth/AuthProvider';
 import { HomePage } from '../pages/Home/HomePage';
@@ -93,7 +94,7 @@ export function App() {
 function Shell() {
   const { status, isReviewer } = useAuth();
   const location = useLocation();
-  const navigate = useNavigate();
+  const navigate = useBotNavigate();
   const navRef = useBottomNavReserve();
 
   if (status === 'loading' || status === 'authenticating') {
@@ -136,7 +137,7 @@ function Shell() {
             <Tabbar.Item
               key={item.path}
               text={item.label}
-              selected={location.pathname.startsWith(item.path)}
+              selected={item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)}
               onClick={() => navigate(item.path)}
             />
           ))}

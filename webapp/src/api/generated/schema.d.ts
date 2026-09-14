@@ -576,15 +576,22 @@ export interface paths {
                             ok?: boolean;
                             data?: {
                                 items?: {
-                                    review_id?: number;
+                                    submission_id?: string;
+                                    review_chain_id?: string;
+                                    current_review_id?: number;
+                                    /** @description User-facing status (preparing|in_review|publishing|published|rejected|failed|expired); database states are mapped server-side */
                                     status?: string;
                                     title?: string;
                                     tags?: string[];
                                     media_count?: number;
                                     document_count?: number;
                                     spoiler?: boolean;
+                                    /** @description Logical submission start (chain origin) */
                                     created_at?: number;
-                                    source?: string;
+                                    updated_at?: number;
+                                    generation?: number;
+                                    /** @description Successful refetch replacements (chain length - 1) */
+                                    refetch_count?: number;
                                 }[];
                                 next_cursor?: string | null;
                             };
@@ -597,6 +604,388 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/submissions/{review_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * User-safe detail of one of the caller's logical submissions
+         * @description Owner-scoped: only the verified human submitter of that review chain
+         *     (or a reviewer via the review API) may read it. Internal lineage,
+         *     refetch/slot ids, actor fields and audit data are never returned.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    review_id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Owner-safe submission detail */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            submission_id?: string;
+                            review_chain_id?: string;
+                            current_review_id?: number;
+                            status?: string;
+                            title?: string;
+                            note?: string;
+                            link?: string;
+                            tags?: string[];
+                            media_count?: number;
+                            document_count?: number;
+                            spoiler?: boolean;
+                            created_at?: number;
+                            updated_at?: number;
+                            generation?: number;
+                            refetch_count?: number;
+                        };
+                    };
+                };
+                401: components["responses"]["unauthorized"];
+                /** @description Not found or not owned by the caller */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/schedule/outcomes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * PixivFlow reports a TERMINAL schedule occurrence verdict
+         * @description Called by the execution side for EVERY terminal occurrence
+         *     (success/partial/failed). Durable and idempotent per slot_id: a
+         *     duplicate clock trigger or an outbox replay never sends a second
+         *     Telegram summary. The terminal text goes to the configured review/admin
+         *     group and never contains mention-capable entities.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        schedule_id: string;
+                        slot_id: string;
+                        occurrence_at?: string;
+                        /** @enum {string} */
+                        status: "success" | "partial" | "failed";
+                        duration_ms?: number;
+                        cells?: Record<string, never>;
+                        targets?: {
+                            target_id?: string;
+                            work_type?: string;
+                            status?: string;
+                            work_id?: string | null;
+                            error_code?: string;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description Notified (or replayed idempotently) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Validation error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                401: components["responses"]["unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Operational status snapshot (admin-only)
+         * @description Requires a verified user session with the admin role. Returns queue
+         *     counts, active refetch attempts, recent failures, blacklist size,
+         *     current policy and runtime version. Never contains credentials.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Snapshot */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                401: components["responses"]["unauthorized"];
+                /** @description Requires admin role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read effective runtime policy (admin-only) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Toggle values + overrides */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Requires admin role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Toggle api_review / chat_review / show_submitter (admin-only, audited) */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        api_review?: "on" | "off";
+                        /** @enum {string} */
+                        chat_review?: "on" | "off";
+                        /** @enum {string} */
+                        show_submitter?: "on" | "off";
+                    };
+                };
+            };
+            responses: {
+                /** @description Applied (+ reload_scheduled) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Requires admin role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Review chat not configured / queue not empty */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/admin/blacklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List blacklist entries (admin-only) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Entries */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Requires admin role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        /** Add a blacklist entry (admin-only, audited, idempotent) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        user_id: number;
+                        reason?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Added */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Requires admin role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/blacklist/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a blacklist entry (admin-only, audited) */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    user_id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Removed */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Requires admin role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;

@@ -35,6 +35,7 @@ def test_review_caption_has_no_mention_entity(monkeypatch):
     command = QueueCommand(
         user_id=12345, username="alice", tags="#tag", title="标题",
         note="", link="", anonymous=False, spoiler=False, source="api",
+        submitter_user_id=12345, submitter_username="alice",
     )
     caption = _caption_from_command(command)
     assert "投稿人：alice" in caption
@@ -50,6 +51,7 @@ def test_service_submission_never_mentions_token_owner(monkeypatch):
     )
     caption = _caption_from_command(command)
     _assert_no_mention_entity(caption)
+    assert "投稿人" not in caption
     assert "5073758941" not in caption  # no raw id either
 
 
