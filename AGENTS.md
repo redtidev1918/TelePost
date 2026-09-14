@@ -109,3 +109,57 @@ python check_config.py             # 配置自检
 - Telegram launch data 以 `@telegram-apps/sdk` 的原始 initData 为主；
   `window.Telegram.WebApp` 仅为兼容后备。`/app` 返回 HTTP 200 不等于
   真实 Telegram Mini App 完成认证与业务操作。
+
+## Mini App 基础设施不变量（framework-first，硬约束）
+
+- **框架优先**：通用 Telegram/上传/缓存/分页/组件基础设施必须交给已安装的成熟库；
+  禁止自己重写 Telegram viewport adapter、safe-area system、文件管理器、upload queue、
+  retry manager、pagination framework、modal framework。
+- **布局**：底部导航**不得覆盖**路由内容（shell 预留真实测量高度 + SDK safe area，
+  不硬编码设备偏移）；Telegram viewport/safe-area 信息来自 `@telegram-apps/sdk`
+  （`viewportSafeAreaInsets` / TelegramUI `--tgui--safe_area_inset_*`），不是 iPhone hack。
+- **上传**：Uppy 拥有通用附件状态（选择/限制/去重/移除/进度/错误）；TelePost 禁止再维护
+  一套并行文件管理器。提交传输是 TelePost 业务 adapter（一次 multipart + 稳定幂等键），
+  Uppy 的 XHRUpload/Tus 只在业务契约需要时引入。
+- **「我的投稿」**：指人类属主的 logical submission（一个 review chain = 一条）；actor /
+  token 持有者 / transport / submitter 是四个概念；服务自动化没有人类 submitter；
+  refetch 代际折叠为一条投稿；状态映射在服务端完成，内部数据库态不外泄。
+
+## 身份与归属不变量（硬约束，§identity）
+
+四个概念永远是四个，不许折叠：
+
+```text
+actor      谁/什么执行了这次请求      user | service | unknown
+submitter  稿件在业务上归属哪个用户   pending_reviews.submitter_user_id
+source     传输/来源 provenance       chat | api | ...
+api token 持有者                     绝不是 submitter
+```
+
+1. **Authentication actor is not submission ownership.** 请求主体身份不产生归属。
+2. **Service/API principal MUST NOT automatically become submitter.** `api_tokens.telegram_user_id`
+   只用于鉴权与审计，永不写入 `submitter_user_id`。
+3. **source/transport MUST NOT determine submitter ownership.** Mini App 人投稿走的也是 HTTP。
+4. **`/me/submissions` requires explicit verified human submitter attribution.** 查询键是
+   `submitter_user_id`；只有 `kind=user` 的 Mini App session 与聊天投稿会写入它。
+5. **PixivFlow scheduled/API submissions have no human submitter**（`submitter_user_id IS NULL`）。
+6. **User Mini App submissions remain human submissions** even though the transport is HTTP。
+7. **Refetch preserves review-chain submission ownership**：替换稿由 service 投递
+   （`actor_kind='service'`），但 `submitter_*` 继承 chain 根；human chain 保持 human，
+   service chain 保持 unowned。
+8. Mini App 是 presentation adapter，绝不是第二套 backend。
+9. Bot 与 Mini App 的管理动作必须共享同一 application service（policy/blacklist/status）。
+10. 浏览器永不接收长效服务/admin 凭据（Bot token、API token、PixivFlow secret、Fly token）。
+11. 每个 admin mutation 都要服务器端 RBAC + audit（必要时幂等 + 二次确认）。
+12. 契约变更必须与文档/OpenAPI/测试在同一个逻辑切片里落地。
+
+`pending_reviews` 字段语义（改动前先读这一节）：
+
+| 字段 | 含义 | 是否用于归属 |
+| --- | --- | --- |
+| `user_id` / `username` | 请求身份（legacy 显示与幂等归一） | 否 |
+| `submitter_user_id` / `submitter_username` | 已验证的人类投稿人 | **是（唯一）** |
+| `actor_kind` / `actor_subject` | 执行主体（`user` / `service` / `unknown`） | 否 |
+| `source` / `target_id` / `source_ref` / `source_label` | provenance | 否 |
+
+禁止再出现 `principal.telegram_user_id → submission.owner` 这种实现。

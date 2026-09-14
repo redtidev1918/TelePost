@@ -78,6 +78,12 @@ async def _resolve_principal(request) -> Optional[dict]:
     """Resolve the caller to a unified principal (None when unauthenticated).
 
     Order: Mini App session (ma_v1.*) first, then the API token (tp_*).
+
+    ``kind`` separates the ACTING principal class (§identity):
+    * ``user``    — a verified Telegram human (Mini App session);
+    * ``service`` — an API token (automatic/third-party delivery). A service
+      principal MUST NOT become a submission owner; ownership is only ever set
+      through an explicit verified human submitter.
     """
     token = _bearer_token(request)
     from telepost.miniapp import session as miniapp_session
@@ -86,19 +92,25 @@ async def _resolve_principal(request) -> Optional[dict]:
         if principal is None:
             return None
         return {
+            "kind": "user",
             "telegram_user_id": principal.telegram_user_id,
             "name": principal.username or f"user{principal.telegram_user_id}",
             "roles": principal.roles,
             "surface": "mini_app",
+            "actor_subject": f"telegram:{principal.telegram_user_id}",
         }
     row = await authenticate(token)
     if row is None:
         return None
     return {
+        "kind": "service",
         "telegram_user_id": int(row["telegram_user_id"] or 0),
         "name": row["name"] or f"user{row['telegram_user_id']}",
         "roles": None,  # API tokens reuse the Bot's OWNER_ID/ADMIN_IDS rule
         "surface": "api",
+        "token_id": int(row["id"] or 0),
+        "token_name": row["name"] or "",
+        "actor_subject": f"api_token:{row['id'] or 0}",
     }
 
 
@@ -124,11 +136,18 @@ def _principal_is_owner(principal: dict) -> bool:
 
 async def _audit_submission(event: str, *, user_id, idempotency_key="",
                             target_id="", work_type="", pixiv_id="",
-                            source_ref="", review_id=None, detail=None) -> None:
+                            source_ref="", review_id=None, detail=None,
+                            actor_kind="user", actor_subject="") -> None:
     from telepost.observability import audit as audit_mod
+    if actor_kind == "service":
+        actor = f"service:{actor_subject or 'api'}"
+    elif user_id:
+        actor = f"telegram_user:{user_id}"
+    else:
+        actor = "api"
     await audit_mod.record_event(
         event,
-        actor=f"telegram_user:{user_id}" if user_id else "api",
+        actor=actor,
         idempotency_key=idempotency_key or None,
         target_id=target_id or None,
         work_type=work_type or None,
@@ -139,49 +158,96 @@ async def _audit_submission(event: str, *, user_id, idempotency_key="",
     )
 
 
-async def _own_submissions(user_id, *, limit: int, cursor: Optional[str]):
-    """Own-submission history: strictly user-scoped, keyset paged.
+USER_STATUS = {
+    "preparing": "preparing",
+    "pending": "in_review",
+    "pending_review": "in_review",
+    "publishing": "publishing",
+    "published": "published",
+    "rejected": "rejected",
+    "failed": "failed",
+    "expired": "expired",
+}
 
-    Mirrors the review-summary shape (status/title/tags/counts) without giving
-    users cross-user access or internal decision fields (§24-§25). Reads go
-    through a repository method, never SQL inside the frontend.
+
+def _logical_summary(row) -> dict:
+    """User-facing LOGICAL submission DTO (one per review chain, §mine).
+
+    Never exposes internal lineage/audit fields (chain internals, refetch
+    request ids, slot ids, actor subjects) and never returns a superseded
+    generation as its own item.
     """
-    created_cursor: Optional[float] = None
-    id_cursor: Optional[int] = None
-    if cursor:
-        import re as _re
-        match = _re.fullmatch(r"(\d+(?:\.\d+)?):(\d+)", cursor)
-        if not match:
-            raise ReviewError("invalid cursor", details={"cursor": cursor})
-        created_cursor, id_cursor = float(match.group(1)), int(match.group(2))
+    import json as _json
+    generations = int(row["generation_count"] or 1)
+    return {
+        "submission_id": row["review_chain_id"] or f"review-{row['id']}",
+        "review_chain_id": row["review_chain_id"] or "",
+        "current_review_id": row["id"],
+        "status": USER_STATUS.get(row["status"], row["status"]),
+        "title": row["title"] or "",
+        "tags": [t for t in (row["tags"] or "").split() if t],
+        "media_count": len(_json.loads(row["media_json"] or "[]")),
+        "document_count": len(_json.loads(row["documents_json"] or "[]")),
+        "spoiler": bool(row["spoiler"]),
+        "created_at": row["chain_created_at"] or row["created_at"],
+        "updated_at": row["updated_at"],
+        "generation": int(row["generation"] or 0),
+        "refetch_count": max(0, generations - 1),
+    }
 
+
+def _parse_own_cursor(cursor: Optional[str]):
+    if not cursor:
+        return None, None
+    import re as _re
+    match = _re.fullmatch(r"(\d+(?:\.\d+)?):(\d+)", cursor)
+    if not match:
+        raise ReviewError("invalid cursor", details={"cursor": cursor})
+    return float(match.group(1)), int(match.group(2))
+
+
+async def _own_submissions(user_id, *, limit: int, cursor: Optional[str]):
+    """Own-submission history: human-owned LOGICAL submissions, keyset paged.
+
+    One item per review chain (refetch generations collapse), keyed on the
+    verified submitter (§identity): service/automatic submissions never appear
+    even when an API token bound to this user created them.
+    """
     from telepost.storage.sqlite.reviews import ReviewRepository
 
-    def _summary(row) -> dict:
-        import json as _json
-        return {
-            "review_id": row["id"],
-            "status": "pending_review" if row["status"] == "pending" else row["status"],
-            "title": row["title"] or "",
-            "tags": [t for t in (row["tags"] or "").split() if t],
-            "media_count": len(_json.loads(row["media_json"] or "[]")),
-            "document_count": len(_json.loads(row["documents_json"] or "[]")),
-            "spoiler": bool(row["spoiler"]),
-            "created_at": row["created_at"],
-            "source": row["source"] or "api",
-        }
-
-    rows = await ReviewRepository().list_by_user(
+    updated_cursor, id_cursor = _parse_own_cursor(cursor)
+    rows = await ReviewRepository().list_logical_submissions(
         user_id, limit=limit + 1,
-        created_cursor=created_cursor, id_cursor=id_cursor,
+        updated_cursor=updated_cursor, id_cursor=id_cursor,
     )
     has_more = len(rows) > limit
     rows = rows[:limit]
-    items = [_summary(row) for row in rows]
+    items = [_logical_summary(row) for row in rows]
     next_cursor = None
     if has_more and rows:
-        next_cursor = f"{rows[-1]['created_at']}:{rows[-1]['id']}"
+        next_cursor = f"{rows[-1]['updated_at']}:{rows[-1]['id']}"
     return items, next_cursor
+
+
+async def _own_submission_detail(user_id: int, review_id: int) -> dict:
+    """Owner-scoped detail for one logical submission (user-safe fields only)."""
+    from telepost.storage.sqlite.reviews import ReviewRepository
+
+    repo = ReviewRepository()
+    row = await repo.get(review_id)
+    if row is None:
+        raise ReviewError("review not found", details={"review_id": review_id})
+    if int(row["submitter_user_id"] or 0) != int(user_id):
+        raise ReviewError("review not found", details={"review_id": review_id})
+    chain_id = row["review_chain_id"] or f"review-{row['id']}"
+    head = await repo.head_of_chain(chain_id)
+    source = head if head is not None else row
+    base = _logical_summary(source)
+    base.update({
+        "note": source["note"] or "",
+        "link": source["link"] or "",
+    })
+    return base
 
 
 def _result_reused_id(result: dict):
@@ -482,6 +548,21 @@ async def _review_auth(request, *, write: bool):
     }, None
 
 
+async def _review_owner_principal(request) -> Optional[int]:
+    """Verified HUMAN principal id for owner-scope reads (§identity).
+
+    Returns the current user's telegram_user_id ONLY for ``kind=user``
+    principals (Mini App sessions). Service/api-token principals never qualify,
+    so an automatic submission can never be read back through an owner-scope
+    path as if a human owned it.
+    """
+    principal = await _resolve_principal(request)
+    if principal is None or principal.get("kind") != "user":
+        return None
+    uid = principal.get("telegram_user_id")
+    return int(uid) if uid else None
+
+
 def _review_error(exc: ReviewError) -> web.Response:
     return _error(exc.http_status, exc.code, str(exc)[:200])
 
@@ -577,11 +658,11 @@ def add_api_routes(web_app, application) -> None:
         })
 
     async def my_submissions(request):
-        """GET /api/v1/me/submissions — the caller's own submission history.
+        """GET /api/v1/me/submissions — the caller's own LOGICAL submissions.
 
-        Server filters strictly by the authenticated telegram_user_id (§24-§25);
-        a user can never see another user's rows. Mini App principal or API
-        token both work.
+        One item per review chain (refetch generations collapse), strictly the
+        verified human submitter's rows (§identity). Service/automatic
+        submissions never appear here.
         """
         principal = await _resolve_principal(request)
         if principal is None:
@@ -595,9 +676,36 @@ def add_api_routes(web_app, application) -> None:
             return _error(400, "invalid_limit", "limit 必须是整数")
         limit = max(1, min(limit, 100))
         cursor = request.query.get("cursor") or None
-        from services.review_service import ReviewService
-        items, next_cursor = await _own_submissions(uid, limit=limit, cursor=cursor)
+        try:
+            items, next_cursor = await _own_submissions(
+                uid, limit=limit, cursor=cursor
+            )
+        except ReviewError as exc:
+            return _review_error(exc)
         return _ok({"items": items, "next_cursor": next_cursor})
+
+    async def my_submission_detail(request):
+        """GET /api/v1/me/submissions/{review_id} — user-safe own detail.
+
+        The submitter may read their own logical submission; other users get the
+        same 404 as a missing row. Reviewer RBAC does not widen this endpoint —
+        reviewers use the review API.
+        """
+        principal = await _resolve_principal(request)
+        if principal is None:
+            return _error(401, "invalid_token", "token 无效或已吊销")
+        uid = principal["telegram_user_id"]
+        if not uid:
+            return _error(403, "permission_denied", "Missing user identity")
+        try:
+            review_id = int(request.match_info["review_id"])
+        except (TypeError, ValueError):
+            return _error(400, "invalid_review_id", "review_id 必须是整数")
+        try:
+            detail = await _own_submission_detail(uid, review_id)
+        except ReviewError as exc:
+            return _review_error(exc)
+        return _ok(detail)
 
     async def _notify_refetch_replacement(refetch_request_id: str,
                                           new_review_id) -> None:
@@ -634,13 +742,33 @@ def add_api_routes(web_app, application) -> None:
         user_id = principal["telegram_user_id"]
         username = principal["name"] or f"user{user_id}"
 
+        # Identity/provenance split (§identity): a service principal (API
+        # token) NEVER becomes a submission owner. Only a verified human
+        # principal (Mini App session) sets submitter_user_id; the API-token
+        # owner is the request actor, not the submitter.
+        principal_kind = principal.get(
+            "kind", "service" if principal.get("surface") == "api" else "user"
+        )
+        if principal_kind == "user":
+            submitter_user_id = int(user_id) if user_id else None
+            submitter_username = username or ""
+            actor_subject = principal.get("actor_subject") or f"telegram:{user_id}"
+        else:
+            submitter_user_id = None
+            submitter_username = ""
+            actor_subject = principal.get("actor_subject") or (
+                f"api_token:{principal.get('token_id') or 0}"
+            )
+        actor_kind = principal_kind
+
         # 限频
         used = _rate_cache.get(f"api:{user_id}") or 0
         if SUBMIT_LIMIT_PER_HOUR > 0 and used >= SUBMIT_LIMIT_PER_HOUR:
             return _error(429, "rate_limited",
                           f"每小时最多 {SUBMIT_LIMIT_PER_HOUR} 次投稿，请稍后再试")
         _rate_cache.set(f"api:{user_id}", used + 1, ttl=3600)
-        await _audit_submission("submission.received", user_id=user_id)
+        await _audit_submission("submission.received", user_id=user_id,
+                                actor_kind=actor_kind, actor_subject=actor_subject)
 
         if (request.content_type or "").startswith("application/json"):
             # file_id 直投：素材已在 Telegram 服务器（file_id 归属本 bot），零媒体传输
@@ -651,7 +779,8 @@ def add_api_routes(web_app, application) -> None:
             if not isinstance(payload, dict):
                 return _error(400, "invalid_json", "JSON body 必须是对象")
             if _invalid_refetch_request_id(payload):
-                await _audit_submission("submission.invalid_refetch_provenance", user_id=user_id)
+                await _audit_submission("submission.invalid_refetch_provenance", user_id=user_id,
+                                        actor_kind=actor_kind, actor_subject=actor_subject)
                 return _error(400, "invalid_refetch_provenance", "refetch_request_id 必须是 UUID")
 
             media = payload.get("media") or []
@@ -688,6 +817,10 @@ def add_api_routes(web_app, application) -> None:
                     "spoiler": _fields_bool(payload, "spoiler"),
                     "user_id": user_id,
                     "username": username,
+                    "submitter_user_id": submitter_user_id,
+                    "submitter_username": submitter_username,
+                    "actor_kind": actor_kind,
+                    "actor_subject": actor_subject,
                 }
                 # JSON file_id clients always receive the four provenance
                 # kwargs (empty string means "absent"); multipart omits them.
@@ -733,6 +866,7 @@ def add_api_routes(web_app, application) -> None:
                 work_type=provenance.get("work_type", ""),
                 pixiv_id=provenance.get("pixiv_id", ""),
                 source_ref=_fields_source_ref(payload),
+                actor_kind=actor_kind, actor_subject=actor_subject,
             )
             if not result.get("reused"):
                 await _notify_refetch_replacement(
@@ -836,6 +970,10 @@ def add_api_routes(web_app, application) -> None:
                 "spoiler": spoiler,
                 "user_id": user_id,
                 "username": username,
+                "submitter_user_id": submitter_user_id,
+                "submitter_username": submitter_username,
+                "actor_kind": actor_kind,
+                "actor_subject": actor_subject,
             }
             provenance = {}
             for _name, _value in (
@@ -878,6 +1016,7 @@ def add_api_routes(web_app, application) -> None:
             work_type=provenance.get("work_type", ""),
             pixiv_id=provenance.get("pixiv_id", ""),
             source_ref=_fields_source_ref(fields),
+            actor_kind=actor_kind, actor_subject=actor_subject,
         )
         if not result.get("reused"):
             await _notify_refetch_replacement(
@@ -959,7 +1098,19 @@ def add_api_routes(web_app, application) -> None:
         async def action():
             _, error = await _review_auth(request, write=False)
             if error:
-                return error
+                # Owner-scope read: a verified human submitter may view (but
+                # never mutate) their OWN review rows (§identity).
+                owner_uid = _review_owner_principal(request)
+                if owner_uid is None:
+                    return error
+                try:
+                    review_id = int(request.match_info["review_id"])
+                except (TypeError, ValueError):
+                    return _error(400, "invalid_review_id", "review_id 必须是整数")
+                row = await review_service.get_review(review_id)
+                if int(getattr(row, "submitter_user_id", None) or 0) != owner_uid:
+                    return error
+                return _ok(row.to_dict())
             try:
                 review_id = int(request.match_info["review_id"])
             except (TypeError, ValueError):
@@ -972,7 +1123,17 @@ def add_api_routes(web_app, application) -> None:
         async def action():
             _, error = await _review_auth(request, write=False)
             if error:
-                return error
+                # Owner-scope media read for the review's verified submitter.
+                owner_uid = _review_owner_principal(request)
+                if owner_uid is None:
+                    return error
+                try:
+                    review_id = int(request.match_info["review_id"])
+                except (TypeError, ValueError):
+                    return _error(400, "invalid_review_id", "review_id 必须是整数")
+                row = await review_service.get_review(review_id)
+                if int(getattr(row, "submitter_user_id", None) or 0) != owner_uid:
+                    return error
             try:
                 review_id = int(request.match_info["review_id"])
                 index = int(request.match_info["index"])
@@ -994,6 +1155,102 @@ def add_api_routes(web_app, application) -> None:
         if error:
             return error
         return _ok({"policy": load_review_policy(), "media_type": "text/markdown"})
+
+    # ---- admin surface (Mini App + shared application service) ------------
+    async def _admin_check(request):
+        """Admin-only principal gate: kind=user session with admin role."""
+        principal = await _resolve_principal(request)
+        if principal is None:
+            return None, _error(401, "invalid_token", "token 无效或已吊销")
+        if principal.get("kind") != "user":
+            return None, _error(403, "permission_denied", "需要管理员会话")
+        from telepost.miniapp import rbac as _rbac
+        roles = _principal_roles(principal)
+        if not _rbac.can_administer(roles):
+            return None, _error(403, "permission_denied", "需要管理员权限")
+        return principal, None
+
+    def _admin_actor(principal) -> str:
+        return f"telegram_user:{principal.get('telegram_user_id')}"
+
+    async def admin_status(request):
+        principal, error = await _admin_check(request)
+        if error:
+            return error
+        from telepost.application import admin_ops
+        try:
+            snapshot = await admin_ops.status_snapshot()
+        except Exception:
+            logger.error("Admin status snapshot failed", exc_info=True)
+            return _error(500, "internal_error", "状态读取失败")
+        return _ok(snapshot)
+
+    async def admin_policy_get(request):
+        principal, error = await _admin_check(request)
+        if error:
+            return error
+        from telepost.application import admin_ops
+        return _ok(admin_ops.current_policy())
+
+    async def admin_policy_patch(request):
+        principal, error = await _admin_check(request)
+        if error:
+            return error
+        payload, err = await _json_body(request)
+        if err:
+            return err
+        from telepost.application.admin_ops import AdminError, update_policy
+        try:
+            changes = {k: v for k, v in payload.items()
+                       if k in {"api_review", "chat_review", "show_submitter"}}
+            result = await update_policy(
+                changes, actor=_admin_actor(principal),
+            )
+        except AdminError as exc:
+            return _error(exc.http_status, exc.code, exc.message)
+        return _ok(result)
+
+    async def admin_blacklist_list(request):
+        principal, error = await _admin_check(request)
+        if error:
+            return error
+        from telepost.application import admin_ops
+        entries = await admin_ops.blacklist_entries()
+        return _ok({"items": entries, "size": len(entries)})
+
+    async def admin_blacklist_add(request):
+        principal, error = await _admin_check(request)
+        if error:
+            return error
+        payload, err = await _json_body(request)
+        if err:
+            return err
+        from telepost.application.admin_ops import AdminError, blacklist_add
+        try:
+            result = await blacklist_add(
+                payload.get("user_id"), payload.get("reason", ""),
+                actor=_admin_actor(principal),
+            )
+        except AdminError as exc:
+            return _error(exc.http_status, exc.code, exc.message)
+        return _ok(result, status=201)
+
+    async def admin_blacklist_remove(request):
+        principal, error = await _admin_check(request)
+        if error:
+            return error
+        from telepost.application.admin_ops import AdminError, blacklist_remove
+        try:
+            user_id = int(request.match_info["user_id"])
+        except (TypeError, ValueError):
+            return _error(400, "invalid_user_id", "user_id 必须是整数")
+        try:
+            result = await blacklist_remove(
+                user_id, actor=_admin_actor(principal),
+            )
+        except AdminError as exc:
+            return _error(exc.http_status, exc.code, exc.message)
+        return _ok(result)
 
     async def _json_body(request):
         try:
@@ -1308,6 +1565,9 @@ def add_api_routes(web_app, application) -> None:
 
     web_app.router.add_post("/api/v1/miniapp/session", miniapp_session)
     web_app.router.add_get("/api/v1/me/submissions", my_submissions)
+    web_app.router.add_get(
+        "/api/v1/me/submissions/{review_id}", my_submission_detail
+    )
 
     web_app.router.add_get("/api/v1/reviews/policy", review_policy)
     web_app.router.add_get("/api/v1/reviews", list_reviews)
@@ -1321,6 +1581,14 @@ def add_api_routes(web_app, application) -> None:
     web_app.router.add_post("/api/v1/reviews/{review_id}/refetch", refetch_review_api)
     web_app.router.add_get("/api/v1/reviews/{review_id}/refetch", refetch_review_state)
     web_app.router.add_get("/api/v1/health", health)
+    web_app.router.add_get("/api/v1/admin/status", admin_status)
+    web_app.router.add_get("/api/v1/admin/policy", admin_policy_get)
+    web_app.router.add_patch("/api/v1/admin/policy", admin_policy_patch)
+    web_app.router.add_get("/api/v1/admin/blacklist", admin_blacklist_list)
+    web_app.router.add_post("/api/v1/admin/blacklist", admin_blacklist_add)
+    web_app.router.add_delete(
+        "/api/v1/admin/blacklist/{user_id}", admin_blacklist_remove
+    )
     web_app.router.add_get("/api/v1/me", me)
     web_app.router.add_post("/api/v1/submissions", create_submission)
     web_app.router.add_get("/api/v1/deliveries/lookup", delivery_lookup)

@@ -20,6 +20,8 @@ Object.defineProperty(window, 'Telegram', {
       colorScheme: 'light',
       platform: 'test',
       version: '7.0',
+      onEvent: vi.fn(),
+      offEvent: vi.fn(),
       BackButton: { show: vi.fn(), hide: vi.fn(), onClick: vi.fn().mockReturnThis(), offClick: vi.fn().mockReturnThis() },
       HapticFeedback: { notificationOccurred: vi.fn(), impactOccurred: vi.fn() },
     },

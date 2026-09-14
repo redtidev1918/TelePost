@@ -268,7 +268,8 @@ async def queue_review_from_file_ids(
     anonymous=False, spoiler=False, user_id, username="",
     idempotency_key="", source="api", target_id="", source_label="",
     source_ref="", scheduled_at="", work_type="", pixiv_id="",
-    refetch_request_id="",
+    refetch_request_id="", submitter_user_id=None, submitter_username="",
+    actor_kind="user", actor_subject="",
 ) -> dict:
     """Stage a file_id submission and create a durable pending review."""
     key = normalize_idempotency_key(user_id, idempotency_key, source)
@@ -279,6 +280,9 @@ async def queue_review_from_file_ids(
         pixiv_id=pixiv_id, source_label=source_label, source_ref=source_ref,
         scheduled_at=scheduled_at, review_chat_id=str(REVIEW_CHAT_ID),
         refetch_request_id=refetch_request_id,
+        submitter_user_id=submitter_user_id,
+        submitter_username=submitter_username,
+        actor_kind=actor_kind, actor_subject=actor_subject,
     )
     return await queue_service.enqueue(
         command, _stager(bot), media=media, documents=documents
@@ -290,7 +294,8 @@ async def queue_review_from_files(
     anonymous=False, spoiler=False, user_id, username="",
     idempotency_key="", source="api", target_id="", source_label="",
     source_ref="", scheduled_at="", work_type="", pixiv_id="",
-    refetch_request_id="",
+    refetch_request_id="", submitter_user_id=None, submitter_username="",
+    actor_kind="user", actor_subject="",
 ) -> dict:
     """Stage multipart API files and create a durable pending review."""
     key = normalize_idempotency_key(user_id, idempotency_key, source)
@@ -303,6 +308,9 @@ async def queue_review_from_files(
         source_ref=source_ref, scheduled_at=scheduled_at,
         review_chat_id=str(REVIEW_CHAT_ID),
         refetch_request_id=refetch_request_id,
+        submitter_user_id=submitter_user_id,
+        submitter_username=submitter_username,
+        actor_kind=actor_kind, actor_subject=actor_subject,
     )
     return await queue_service.enqueue(
         command, _stager(bot), files=files

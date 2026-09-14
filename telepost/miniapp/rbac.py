@@ -88,3 +88,8 @@ def can_view_review_detail(roles: List[str]) -> bool:
 
 def can_view_review_queue(roles: List[str]) -> bool:
     return can_review(roles)
+
+
+def can_administer(roles: List[str]) -> bool:
+    """Admin-only operational surface (Bot status/policy/moderation, §admin)."""
+    return ROLE_ADMIN in roles

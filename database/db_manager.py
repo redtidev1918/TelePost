@@ -204,6 +204,35 @@ async def init_db():
                 'ON pending_reviews(supersedes_review_id) WHERE supersedes_review_id IS NOT NULL'
             )
 
+            # Identity / provenance model (§identity): the review's OWNER is
+            # independent of the request ACTOR and the transport SOURCE.
+            #   submitter_user_id / submitter_username: the verified HUMAN owner
+            #     (NULL for service/automatic submissions), i.e. the only rows
+            #     that may appear under /me/submissions.
+            #   actor_kind / actor_subject: WHO/WHAT executed the request
+            #     ('user' for Telegram/Mini App principals, 'service' for API
+            #     tokens / automatic delivery), never used for ownership.
+            # legacy user_id/username keep the request identity for display and
+            # old idempotency normalization; service rows must NOT copy it into
+            # submitter_user_id.
+            for column, ddl in (
+                ("submitter_user_id", "INTEGER"),
+                ("submitter_username", "TEXT"),
+                ("actor_kind", "TEXT NOT NULL DEFAULT 'user'"),
+                ("actor_subject", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                try:
+                    await conn.execute(
+                        f"ALTER TABLE pending_reviews ADD COLUMN {column} {ddl}"
+                    )
+                except Exception:
+                    pass  # column already exists
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_pending_reviews_submitter '
+                'ON pending_reviews(submitter_user_id, created_at DESC, id DESC) '
+                'WHERE submitter_user_id IS NOT NULL'
+            )
+
             # Bootstrap lineage for EVERY existing review: a chain is anchored at
             # the first review we know about ("chain-<id>"), so old pending rows
             # stay refetchable with no re-submission. New replacements inherit
