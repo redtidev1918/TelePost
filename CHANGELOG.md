@@ -10,6 +10,22 @@
 
 ---
 
+## [2.24.0](https://github.com/redtidev1918/TelePost/compare/v2.23.1...v2.24.0) (2026-09-14)
+
+
+### Features
+
+* **identity:** idempotent audited backfill for legacy submission attribution ([bf02eab](https://github.com/redtidev1918/TelePost/commit/bf02eab3838e2ea501e0c94f74be9a0093f6cf20))
+* **identity:** separate actor, submitter and source for submission ownership ([a7a1d65](https://github.com/redtidev1918/TelePost/commit/a7a1d6522992c96e3c05a755e720c3f161072c52))
+* **submissions:** logical human-owned submissions + admin service ([443586d](https://github.com/redtidev1918/TelePost/commit/443586d631838cf01a92d33dd89d0b127f3a23eb))
+
+
+### Bug Fixes
+
+* **webapp:** framework-first layout, Uppy React integration, logical Mine ([96f94af](https://github.com/redtidev1918/TelePost/commit/96f94af5ebe1557c67626c1d829d71aa71f167c0))
+* **webapp:** layout safe-area, Uppy React upload, logical My Submissions ([1e312b2](https://github.com/redtidev1918/TelePost/commit/1e312b2abc104bb8cf0e44aeeeb27ed4b104650d))
+* **webapp:** measure BottomNav with a callback ref (mounts after auth) ([f13e93f](https://github.com/redtidev1918/TelePost/commit/f13e93fba800678dd154d9e0bae0420f451458f9))
+
 ## [2.23.1](https://github.com/redtidev1918/TelePost/compare/v2.23.0...v2.23.1) (2026-09-14)
 
 
