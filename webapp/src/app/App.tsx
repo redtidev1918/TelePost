@@ -12,7 +12,7 @@
  * ReviewQueue/ReviewDetail additionally. Server-side RBAC remains the
  * authority — the router only hides what the verified roles say (§45).
  */
-import { useEffect, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Tabbar } from '@telegram-apps/telegram-ui';
 import { AuthProvider, useAuth } from '../auth/AuthProvider';
@@ -51,10 +51,16 @@ const ERROR_TEXT: Partial<Record<ReturnType<typeof useAuth>['status'], { title: 
  * content reserves exactly that much space (measured, never guessed).
  */
 function useBottomNavReserve() {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const node = ref.current;
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const listenerRef = useRef<(() => void) | null>(null);
+  return useCallback((node: HTMLDivElement | null) => {
     const root = document.documentElement;
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    if (listenerRef.current) {
+      window.removeEventListener('resize', listenerRef.current);
+      listenerRef.current = null;
+    }
     if (!node) {
       root.style.setProperty('--app-tabbar-reserve', '0px');
       return;
@@ -66,18 +72,14 @@ function useBottomNavReserve() {
       const height = Math.ceil(target.getBoundingClientRect().height);
       root.style.setProperty('--app-tabbar-reserve', `${height}px`);
     };
+    listenerRef.current = apply;
     apply();
-    const observer =
-      typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null;
-    observer?.observe(target);
+    if (typeof ResizeObserver !== 'undefined') {
+      observerRef.current = new ResizeObserver(apply);
+      observerRef.current.observe(target);
+    }
     window.addEventListener('resize', apply);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener('resize', apply);
-      root.style.setProperty('--app-tabbar-reserve', '0px');
-    };
   }, []);
-  return ref;
 }
 
 export function App() {
@@ -128,8 +130,8 @@ function Shell() {
           )}
         </Routes>
       </main>
-      <div ref={navRef} className="bottom-nav" data-testid="bottom-nav">
-        <Tabbar>
+      <div ref={navRef} className="bottom-nav">
+        <Tabbar data-testid="bottom-nav">
           {visibleNav.map((item) => (
             <Tabbar.Item
               key={item.path}
