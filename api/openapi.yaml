@@ -545,17 +545,55 @@ paths:
                         items:
                           type: object
                           properties:
-                            review_id: {type: integer}
-                            status: {type: string}
+                            submission_id: {type: string}
+                            review_chain_id: {type: string}
+                            current_review_id: {type: integer}
+                            status: {type: string, description: User-facing status (preparing|in_review|publishing|published|rejected|failed|expired); database states are mapped server-side}
                             title: {type: string}
                             tags: {type: array, items: {type: string}}
                             media_count: {type: integer}
                             document_count: {type: integer}
                             spoiler: {type: boolean}
-                            created_at: {type: number}
-                            source: {type: string}
+                            created_at: {type: number, description: Logical submission start (chain origin)}
+                            updated_at: {type: number}
+                            generation: {type: integer}
+                            refetch_count: {type: integer, description: Successful refetch replacements (chain length - 1)}
                       next_cursor: {type: [string, 'null']}
         '401': {$ref: '#/components/responses/unauthorized'}
+  /me/submissions/{review_id}:
+    get:
+      summary: User-safe detail of one of the caller's logical submissions
+      description: |
+        Owner-scoped: only the verified human submitter of that review chain
+        (or a reviewer via the review API) may read it. Internal lineage,
+        refetch/slot ids, actor fields and audit data are never returned.
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          description: Owner-safe submission detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  submission_id: {type: string}
+                  review_chain_id: {type: string}
+                  current_review_id: {type: integer}
+                  status: {type: string}
+                  title: {type: string}
+                  note: {type: string}
+                  link: {type: string}
+                  tags: {type: array, items: {type: string}}
+                  media_count: {type: integer}
+                  document_count: {type: integer}
+                  spoiler: {type: boolean}
+                  created_at: {type: number}
+                  updated_at: {type: number}
+                  generation: {type: integer}
+                  refetch_count: {type: integer}
+        '401': {$ref: '#/components/responses/unauthorized'}
+        '404': {description: Not found or not owned by the caller}
   /reviews/{review_id}/refetch:
     post:
       summary: Request a remote candidate replacement ("重抓") for a pending review
