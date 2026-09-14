@@ -10,6 +10,13 @@
 
 ---
 
+## [2.22.0](https://github.com/redtidev1918/TelePost/compare/v2.21.1...v2.22.0) (2026-09-14)
+
+
+### Features
+
+* **review:** refetch progress reminders and stale-timeout failure notice ([#91](https://github.com/redtidev1918/TelePost/issues/91)) ([af83951](https://github.com/redtidev1918/TelePost/commit/af83951992738aa1788751f8f44f744d7db418b0))
+
 ## [2.21.1](https://github.com/redtidev1918/TelePost/compare/v2.21.0...v2.21.1) (2026-09-14)
 
 
