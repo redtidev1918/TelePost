@@ -10,8 +10,18 @@ export interface MePayload {
   roles?: string[];
 }
 
-export interface OwnSubmission {
-  review_id: number;
+/**
+ * One LOGICAL submission: a review chain, not a raw review row.
+ *
+ * A refetch replacement is a new generation of the SAME submission, so the
+ * server returns the chain head with chain aggregates and the list never shows
+ * A/B/C as three items. Internal lineage/audit fields are not exposed.
+ */
+export interface LogicalSubmission {
+  submission_id: string;
+  review_chain_id: string;
+  current_review_id: number;
+  /** User-facing status: preparing|in_review|publishing|published|rejected|failed|expired */
   status: string;
   title: string;
   tags: string[];
@@ -19,12 +29,32 @@ export interface OwnSubmission {
   document_count: number;
   spoiler: boolean;
   created_at: number;
-  source: string;
+  updated_at: number;
+  generation: number;
+  refetch_count: number;
+}
+
+export interface LogicalSubmissionDetail extends LogicalSubmission {
+  note: string;
+  link: string;
 }
 
 export interface OwnSubmissionPage {
-  items: OwnSubmission[];
+  items: LogicalSubmission[];
   next_cursor: string | null;
+}
+
+/** User-facing status groups used by the Mine filters. */
+export type MineFilter = 'all' | 'active' | 'done' | 'other';
+
+const ACTIVE = new Set(['preparing', 'in_review', 'publishing']);
+const DONE = new Set(['published']);
+
+export function matchesFilter(status: string, filter: MineFilter): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'active') return ACTIVE.has(status);
+  if (filter === 'done') return DONE.has(status);
+  return !ACTIVE.has(status) && !DONE.has(status);
 }
 
 export function fetchMe(): Promise<MePayload> {
@@ -36,4 +66,10 @@ export function fetchMySubmissions(
 ): Promise<OwnSubmissionPage> {
   const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
   return apiFetch<OwnSubmissionPage>(`/me/submissions${query}`);
+}
+
+export function fetchMySubmission(
+  reviewId: string | number,
+): Promise<LogicalSubmissionDetail> {
+  return apiFetch<LogicalSubmissionDetail>(`/me/submissions/${reviewId}`);
 }
