@@ -12,6 +12,7 @@
  * the launch URL (set by the menu-button script); it defaults to bot1 when
  * absent (single-bot deployments, dev).
  */
+import { retrieveRawInitData } from '@telegram-apps/sdk';
 
 /** API base prefix for the bot this Mini App instance talks to. */
 export function apiBase(): string {
@@ -99,8 +100,29 @@ export async function bootstrapSession(
   return sessionPromise;
 }
 
-/** Read initData from the Telegram WebView (§9: client field is display-only). */
+/**
+ * Read the raw Telegram initData from the ONE canonical launch source: the
+ * Telegram SDK (retrieveRawInitData()), which resolves launch parameters
+ * from the WebView navigation context without depending on the injected
+ * `window.Telegram.WebApp` bridge global.
+ *
+ * Priority (canonical first, bridge only as a compatibility fallback):
+ *   1. @telegram-apps/sdk raw launch params (tgWebAppData query string)
+ *   2. window.Telegram.WebApp.initData (legacy injected script)
+ *
+ * The SDK path is what makes production auth work even when
+ * `window.Telegram` is absent (index.html does not load telegram-web-app.js).
+ */
 export function getLaunchInitData(): string {
+  try {
+    // Returns undefined / throws LaunchParamsRetrieveError outside Telegram.
+    const raw = retrieveRawInitData();
+    if (raw) {
+      return raw;
+    }
+  } catch {
+    // Not a Telegram launch context; fall through to the legacy bridge.
+  }
   const tg = (window as unknown as { Telegram?: { WebApp?: { initData?: string } } })
     .Telegram?.WebApp;
   return tg?.initData || '';
