@@ -75,7 +75,7 @@ SUPERSEDED_RETENTION_DAYS = max(
     0, int(os.getenv("SUPERSEDED_RETENTION_DAYS", "30"))
 )
 # 重抓进展看门狗：受理后超过 REMIND 分钟仍未到终态，向审核群发一次“仍在处理”
-# 提醒（同一 attempt 至少间隔一个 REMIND 周期才再提醒）；超过 STALE 分钟仍无
+# 提醒（每个 attempt 最多一次）；超过 STALE 分钟仍无
 # 终态（PixivFlow 没回报、机器掉线等），把 attempt 判为 failed 并通知用户，
 # 用户可再次点击。两者为 0 时关闭对应行为。
 REFETCH_PROGRESS_REMIND_MINUTES = max(
@@ -395,13 +395,12 @@ async def cleanup_superseded_reviews(bot, *, now: Optional[float] = None) -> int
 
 
 async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
-    """让重抓不再“看起来卡死”：进展提醒 + 超时失败通知。
+    """重抓崩溃兜底：一次进展提醒 + 超时失败通知。
 
     Scans durable refetch attempts that are still active (requested/admitted):
 
     * older than REFETCH_PROGRESS_REMIND_MINUTES and not reminded recently →
-      send a 「仍在处理中」 reminder to the review group, at most one per
-      remind window per attempt;
+      send one 「仍在处理中」 reminder to the review group per attempt;
     * older than REFETCH_STALE_TIMEOUT_MINUTES with no terminal outcome →
       mark the attempt failed (``stale_timeout``) and notify, so the user
       knows it ended and can click again. A still-working scan is never
@@ -445,8 +444,8 @@ async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
         if remind_seconds <= 0:
             continue
         last = row["last_progress_notified_at"] or 0
-        if current_time - last < remind_seconds:
-            continue  # already reminded within this window
+        if last:
+            continue  # one delayed reminder per attempt; terminal result is authoritative
         await repo.bump_progress_notified(row["request_id"], current_time)
         acted += 1
         try:
