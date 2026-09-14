@@ -120,11 +120,14 @@ def _trim_html_entities(text: str, limit: int) -> str:
     return text
 
 
-def build_caption(data, *, max_length: int = 1024) -> str:
+def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> str:
     """
     构建媒体说明文本。
     所有用户输入字段都会做 HTML 转义（caption 以 parse_mode="HTML" 发送），
     否则包含 <、>、& 的投稿会导致 Telegram 解析失败，投稿无法发布。
+    ``surface`` 区分展示语境（``channel`` 频道 / ``review`` 审核预览等），
+    用于未来按语境调整「是否展示/如何展示投稿人」；实体策略对两个 surface
+    一致：绝不生成 notification-capable mention entity（§ghost-mention）。
     
     Args:
         data: 包含投稿信息的数据对象
@@ -181,9 +184,15 @@ def build_caption(data, *, max_length: int = 1024) -> str:
         except (KeyError, TypeError, IndexError):
             username = f"user{user_id}"
         
-        # 构建用户链接，可以通过点击访问用户资料（用户名需转义）
+        # Display identity and mention notification are different concepts
+        # (§ghost-mention): never emit a notification-capable entity
+        # (tg://user text_mention / @-anchor). Plain text shows the submitter
+        # without making the Telegram client flag a mention — critical for
+        # review previews that get superseded/cleaned afterwards (the stale
+        # "@" badge would otherwise linger). Surface only affects future
+        # context, the entity policy is identical for channel and review.
         safe_username = esc(str(username)) if username else f"user{user_id}"
-        return f"\n\n投稿人：<a href=\"tg://user?id={user_id}\">@{safe_username}</a>"
+        return f"\n\n投稿人：{safe_username}"
 
     # 收集各部分，只有内容不为空时才添加，避免产生多余的换行
     parts = []
