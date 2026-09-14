@@ -164,7 +164,7 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
         return "⚠️点击查看⚠️" if spoiler.lower() == "true" else ""
     
     def get_submitter_part(user_id: int) -> str:
-        if not SHOW_SUBMITTER:
+        if not SHOW_SUBMITTER or surface == "system":
             return ""
 
         # 匿名投稿：频道内不展示投稿人
@@ -174,11 +174,18 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
         except (KeyError, TypeError, IndexError):
             pass
 
+        if "submitter_user_id" in data.keys():
+            if not data["submitter_user_id"]:
+                return ""
+            user_id = data["submitter_user_id"]
+
         # 获取保存的用户名，如果存在的话
         # 注意：对 sqlite3.Row 使用 "col" in data 判断的是"值"是否相等（几乎恒为 False），
         # 必须用 data.keys() 判断列是否存在
         try:
-            username = data["username"] if "username" in data.keys() else f"user{user_id}"
+            username = (data["submitter_username"]
+                        if "submitter_username" in data.keys()
+                        else data["username"] if "username" in data.keys() else f"user{user_id}")
             if not username:
                 username = f"user{user_id}"
         except (KeyError, TypeError, IndexError):
@@ -191,7 +198,7 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
         # review previews that get superseded/cleaned afterwards (the stale
         # "@" badge would otherwise linger). Surface only affects future
         # context, the entity policy is identical for channel and review.
-        safe_username = esc(str(username)) if username else f"user{user_id}"
+        safe_username = esc(str(username).lstrip("@")) if username else f"user{user_id}"
         return f"\n\n投稿人：{safe_username}"
 
     # 收集各部分，只有内容不为空时才添加，避免产生多余的换行

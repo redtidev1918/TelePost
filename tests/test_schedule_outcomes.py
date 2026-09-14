@@ -120,8 +120,8 @@ async def test_partial_notifies_once_and_is_idempotent(monkeypatch, tmp_path):
 
     async with db_manager.get_db() as conn:
         cur = await conn.execute(
-            "SELECT COUNT(*) FROM schedule_outcome_notifications WHERE slot_id=?",
-            (PAYLOAD["slot_id"],),
+            "SELECT COUNT(*) FROM api_notifications WHERE idempotency_key=? AND status='sent'",
+            (f"schedule-outcome:{PAYLOAD['slot_id']}",),
         )
         assert (await cur.fetchone())[0] == 1
         cur = await conn.execute(
@@ -172,8 +172,35 @@ async def test_notification_survives_missing_review_chat(monkeypatch, tmp_path):
     try:
         resp = await client.post("/api/v1/schedule/outcomes", json=PAYLOAD,
                                  headers={"Authorization": "Bearer tp_service"})
-        assert resp.status == 200
-        assert (await resp.json())["data"]["delivered"] is False
+        assert resp.status == 503
+        assert (await resp.json())["error"]["code"] == "review_chat_not_configured"
         assert application.bot.send_message.await_count == 0
+    finally:
+        await client.close()
+
+@pytest.mark.asyncio
+async def test_failed_send_retries_and_pending_claim_is_not_ack(monkeypatch, tmp_path):
+    await _db(monkeypatch, tmp_path)
+    app, application = _make_app(monkeypatch)
+    client = await _client(app)
+    headers = {"Authorization": "Bearer tp_service"}
+    key = f"schedule-outcome:{PAYLOAD['slot_id']}"
+    try:
+        await db_manager.claim_api_notification(0, key)
+        pending = await client.post("/api/v1/schedule/outcomes", json=PAYLOAD, headers=headers)
+        assert pending.status == 503
+        assert application.bot.send_message.await_count == 0
+        await db_manager.release_api_notification(0, key)
+        application.bot.send_message.side_effect = RuntimeError("temporary")
+        failed = await client.post("/api/v1/schedule/outcomes", json=PAYLOAD, headers=headers)
+        assert failed.status == 502
+        application.bot.send_message.side_effect = None
+        done = await client.post("/api/v1/schedule/outcomes", json=PAYLOAD, headers=headers)
+        assert done.status == 200
+        assert (await done.json())["data"]["delivered"] is True
+        # New app / new request still sees the durable sent receipt.
+        again = await client.post("/api/v1/schedule/outcomes", json=PAYLOAD, headers=headers)
+        assert (await again.json())["data"]["replayed"] is True
+        assert application.bot.send_message.await_count == 2
     finally:
         await client.close()

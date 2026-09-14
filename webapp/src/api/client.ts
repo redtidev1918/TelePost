@@ -128,10 +128,7 @@ export function getLaunchInitData(): string {
   return tg?.initData || '';
 }
 
-export async function apiFetch<T>(
-  path: string,
-  init?: RequestInit,
-): Promise<T> {
+async function authenticatedFetch(path: string, init?: RequestInit): Promise<Response> {
   if (!currentSession) {
     throw new ApiError(401, 'invalid_token', '未登录');
   }
@@ -155,6 +152,16 @@ export async function apiFetch<T>(
       body,
     );
   }
+  return response;
+}
+
+/** Protected media uses the same session/error path; credentials never enter URLs. */
+export async function apiBlob(path: string, signal?: AbortSignal): Promise<Blob> {
+  return (await authenticatedFetch(path, { signal })).blob();
+}
+
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await authenticatedFetch(path, init);
   const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; data?: T };
   if (payload.ok === false) {
     const err = payload as unknown as { error?: { code?: string; message?: string } };

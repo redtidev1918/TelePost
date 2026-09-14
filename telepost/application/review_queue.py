@@ -623,6 +623,8 @@ def _caption_from_command(command: QueueCommand) -> str:
         "spoiler": "true" if command.spoiler else "false",
         "user_id": command.user_id,
         "username": command.username,
+        "submitter_user_id": command.submitter_user_id,
+        "submitter_username": command.submitter_username,
     }, surface="review")
 
 

@@ -233,7 +233,7 @@ async def _own_submission_detail(user_id: int, review_id: int) -> dict:
     """Owner-scoped detail for one logical submission (user-safe fields only)."""
     from telepost.storage.sqlite.reviews import ReviewRepository
 
-    from services.review_service import ReviewNotFoundError
+    from services.review_service import ReviewNotFoundError, _media
 
     repo = ReviewRepository()
     row = await repo.get(review_id)
@@ -245,8 +245,13 @@ async def _own_submission_detail(user_id: int, review_id: int) -> dict:
     chain_id = row["review_chain_id"] or f"review-{row['id']}"
     head = await repo.head_of_chain(chain_id)
     source = head if head is not None else row
+    if int(source["submitter_user_id"] or 0) != int(user_id):
+        raise ReviewNotFoundError("review not found")
     base = _logical_summary(source)
     base.update({
+        "media": [{"index": item.index, "kind": item.kind,
+                   "filename": item.filename}
+                  for item in _media(source)],
         "note": source["note"] or "",
         "link": source["link"] or "",
     })
@@ -713,8 +718,8 @@ def add_api_routes(web_app, application) -> None:
         if principal is None:
             return _error(401, "invalid_token", "token 无效或已吊销")
         uid = principal["telegram_user_id"]
-        if not uid:
-            return _error(403, "permission_denied", "Missing user identity")
+        if not uid or principal.get("kind") != "user":
+            return _error(403, "permission_denied", "需要用户会话")
         try:
             limit = int(request.query.get("limit", "20"))
         except (TypeError, ValueError):
@@ -740,8 +745,8 @@ def add_api_routes(web_app, application) -> None:
         if principal is None:
             return _error(401, "invalid_token", "token 无效或已吊销")
         uid = principal["telegram_user_id"]
-        if not uid:
-            return _error(403, "permission_denied", "Missing user identity")
+        if not uid or principal.get("kind") != "user":
+            return _error(403, "permission_denied", "需要用户会话")
         try:
             review_id = int(request.match_info["review_id"])
         except (TypeError, ValueError):
@@ -751,6 +756,58 @@ def add_api_routes(web_app, application) -> None:
         except ReviewError as exc:
             return _review_error(exc)
         return _ok(detail)
+
+    async def my_submission_media(request):
+        principal = await _resolve_principal(request)
+        if principal is None:
+            return _error(401, "invalid_token", "token 无效或已吊销")
+        if principal.get("kind") != "user":
+            return _error(403, "permission_denied", "需要用户会话")
+        try:
+            review_id = int(request.match_info["review_id"])
+            index = int(request.match_info["index"])
+        except (TypeError, ValueError):
+            return _error(400, "invalid_media_index", "review_id/index 必须是整数")
+        try:
+            detail = await _own_submission_detail(principal["telegram_user_id"], review_id)
+            result = await review_service.get_media(
+                bot, detail["current_review_id"], index,
+                request.query.get("variant", "preview"),
+            )
+        except ReviewError as exc:
+            return _review_error(exc)
+        response = web.Response(body=result.data, content_type=result.mime_type)
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        if result.kind in {"document", "audio"}:
+            response.content_type = "application/octet-stream"
+            response.headers["Content-Disposition"] = "attachment"
+            response.headers["Content-Security-Policy"] = "sandbox"
+        return response
+
+    async def submission_preview(request):
+        principal = await _resolve_principal(request)
+        if principal is None:
+            return _error(401, "invalid_token", "token 无效或已吊销")
+        if principal.get("kind") != "user":
+            return _error(403, "permission_denied", "需要用户会话")
+        payload, error = await _json_body(request)
+        if error:
+            return error
+        for field in ("title", "tags", "note", "link"):
+            if field in payload and not isinstance(payload[field], str):
+                return _error(400, "invalid_field", f"{field} 必须是文本")
+        for field in ("anonymous", "spoiler"):
+            if field in payload and not isinstance(payload[field], bool):
+                return _error(400, "invalid_field", f"{field} 必须是布尔值")
+        from utils.helper_functions import build_caption
+        caption = build_caption({
+            **{k: payload.get(k, "") for k in ("title", "tags", "note", "link")},
+            "anonymous": str(payload.get("anonymous", False)).lower(),
+            "spoiler": str(payload.get("spoiler", False)).lower(),
+            "user_id": principal["telegram_user_id"], "username": principal["name"],
+        }, surface="review")
+        return _ok({"caption": caption, "parse_mode": "HTML"})
 
     async def _notify_refetch_replacement(refetch_request_id: str,
                                           new_review_id) -> None:
@@ -1614,6 +1671,8 @@ def add_api_routes(web_app, application) -> None:
         "/api/v1/me/submissions/{review_id}", my_submission_detail
     )
 
+    web_app.router.add_get("/api/v1/me/submissions/{review_id}/media/{index}", my_submission_media)
+    web_app.router.add_post("/api/v1/submissions/preview", submission_preview)
     web_app.router.add_get("/api/v1/reviews/policy", review_policy)
     web_app.router.add_get("/api/v1/reviews", list_reviews)
     web_app.router.add_get("/api/v1/reviews/{review_id}", get_review)
@@ -1672,37 +1731,41 @@ def add_api_routes(web_app, application) -> None:
         targets = [t for t in targets if isinstance(t, dict)][:20]
 
         from database import db_manager as _db_manager
-        now = time.time()
+        key = f"schedule-outcome:{slot_id}"
+        # Keep legacy receipts, but new delivery uses the shared durable claim.
         async with _db_manager.get_db() as conn:
             cur = await conn.execute(
-                "SELECT sent_at FROM schedule_outcome_notifications WHERE slot_id=?",
+                "SELECT 1 FROM schedule_outcome_notifications WHERE slot_id=?",
                 (slot_id,),
             )
-            existing = await cur.fetchone()
-            if existing is not None:
-                return _ok({"ok": True, "replayed": True, "status": status})
-            await conn.execute(
-                "INSERT OR IGNORE INTO schedule_outcome_notifications "
-                "(slot_id, sent_at, status) VALUES (?, ?, ?)",
-                (slot_id, now, status),
-            )
-            cur = await conn.execute("SELECT changes()")
-            row = await cur.fetchone()
-            inserted = int(row[0]) if row else 0
-        if not inserted:
-            return _ok({"ok": True, "replayed": True, "status": status})
-
+            if await cur.fetchone() is not None:
+                return _ok({"ok": True, "replayed": True, "delivered": True,
+                            "status": status})
+        if not REVIEW_CHAT_ID:
+            return _error(503, "review_chat_not_configured", "未配置审核群，请重试")
+        # Reserved service namespace: token rotation must not change slot identity.
+        if not await claim_api_notification(0, key):
+            async with _db_manager.get_db() as conn:
+                cur = await conn.execute(
+                    "SELECT status FROM api_notifications "
+                    "WHERE telegram_user_id=0 AND idempotency_key=?", (key,),
+                )
+                receipt = await cur.fetchone()
+            if receipt is not None and receipt["status"] == "sent":
+                return _ok({"ok": True, "replayed": True, "delivered": True,
+                            "status": status})
+            return _error(503, "notification_pending", "通知处理中，请重试")
         text = build_schedule_outcome_text(schedule_id, status, targets)
-        delivered = False
-        if REVIEW_CHAT_ID:
-            try:
-                await application.bot.send_message(chat_id=REVIEW_CHAT_ID, text=text)
-                delivered = True
-            except Exception:
-                logger.warning("发送 schedule 终态通知失败: slot=%s", slot_id,
-                               exc_info=True)
-        else:
-            logger.info("未配置审核群，跳过 schedule 终态通知: slot=%s", slot_id)
+        try:
+            message = await application.bot.send_message(
+                chat_id=REVIEW_CHAT_ID, text=text, parse_mode=None,
+            )
+        except Exception:
+            await release_api_notification(0, key)
+            logger.warning("发送 schedule 终态通知失败: slot=%s", slot_id)
+            return _error(502, "notification_failed", "审核群通知失败，请重试")
+        await mark_api_notification_sent(0, key, message.message_id)
+        delivered = True
         try:
             from telepost.observability import audit as audit_mod
             await audit_mod.record_event(
