@@ -587,6 +587,34 @@ def add_api_routes(web_app, application) -> None:
         items, next_cursor = await _own_submissions(uid, limit=limit, cursor=cursor)
         return _ok({"items": items, "next_cursor": next_cursor})
 
+    async def _notify_refetch_replacement(refetch_request_id: str,
+                                          new_review_id) -> None:
+        """审核群回执：重抓替换成功（新稿已落库，attempt 已置 replaced）。
+
+        只对**新创建**的审核卡发一条成功消息；幂等重放（reused）不再重复通知。
+        obsolete（审核人已决）或仍在处理中不发成功回执。
+        """
+        if not refetch_request_id or not new_review_id or not REVIEW_CHAT_ID:
+            return
+        try:
+            from telepost.storage.sqlite.refetch import RefetchRepository
+            attempt = await RefetchRepository().find_by_request_id(
+                refetch_request_id
+            )
+            if attempt is None or attempt["state"] != "replaced":
+                return
+            source_id = attempt["source_review_id"]
+            await application.bot.send_message(
+                chat_id=REVIEW_CHAT_ID,
+                text=(
+                    f"✅ 审核 #{source_id} 重抓成功：新候选 #{new_review_id} "
+                    "已进入审核队列，原稿件已替换。请在新卡片上审核。"
+                ),
+            )
+        except Exception:
+            logger.warning("发送重抓成功回执失败: request_id=%s",
+                           refetch_request_id, exc_info=True)
+
     async def create_submission(request):
         principal = await _resolve_principal(request)
         if principal is None:
@@ -689,6 +717,10 @@ def add_api_routes(web_app, application) -> None:
                 pixiv_id=provenance.get("pixiv_id", ""),
                 source_ref=_fields_source_ref(payload),
             )
+            if not result.get("reused"):
+                await _notify_refetch_replacement(
+                    _fields_refetch_request_id(payload), result.get("review_id")
+                )
             return _business_ack(result)
 
         if not (request.content_type or "").startswith("multipart/"):
@@ -827,6 +859,10 @@ def add_api_routes(web_app, application) -> None:
             pixiv_id=provenance.get("pixiv_id", ""),
             source_ref=_fields_source_ref(fields),
         )
+        if not result.get("reused"):
+            await _notify_refetch_replacement(
+                _fields_refetch_request_id(fields), result.get("review_id")
+            )
         return _business_ack(result)
 
     async def create_notification(request):
