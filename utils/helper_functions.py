@@ -120,7 +120,7 @@ def _trim_html_entities(text: str, limit: int) -> str:
     return text
 
 
-def build_caption(data) -> str:
+def build_caption(data, *, max_length: int = 1024) -> str:
     """
     构建媒体说明文本。
     所有用户输入字段都会做 HTML 转义（caption 以 parse_mode="HTML" 发送），
@@ -128,11 +128,14 @@ def build_caption(data) -> str:
     
     Args:
         data: 包含投稿信息的数据对象
+        max_length: 允许的最大 caption 长度。默认 1024（Telegram 上限）；
+            需要尾部追加固定内容（如频道 footer 链接）时，调用方传入
+            1024 - len(footer) 预留空间，避免截断/超限。
         
     Returns:
-        str: 格式化的说明文本（已转义，长度不超过 Telegram 上限）
+        str: 格式化的说明文本（已转义，长度不超过 max_length）
     """
-    MAX_CAPTION_LENGTH = 1024  # Telegram 的最大 caption 长度
+    MAX_CAPTION_LENGTH = max_length  # Telegram 的最大 caption 长度（可预留）
 
     def esc(value) -> str:
         """转义并保证输入为字符串；异常数据退化为空串，确保 caption 总能构建"""

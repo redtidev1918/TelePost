@@ -210,3 +210,89 @@ async def test_mark_published_is_guarded_by_publishing_status(review_db):
     )
     row = await review_db.get(review_id)
     assert row["status"] == "published" and row["published_message_id"] == 55
+
+
+# --------------------------------------------------------------------------
+# Channel footer (点击投稿) — only on real publish, never in preview
+# --------------------------------------------------------------------------
+
+class CapturingDelivery(RecordingDelivery):
+    def __init__(self):
+        super().__init__()
+        self.captions = []
+
+    async def deliver(self, request: DeliveryRequest) -> DeliveryResult:
+        self.captions.append(request.caption)
+        return await super().deliver(request)
+
+
+def _footer_caption(data=None):
+    from utils.helper_functions import build_caption
+    from telepost.application.publication import _channel_footer
+    footer = _channel_footer()
+    body = data if data is not None else {"tags": "#x"}
+    if not footer:
+        return build_caption(body)
+    return build_caption(body, max_length=1024 - len(footer)) + footer
+
+
+@pytest.mark.asyncio
+async def test_channel_footer_appended_on_real_publish(ledger_db, monkeypatch):
+    """配置 CHANNEL_FOOTER_LINK 后，正式发布 caption 末尾有「点击投稿」链接。"""
+    monkeypatch.setattr(
+        "config.settings.CHANNEL_FOOTER_LINK", "https://t.me/xgdPost_bot"
+    )
+    monkeypatch.setattr(
+        "config.settings.CHANNEL_FOOTER_TEXT", "点击投稿"
+    )
+    delivery = CapturingDelivery()
+    service = PublicationService(delivery=delivery, ledger=ledger_db)
+    await service.publish(_command("footer-key"))
+    assert delivery.captions, "delivery must have been called once"
+    caption = delivery.captions[0]
+    assert caption.endswith(
+        '<a href="https://t.me/xgdPost_bot">点击投稿</a>'
+    )
+    # 正文不加 footer（preview 路径不经过 service）。
+    from utils.helper_functions import build_caption
+    assert "点击投稿" not in build_caption({"tags": "#x"})
+
+
+@pytest.mark.asyncio
+async def test_channel_footer_absent_when_not_configured(ledger_db, monkeypatch):
+    """未配置 CHANNEL_FOOTER_LINK 时行为与历史完全一致。"""
+    monkeypatch.delenv("CHANNEL_FOOTER_LINK", raising=False)
+    monkeypatch.setattr("config.settings.CHANNEL_FOOTER_LINK", "")
+    delivery = CapturingDelivery()
+    service = PublicationService(delivery=delivery, ledger=ledger_db)
+    await service.publish(_command("no-footer-key"))
+    assert delivery.captions
+    assert "点击投稿" not in delivery.captions[0]
+
+
+@pytest.mark.asyncio
+async def test_channel_footer_rejects_non_http_link(ledger_db, monkeypatch):
+    """非 http(s) 链接不进入 caption（防注入）。"""
+    monkeypatch.setattr(
+        "config.settings.CHANNEL_FOOTER_LINK", "javascript:alert(1)"
+    )
+    delivery = CapturingDelivery()
+    service = PublicationService(delivery=delivery, ledger=ledger_db)
+    await service.publish(_command("bad-link-key"))
+    assert delivery.captions
+    assert "javascript:" not in delivery.captions[0]
+    assert "<a href=" not in delivery.captions[0]
+
+
+@pytest.mark.asyncio
+async def test_channel_footer_respects_caption_length_cap(monkeypatch):
+    """footer 加入后总长度不超 Telegram 上限（1024 字符）。"""
+    monkeypatch.setattr(
+        "config.settings.CHANNEL_FOOTER_LINK", "https://t.me/xgdPost_bot"
+    )
+    long_data = {"tags": "#x", "title": "标题", "note": "很长的简介 " * 200}
+    caption = _footer_caption(long_data)
+    assert len(caption) <= 1024
+    assert caption.endswith(
+        '<a href="https://t.me/xgdPost_bot">点击投稿</a>'
+    )

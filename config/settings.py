@@ -237,6 +237,20 @@ if REVIEW_CHAT_ID is not None:
         except ValueError:
             pass
 
+# 频道发布 footer：正式发布到频道的帖子会在 caption 最下方追加
+# 「点击投稿」超链接（指向本 bot，供频道读者发起投稿）。
+# CHANNEL_FOOTER_LINK 为空 = 关闭（默认）；审核预览/排队从不带 footer。
+CHANNEL_FOOTER_LINK = (
+    get_env_or_config('CHANNEL_FOOTER_LINK', 'BOT', 'CHANNEL_FOOTER_LINK',
+                      fallback='')
+    or ''
+).strip()
+CHANNEL_FOOTER_TEXT = (
+    get_env_or_config('CHANNEL_FOOTER_TEXT', 'BOT', 'CHANNEL_FOOTER_TEXT',
+                      fallback='点击投稿')
+    or '点击投稿'
+).strip()
+
 # 模式常量定义
 MODE_MEDIA = 'MEDIA'      # 仅媒体上传
 MODE_DOCUMENT = 'DOCUMENT'  # 仅文档上传
@@ -258,6 +272,7 @@ logger.info(f"  - ADMIN_IDS: {ADMIN_IDS if ADMIN_IDS else '未设置'}")
 logger.info(f"  - API_REVIEW_REQUIRED: {API_REVIEW_REQUIRED}")
 logger.info(f"  - CHAT_REVIEW_REQUIRED: {CHAT_REVIEW_REQUIRED}")
 logger.info(f"  - REVIEW_CHAT_ID: {REVIEW_CHAT_ID if REVIEW_CHAT_ID else '未设置'}")
+logger.info(f"  - CHANNEL_FOOTER_LINK: {CHANNEL_FOOTER_LINK if CHANNEL_FOOTER_LINK else '未设置（不追加 footer）'}")
 logger.info(f"  - ALLOWED_FILE_TYPES: {ALLOWED_FILE_TYPES}")
 if RUN_MODE != "WEBHOOK":
     try:
