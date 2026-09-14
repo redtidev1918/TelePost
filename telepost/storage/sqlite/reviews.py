@@ -156,8 +156,52 @@ class ReviewRepository:
             return cur.rowcount == 1
 
     async def finalize_control(self, review_id: int, message_id: int, *,
-                               ready: bool = True) -> bool:
+                               ready: bool = True,
+                               refetch_request_id: str = "") -> bool:
         async with db_manager.get_db() as conn:
+            if refetch_request_id and ready:
+                from telepost.storage.sqlite.refetch import RefetchRepository
+                refetch_repo = RefetchRepository()
+                cur = await conn.execute(
+                    "SELECT * FROM pending_reviews WHERE id=? AND status='preparing' "
+                    "AND refetch_request_id=?",
+                    (int(review_id), refetch_request_id),
+                )
+                new_review = await cur.fetchone()
+                if new_review is None:
+                    return False
+                attempt, source = await refetch_repo.resolve_replacement(
+                    conn, refetch_request_id
+                )
+                if attempt is None:
+                    return False
+                if source is None or source["status"] != "pending":
+                    await conn.execute(
+                        "UPDATE refetch_attempts SET state='obsolete', finished_at=? "
+                        "WHERE request_id=? AND state IN ('requested','admitted')",
+                        (time.time(), refetch_request_id),
+                    )
+                    return False
+                chain_id, _ = await refetch_repo.chain_of_review(conn, source)
+                cur = await conn.execute(
+                    "UPDATE pending_reviews SET control_message_id=?, status='pending', "
+                    "updated_at=?, error='' WHERE id=? AND status='preparing'",
+                    (int(message_id), time.time(), int(review_id)),
+                )
+                if cur.rowcount != 1:
+                    return False
+                state = await refetch_repo.finalize_replacement(
+                    conn, attempt=attempt, new_review_id=int(review_id),
+                    new_candidate_id=new_review["pixiv_id"] or "",
+                    source_review_id=source["id"], review_chain_id=chain_id,
+                    generation=int(attempt["generation"] or 0),
+                )
+                if state != "replaced":
+                    await conn.execute(
+                        "UPDATE pending_reviews SET status='failed' WHERE id=?",
+                        (int(review_id),),
+                    )
+                return state == "replaced"
             cur = await conn.execute(
                 "UPDATE pending_reviews SET control_message_id=?, status=?, "
                 "updated_at=?, error=CASE WHEN ? THEN '' ELSE error END "

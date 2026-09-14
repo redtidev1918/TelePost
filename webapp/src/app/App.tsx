@@ -28,6 +28,16 @@ const NAV: NavItem[] = [
   { path: '/review', label: '审核队列', show: (r) => r },
 ];
 
+const ERROR_TEXT: Partial<Record<ReturnType<typeof useAuth>['status'], { title: string; hint?: string }>> = {
+  outside_telegram: {
+    title: '请在 Telegram 中打开 TelePost 小程序。',
+    hint: '浏览器直接访问仅用于调式；生产环境必须从 Telegram 进入。',
+  },
+  miniapp_disabled: { title: '小程序功能未启用，请稍后再试。' },
+  auth_failed: { title: '小程序登录失败，请关闭后重新打开。', hint: '如持续失败，请更新 Telegram 后重试。' },
+  server_unavailable: { title: '无法连接服务器，请稍后重试。' },
+};
+
 export function App() {
   return (
     <AuthProvider>
@@ -41,17 +51,20 @@ function Shell() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  if (status === 'unauthorized' || status === 'disabled') {
+  if (status === 'loading' || status === 'authenticating') {
+    // Never flash an error before we positively know it: session boot is
+    // in-flight (or launch context is being detected).
+    return <div className="page-loading">正在打开 TelePost 小程序…</div>;
+  }
+
+  // Only the ABSENCE of Telegram launch data may say "open in Telegram". A
+  // server/auth failure inside Telegram shows its own precise message (§27).
+  if (status !== 'authenticated') {
+    const entry = ERROR_TEXT[status];
     return (
       <div className="page-error">
-        {status === 'disabled'
-          ? '小程序功能未启用，请稍后再试。'
-          : '请在 Telegram 中打开 TelePost 小程序。'}
-        <div className="mutation-help">
-          {status === 'unauthorized'
-            ? '浏览器直接访问仅用于调式；生产环境必须从 Telegram 进入。'
-            : ''}
-        </div>
+        {entry?.title ?? '小程序暂不可用，请稍后再试。'}
+        {entry?.hint ? <div className="mutation-help">{entry.hint}</div> : null}
       </div>
     );
   }

@@ -75,9 +75,9 @@ SUPERSEDED_RETENTION_DAYS = max(
     0, int(os.getenv("SUPERSEDED_RETENTION_DAYS", "30"))
 )
 # 重抓进展看门狗：受理后超过 REMIND 分钟仍未到终态，向审核群发一次“仍在处理”
-# 提醒（同一 attempt 至少间隔一个 REMIND 周期才再提醒）；超过 STALE 分钟仍无
-# 终态（PixivFlow 没回报、机器掉线等），把 attempt 判为 failed 并通知用户，
-# 用户可再次点击。两者为 0 时关闭对应行为。
+# 提醒（每个 attempt 最多一次）；超过 STALE 分钟仍无
+# 终态时先查 PixivFlow durable cell；不能把仍在投递的 admitted attempt
+# 凭本地时间判失败。两者为 0 时关闭对应行为。
 REFETCH_PROGRESS_REMIND_MINUTES = max(
     0, int(os.getenv("REFETCH_PROGRESS_REMIND_MINUTES", "5"))
 )
@@ -395,18 +395,15 @@ async def cleanup_superseded_reviews(bot, *, now: Optional[float] = None) -> int
 
 
 async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
-    """让重抓不再“看起来卡死”：进展提醒 + 超时失败通知。
+    """重抓崩溃兜底：一次进展提醒 + 超时失败通知。
 
     Scans durable refetch attempts that are still active (requested/admitted):
 
     * older than REFETCH_PROGRESS_REMIND_MINUTES and not reminded recently →
-      send a 「仍在处理中」 reminder to the review group, at most one per
-      remind window per attempt;
-    * older than REFETCH_STALE_TIMEOUT_MINUTES with no terminal outcome →
-      mark the attempt failed (``stale_timeout``) and notify, so the user
-      knows it ended and can click again. A still-working scan is never
-      cancelled here — the timeout only converges attempts that NEVER
-      reported anything (crashed machine, lost outcome report).
+      send one 「仍在处理中」 reminder to the review group per attempt;
+    * older than REFETCH_STALE_TIMEOUT_MINUTES → fail only unadmitted requests;
+      admitted attempts are reconciled against PixivFlow's durable cell. A
+      pending delivery or unavailable remote stays active for remote recovery.
 
     Returns the number of attempts acted on. Disabled when both knobs are 0.
     """
@@ -430,23 +427,66 @@ async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
         if kind == "stale":
             if stale_seconds <= 0:
                 continue
-            if await repo.mark_failed(row["request_id"], "stale_timeout"):
-                acted += 1
-                try:
-                    await context_bot_send(
-                        bot,
-                        f"⚠️ 审核 #{review_id} 重抓超时未完成（已运行约 {minutes} 分钟），"
-                        "当前稿件未变，请稍后重试。",
-                    )
-                except Exception:
-                    logger.debug("发送重抓超时通知失败: review_id=%s",
-                                 review_id, exc_info=True)
-            continue
+            if row["state"] == "requested":
+                if await repo.mark_failed(row["request_id"], "admission_timeout"):
+                    acted += 1
+                    try:
+                        await context_bot_send(
+                            bot, f"⚠️ 审核 #{review_id} 重抓请求超时，当前稿件未变，请稍后重试。"
+                        )
+                    except Exception:
+                        logger.debug("发送重抓超时通知失败: review_id=%s",
+                                     review_id, exc_info=True)
+                continue
+            from telepost.storage.sqlite.reviews import ReviewRepository
+            source = await ReviewRepository().get(review_id)
+            if source is None or source["status"] != "pending":
+                _, _, changed = await repo.apply_outcome(
+                    row["request_id"], "failed", reason="source_review_resolved",
+                )
+                acted += int(changed)
+                continue
+            try:
+                remote_state = await asyncio.to_thread(
+                    _read_pixivflow_refetch_status,
+                    source["target_id"], row["request_id"],
+                )
+            except Exception as exc:
+                # A durable outbox may still be delivering after 45 minutes.
+                # Transport failure is not evidence that the work failed.
+                logger.warning("重抓远端状态不可用: review_id=%s error=%s",
+                               review_id, type(exc).__name__)
+                remote_state = ""
+            if remote_state in {"no_candidate", "duplicate", "failed", "submitted"}:
+                disposition = ("no_alternative" if remote_state in {"no_candidate", "duplicate"}
+                               else "failed")
+                reason = ("delivery_uncorrelated" if remote_state == "submitted"
+                          else "remote_failed" if remote_state == "failed" else "")
+                _, applied, changed = await repo.apply_outcome(
+                    row["request_id"], disposition, reason=reason,
+                )
+                if changed:
+                    acted += 1
+                    if applied == "no_alternative":
+                        message = f"📭 审核 #{review_id} 没有找到新的可替换作品，当前稿件保持不变。"
+                    elif applied == "failed":
+                        message = f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，请稍后重试。"
+                    else:
+                        message = ""
+                    if message:
+                        try:
+                            await context_bot_send(bot, message)
+                        except Exception:
+                            logger.debug("发送重抓终态通知失败: review_id=%s",
+                                         review_id, exc_info=True)
+                continue
+            # Active remote state or unknown transport result: one reminder,
+            # then wait for the PixivFlow terminal callback/recovery owner.
         if remind_seconds <= 0:
             continue
         last = row["last_progress_notified_at"] or 0
-        if current_time - last < remind_seconds:
-            continue  # already reminded within this window
+        if last:
+            continue  # one delayed reminder per attempt; terminal result is authoritative
         await repo.bump_progress_notified(row["request_id"], current_time)
         acted += 1
         try:
@@ -550,6 +590,23 @@ def _submit_pixivflow_refetch(target_id: str, request_id: str,
             return result
     except HTTPError as error:
         raise RuntimeError(f"PixivFlow 拒绝重抓（HTTP {error.code}）") from error
+
+
+def _read_pixivflow_refetch_status(target_id: str, request_id: str) -> str:
+    """Read the durable remote cell before declaring an admitted attempt stale."""
+    base = os.environ["PIXIVFLOW_REFETCH_BASE_URL"].rstrip("/")
+    token = os.environ["PIXIVFLOW_REFETCH_TOKEN"]
+    parsed = urlparse(base)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
+        raise ValueError("无效的 PixivFlow 重抓地址")
+    url = (f"{base}/internal/targets/{quote(target_id, safe='')}/refetch/"
+           f"{quote(request_id, safe='')}")
+    request = Request(url, headers={"Authorization": f"Bearer {token}"}, method="GET")
+    with urlopen(request, timeout=10) as response:
+        result = json.load(response)
+        if response.status != 200 or result.get("requestId") != request_id:
+            raise ValueError("PixivFlow 重抓状态不匹配")
+        return str(result.get("state") or "")
 
 
 def _classify_refetch_error(exc: Exception) -> str:

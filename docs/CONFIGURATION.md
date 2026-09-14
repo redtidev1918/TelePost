@@ -87,8 +87,8 @@
 | `PENDING_REVIEW_CLEANUP_BATCH_SIZE` | `100` | 每轮最多过期 1–200 条 |
 | `REVIEW_RETENTION_DAYS` | `30` | 已决审核和 API 通知幂等记录保留天数 |
 | `SUPERSEDED_RETENTION_DAYS` | `30` | 被替换（重抓成功）的旧审核卡保留天数；到期后删除其 Telegram 预览/控制消息与记录，血缘（attempt/seen）保留；`0` 不清理 |
-| `REFETCH_PROGRESS_REMIND_MINUTES` | `5` | 重抓受理后超过该分钟数仍无终态，向审核群发一次「仍在处理中」提醒（同一 attempt 每窗口至多一次）；`0` 关闭提醒 |
-| `REFETCH_STALE_TIMEOUT_MINUTES` | `45` | 重抓受理后超过该分钟数仍无任何终态回报（机器掉线/结果丢失），判为 failed 并通知用户「可稍后重试」；`0` 关闭超时判定 |
+| `REFETCH_PROGRESS_REMIND_MINUTES` | `5` | 重抓受理后超过该分钟数仍无终态，向审核群最多提醒一次；`0` 关闭提醒 |
+| `REFETCH_STALE_TIMEOUT_MINUTES` | `45` | 无终态时开始核查 PixivFlow durable slot；未受理请求可判超时，已受理且仍在执行/投递的 attempt 不凭本地时间判失败；`0` 关闭核查 |
 | `API_MAX_FILES` | `50` | HTTP API 单次投稿文件数上限；多页/超大作品可调大（如 100），父路由只限总字节不数文件 |
 
 Telegram 只保证 Bot 可删除 48 小时内消息；需要自动清理审核群时通常把待审保留设为 1 天。
@@ -161,7 +161,7 @@ HTTPS 请求时自动唤醒）；审核群重抓使用以下配置：
 审核群点「重抓」 → TelePost 持久化一次 attempt（一链同时只允许一个活跃 attempt）
 → POST /internal/targets/{targetId}/refetch（携带 UUID requestId + 审核链 correlation）
 → Fly 代理唤醒已停止的 PixivFlow → 写入 durable manual Slot → 后台执行
-→ 找到新候选：新稿作为独立审核稿进入本群，旧稿在**新稿落库成功后**标记为 superseded
+→ 找到新候选：新稿预览和控制卡就绪后，同事务提交新稿、旧稿 superseded、attempt replaced
 → 没有新候选：PixivFlow 回报 no_alternative，当前稿件保持不变，之后可再次重抓
 → 真正失败：回报 failed，当前稿件保持不变
 ```

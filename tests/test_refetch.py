@@ -18,6 +18,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from aiohttp import FormData
 from aiohttp import web
 
 from database import db_manager
@@ -505,6 +506,42 @@ async def test_replacement_submission_supersedes_only_after_new_review(refetch_d
 
 
 @pytest.mark.asyncio
+async def test_replacement_staging_failure_keeps_source_pending(refetch_db):
+    review_id = await _insert_review(pixiv_id="111", target_id="target-a")
+    attempt, _ = await _attempt(
+        chain_id="chain-%d" % review_id, source_review_id=review_id, callback_id=9001)
+    await RefetchRepository().mark_admitted(attempt["request_id"], "slot-1")
+    bot = AsyncMock()
+    bot.send_photo.side_effect = RuntimeError("preview staging failed")
+
+    with pytest.raises(RuntimeError, match="preview staging failed"):
+        await review.queue_review_from_file_ids(
+            bot, [{"type": "photo", "file_id": "NEW_ART"}], [],
+            tags="#pixiv", title="New candidate", user_id=7, username="pixivflow",
+            target_id="target-a", work_type="illustration", pixiv_id="222",
+            idempotency_key="repl-failed", source="api",
+            refetch_request_id=attempt["request_id"],
+        )
+    async with db_manager.get_db() as conn:
+        cur = await conn.execute("SELECT status FROM pending_reviews WHERE id=?", (review_id,))
+        assert (await cur.fetchone())["status"] == "pending"
+    assert (await RefetchRepository().find_by_request_id(attempt["request_id"]))["state"] == "admitted"
+
+    bot.send_photo.side_effect = None
+    bot.send_photo.return_value = _photo_message()
+    bot.send_message.return_value = MagicMock(message_id=11)
+    result = await review.queue_review_from_file_ids(
+        bot, [{"type": "photo", "file_id": "NEW_ART"}], [],
+        tags="#pixiv", title="New candidate", user_id=7, username="pixivflow",
+        target_id="target-a", work_type="illustration", pixiv_id="222",
+        idempotency_key="repl-failed", source="api",
+        refetch_request_id=attempt["request_id"],
+    )
+    assert result["status"] == "pending_review" and not result["reused"]
+    assert (await RefetchRepository().find_by_request_id(attempt["request_id"]))["state"] == "replaced"
+
+
+@pytest.mark.asyncio
 async def test_replacement_after_approve_race_does_not_supersede(refetch_db, monkeypatch):
     review_id = await _insert_review(pixiv_id="111", target_id="target-a")
     attempt, _ = await _attempt(
@@ -523,31 +560,67 @@ async def test_replacement_after_approve_race_does_not_supersede(refetch_db, mon
     control.message_id = 11
     bot.send_message.return_value = control
 
-    result = await review.queue_review_from_file_ids(
-        bot,
-        [{"type": "photo", "file_id": "NEW_ART"}],
-        [],
-        tags="#pixiv", title="Late candidate",
-        link="https://www.pixiv.net/artworks/333",
-        user_id=7, username="pixivflow",
-        target_id="target-a", work_type="illustration", pixiv_id="333",
-        idempotency_key="repl-2", source="api",
-        refetch_request_id=attempt["request_id"],
-    )
-    new_id = result["review_id"]
-    assert new_id != review_id
+    with pytest.raises(ValueError, match="obsolete"):
+        await review.queue_review_from_file_ids(
+            bot,
+            [{"type": "photo", "file_id": "NEW_ART"}],
+            [],
+            tags="#pixiv", title="Late candidate",
+            link="https://www.pixiv.net/artworks/333",
+            user_id=7, username="pixivflow",
+            target_id="target-a", work_type="illustration", pixiv_id="333",
+            idempotency_key="repl-2", source="api",
+            refetch_request_id=attempt["request_id"],
+        )
 
     async with db_manager.get_db() as conn:
         cur = await conn.execute(
             "SELECT status FROM pending_reviews WHERE id=?", (review_id,)
         )
         old_row = await cur.fetchone()
-    # The reviewer's decision wins; the late result must not create a phantom
-    # superseded row or a linked chain.
+        cur = await conn.execute(
+            "SELECT COUNT(*) AS count FROM pending_reviews WHERE pixiv_id='333'"
+        )
+        assert (await cur.fetchone())["count"] == 0
+    # The reviewer's decision wins; no late review is created.
     assert old_row["status"] == "published"
+    bot.send_photo.assert_not_awaited()
     repo = RefetchRepository()
     updated = await repo.find_by_request_id(attempt["request_id"])
     assert updated["state"] == "obsolete"
+
+
+@pytest.mark.asyncio
+async def test_replacement_decided_during_staging_is_obsolete(refetch_db):
+    review_id = await _insert_review(pixiv_id="111", target_id="target-a")
+    attempt, _ = await _attempt(
+        chain_id="chain-%d" % review_id, source_review_id=review_id, callback_id=9001)
+    await RefetchRepository().mark_admitted(attempt["request_id"], "slot-1")
+    bot = AsyncMock()
+    bot.send_photo.return_value = _photo_message()
+
+    async def decide_before_control(**kwargs):
+        async with db_manager.get_db() as conn:
+            await conn.execute(
+                "UPDATE pending_reviews SET status='rejected' WHERE id=?", (review_id,)
+            )
+        return MagicMock(message_id=11)
+
+    bot.send_message.side_effect = decide_before_control
+    with pytest.raises(RuntimeError, match="审核控制消息无法绑定"):
+        await review.queue_review_from_file_ids(
+            bot, [{"type": "photo", "file_id": "NEW_ART"}], [],
+            tags="#pixiv", title="Late candidate", user_id=7, username="pixivflow",
+            target_id="target-a", work_type="illustration", pixiv_id="222",
+            idempotency_key="repl-raced", source="api",
+            refetch_request_id=attempt["request_id"],
+        )
+    async with db_manager.get_db() as conn:
+        cur = await conn.execute("SELECT status FROM pending_reviews WHERE id=?", (review_id,))
+        assert (await cur.fetchone())["status"] == "rejected"
+        cur = await conn.execute("SELECT status FROM pending_reviews WHERE pixiv_id='222'")
+        assert (await cur.fetchone())["status"] == "failed"
+    assert (await RefetchRepository().find_by_request_id(attempt["request_id"]))["state"] == "obsolete"
 
 # ---------------------------------------------------------------------------
 # API plumbing: refetch_request_id rides the submission into the queue service
@@ -599,6 +672,45 @@ async def test_submission_api_passes_refetch_request_id(refetch_db, monkeypatch)
         )
         assert resp2.status == 201
         assert queue_mock.call_args.kwargs["refetch_request_id"] == ""
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_submission_rejects_unresolved_refetch_provenance(refetch_db, monkeypatch, tmp_path):
+    import utils.api_server as api_server
+
+    async def _authenticate(bearer: str):
+        return {"id": 1, "telegram_user_id": 7, "name": "pixivflow"} if bearer else None
+
+    monkeypatch.setattr(api_server, "authenticate", _authenticate)
+    monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
+    monkeypatch.chdir(tmp_path)
+    queue_mock = AsyncMock()
+    monkeypatch.setattr("handlers.review.queue_review_from_file_ids", queue_mock)
+    monkeypatch.setattr("handlers.review.queue_review_from_files", queue_mock)
+    app = web.Application()
+    api_server.add_api_routes(app, MagicMock(bot=AsyncMock()))
+    client = await _client(app)
+    try:
+        resp = await client.post(
+            "/api/v1/submissions", headers={"Authorization": "Bearer tp_ok"},
+            json={"media": [{"type": "photo", "file_id": "AAA"}], "tags": "Pixiv",
+                  "refetch_request_id": "{{refetchRequestId}}"},
+        )
+        assert resp.status == 400
+        assert (await resp.json())["error"]["code"] == "invalid_refetch_provenance"
+
+        form = FormData()
+        form.add_field("files", b"photo", filename="photo.jpg", content_type="image/jpeg")
+        form.add_field("tags", "Pixiv")
+        form.add_field("refetch_request_id", "{{refetchRequestId}}")
+        resp = await client.post(
+            "/api/v1/submissions", headers={"Authorization": "Bearer tp_ok"}, data=form,
+        )
+        assert resp.status == 400
+        assert (await resp.json())["error"]["code"] == "invalid_refetch_provenance"
+        queue_mock.assert_not_awaited()
     finally:
         await client.close()
 
@@ -687,6 +799,8 @@ async def test_progress_watchdog_reminds_then_stale_fails(refetch_db, monkeypatc
         )
     monkeypatch.setattr(review, "REFETCH_PROGRESS_REMIND_MINUTES", 5)
     monkeypatch.setattr(review, "REFETCH_STALE_TIMEOUT_MINUTES", 45)
+    monkeypatch.setattr(review, "_read_pixivflow_refetch_status",
+                        lambda target_id, request_id: "failed")
     bot = AsyncMock()
 
     acted = await review.monitor_refetch_progress(bot)
@@ -700,6 +814,16 @@ async def test_progress_watchdog_reminds_then_stale_fails(refetch_db, monkeypatc
     assert acted == 0
     assert bot.send_message.await_count == first_send_count
 
+    # A long-running attempt gets only one progress message, not one per window.
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "UPDATE refetch_attempts SET created_at=? WHERE id=?",
+            (_t.time() - 30 * 60, attempt["id"]),
+        )
+    acted = await review.monitor_refetch_progress(bot)
+    assert acted == 0
+    assert bot.send_message.await_count == first_send_count
+
     # Age past the stale timeout → attempt fails + user notified.
     async with db_manager.get_db() as conn:
         await conn.execute(
@@ -708,11 +832,11 @@ async def test_progress_watchdog_reminds_then_stale_fails(refetch_db, monkeypatc
         )
     acted = await review.monitor_refetch_progress(bot)
     assert acted == 1
-    assert "超时未完成" in bot.send_message.await_args.kwargs["text"]
+    assert "重抓失败" in bot.send_message.await_args.kwargs["text"]
     repo = RefetchRepository()
     updated = await repo.find_by_request_id(attempt["request_id"])
     assert updated["state"] == "failed"
-    assert updated["failure_code"] == "stale_timeout"
+    assert updated["failure_code"] == "remote_failed"
     # Current review untouched.
     async with db_manager.get_db() as conn:
         cur = await conn.execute(
@@ -741,6 +865,103 @@ async def test_progress_watchdog_disabled_when_zero(refetch_db, monkeypatch):
     assert acted == 0
     repo = RefetchRepository()
     assert (await repo.find_by_request_id(attempt["request_id"]))["state"] == "admitted"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "remote_state, expected_state, expected_failure",
+    [("delivery_pending", "admitted", ""),
+     ("no_candidate", "no_alternative", ""),
+     ("submitted", "failed", "delivery_uncorrelated")],
+)
+async def test_stale_watchdog_uses_remote_business_state(
+    refetch_db, monkeypatch, remote_state, expected_state, expected_failure,
+):
+    review_id = await _insert_review(pixiv_id="111")
+    attempt, _ = await _attempt(
+        chain_id=f"chain-{review_id}", source_review_id=review_id, callback_id=9001)
+    repo = RefetchRepository()
+    await repo.mark_admitted(attempt["request_id"], "slot-1")
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "UPDATE refetch_attempts SET created_at=?, last_progress_notified_at=? WHERE id=?",
+            (time.time() - 60 * 60, time.time() - 30 * 60, attempt["id"]),
+        )
+    monkeypatch.setattr(review, "REFETCH_PROGRESS_REMIND_MINUTES", 5)
+    monkeypatch.setattr(review, "REFETCH_STALE_TIMEOUT_MINUTES", 45)
+    monkeypatch.setattr(review, "_read_pixivflow_refetch_status",
+                        lambda target_id, request_id: remote_state)
+    bot = AsyncMock()
+    await review.monitor_refetch_progress(bot)
+    row = await repo.find_by_request_id(attempt["request_id"])
+    assert row["state"] == expected_state
+    assert (row["failure_code"] or "") == expected_failure
+    assert bot.send_message.await_count == (0 if remote_state == "delivery_pending" else 1)
+
+
+@pytest.mark.asyncio
+async def test_stale_watchdog_keeps_admitted_on_remote_error(refetch_db, monkeypatch):
+    review_id = await _insert_review(pixiv_id="111")
+    attempt, _ = await _attempt(
+        chain_id=f"chain-{review_id}", source_review_id=review_id, callback_id=9001)
+    repo = RefetchRepository()
+    await repo.mark_admitted(attempt["request_id"], "slot-1")
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "UPDATE refetch_attempts SET created_at=? WHERE id=?",
+            (time.time() - 60 * 60, attempt["id"]),
+        )
+    monkeypatch.setattr(review, "REFETCH_PROGRESS_REMIND_MINUTES", 5)
+    monkeypatch.setattr(review, "REFETCH_STALE_TIMEOUT_MINUTES", 45)
+
+    def unreachable(target_id, request_id):
+        raise OSError("remote unavailable")
+
+    monkeypatch.setattr(review, "_read_pixivflow_refetch_status", unreachable)
+    await review.monitor_refetch_progress(AsyncMock())
+    assert (await repo.find_by_request_id(attempt["request_id"]))["state"] == "admitted"
+
+
+@pytest.mark.asyncio
+async def test_stale_unadmitted_request_fails_without_remote_poll(refetch_db, monkeypatch):
+    review_id = await _insert_review(pixiv_id="111")
+    attempt, _ = await _attempt(
+        chain_id=f"chain-{review_id}", source_review_id=review_id, callback_id=9001)
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "UPDATE refetch_attempts SET created_at=? WHERE id=?",
+            (time.time() - 60 * 60, attempt["id"]),
+        )
+    monkeypatch.setattr(review, "REFETCH_PROGRESS_REMIND_MINUTES", 5)
+    monkeypatch.setattr(review, "REFETCH_STALE_TIMEOUT_MINUTES", 45)
+    monkeypatch.setattr(review, "_read_pixivflow_refetch_status",
+                        lambda *args: pytest.fail("unadmitted request polled remotely"))
+    await review.monitor_refetch_progress(AsyncMock())
+    row = await RefetchRepository().find_by_request_id(attempt["request_id"])
+    assert row["state"] == "failed" and row["failure_code"] == "admission_timeout"
+
+
+def test_remote_refetch_status_uses_same_authenticated_target(monkeypatch):
+    request_id = "6eb50329-20f2-4ea7-b95b-e4676b50d9f1"
+    seen = {}
+    monkeypatch.setenv("PIXIVFLOW_REFETCH_BASE_URL", "https://pixivflow.example")
+    monkeypatch.setenv("PIXIVFLOW_REFETCH_TOKEN", "secret")
+
+    def fake_urlopen(request, timeout):
+        seen["request"] = request
+        seen["timeout"] = timeout
+        response = MagicMock()
+        response.__enter__.return_value.status = 200
+        response.__enter__.return_value.read.return_value = json.dumps(
+            {"requestId": request_id, "slotId": "slot-1", "state": "delivery_pending"}
+        ).encode()
+        return response
+
+    monkeypatch.setattr(review, "urlopen", fake_urlopen)
+    assert review._read_pixivflow_refetch_status("target-a", request_id) == "delivery_pending"
+    assert seen["request"].full_url.endswith(f"/internal/targets/target-a/refetch/{request_id}")
+    assert seen["request"].get_header("Authorization") == "Bearer secret"
+    assert seen["timeout"] == 10
 
 
 # ---------------------------------------------------------------------------
