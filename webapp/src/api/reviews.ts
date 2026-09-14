@@ -1,4 +1,4 @@
-import { apiFetch } from './client';
+import { apiBase, apiFetch } from './client';
 
 export interface ReviewSummary {
   review_id: number;
@@ -96,7 +96,7 @@ export function reviewMediaUrl(
   index: number,
   variant: 'thumbnail' | 'preview' | 'original' = 'preview',
 ): string {
-  return `/api/v1/reviews/${id}/media/${index}?variant=${variant}`;
+  return `${apiBase()}/reviews/${id}/media/${index}?variant=${variant}`;
 }
 
 export function approveReview(
