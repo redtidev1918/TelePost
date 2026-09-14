@@ -494,6 +494,81 @@ class ReviewRepository:
                 )
             return list(await cur.fetchall())
 
+    async def list_logical_submissions(
+        self, submitter_user_id: int, *, limit: int,
+        updated_cursor: Optional[float] = None,
+        id_cursor: Optional[int] = None,
+    ) -> list:
+        """One row per review CHAIN for the verified human submitter (§mine).
+
+        A refetch replacement is a new generation of the SAME logical
+        submission, so the list must never show A/B/C as three items. The head
+        of each chain (max id, i.e. the current, not-superseded generation) is
+        returned with chain aggregates, keyset-paged on the head's
+        ``updated_at`` so pagination stays stable while generations change.
+
+        Aggregates returned per head row:
+          * ``generation_count``  — generations in the chain (1 for a fresh post)
+          * ``chain_created_at``  — when the logical submission was first made
+        """
+        sql_head = """
+            SELECT h.*,
+                   (SELECT COUNT(*) FROM pending_reviews c
+                     WHERE c.review_chain_id = h.review_chain_id)
+                       AS generation_count,
+                   (SELECT MIN(c.created_at) FROM pending_reviews c
+                     WHERE c.review_chain_id = h.review_chain_id)
+                       AS chain_created_at
+              FROM pending_reviews h
+             WHERE h.submitter_user_id = ?
+               AND h.id = (SELECT MAX(c2.id) FROM pending_reviews c2
+                            WHERE c2.review_chain_id = h.review_chain_id)
+        """
+        async with db_manager.get_db() as conn:
+            if updated_cursor is None:
+                cur = await conn.execute(
+                    sql_head + " ORDER BY h.updated_at DESC, h.id DESC LIMIT ?",
+                    (int(submitter_user_id), limit),
+                )
+            else:
+                cur = await conn.execute(
+                    sql_head
+                    + " AND (h.updated_at, h.id) < (?, ?)"
+                    + " ORDER BY h.updated_at DESC, h.id DESC LIMIT ?",
+                    (int(submitter_user_id), updated_cursor, id_cursor, limit),
+                )
+            return list(await cur.fetchall())
+
+    async def head_of_chain(self, review_chain_id: str):
+        """The current (latest) generation of one chain, with chain aggregates."""
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                """
+                SELECT h.*,
+                       (SELECT COUNT(*) FROM pending_reviews c
+                         WHERE c.review_chain_id = h.review_chain_id)
+                           AS generation_count,
+                       (SELECT MIN(c.created_at) FROM pending_reviews c
+                         WHERE c.review_chain_id = h.review_chain_id)
+                           AS chain_created_at
+                  FROM pending_reviews h
+                 WHERE h.review_chain_id = ?
+                 ORDER BY h.id DESC LIMIT 1
+                """,
+                (str(review_chain_id),),
+            )
+            return await cur.fetchone()
+
+    async def chain_rows(self, review_chain_id: str) -> list:
+        """All generations of one chain, oldest first (detail/history view)."""
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM pending_reviews WHERE review_chain_id=? "
+                "ORDER BY id ASC",
+                (str(review_chain_id),),
+            )
+            return list(await cur.fetchall())
+
     async def _select_in_conn(self, conn, review_id: int):
         cur = await conn.execute(
             "SELECT * FROM pending_reviews WHERE id=?", (review_id,)

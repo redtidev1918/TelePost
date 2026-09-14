@@ -170,26 +170,31 @@ class TestMiniAppPrincipal:
 
 class TestMySubmissions:
     @pytest.mark.asyncio
-    async def test_returns_own_rows(self, monkeypatch):
+    async def test_returns_logical_chain_head(self, monkeypatch):
+        """One item per review chain; the superseded generations collapse."""
         from telepost.storage.sqlite import reviews as reviews_mod
 
         rows = [
-            {"id": 11, "status": "pending", "title": "T", "tags": "#a #b",
+            {"id": 13, "status": "pending", "title": "T", "tags": "#a #b",
              "media_json": "[]", "documents_json": "[]", "spoiler": 0,
-             "created_at": 100.0, "source": "api", "user_id": 5073758941,
+             "created_at": 300.0, "source": "api", "user_id": 5073758941,
              "username": "user1", "note": "", "link": "",
              "anonymous": 0, "review_chat_id": "1", "review_message_ids": "[]",
-             "updated_at": 100.0, "decided_at": None, "decided_by": None,
+             "updated_at": 300.0, "decided_at": None, "decided_by": None,
              "published_message_id": None, "target_id": "",
              "source_label": "", "source_ref": "", "scheduled_at": "",
              "error": "", "idempotency_key": "k", "pixiv_id": "",
              "work_type": "", "delivery_target": "",
-             "submitter_user_id": 5073758941, "submitter_username": "user1"},
+             "review_chain_id": "chain-11", "generation": 2,
+             "supersedes_review_id": 12, "refetch_request_id": "u-1",
+             "submitter_user_id": 5073758941, "submitter_username": "user1",
+             "generation_count": 3, "chain_created_at": 100.0},
         ]
         repo_mock = MagicMock()
-        repo_mock.list_by_submitter = AsyncMock(return_value=rows)
-        monkeypatch.setattr(reviews_mod.ReviewRepository, "list_by_submitter",
-                            repo_mock.list_by_submitter)
+        repo_mock.list_logical_submissions = AsyncMock(return_value=rows)
+        monkeypatch.setattr(reviews_mod.ReviewRepository,
+                            "list_logical_submissions",
+                            repo_mock.list_logical_submissions)
         app, _ = _make_app(monkeypatch, _SUBMITTER)
         monkeypatch.setenv("MINIAPP_SESSION_SECRET", "s" * 40)
         token = _session_token(5073758941, ["submitter"])
@@ -198,26 +203,29 @@ class TestMySubmissions:
             resp = await client.get("/api/v1/me/submissions",
                                     headers={"Authorization": f"Bearer {token}"})
             assert resp.status == 200
-            data = (await resp.json())["data"]
-            assert data["items"][0]["review_id"] == 11
-            assert data["items"][0]["status"] == "pending_review"
-            assert data["items"][0]["tags"] == ["#a", "#b"]
+            item = (await resp.json())["data"]["items"][0]
+            assert item["submission_id"] == "chain-11"
+            assert item["current_review_id"] == 13
+            assert item["status"] == "in_review"      # user-facing status
+            assert item["refetch_count"] == 2         # A -> B -> C = 1 submission
+            assert item["created_at"] == 100.0        # chain start, not generation
+            assert item["tags"] == ["#a", "#b"]
+            # No internal lineage/audit fields leak to the client.
+            for leaked in ("refetch_request_id", "submitter_user_id",
+                           "review_message_ids", "source_ref", "actor_kind"):
+                assert leaked not in item
         finally:
             await client.close()
 
     @pytest.mark.asyncio
     async def test_service_rows_never_returned(self, monkeypatch):
-        """The endpoint queries the VERIFIED submitter, not the request actor.
-
-        A row attributed to this user only as the API-token owner (submitter
-        NULL) must never be returned; the repository query is keyed on
-        submitter_user_id so it cannot even be requested.
-        """
+        """The endpoint queries the VERIFIED submitter, not the request actor."""
         from telepost.storage.sqlite import reviews as reviews_mod
         repo_mock = MagicMock()
-        repo_mock.list_by_submitter = AsyncMock(return_value=[])
-        monkeypatch.setattr(reviews_mod.ReviewRepository, "list_by_submitter",
-                            repo_mock.list_by_submitter)
+        repo_mock.list_logical_submissions = AsyncMock(return_value=[])
+        monkeypatch.setattr(reviews_mod.ReviewRepository,
+                            "list_logical_submissions",
+                            repo_mock.list_logical_submissions)
         app, _ = _make_app(monkeypatch, _SUBMITTER)
         monkeypatch.setenv("MINIAPP_SESSION_SECRET", "s" * 40)
         token = _session_token(5073758941, ["submitter"])
@@ -226,8 +234,7 @@ class TestMySubmissions:
             resp = await client.get("/api/v1/me/submissions",
                                     headers={"Authorization": f"Bearer {token}"})
             assert resp.status == 200
-            data = (await resp.json())["data"]
-            assert data["items"] == []
+            assert (await resp.json())["data"]["items"] == []
         finally:
             await client.close()
 
