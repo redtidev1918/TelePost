@@ -10,6 +10,14 @@
 
 ---
 
+## [2.24.1](https://github.com/redtidev1918/TelePost/compare/v2.24.0...v2.24.1) (2026-09-14)
+
+
+### Bug Fixes
+
+* **api:** own-submission detail 404 semantics ([80c07a9](https://github.com/redtidev1918/TelePost/commit/80c07a9d46c2e142a76f3f9eb3fdf77ceafdd074))
+* **api:** own-submission detail returns 404 (not 409) for missing/not-owned rows ([0b7c989](https://github.com/redtidev1918/TelePost/commit/0b7c9895aa4c666a63b5060310ee2bf3a48c6429))
+
 ## [2.24.0](https://github.com/redtidev1918/TelePost/compare/v2.23.1...v2.24.0) (2026-09-14)
 
 
