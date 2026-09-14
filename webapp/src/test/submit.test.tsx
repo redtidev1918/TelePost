@@ -25,7 +25,7 @@ vi.mock('@uppy/react', () => ({
       type: 'file',
       multiple: true,
       onChange: (event: any) => {
-        const selected = Array.from(event.target.files ?? []);
+        const selected: File[] = Array.from(event.target.files ?? []);
         for (const file of selected) {
           ctxUppy.addFile({ data: file, name: file.name, type: file.type });
         }

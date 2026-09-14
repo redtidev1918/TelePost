@@ -10,6 +10,8 @@ import { App } from './app/App';
 
 // Telegram SDK must initialise synchronously. Dev/tests only: production runs
 // inside the real Telegram WebView which injects window.Telegram.WebApp.
+// The mock must satisfy the CURRENT @telegram-apps/sdk launch-params schema:
+// initData requires auth_date + hash + signature, and user needs first_name.
 if (!isTMA() && import.meta.env.DEV) {
   mockTelegramEnv({
     launchParams: {
@@ -17,23 +19,24 @@ if (!isTMA() && import.meta.env.DEV) {
         ['user', JSON.stringify({ id: 12345, first_name: 'Dev', username: 'devuser' })],
         ['auth_date', String(Math.floor(Date.now() / 1000))],
         ['hash', 'dev'],
+        ['signature', 'dev-signature'],
       ]),
       tgWebAppVersion: '8.0',
       tgWebAppPlatform: 'ios',
       tgWebAppThemeParams: ({
         accent_text_color: '#6ab2f2' as `#${string}`,
-        bg_color: '#17212b',
-        button_color: '#5288c1',
-        button_text_color: '#ffffff',
-        destructive_text_color: '#ec3942',
-        header_bg_color: '#17212b',
-        hint_color: '#708499',
-        link_color: '#6ab3f3',
-        secondary_bg_color: '#232e3c',
-        section_bg_color: '#17212b',
-        section_header_text_color: '#708499',
-        subtitle_text_color: '#708499',
-        text_color: '#f5f5f5',
+        bg_color: '#17212b' as `#${string}`,
+        button_color: '#5288c1' as `#${string}`,
+        button_text_color: '#ffffff' as `#${string}`,
+        destructive_text_color: '#ec3942' as `#${string}`,
+        header_bg_color: '#17212b' as `#${string}`,
+        hint_color: '#708499' as `#${string}`,
+        link_color: '#6ab3f3' as `#${string}`,
+        secondary_bg_color: '#232e3c' as `#${string}`,
+        section_bg_color: '#17212b' as `#${string}`,
+        section_header_text_color: '#708499' as `#${string}`,
+        subtitle_text_color: '#708499' as `#${string}`,
+        text_color: '#f5f5f5' as `#${string}`,
       } as never),
     },
   });
