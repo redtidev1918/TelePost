@@ -6,7 +6,7 @@
  * authority — the router only hides what the verified roles say (§45).
  */
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { Tabbar } from '@telegram-apps/telegram-ui';
+import { Spinner, Tabbar } from '@telegram-apps/telegram-ui';
 import { AuthProvider, useAuth } from '../auth/AuthProvider';
 import { HomePage } from '../pages/Home/HomePage';
 import { SubmitPage } from '../pages/Submit/SubmitPage';
@@ -41,15 +41,25 @@ function Shell() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  if (status === 'unauthorized' || status === 'disabled') {
+  if (status === 'loading' || status === 'authenticating') {
+    return <div className="page-loading"><Spinner size="m" /></div>;
+  }
+
+  if (status !== 'authenticated') {
+    const messages = {
+      outside_telegram: '请在 Telegram 中打开 TelePost 小程序。',
+      miniapp_disabled: '小程序功能未启用，请稍后再试。',
+      invalid_init_data: '小程序登录失败，请关闭后重新打开。',
+      expired_init_data: '小程序登录已过期，请关闭后重新打开。',
+      auth_failed: '小程序登录失败，请关闭后重新打开。',
+      server_unavailable: '服务暂时不可用，请稍后重试。',
+    };
     return (
       <div className="page-error">
-        {status === 'disabled'
-          ? '小程序功能未启用，请稍后再试。'
-          : '请在 Telegram 中打开 TelePost 小程序。'}
+        {messages[status]}
         <div className="mutation-help">
-          {status === 'unauthorized'
-            ? '浏览器直接访问仅用于调式；生产环境必须从 Telegram 进入。'
+          {status === 'outside_telegram'
+            ? '浏览器直接访问仅用于调试；生产环境必须从 Telegram 进入。'
             : ''}
         </div>
       </div>

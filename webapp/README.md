@@ -23,7 +23,8 @@ npm run dev        # http://localhost:3000/app/ — proxies /api to a local Tele
 ```
 
 A dev mock Telegram environment is injected automatically (`import.meta.env.DEV`).
-In production the real Telegram WebView provides `window.Telegram.WebApp`.
+In production the SDK reads Telegram's raw signed launch data; the legacy
+`window.Telegram.WebApp.initData` bridge is only a compatibility fallback.
 
 ## Commands
 

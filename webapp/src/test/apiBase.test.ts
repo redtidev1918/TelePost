@@ -21,4 +21,11 @@ describe('apiBase', () => {
     window.history.replaceState({}, '', '/app/?start=abc&bot=bot2');
     expect(apiBase()).toBe('/api/bot2/v1');
   });
+
+  it('retains bot2 after SPA navigation drops the menu query', () => {
+    window.history.replaceState({}, '', '/app/?bot=bot2');
+    expect(apiBase()).toBe('/api/bot2/v1');
+    window.history.replaceState({}, '', '/app/review');
+    expect(apiBase()).toBe('/api/bot2/v1');
+  });
 });
