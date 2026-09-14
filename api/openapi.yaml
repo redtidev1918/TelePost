@@ -14,6 +14,21 @@ info:
     * `retryable_failure` — transport/timeout; Telegram state is unknown,
       the server never auto-resends; reconcile with `GET /deliveries/lookup`;
     * `permanent_failure` — deterministic rejection; do not resend unchanged.
+
+    Identity and provenance (§identity) — three orthogonal concepts:
+
+    * `actor` — WHO/WHAT executed the request (`user` for Telegram/Mini App
+      sessions, `service` for API tokens / automatic delivery, `unknown` for
+      undecidable legacy rows). Stored as `actor_kind`/`actor_subject`.
+    * `submitter` — the VERIFIED human owner of a review
+      (`pending_reviews.submitter_user_id`). NULL for service/automatic
+      submissions; the API-token owner is NEVER a submitter.
+    * `source` — transport/provenance (`chat` | `api` | ...).
+
+    A service/API submission is not proof of human ownership: `POST
+    /submissions` derives ownership from the principal kind, never from the
+    request body, and `GET /me/submissions` returns rows only when
+    `submitter_user_id` matches the current Telegram user.
 servers:
   - url: /api/v1
 security:
@@ -316,10 +331,27 @@ paths:
     get:
       summary: Get one review
       operationId: getReview
+      description: |
+        Reviewer RBAC, or owner-scope read: the verified human submitter
+        (submitter_user_id) of the review may read their own review and media
+        read-only (§identity). Service principals never qualify.
       parameters:
         - {name: review_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {description: Review metadata}
+        '200':
+          description: Review metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: {type: integer}
+                  status: {type: string}
+                  title: {type: string}
+                  submitter_user_id: {type: [integer, 'null'], description: Verified human owner; NULL for service/automatic submissions}
+                  source: {type: string}
+                  target_id: {type: string}
+                  created_at: {type: string}
         '404': {$ref: '#/components/responses/reviewNotFound'}
   /reviews/{review_id}/media/{index}:
     get:
@@ -485,7 +517,14 @@ paths:
           description: Mini App disabled (MINIAPP_ENABLED=false)
   /me/submissions:
     get:
-      summary: The caller's own submission history (strictly user-scoped, §24-§25)
+      summary: The caller's own submission history (strictly user-scoped, §24-§25, §identity)
+      description: |
+        Returns ONLY reviews with explicit verified human attribution
+        (submitter_user_id == the current Telegram user). Rows created by a
+        service/API token bound to this user (PixivFlow automatic submissions,
+        refetch replacements of service chains) are NEVER returned, even though
+        the API token belongs to this user. The query keys on the submitter,
+        not the request actor.
       parameters:
         - {name: cursor, in: query, required: false, schema: {type: string}}
         - {name: limit, in: query, required: false, schema: {type: integer, maximum: 100}}

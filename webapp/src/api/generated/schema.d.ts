@@ -302,7 +302,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get one review */
+        /**
+         * Get one review
+         * @description Reviewer RBAC, or owner-scope read: the verified human submitter
+         *     (submitter_user_id) of the review may read their own review and media
+         *     read-only (§identity). Service principals never qualify.
+         */
         get: operations["getReview"];
         put?: never;
         post?: never;
@@ -540,7 +545,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The caller's own submission history (strictly user-scoped, §24-§25) */
+        /**
+         * The caller's own submission history (strictly user-scoped, §24-§25, §identity)
+         * @description Returns ONLY reviews with explicit verified human attribution
+         *     (submitter_user_id == the current Telegram user). Rows created by a
+         *     service/API token bound to this user (PixivFlow automatic submissions,
+         *     refetch replacements of service chains) are NEVER returned, even though
+         *     the API token belongs to this user. The query keys on the submitter,
+         *     not the request actor.
+         */
         get: {
             parameters: {
                 query?: {
@@ -980,7 +993,18 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        id?: number;
+                        status?: string;
+                        title?: string;
+                        /** @description Verified human owner; NULL for service/automatic submissions */
+                        submitter_user_id?: number | null;
+                        source?: string;
+                        target_id?: string;
+                        created_at?: string;
+                    };
+                };
             };
             404: components["responses"]["reviewNotFound"];
         };

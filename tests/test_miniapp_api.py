@@ -183,12 +183,13 @@ class TestMySubmissions:
              "published_message_id": None, "target_id": "",
              "source_label": "", "source_ref": "", "scheduled_at": "",
              "error": "", "idempotency_key": "k", "pixiv_id": "",
-             "work_type": "", "delivery_target": ""},
+             "work_type": "", "delivery_target": "",
+             "submitter_user_id": 5073758941, "submitter_username": "user1"},
         ]
         repo_mock = MagicMock()
-        repo_mock.list_by_user = AsyncMock(return_value=rows)
-        monkeypatch.setattr(reviews_mod.ReviewRepository, "list_by_user",
-                            repo_mock.list_by_user)
+        repo_mock.list_by_submitter = AsyncMock(return_value=rows)
+        monkeypatch.setattr(reviews_mod.ReviewRepository, "list_by_submitter",
+                            repo_mock.list_by_submitter)
         app, _ = _make_app(monkeypatch, _SUBMITTER)
         monkeypatch.setenv("MINIAPP_SESSION_SECRET", "s" * 40)
         token = _session_token(5073758941, ["submitter"])
@@ -201,6 +202,32 @@ class TestMySubmissions:
             assert data["items"][0]["review_id"] == 11
             assert data["items"][0]["status"] == "pending_review"
             assert data["items"][0]["tags"] == ["#a", "#b"]
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_service_rows_never_returned(self, monkeypatch):
+        """The endpoint queries the VERIFIED submitter, not the request actor.
+
+        A row attributed to this user only as the API-token owner (submitter
+        NULL) must never be returned; the repository query is keyed on
+        submitter_user_id so it cannot even be requested.
+        """
+        from telepost.storage.sqlite import reviews as reviews_mod
+        repo_mock = MagicMock()
+        repo_mock.list_by_submitter = AsyncMock(return_value=[])
+        monkeypatch.setattr(reviews_mod.ReviewRepository, "list_by_submitter",
+                            repo_mock.list_by_submitter)
+        app, _ = _make_app(monkeypatch, _SUBMITTER)
+        monkeypatch.setenv("MINIAPP_SESSION_SECRET", "s" * 40)
+        token = _session_token(5073758941, ["submitter"])
+        client = await _client(app)
+        try:
+            resp = await client.get("/api/v1/me/submissions",
+                                    headers={"Authorization": f"Bearer {token}"})
+            assert resp.status == 200
+            data = (await resp.json())["data"]
+            assert data["items"] == []
         finally:
             await client.close()
 

@@ -55,6 +55,13 @@ class NewReview:
     supersedes_review_id: Optional[int] = None
     # Request UUID of the refetch attempt that produced this review.
     refetch_request_id: str = ""
+    # Identity / provenance (§identity): verified human owner (NULL for
+    # service/automatic submissions) + request actor. These are orthogonal to
+    # the legacy user_id/username (request identity and display only).
+    submitter_user_id: Optional[int] = None
+    submitter_username: str = ""
+    actor_kind: str = "user"  # 'user' | 'service'
+    actor_subject: str = ""
 
 
 class ReviewRepository:
@@ -120,9 +127,12 @@ class ReviewRepository:
                 pixiv_id, work_type, delivery_target,
                 review_chain_id, generation, supersedes_review_id,
                 refetch_request_id,
+                submitter_user_id, submitter_username, actor_kind,
+                actor_subject,
                 created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?)
             """,
             (
                 review.idempotency_key, review.source, review.status,
@@ -138,6 +148,8 @@ class ReviewRepository:
                 review.review_chain_id, int(review.generation),
                 review.supersedes_review_id,
                 review.refetch_request_id,
+                review.submitter_user_id, review.submitter_username,
+                review.actor_kind, review.actor_subject,
                 now, now,
             ),
         )
@@ -454,6 +466,31 @@ class ReviewRepository:
                     "AND (created_at, id) < (?, ?) "
                     "ORDER BY created_at DESC, id DESC LIMIT ?",
                     (int(user_id), created_cursor, id_cursor, limit),
+                )
+            return list(await cur.fetchall())
+
+    async def list_by_submitter(self, submitter_user_id: int, *, limit: int,
+                                created_cursor: Optional[float] = None,
+                                id_cursor: Optional[int] = None) -> list:
+        """Own-submission history by the VERIFIED human submitter (§identity).
+
+        Only rows with explicit human attribution (submitter_user_id) are ever
+        returned; service/automatic submissions (submitter NULL) never appear,
+        even when an API token bound to this user created them.
+        """
+        async with db_manager.get_db() as conn:
+            if created_cursor is None:
+                cur = await conn.execute(
+                    "SELECT * FROM pending_reviews WHERE submitter_user_id=? "
+                    "ORDER BY created_at DESC, id DESC LIMIT ?",
+                    (int(submitter_user_id), limit),
+                )
+            else:
+                cur = await conn.execute(
+                    "SELECT * FROM pending_reviews WHERE submitter_user_id=? "
+                    "AND (created_at, id) < (?, ?) "
+                    "ORDER BY created_at DESC, id DESC LIMIT ?",
+                    (int(submitter_user_id), created_cursor, id_cursor, limit),
                 )
             return list(await cur.fetchall())
 
