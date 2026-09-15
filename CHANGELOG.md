@@ -10,6 +10,13 @@
 
 ---
 
+## [2.27.1](https://github.com/redtidev1918/TelePost/compare/v2.27.0...v2.27.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* **editorial:** empty-chain reviews are their own chain head ([#113](https://github.com/redtidev1918/TelePost/issues/113)) ([6849803](https://github.com/redtidev1918/TelePost/commit/6849803d24e6beef74f4c3a1be10fab7c882c3cf))
+
 ## [2.27.0](https://github.com/redtidev1918/TelePost/compare/v2.26.1...v2.27.0) (2026-09-15)
 
 
