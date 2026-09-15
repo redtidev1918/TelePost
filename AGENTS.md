@@ -384,3 +384,28 @@ submission URL or fail an otherwise valid Publication.
   `点击投稿`）或省略 CTA；绝不产生 `https://t.me/None...` 或坏链接。
 - CTA 进入既有 caption 预算（`channel_caption` 预留 footer 宽度），不得让
   Publication 因加 CTA 超出 Telegram 上限。
+
+## Review/main Post Inline CTA 不变量（§review-cta）
+
+```text
+Submission/review-group main posts use a Telegram inline URL button for
+the public Mini App submission CTA instead of embedding the submission
+entrypoint as a caption/text hyperlink.
+
+The submission CTA is derived from the owning bot context and opens that
+bot's Mini App submission surface.
+
+The Mini App submission CTA is independent from moderation controls;
+removing stale moderation actions must not weaken backend stale guards.
+```
+
+- Mini App CTA 激活时，频道主贴 caption 不再携带文本投稿链接：CTA 以
+  `[✉️ 我要投稿]` inline URL button 挂在 root 消息（单条直发附加 reply_markup；
+  媒体组 / discussion 用 `edit_message_reply_markup` best-effort 附加）。同一帖子
+  绝不同时出现文本投稿链接 + 按钮。
+- 审核群控制卡在 moderation 行之下追加一行独立 CTA 按钮（同一 owning-bot
+  entrypoint）；CTA 永不与 通过/拒绝/重抓 同排，也绝不参与 Review FSM。
+- superseded 旧卡：所有 moderation 按钮移除（后端 stale guard 仍是权威）；
+  公共投稿 CTA 可保留为唯一按钮行，但保留它绝不等于保留任何 stale action。
+- 按钮附加是 best-effort：失败只丢失 CTA 展示，绝不使已确认的 Publication /
+  review card 发送失败。

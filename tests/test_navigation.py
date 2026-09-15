@@ -11,7 +11,11 @@ import html
 
 import pytest
 
-from telepost.application.publication import _channel_footer, channel_caption
+from telepost.application.publication import (
+    _channel_footer,
+    channel_caption,
+    channel_submission_action,
+)
 from telepost.domain.navigation import (
     DEFAULT_CTA_LABEL,
     bot_username_from_link,
@@ -102,27 +106,61 @@ def test_footer_absent_and_safe_when_no_config(monkeypatch):
 
 
 def test_channel_caption_has_exactly_one_submission_cta(monkeypatch):
+    """Mini App CTA active ⇒ the CTA is an INLINE BUTTON, so the caption
+    carries NO textual submission link (never both)."""
     _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=True)
     caption = channel_caption({"tags": "#test", "title": "标题"})
-    assert caption.count("startapp=submit") == 1
-    assert caption.count("✉️ 我要投稿") == 1
+    assert "startapp=submit" not in caption
+    assert "我要投稿" not in caption
+    # The one CTA lives in the action handed to the delivery adapter.
+    action = channel_submission_action()
+    assert action == ("✉️ 我要投稿", "https://t.me/xgdPost_bot?startapp=submit")
+
+
+def test_channel_submission_action_is_per_bot(monkeypatch):
+    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=True)
+    bot1 = channel_submission_action()
+    _patch(monkeypatch, link="https://t.me/vorePost_bot", cta=True)
+    bot2 = channel_submission_action()
+    assert bot1 == ("✉️ 我要投稿", "https://t.me/xgdPost_bot?startapp=submit")
+    assert bot2 == ("✉️ 我要投稿", "https://t.me/vorePost_bot?startapp=submit")
+    assert bot1 != bot2
+    # Navigation intent only.
+    for _, url in (bot1, bot2):
+        assert "startapp=submit" in url
+        assert "user" not in url and "token" not in url
+
+
+def test_channel_submission_action_none_when_disabled_or_missing(monkeypatch):
+    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=False)
+    assert channel_submission_action() is None
+    _patch(monkeypatch, link="", cta=True)
+    assert channel_submission_action() is None
 
 
 def test_channel_caption_respects_caption_budget(monkeypatch):
+    # Mini App ON: no submission footer text in the caption, but the body still
+    # respects the 1024 limit with room to spare.
     _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=True)
+    import re
     near_limit = {"tags": "#test", "title": "标题", "note": "内容" * 400}
     caption = channel_caption(near_limit)
-    # strip HTML tags from the caption before measuring Telegram-visible length
-    import re
     visible = re.sub(r"<[^>]+>", "", caption)
     assert len(visible) <= 1024
-    # The body was truncated rather than the CTA being dropped or overflowed.
-    assert "我要投稿" in caption
+
+    # Mini App OFF: the textual footer is used AND the budget is preserved.
+    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=False)
+    caption_off = channel_caption({"tags": "#test", "title": "标题", "note": "内容" * 200})
+    visible_off = re.sub(r"<[^>]+>", "", caption_off)
+    assert len(visible_off) <= 1024
+    assert "点击投稿" in caption_off
 
 
 def test_online_reading_and_submission_cta_coexist(monkeypatch):
     """TelePress novel preview (在线阅读 → Telegraph) and the submission CTA
-    are two different actions; the TXT itself is a delivery artifact."""
+    are two different actions; the TXT itself is a delivery artifact. With the
+    Mini App CTA active, 在线阅读 stays in the caption and the submission CTA
+    is the inline button action."""
     _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=True)
     caption = channel_caption({
         "tags": "#novel",
@@ -131,8 +169,10 @@ def test_online_reading_and_submission_cta_coexist(monkeypatch):
     })
     assert "telegra.ph/example-123" in caption
     assert "在线阅读" in caption
-    assert "startapp=submit" in caption
-    assert "我要投稿" in caption
+    action = channel_submission_action()
+    assert action is not None
+    assert action[1].startswith("https://t.me/xgdPost_bot?startapp=")
+    assert "telegra.ph" not in action[1]
 
 
 def test_exported_label_constant_is_simple_and_stable():
@@ -140,3 +180,77 @@ def test_exported_label_constant_is_simple_and_stable():
     # Escape round-trip stays valid HTML for Telegram parse mode.
     out = html.escape("✉️ 我要投稿", quote=False)
     assert out == "✉️ 我要投稿"
+
+def _keyboard_to_tuples(kb):
+    return [
+        [(b.text, b.url or b.callback_data) for b in row]
+        for row in kb.inline_keyboard
+    ]
+
+
+def test_review_keyboard_adds_cta_in_its_own_row_and_keeps_moderation():
+    from telepost.telegram.review_keyboard import review_keyboard
+    kb = review_keyboard(
+        55, "https://www.pixiv.net/artworks/1", source="api", pixiv_id="1",
+        submission_url="https://t.me/xgdPost_bot?startapp=submit",
+    )
+    rows = _keyboard_to_tuples(kb)
+    # Moderation controls unchanged, CTA on its own bottom row.
+    assert rows[0] == [("✅ 发布到频道", "review_approve:55"), ("❌ 拒绝", "review_reject:55")]
+    assert any(text == "🔇 遮罩：关" for text, _ in rows[1])
+    assert rows[-1] == [("✉️ 我要投稿", "https://t.me/xgdPost_bot?startapp=submit")]
+    assert len(rows[-1]) == 1  # never merged with a moderation action
+
+
+def test_review_keyboard_omits_cta_when_no_submission_url():
+    from telepost.telegram.review_keyboard import review_keyboard
+    kb = review_keyboard(55, "https://www.pixiv.net/artworks/1")
+    rows = _keyboard_to_tuples(kb)
+    assert all("我要投稿" not in text for row in rows for text, _ in row)
+
+
+@pytest.mark.asyncio
+async def test_superseded_notice_keeps_public_cta_but_no_moderation(monkeypatch):
+    """Superseded ⇒ moderation buttons removed; the public submission CTA may
+    remain as its own row (backend stale guard stays authoritative)."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from telepost.telegram.review_stager import TelegramReviewStager
+
+    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=True)
+    bot = AsyncMock()
+    stager = TelegramReviewStager(bot, -100123)
+    stager._timeouts_now = lambda: {}
+    await_result = AsyncMock()
+    stager._send_throttled = lambda fn: fn()
+    bot.edit_message_text = AsyncMock()
+    await stager.notify_superseded(
+        source_review_id=7, old_message_ids=[101], new_review_id=9
+    )
+    kwargs = bot.edit_message_text.await_args.kwargs
+    assert "已被重抓结果替代" in kwargs["text"]
+    rows = _keyboard_to_tuples(kwargs["reply_markup"])
+    assert rows == [[("✉️ 我要投稿", "https://t.me/xgdPost_bot?startapp=submit")]]
+    # No moderation action survived.
+    for row in rows:
+        for text, _ in row:
+            assert "review_" not in text
+
+
+@pytest.mark.asyncio
+async def test_superseded_notice_clears_all_buttons_when_no_cta(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from telepost.telegram.review_stager import TelegramReviewStager
+
+    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=False)
+    bot = AsyncMock()
+    stager = TelegramReviewStager(bot, -100123)
+    stager._timeouts_now = lambda: {}
+    stager._send_throttled = lambda fn: fn()
+    bot.edit_message_text = AsyncMock()
+    await stager.notify_superseded(
+        source_review_id=7, old_message_ids=[101], new_review_id=9
+    )
+    kwargs = bot.edit_message_text.await_args.kwargs
+    assert not kwargs["reply_markup"].inline_keyboard

@@ -61,3 +61,25 @@ def submission_entrypoint_url(
         # Direct Mini App: https://t.me/<bot>/<short_name>?startapp=submit
         return f"https://t.me/{username}/{short_name}?startapp={_SUBMIT_INTENT}"
     return f"https://t.me/{username}?startapp={_SUBMIT_INTENT}"
+
+
+def submission_action(
+    base_link: str,
+    *,
+    mini_app_enabled: bool,
+    short_name: Optional[str] = None,
+    label: str = DEFAULT_CTA_LABEL,
+) -> Optional[tuple]:
+    """(label, url) for the owning bot's Mini App submission CTA, or None.
+
+    Pure function over bot/runtime context; `None` (missing/disabled config)
+    is the signal to omit the CTA entirely — never a malformed link.
+    """
+    url = submission_entrypoint_url(
+        base_link,
+        mini_app_enabled=mini_app_enabled,
+        short_name=short_name,
+    )
+    if url is None:
+        return None
+    return (label or DEFAULT_CTA_LABEL).strip() or DEFAULT_CTA_LABEL, url

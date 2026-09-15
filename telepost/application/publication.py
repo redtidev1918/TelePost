@@ -431,21 +431,59 @@ class PublicationService:
 
 
 def channel_caption(caption_data: dict) -> str:
-    """Shared channel caption builder for REAL publication: body + CTA footer.
+    """Shared channel caption builder for REAL publication: body + CTA.
 
     ONE implementation for every publication path (chat direct, API direct,
     review approval, editorial, PixivFlow/service). The submission CTA is a
     Publication Presentation concern — it is never assembled per-handler
-    (§submission-entrypoint). Caption budgeting stays here so the CTA can
-    never overflow Telegram's limit.
+    (§submission-entrypoint). When the Mini App submission CTA is active it is
+    rendered as an INLINE BUTTON on the root message, so the caption carries NO
+    textual submission link (never both). Caption budgeting stays here so the
+    CTA can never overflow Telegram's limit.
     """
     from utils.helper_functions import build_caption
     data = dict(caption_data or {})
+    if channel_submission_action() is not None:
+        # The CTA is an inline button (attached by the delivery adapter); the
+        # caption body keeps full budget for the real content (TelePress 在线阅读
+        # link, submitter attribution, tags … — all unchanged).
+        return build_caption(data)
+    return _caption_with_text_footer(data)
+
+
+def _caption_with_text_footer(data: dict) -> str:
+    """Pre-inline-button behavior: textual footer appended to the caption."""
+    from utils.helper_functions import build_caption
     footer = _channel_footer()
     if not footer:
         return build_caption(data)
     # 预留 footer 的字符空间，保证总长不超 Telegram 上限且不切坏 HTML。
     return build_caption(data, max_length=1024 - len(footer)) + footer
+
+
+def channel_submission_action():
+    """(label, url) for the owning bot's Mini App submission CTA, or None.
+
+    Reads bot/runtime config (CHANNEL_FOOTER_LINK + MINIAPP_SUBMIT_CTA) and is
+    the single source the delivery adapter / review keyboard use to attach the
+    ``[✉️ 我要投稿]`` inline button. None ⇒ omit the CTA entirely (never a
+    malformed link).
+    """
+    try:
+        from config.settings import (
+            CHANNEL_FOOTER_LINK,
+            CHANNEL_FOOTER_TEXT,
+            MINIAPP_SUBMIT_CTA,
+        )
+    except Exception:
+        return None
+    link = (CHANNEL_FOOTER_LINK or "").strip()
+    if not link:
+        return None
+    from telepost.domain.navigation import DEFAULT_CTA_LABEL, submission_action
+    custom_text = (CHANNEL_FOOTER_TEXT or "").strip()
+    label = custom_text if custom_text and custom_text != "点击投稿" else DEFAULT_CTA_LABEL
+    return submission_action(link, mini_app_enabled=MINIAPP_SUBMIT_CTA, label=label)
 
 
 def _channel_footer() -> str:
