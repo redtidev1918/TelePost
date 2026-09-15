@@ -10,6 +10,13 @@
 
 ---
 
+## [2.30.0](https://github.com/redtidev1918/TelePost/compare/v2.29.0...v2.30.0) (2026-09-15)
+
+
+### Features
+
+* **publication:** channel submission CTA opens owning bot's Mini App submit page ([#125](https://github.com/redtidev1918/TelePost/issues/125)) ([31602e9](https://github.com/redtidev1918/TelePost/commit/31602e91851e3fa9341108f40de9de6f0c0d66b6))
+
 ## [2.29.0](https://github.com/redtidev1918/TelePost/compare/v2.28.0...v2.29.0) (2026-09-15)
 
 
