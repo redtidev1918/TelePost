@@ -328,7 +328,10 @@ async def _delete_message(bot, chat_id, message_id):
 
 async def _discussion_rollback(bot, sent):
     clean = True
-    for chat_id, msg_id in sent.get("rest", []) + sent.get("anchor", []) + sent.get("cover", []):
+    # §discussion-failure-isolation: a confirmed channel root (cover) is the
+    # successful Publication and is NEVER deleted because the linked-discussion
+    # follow-up (anchor/rest) failed. Only discussion-side artifacts are cleaned.
+    for chat_id, msg_id in sent.get("rest", []) + sent.get("anchor", []):
         clean = await _delete_message(bot, chat_id, msg_id) and clean
     return clean
 
@@ -533,18 +536,23 @@ async def _deliver_discussion(bot, channel, items, *, caption, spoiler,
         if not overflow_items:
             return first_sent, main
 
+        # Channel root is CONFIRMED: the channel Publication has happened. The
+        # linked-discussion overflow is a follow-up whose failure must NOT roll
+        # back (delete) the successful channel root nor re-run the whole
+        # operation (duplicate root) (§discussion-failure-isolation). We keep
+        # the cover and drop/report the overflow.
         try:
             dchat, dmsg = await _wait_for_discussion_forward(
                 channel.id, main.message_id
             )
         except Exception:
-            raise DiscussionPublishError(
-                "等待频道帖转发到讨论组超时", uncertain=False, sent=sent
-            )
+            logger.warning("讨论组转发超时：保留频道主贴，溢出图片未投递 (cover msg=%s)",
+                           main.message_id)
+            return first_sent, main
         if dchat != linked:
-            raise DiscussionPublishError(
-                "频道自动转发落到了非预期讨论组", uncertain=False, sent=sent
-            )
+            logger.warning("频道自动转发落点非预期讨论组：保留频道主贴，溢出未投递 (cover msg=%s)",
+                           main.message_id)
+            return first_sent, main
         sent["anchor"] = [(dchat, dmsg)]
 
         rest_collected = []
@@ -558,16 +566,15 @@ async def _deliver_discussion(bot, channel, items, *, caption, spoiler,
                     (m.chat.id, m.message_id) for m in msgs),
             )
         except NetworkError as exc:
-            sent["rest"] = rest_collected
-            raise DiscussionPublishError(
-                "评论区相册发送响应丢失，可能已部分送达，不自动重试",
-                uncertain=True, sent=sent,
-            ) from exc
+            logger.warning("评论区相册发送响应不确定：保留频道主贴，请人工核验评论区 (cover msg=%s)",
+                           main.message_id)
+            return first_sent, main
         except Exception as exc:
-            sent["rest"] = rest_collected
-            raise DiscussionPublishError(
-                f"评论区相册发送失败：{exc}", uncertain=False, sent=sent
-            )
+            for chat_id, msg_id in rest_collected:
+                await _delete_message(bot, chat_id, msg_id)
+            logger.warning("评论区相册发送失败：保留频道主贴，溢出已回滚 (cover msg=%s): %s",
+                           main.message_id, exc)
+            return first_sent, main
         sent["rest"] = rest_collected
         return first_sent + rest_sent, main
 
@@ -1196,6 +1203,7 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                 ManagerNotifyService,
                 PublicationContext,
                 SubmitterNotifyService,
+                lookup_preview_url,
             )
             anonymous_flag = (
                 (data["anonymous"] if "anonymous" in data.keys() else "false")
@@ -1207,6 +1215,11 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                 submitter_username=str(update.effective_user.username or ""),
                 anonymous=anonymous_flag,
                 link=submission_link,
+                preview_url=(
+                    await lookup_preview_url(f"submission:{data['timestamp']}")
+                    if "timestamp" in data.keys()
+                    else ""
+                ),
             )
             await SubmitterNotifyService().notify_published(context)
             await ManagerNotifyService().notify_accepted(
