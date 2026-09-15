@@ -10,6 +10,13 @@
 
 ---
 
+## [2.31.2](https://github.com/redtidev1918/TelePost/compare/v2.31.1...v2.31.2) (2026-09-15)
+
+
+### Bug Fixes
+
+* **publication:** notify-once, preview link, review-CTA, discussion-root ([#132](https://github.com/redtidev1918/TelePost/issues/132)) ([f16ae04](https://github.com/redtidev1918/TelePost/commit/f16ae040c0e49f5fab34ed1e55ba7aefbae12a23))
+
 ## [2.31.1](https://github.com/redtidev1918/TelePost/compare/v2.31.0...v2.31.1) (2026-09-15)
 
 
