@@ -235,6 +235,29 @@ def test_more_than_ten_items_split_into_albums_keeping_order(count):
 
 
 @pytest.mark.unit
+def test_real_image_gallery_keeps_photo_kind_across_album_boundary(tmp_path):
+    """#102 regression guard: a >10 real-image gallery must keep every item
+    PHOTO across the capacity-first batch boundary (10+10+2), never demoted to
+    DOCUMENT by a per-batch / source-header classification."""
+    paths = [
+        _flat_jpeg(tmp_path / f"g{i}.jpg", (420, 320))
+        for i in range(22)
+    ]
+    items = [MediaItem.local("photo", str(p), p.name) for p in paths]
+    prepared = preparation.reclassify_oversized(items)
+    assert all(item.kind is MediaKind.PHOTO for item in prepared), \
+        "real-image gallery items must stay photos through preparation"
+    plan = plan_delivery(prepared, album_size=10)
+    assert [len(b.items) for b in plan.batches] == [10, 10, 2]
+    assert all(b.kind is BatchKind.ALBUM for b in plan.batches)
+    assert all(
+        item.kind is MediaKind.PHOTO
+        for b in plan.batches for item in b.items
+    ), "no PHOTO may demote to DOCUMENT across the batch boundary"
+    assert _flatten(plan) == [f"g{i}.jpg" for i in range(22)]
+
+
+@pytest.mark.unit
 def test_mixed_gallery_keeps_order_and_adds_no_document_split(tmp_path):
     """A gallery that can be made fully compliant must never split photo/document."""
     paths = _gallery(tmp_path)

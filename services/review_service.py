@@ -588,6 +588,7 @@ class ReviewService:
         from telepost.application.submitter_notify import (
             PublicationContext,
             SubmitterNotifyService,
+            lookup_preview_url,
         )
 
         try:
@@ -612,6 +613,11 @@ class ReviewService:
                 revision_id=int(revision_id) if revision_id else None,
                 change_summary=summary,
                 link=link,
+                preview_url=(
+                    await lookup_preview_url(
+                        f"review:{review_id}:{row.get('idempotency_key') or ''}"
+                    ) if row.get("idempotency_key") else ""
+                ),
             )
             await SubmitterNotifyService().notify_published(context)
         except Exception as exc:
@@ -846,15 +852,15 @@ class ReviewService:
                 result.get("message_id"), result.get("link"),
             )
 
-        if notify_chat_submitter and row["source"] == "chat":
-            try:
-                await bot.send_message(
-                    chat_id=row["user_id"],
-                    text=f"✅ 你的投稿已通过审核并发布到频道。\n{result.get('link', '')}",
-                )
-            except Exception:
-                logger.warning("通知聊天投稿人通过结果失败: review_id=%s",
-                               review_id, exc_info=True)
+        # §notify-submitter: one durable DM per publication. The unified
+        # ``_notify_submitter_published`` above already enqueues the durable,
+        # idempotent, retryable publication-success DM for chat submitters
+        # (submitter_user_id == user_id). A second immediate chat DM here would
+        # double-notify the same user on a single confirmed publish, bypass the
+        # outbox (no idempotency key, no retry), and violate the AGENTS.md
+        # "同一 publication 最多一条 DM" intent. ``notify_chat_submitter`` is
+        # kept for API compatibility; the notification is the durable path only.
+        del notify_chat_submitter
         _audit("approve", review_id, actor, "published", source=source)
         await _record_review_event(
             "review.approved", row, actor,
