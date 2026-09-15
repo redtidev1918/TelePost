@@ -26,6 +26,25 @@ from telepost.storage.sqlite.submitter_notifications import (
 
 logger = logging.getLogger(__name__)
 
+
+async def lookup_preview_url(publication_key: str) -> str:
+    """Return the durable Telegraph preview URL of a publication, if one was
+    recorded as a success. Used to attach the optional ``📖 在线阅读`` line to
+    the submission success DM (§publication-presentation). Returns "" when the
+    publication has no successful preview, so a broken link is never produced.
+    """
+    if not str(publication_key or "").strip():
+        return ""
+    try:
+        from telepost.domain.novel_preview import PreviewStatus
+        from telepost.storage.sqlite.novel_preview import PublicationPreviewRepository
+        rec = await PublicationPreviewRepository().find(str(publication_key).strip())
+        if rec is not None and rec.status == PreviewStatus.SUCCEEDED.value and rec.url:
+            return rec.url
+    except Exception as exc:  # never let a preview lookup break the notification
+        logger.warning("preview url lookup failed for publication key: %s", exc)
+    return ""
+
 # Unified policy: OFF / PUBLISHED_ONLY / PUBLISHED_WITH_EDITORIAL_SUMMARY.
 POLICY_OFF = "off"
 POLICY_PUBLISHED = "published"
@@ -46,6 +65,7 @@ class PublicationContext:
     revision_id: Optional[int] = None
     change_summary: List[str] = field(default_factory=list)
     link: str = ""
+    preview_url: str = ""           # optional Telegraph "read online" enrichment URL
     submission_kind: str = ""      # illustration|novel|… (display only)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -173,6 +193,12 @@ def format_publication_message(payload: Dict[str, Any], include_changes: bool,
     if link:
         lines.append("")
         lines.append(f"🔗 查看发布内容：{link}")
+    # §publication-presentation: the Telegraph "read online" URL is an optional
+    # Publication enrichment. It appears in the success DM ONLY when a real
+    # preview exists; a failed/absent preview never shows a broken entry.
+    preview_url = str(payload.get("preview_url") or "")
+    if preview_url:
+        lines.append(f"📖 在线阅读：{preview_url}")
     return "\n".join(lines)
 
 

@@ -1099,10 +1099,10 @@ async def test_chat_submission_enters_review_and_notifies_after_approval(
         }),
     ):
         await review.approve_review(approval, context)
-    bot.send_message.assert_awaited_once_with(
-        chat_id=7,
-        text="✅ 你的投稿已通过审核并发布到频道。\nhttps://t.me/test/99",
-    )
+    # §notify-submitter: the chat-reviewed submission is notified through the
+    # durable publication-success outbox, NOT through a second direct DM. The
+    # user must not receive two "published" messages for one confirmed publish.
+    bot.send_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio

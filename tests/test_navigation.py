@@ -188,18 +188,20 @@ def _keyboard_to_tuples(kb):
     ]
 
 
-def test_review_keyboard_adds_cta_in_its_own_row_and_keeps_moderation():
+def test_review_keyboard_has_no_submission_cta_and_keeps_moderation():
+    """Review control cards NEVER expose the public submission CTA, even when
+    the owning bot's Mini App submission entrypoint is configured (§review-cta)."""
     from telepost.telegram.review_keyboard import review_keyboard
     kb = review_keyboard(
         55, "https://www.pixiv.net/artworks/1", source="api", pixiv_id="1",
-        submission_url="https://t.me/xgdPost_bot?startapp=submit",
     )
     rows = _keyboard_to_tuples(kb)
-    # Moderation controls unchanged, CTA on its own bottom row.
+    # Moderation controls unchanged.
     assert rows[0] == [("✅ 发布到频道", "review_approve:55"), ("❌ 拒绝", "review_reject:55")]
     assert any(text == "🔇 遮罩：关" for text, _ in rows[1])
-    assert rows[-1] == [("✉️ 我要投稿", "https://t.me/xgdPost_bot?startapp=submit")]
-    assert len(rows[-1]) == 1  # never merged with a moderation action
+    # No public submission-acquisition CTA (✉️ 我要投稿 / Mini App startapp).
+    assert all("我要投稿" not in text for row in rows for text, _ in row)
+    assert all("startapp=submit" not in str(entry) for row in rows for entry in row)
 
 
 def test_review_keyboard_omits_cta_when_no_submission_url():
@@ -210,10 +212,11 @@ def test_review_keyboard_omits_cta_when_no_submission_url():
 
 
 @pytest.mark.asyncio
-async def test_superseded_notice_keeps_public_cta_but_no_moderation(monkeypatch):
-    """Superseded ⇒ moderation buttons removed; the public submission CTA may
-    remain as its own row (backend stale guard stays authoritative)."""
-    from unittest.mock import AsyncMock, MagicMock
+async def test_superseded_notice_has_no_submission_cta_and_no_moderation(monkeypatch):
+    """Superseded ⇒ BOTH moderation buttons AND the public submission CTA are
+    removed (backend stale guard stays authoritative). A review card never
+    exposes a public submission CTA, even when the CTA is configured."""
+    from unittest.mock import AsyncMock
 
     from telepost.telegram.review_stager import TelegramReviewStager
 
@@ -221,7 +224,6 @@ async def test_superseded_notice_keeps_public_cta_but_no_moderation(monkeypatch)
     bot = AsyncMock()
     stager = TelegramReviewStager(bot, -100123)
     stager._timeouts_now = lambda: {}
-    await_result = AsyncMock()
     stager._send_throttled = lambda fn: fn()
     bot.edit_message_text = AsyncMock()
     await stager.notify_superseded(
@@ -229,12 +231,13 @@ async def test_superseded_notice_keeps_public_cta_but_no_moderation(monkeypatch)
     )
     kwargs = bot.edit_message_text.await_args.kwargs
     assert "已被重抓结果替代" in kwargs["text"]
+    # No buttons at all survive on a superseded review card.
     rows = _keyboard_to_tuples(kwargs["reply_markup"])
-    assert rows == [[("✉️ 我要投稿", "https://t.me/xgdPost_bot?startapp=submit")]]
-    # No moderation action survived.
+    assert not kwargs["reply_markup"].inline_keyboard
     for row in rows:
         for text, _ in row:
             assert "review_" not in text
+            assert "我要投稿" not in text
 
 
 @pytest.mark.asyncio

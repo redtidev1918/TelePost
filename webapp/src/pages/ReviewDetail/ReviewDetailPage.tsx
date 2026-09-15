@@ -222,7 +222,7 @@ export function ReviewDetailPage() {
               size="s"
               mode="bezeled"
               loading={refetch.isPending}
-              disabled={refetch.isPending || refetchState.isPending || refetchState.isError || attempt?.state === 'requested' || attempt?.state === 'admitted' || attempt?.state === 'running'}
+              disabled={refetch.isPending || refetchState.isPending || refetchState.isError || attempt?.state === 'requested' || attempt?.state === 'admitted'}
               onClick={() => void refetch.mutateAsync()}
             >
               🔄 重抓

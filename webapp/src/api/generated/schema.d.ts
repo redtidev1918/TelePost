@@ -825,12 +825,20 @@ export interface paths {
                         status: "success" | "partial" | "failed";
                         duration_ms?: number;
                         cells?: Record<string, never>;
+                        recovery?: {
+                            /** @enum {string} */
+                            mode?: "normal" | "relaxed";
+                            requestId?: string;
+                        };
                         targets?: {
                             target_id?: string;
                             work_type?: string;
                             status?: string;
                             work_id?: string | null;
                             error_code?: string;
+                            terminal_reason_code?: string | null;
+                            reason?: string | null;
+                            error?: string | null;
                         }[];
                     };
                 };

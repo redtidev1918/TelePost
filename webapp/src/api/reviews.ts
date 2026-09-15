@@ -53,7 +53,7 @@ export interface ReviewActionResult {
 
 export interface RefetchAttempt {
   request_id: string;
-  state: 'requested' | 'admitted' | 'running' | 'replaced' | 'no_alternative'
+  state: 'requested' | 'admitted' | 'replaced' | 'no_alternative'
     | 'failed' | 'obsolete';
   generation: number;
   source_review_id: number;

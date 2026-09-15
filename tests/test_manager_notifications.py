@@ -190,3 +190,40 @@ async def test_delivery_failure_stays_pending_and_retries_once(notification_db):
     assert await flush_manager_notifications(bot) == 1
     assert (await _manager_rows())[0]["state"] == "sent"
     assert bot.send_message.await_count == 2
+
+
+def test_publication_message_shows_online_link_only_when_preview_succeeded():
+    from telepost.application.submitter_notify import format_publication_message
+
+    payload = {
+        "source": "review", "link": "https://t.me/c/123/99",
+        "preview_url": "https://telegra.ph/my-novel-01",
+    }
+    text = format_publication_message(payload, include_changes=False)
+    assert "🔗 查看发布内容：https://t.me/c/123/99" in text
+    assert "📖 在线阅读：https://telegra.ph/my-novel-01" in text
+
+    # Failed/absent preview -> NO online link, and no broken entry either.
+    no_preview = format_publication_message(
+        {"source": "review", "link": "https://t.me/c/123/99", "preview_url": ""},
+        include_changes=False,
+    )
+    assert "📖 在线阅读" not in no_preview
+    assert "🔗 查看发布内容：https://t.me/c/123/99" in no_preview
+
+
+@pytest.mark.asyncio
+async def test_preview_url_lookup_returns_only_success(notification_db):
+    from telepost.application.submitter_notify import lookup_preview_url
+    from telepost.storage.sqlite.novel_preview import PublicationPreviewRepository
+
+    repo = PublicationPreviewRepository()
+    # no record -> no link
+    assert await lookup_preview_url("novel:1") == ""
+    # failed record -> no link
+    await repo.upsert("novel:1", provider="telepress", status="failed")
+    assert await lookup_preview_url("novel:1") == ""
+    # succeeded record -> link
+    await repo.upsert("novel:1", provider="telepress", status="succeeded",
+                      url="https://telegra.ph/my-novel-01")
+    assert await lookup_preview_url("novel:1") == "https://telegra.ph/my-novel-01"

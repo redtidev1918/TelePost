@@ -114,8 +114,12 @@ class DiscussionStrategy:
         if self._rollback is not None:
             return await self._rollback(sent)
         clean = True
+        # §discussion-failure-isolation: a confirmed channel root (cover) is the
+        # successful Publication and is NEVER deleted because a linked-discussion
+        # follow-up (anchor/rest) failed. Only discussion-side artifacts that this
+        # strategy posted are cleaned up, best-effort.
         for chat_id, msg_id in (
-            sent.get("rest", []) + sent.get("anchor", []) + sent.get("cover", [])
+            sent.get("rest", []) + sent.get("anchor", [])
         ):
             clean = await self._delete(chat_id, msg_id) and clean
         return clean
@@ -166,19 +170,25 @@ class DiscussionStrategy:
         if not rest_items:
             return list(cover_result.messages), main
 
+        # Channel root is now CONFIRMED: the channel Publication has happened.
+        # The linked-discussion overflow is a follow-up whose failure must NOT
+        # roll back (delete) the successful channel root, and must NOT re-run
+        # the whole operation (which would re-post a duplicate root)
+        # (§discussion-failure-isolation). We keep the cover and report the
+        # overflow as dropped / needs verification.
         # Stage 2: wait for the auto-forward anchor.
         try:
             dchat, dmsg = await self._wait_forward(
                 int(request.chat_id), main.message_id
             )
         except Exception:
-            raise DiscussionDeliveryError(
-                "等待频道帖转发到讨论组超时", sent=sent
-            )
+            logger.warning("讨论组转发超时：保留频道主贴，溢出图片未投递 (cover msg=%s)",
+                           main.message_id)
+            return list(cover_result.messages), main
         if linked_chat_id is not None and dchat != linked_chat_id:
-            raise DiscussionDeliveryError(
-                "频道自动转发落到了非预期讨论组", sent=sent
-            )
+            logger.warning("频道自动转发落点非预期讨论组：保留频道主贴，溢出未投递 (cover msg=%s)",
+                           main.message_id)
+            return list(cover_result.messages), main
         sent["anchor"] = [(dchat, dmsg)]
 
         # Stage 3: remaining items into the discussion thread.
@@ -187,20 +197,28 @@ class DiscussionStrategy:
             def _collect(messages):
                 rest_known.extend((m.chat_id, m.message_id) for m in messages)
 
-            rest_result = await self._send_rest(
-                rest_items, dchat, dmsg, request, _collect
-            )
+            try:
+                rest_result = await self._send_rest(
+                    rest_items, dchat, dmsg, request, _collect
+                )
+            except Exception as exc:
+                # Even a raising sender keeps the channel root; only confirmed
+                # discussion-side overflow is cleaned up best-effort.
+                for chat_id, msg_id in rest_known:
+                    await self._delete(chat_id, msg_id)
+                logger.warning("评论区相册发送异常：保留频道主贴，溢出已回滚 (cover msg=%s): %s",
+                               main.message_id, type(exc).__name__)
+                return list(cover_result.messages), main
             if rest_result.is_uncertain:
-                sent["rest"] = rest_known
-                raise DiscussionDeliveryError(
-                    "评论区相册发送响应丢失，可能已部分送达，不自动重试",
-                    uncertain=True, sent=sent,
-                )
+                logger.warning("评论区相册发送响应不确定：保留频道主贴，请人工核验评论区 (cover msg=%s)",
+                               main.message_id)
+                return list(cover_result.messages), main
             if not rest_result.ok:
-                sent["rest"] = rest_known
-                raise DiscussionDeliveryError(
-                    f"评论区相册发送失败：{rest_result.reason}", sent=sent
-                )
+                for chat_id, msg_id in rest_known:
+                    await self._delete(chat_id, msg_id)
+                logger.warning("评论区相册发送失败：保留频道主贴，溢出已回滚 (cover msg=%s): %s",
+                               main.message_id, rest_result.reason)
+                return list(cover_result.messages), main
             sent["rest"] = rest_known
             messages = list(cover_result.messages) + list(rest_result.messages)
         else:
