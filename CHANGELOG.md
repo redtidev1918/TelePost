@@ -10,6 +10,13 @@
 
 ---
 
+## [2.27.3](https://github.com/redtidev1918/TelePost/compare/v2.27.2...v2.27.3) (2026-09-15)
+
+
+### Bug Fixes
+
+* **publication:** presentation SSOT — media actions and submitter identity ([#117](https://github.com/redtidev1918/TelePost/issues/117)) ([5bd77e7](https://github.com/redtidev1918/TelePost/commit/5bd77e7a9cbe4f14f741608888d269a00ba3b057))
+
 ## [2.27.2](https://github.com/redtidev1918/TelePost/compare/v2.27.1...v2.27.2) (2026-09-15)
 
 
