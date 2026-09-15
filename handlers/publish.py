@@ -676,6 +676,7 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
         delivery=_LegacyDeliveryPort(bot, reclassify_local=True),
         link_builder=_link_of,
         record_post=_make_post_recorder(data, local=True),
+        novel_preview=_build_novel_preview(bot),
     )
     command = PublishCommand(
         chat_id=CHANNEL_ID,
@@ -743,6 +744,8 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
             data, local=False, media_compact=media_compact,
             doc_compact=doc_compact,
         ),
+        novel_preview=_build_novel_preview(bot),
+        txt_fetch=_make_txt_fetch(bot),
     )
     command = PublishCommand(
         chat_id=CHANNEL_ID,
@@ -759,6 +762,61 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
     )
     outcome = await service.publish(command)
     return _outcome_to_legacy(outcome, raise_on_failure=True)
+
+
+def _build_novel_preview(bot=None):
+    """Optional novel preview enrichment, built from operator config.
+
+    Returns ``None`` (feature disabled / no Telegraph token / library not
+    installed in this image) — the TXT publication path never depends on it.
+    ``bot`` is unused today but kept so file_id fetchers can be attached here
+    in one place; the caller binds the real fetcher per publication.
+    """
+    from config.settings import (
+        NOVEL_PREVIEW_ENABLED,
+        NOVEL_PREVIEW_MAX_BYTES,
+        NOVEL_PREVIEW_TIMEOUT_SECONDS,
+        TELEGRAPH_ACCESS_TOKEN,
+    )
+    if not NOVEL_PREVIEW_ENABLED:
+        return None
+    from telepost.application.novel_preview import NovelPreviewEnricher
+    from telepost.application.telepress_provider import build_telepress_provider
+
+    provider = build_telepress_provider(TELEGRAPH_ACCESS_TOKEN)
+    if provider is None:
+        return None
+    return NovelPreviewEnricher(
+        provider,
+        enabled=True,
+        timeout_seconds=NOVEL_PREVIEW_TIMEOUT_SECONDS,
+        max_bytes=NOVEL_PREVIEW_MAX_BYTES,
+    )
+
+
+def _make_txt_fetch(bot):
+    """Bound resolver for file_id TXT attachments (Telegram adapter layer).
+
+    Local-file publications need no fetcher; this only serves attachments that
+    live on Telegram's servers (review approval / chat direct), where the
+    enrichment must download the document to read its text.
+    """
+
+    async def fetch(item) -> bytes:
+        file_id = item.telegram_file_id
+        if not file_id or bot is None:
+            return b""
+        try:
+            tg_file = await bot.get_file(file_id)
+        except Exception:
+            return b""
+        try:
+            raw = await tg_file.download_as_bytearray()
+        except Exception:
+            return b""
+        return bytes(raw or b"")
+
+    return fetch
 
 
 def _outcome_to_legacy(outcome, *, raise_on_failure):
@@ -1063,6 +1121,31 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
             )
             publish_success = True
             return ConversationHandler.END
+
+        # Direct publish branch (DIRECT_PUBLISH disposition): an optional novel
+        # preview enrichment MAY add a Telegraph "read online" link before the
+        # channel post is formed. It never runs for REVIEW_REQUIRED (the
+        # preview binds to a REAL publication, not to a review card), never
+        # postpones/alters the TXT document, and never fails the publication.
+        preview_url = ""
+        novel_preview = _build_novel_preview(context.bot)
+        if novel_preview is not None:
+            try:
+                final_items = _items_from_dicts(
+                    _normalize_chat_items(media_list, doc_list)
+                )
+                preview = await novel_preview.enrich(
+                    publication_key=f"submission:{data['timestamp']}",
+                    title=caption_data.get("title") or "",
+                    items=final_items,
+                    fetch=_make_txt_fetch(context.bot),
+                )
+                if preview.succeeded:
+                    preview_url = preview.url
+            except Exception as exc:
+                logger.warning("chat novel preview skipped: %s", type(exc).__name__)
+        if preview_url:
+            caption = build_caption({**caption_data, "novel_preview_url": preview_url})
 
         chat_items = _normalize_chat_items(media_list, doc_list)
         sent_message = None

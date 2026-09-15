@@ -409,3 +409,52 @@ removing stale moderation actions must not weaken backend stale guards.
   公共投稿 CTA 可保留为唯一按钮行，但保留它绝不等于保留任何 stale action。
 - 按钮附加是 best-effort：失败只丢失 CTA 展示，绝不使已确认的 Publication /
   review card 发送失败。
+## Novel TXT Telegraph Preview（§telepress-preview）
+
+```text
+Telegraph novel preview is an optional Publication enrichment,
+not a Publication success prerequisite.
+
+The downloadable TXT document remains an authoritative Telegram
+publication artifact even when a Telegraph preview exists.
+
+Telegraph preview failure must never turn an otherwise successful TXT
+Telegram publication into a failed Publication.
+
+Novel preview content is derived from the immutable final Publication
+Snapshot, not from mutable Submission or stale Review state.
+
+Telegraph preview generation is publication-idempotent.
+Publication retries reuse an existing successful preview instead of
+creating duplicate Telegraph pages.
+
+TelePress integration belongs behind a thin preview-provider adapter;
+TelePost must not reimplement Telegraph rendering and pagination.
+```
+
+- 编排只发生在 `PublicationService`（review/API/editorial/refetch 共用）与 chat
+  DIRECT_PUBLISH 分支；REVIEW_REQUIRED 的审核卡**绝不**提前创建真实 Telegraph 页
+  ——预览绑定真实 Publication，不绑定审核稿。
+- Eligibility 来自**最终 Publication Snapshot**（实际发布的 ordered items）：
+  第一个 `.txt` document 才 eligible；photo-only、非 TXT document、以及被 Editorial
+  移除的 TXT → `not_applicable`，绝不按 source/bot/target 判断。
+- 内容来源 = final snapshot：title 用最终发布标题（Editorial 改名生效），正文读
+  最终所选 TXT；绝不从 mutable original submission / stale revision 取内容。
+- 幂等：`publication_previews` 以发布 idempotency key 为主键，
+  `publication:<key>:novel-preview`；终态（succeeded/failed/timeout）复用，
+  Telegram 投递重试**绝不**再次调用 TelePress；TelePress 自己的内容缓存不是
+  本幂等的替代。
+- 失败隔离：provider 异常/超时/无 Token/未安装库 → PreviewResult.failed /
+  timeout / disabled；TXT document 照常投递，Publication 成功与否只由
+  Telegram 投递决定。`NOVEL_PREVIEW_TIMEOUT_SECONDS` 是严格上界。
+- Provider 是薄 port：`telepost/domain/novel_preview.py` 的
+  `NovelPreviewPublisher`，实现 `TelePressNovelPreviewPublisher` 直接调用
+  `from telepress import TelegraphPublisher`（正式 Python API，非 CLI）；
+  TelePost 不重写 Telegraph node 生成/分页/API wrapper。
+- 展示 SSOT 仍是 `build_caption`：预览成功才渲染「🔗 在线阅读」一行（只挂 root
+  caption，与 TXT document 并列，不替换下载）；`查看发布内容` 仍指 Telegram
+  channel post。
+- privacy/attribution：Telegraph 页只含 title + TXT 正文，永不携带
+  submitter/username/display name/internal id；anonymous 投稿在页内零身份泄漏。
+- 预览 URL 属于 Publication（`publication_previews`），绝不写入 mutable
+  Submission；refetch 仅 current head 的发布才生成预览，superseded 代不产生。

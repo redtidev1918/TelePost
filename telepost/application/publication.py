@@ -113,12 +113,22 @@ class PublicationService:
                  ledger: Optional[DeliveryLedgerRepository] = None,
                  record_post: Optional[PostSink] = None,
                  link_builder: Optional[LinkBuilder] = None,
-                 dedup_window_seconds: int = PUBLISHED_DEDUP_WINDOW_SECONDS):
+                 dedup_window_seconds: int = PUBLISHED_DEDUP_WINDOW_SECONDS,
+                 novel_preview: Optional[object] = None,
+                 txt_fetch: Optional[object] = None):
         self._delivery = delivery
         self._ledger = ledger or DeliveryLedgerRepository()
         self._record_post = record_post  # injected by the wiring layer
         self._link_builder = link_builder
         self._dedup_window = dedup_window_seconds
+        # Optional publication enrichment: a novel TXT attachment may also be
+        # readable online through Telegraph. It is an enrichment, never a
+        # success prerequisite — the authoritative artifact remains the
+        # Telegram TXT document, and a failure/timeout here must not change the
+        # publication outcome. ``txt_fetch`` resolves a file_id attachment's
+        # bytes through the Telegram adapter (local files read from disk).
+        self._novel_preview = novel_preview
+        self._txt_fetch = txt_fetch
         # Same-process serialization for concurrent identical keys: the second
         # caller waits for the first to finish sending+recording, then replays.
         self._key_locks: dict = {}
@@ -235,10 +245,31 @@ class PublicationService:
                 reply_to = command.reply_to_message_id or prior[0].message_id
             else:
                 reply_to = prior[-1].message_id
+        # Optional publication enrichment: a TXT novel in the FINAL snapshot may
+        # gain a Telegraph "read online" link BEFORE the channel caption is
+        # built. Failure/timeout/absence only means "no extra link"; the TXT
+        # document is always still delivered and the publication outcome is
+        # decided by Telegram delivery alone. The enrichment is idempotent per
+        # publication key, so a delivery retry never creates a second page.
+        preview_url = ""
+        if key and not prior and self._novel_preview is not None:
+            try:
+                preview = await self._novel_preview.enrich(
+                    publication_key=key,
+                    title=dict(command.caption_data or {}).get("title", ""),
+                    items=ordered_items,
+                    fetch=self._txt_fetch,
+                )
+                if preview.succeeded:
+                    preview_url = preview.url
+            except Exception as exc:
+                # Enrichment must never break the TXT publication path.
+                logger.warning("novel preview enrichment skipped: %s",
+                               type(exc).__name__)
         request = DeliveryRequest(
             chat_id=command.chat_id,
             items=ordered_items[len(prior):],
-            caption=None if prior else self._caption(command),
+            caption=(None if prior else self._caption(command, preview_url=preview_url)),
             spoiler=command.spoiler,
             reply_mode=mode,
             reply_to_message_id=reply_to,
@@ -416,17 +447,22 @@ class PublicationService:
         )
 
     @staticmethod
-    def _caption(command) -> str:
+    def _caption(command, preview_url: str = "") -> str:
         """Channel caption. Attachment kinds come from the REAL delivery items,
         so the media presentation (the spoiler "点击查看" hint) always reflects
         what is actually published — a document-only publication never
-        advertises a media view (§publication-presentation)."""
+        advertises a media view (§publication-presentation). An optional novel
+        preview link (Telegraph "read online") is appended when the enrichment
+        succeeded; its absence never alters the presentation of the TXT
+        document, which remains the authoritative downloadable artifact."""
         from telepost.domain import presentation
         data = dict(command.caption_data or {})
         if not data.get("media_types"):
             data["media_types"] = presentation.media_kinds_from_items(
                 command.items or []
             )
+        if preview_url:
+            data["novel_preview_url"] = preview_url
         return channel_caption(data)
 
 
@@ -439,7 +475,9 @@ def channel_caption(caption_data: dict) -> str:
     (§submission-entrypoint). When the Mini App submission CTA is active it is
     rendered as an INLINE BUTTON on the root message, so the caption carries NO
     textual submission link (never both). Caption budgeting stays here so the
-    CTA can never overflow Telegram's limit.
+    CTA can never overflow Telegram's limit. An optional novel preview link
+    (Telegraph "read online") is injected through ``novel_preview_url``; its
+    absence never alters the rest of the presentation.
     """
     from utils.helper_functions import build_caption
     data = dict(caption_data or {})

@@ -92,6 +92,10 @@
 | `DISCUSSION_FORWARD_TIMEOUT_SECONDS` | `10` | `discussion` 模式等待频道帖自动转发到讨论组的超时；超时则删除频道主贴并判为发布失败，最小 1 秒 |
 | `REVIEW_PREVIEW_THREAD` | `1` | 后续预览和控制消息回复上一条 |
 | `PENDING_REVIEW_RETENTION_DAYS` | `0` | 待审过期天数；`0` 永久保留 |
+| `NOVEL_PREVIEW_ENABLED` | `false` | **可选发布增强**：TXT 小说经 TelePress 发布到 Telegraph，「在线阅读」链接出现在频道 caption；**默认关闭**，开启后 TXT document 仍正常发送，Telegraph 失败/超时绝不导致投稿失败（§telepress-preview） |
+| `NOVEL_PREVIEW_TIMEOUT_SECONDS` | `15` | 单次预览尝试的严格超时（秒）；Telegraph 不能无限拖住发布 |
+| `NOVEL_PREVIEW_MAX_BYTES` | `4194304` | 读取 TXT 正文的大小上限（字节），超限则不生成预览 |
+| `TELEGRAPH_ACCESS_TOKEN` | 空 | Telegraph 账户 access token（Secret，绝不写日志）；空 = 预览关闭 |
 | `PENDING_REVIEW_CLEANUP_BATCH_SIZE` | `100` | 每轮最多过期 1–200 条 |
 | `REVIEW_RETENTION_DAYS` | `30` | 已决审核和 API 通知幂等记录保留天数 |
 | `SUPERSEDED_RETENTION_DAYS` | `30` | 被替换（重抓成功）的旧审核卡保留天数；到期后删除其 Telegram 预览/控制消息与记录，血缘（attempt/seen）保留；`0` 不清理 |

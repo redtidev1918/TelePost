@@ -207,6 +207,16 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
     
     def get_tags_part(tags: str) -> str:
         return f"🏷 Tags: {esc(tags)}" if tags else ""
+
+    def get_preview_part() -> str:
+        # Optional Telegraph novel preview ("read online"). It only renders
+        # when the enrichment produced a real http(s) URL for THIS publication;
+        # a missing/failed preview simply renders nothing and the TXT document
+        # stays the authoritative downloadable artifact (§telepress-preview).
+        url = _field(data, "novel_preview_url")
+        if not url or not str(url).startswith(("http://", "https://")):
+            return ""
+        return f'🔗 在线阅读： <a href="{esc(url)}">在线阅读</a>'
     
     def get_spoiler_part(spoiler: str) -> str:
         # A "click to reveal" hint is a MEDIA action: it only makes sense when
@@ -306,6 +316,13 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
             parts.append(tags)
     except (KeyError, TypeError):
         tags = ""
+
+    try:
+        preview = get_preview_part()
+        if preview:
+            parts.append(preview)
+    except (KeyError, TypeError):
+        preview = ""
     
     # 将各部分按换行符连接，避免空值带来多余换行
     caption_body = "\n".join(parts)
@@ -336,6 +353,12 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
         fixed_parts.append(title)
     if tags:
         fixed_parts.append(tags)
+    try:
+        preview_part = get_preview_part()
+        if preview_part:
+            fixed_parts.append(preview_part)
+    except Exception:
+        pass
     fixed_text = "\n".join(fixed_parts)
     
     # 预留剧透提示、投稿人信息和固定部分所占长度以及连接换行符
@@ -372,6 +395,12 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
         parts.append(truncated_note_part)
     if tags:
         parts.append(tags)
+    try:
+        fixed_preview = get_preview_part()
+        if fixed_preview:
+            parts.append(fixed_preview)
+    except Exception:
+        pass
     caption_body = "\n".join(parts)
     full_caption = f"{spoiler}\n{caption_body}{submitter}" if spoiler and caption_body else f"{spoiler or caption_body}{submitter}"
 
