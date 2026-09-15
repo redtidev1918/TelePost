@@ -47,6 +47,7 @@ async def editorial_db(monkeypatch, tmp_path):
 
 
 async def _insert_review(*, status="pending", chain="", generation=0,
+                         keep_chain_empty=False,
                          submitter_user_id=5073758941, submitter_username="tester",
                          media=("[{\"type\": \"photo\", \"file_id\": \"A\"},"
                                 "{\"type\": \"photo\", \"file_id\": \"B\"},"
@@ -73,7 +74,7 @@ async def _insert_review(*, status="pending", chain="", generation=0,
              submitter_user_id, submitter_username, now, now),
         )
         review_id = cur.lastrowid
-    if not chain:
+    if not chain and not keep_chain_empty:
         async with db_manager.get_db() as conn:
             await conn.execute(
                 "UPDATE pending_reviews SET review_chain_id = 'chain-' || id WHERE id = ?",
@@ -248,6 +249,44 @@ async def test_stale_generation_cannot_publish(editorial_db):
         cur = await conn.execute(
             "SELECT status FROM pending_reviews WHERE id=?", (head,))
         assert (await cur.fetchone())["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_plain_submission_without_chain_id_is_editable(editorial_db):
+    """Fresh submissions carry an EMPTY review_chain_id until the next app
+    restart backfills it (init_db). They must still be editable/publishable:
+    an empty chain id means the review is its own single-row chain and is by
+    definition the current head (regression: synthetic 'review-<id>' chain id
+    matched no row and every plain submission was falsely declared obsolete)."""
+    from services.review_service import ReviewService
+
+    review_id = await _insert_review(keep_chain_empty=True)
+    row = await _review_row(review_id)
+    assert row["review_chain_id"] == ""
+
+    service = EditorialService()
+    revision = await service.create(review_id, actor={"id": 11, "username": "editor"})
+    assert revision["status"] == "draft"
+    updated = await service.update(
+        review_id, revision["id"],
+        payload={"title": "编辑后标题"}, expected_version=revision["version"],
+        actor={"id": 11, "username": "editor"})
+    finalized = await service.finalize(review_id, revision["id"],
+                                       expected_version=updated["version"])
+    assert finalized["status"] == "finalized"
+
+    # The chainless row publishes through the same review FSM as chained ones.
+    rs = ReviewService(publisher=FakePublisher())
+    result = await rs.publish_edited(MagicMock(), review_id, revision["id"],
+                                     actor=11, source="e2e",
+                                     notify_chat_submitter=False)
+    assert result.status == "published"
+    assert result.message_id == 900
+    async with db_manager.get_db() as conn:
+        cur = await conn.execute(
+            "SELECT published_source_revision_id FROM pending_reviews WHERE id=?",
+            (review_id,))
+        assert (await cur.fetchone())["published_source_revision_id"] == revision["id"]
 
 
 @pytest.mark.asyncio
