@@ -37,6 +37,7 @@ Telegram
 
 `MINIAPP_ENABLED=false` 只关闭 Mini App surface；Bot 与 API 完全不受影响，
 这是上线安全开关（§152-§153）。
+当前投稿界面按审核流程工作，启用 Mini App 时同时设置 `API_REVIEW_REQUIRED=true`。
 
 ## 构建
 

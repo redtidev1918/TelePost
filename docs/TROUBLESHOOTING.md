@@ -20,16 +20,16 @@ curl -fsS 'https://api.telegram.org/bot<TOKEN>/getWebhookInfo'
 重点看 URL、`pending_update_count`、`last_error_date`、`last_error_message`。部署或冷启动
 期间的旧 502 可能继续显示；待处理数归零且新消息成功时，不是当前故障。
 
-Fly auto-stop 必须满足：
+TelePost 是用户可见的投稿入口，Fly.io 参考配置保持常驻：
 
 ```toml
-auto_stop_machines = "stop"
+auto_stop_machines = false
 auto_start_machines = true
-min_machines_running = 0
+min_machines_running = 1
 ```
 
-并使用 TelePost 2.10.39+。更早版本停机时会删除 Webhook，Machine 随后没有唤醒来源。
-PixivFlow 跨 App 投递应使用 `.flycast`，不是 `.internal`。
+不要把 PixivFlow 等可选上游的生命周期配置套到 TelePost。Fly.io 配置见
+[FLYIO_DEPLOYMENT.md](FLYIO_DEPLOYMENT.md)。
 
 ## 启动失败
 
@@ -51,8 +51,7 @@ PixivFlow 跨 App 投递应使用 `.flycast`，不是 `.internal`。
 - 502：父路由已等待子进程端口最多 5 秒；若仍失败，检查健康宽限、子进程崩溃和同一时段日志。
 - 待处理数持续增加：查看同一时段应用日志，不要先 `deleteWebhook`。
 
-切换配置后由 TelePost 重新 `setWebhook`。手工删除 Webhook 会让已停止的 Fly Machine
-失去 Telegram 唤醒请求。
+切换配置后由 TelePost 重新 `setWebhook`。排障时不要先手工删除 Webhook，避免中断更新接收。
 
 ## Polling conflict
 
@@ -77,7 +76,7 @@ Machine；同一 Token 不能同时 Polling，也不能同时使用 Polling 与 
 
 - 会话外发媒体会提示先 `/submit`。
 - `SESSION_TIMEOUT` 默认 900 秒；超时后重新 `/submit`。
-- 正常重启和 auto-stop 会从 `persistence.pickle` 恢复状态。
+- 正常重启会从 `persistence.pickle` 恢复状态。
 - persistence 或 SQLite 无写权限时，先修复整个 `data/` 的所有者/挂载。
 - 审核预览出现 FloodWait/timeout 时，保持默认节流和 120 秒超时，避免并发重发。
 
@@ -112,7 +111,7 @@ flyctl machine status <machine-id> --app <app>
 ```
 
 - 双 Bot 用 512 MiB；低配关闭搜索并把 `DB_CACHE_KB` 设为 1024。
-- PixivFlow 拆到 256 MiB 常驻 Machine，计划错开且下载并发为 1。
+- PixivFlow 等采集器应放在独立运行单元中，按其实际 RSS 和任务生命周期配置资源。
 - 不要用 PNG/JPEG 文件大小推断内存。检查尺寸和 mode；RGBA 解码至少约 4 B/px，RGB 转换还会增加峰值。
 - 保持 `TELEPOST_IMAGE_DECODE_BUDGET_MB` 的保守值。超预算素材变成 document 是预期安全行为；不要靠增大 `REVIEW_ALBUM_SIZE` 或强制 ffmpeg 转码绕过预算。
 - `api_uploads` 持续增长说明请求被强制中断。

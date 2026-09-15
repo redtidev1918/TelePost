@@ -2,134 +2,144 @@
 
 **语言 / Language:** 中文 · [English](README.en.md)
 
-Telegram 频道投稿机器人，支持聊天投稿、审核队列、全文搜索、多 Bot 和 HTTP API。
+**Telegram 频道投稿、审核与自动化发布平台。**
 
+[![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
-[![Docs](https://img.shields.io/badge/Docs-文档站点-6366f1?style=flat-square)](https://redtidev1918.github.io/TelePost/)
+[![Docs](https://img.shields.io/badge/docs-online-6366f1.svg)](https://redtidev1918.github.io/TelePost/)
 
-## 能做什么
+用户可以通过 Telegram 聊天或 Mini App 投稿，管理员可以集中审核和管理内容；
+外部程序也可以通过 HTTP API 自动投递。所有入口共用同一套投稿、审核、搜索、发布和状态管理流程。
+TelePost 可以独立运行，不要求 PixivFlow、Fly.io、Mini App 或多 Bot。
 
-- 在 Telegram 内完成上传、预览、编辑、匿名/剧透切换与发布
-- 分别控制聊天投稿和 HTTP API 投稿是否进入私有审核群
-- 搜索频道历史、标签、个人投稿和本地热榜
-- 用一个 supervisor 运行多个相互隔离的 Bot
-- 通过 Bearer Token API 接收外部自动化投稿
-- 通过可选 MCP sidecar 让 AI Agent 安全读取待审核投稿和媒体、给出审核建议
-- **Telegram Mini App**（可选增强）：Telegram 内直接投稿、查看自己的投稿状态，
-  审核员在 Mini App 里处理审核队列（批准/拒绝/剧透/重抓）——与 Bot 共用同一套
-  后端 domain/application/state machine/审计
-- 在 Polling、Webhook 与 `AUTO` 模式间切换
-- 在 Fly.io 保留 Webhook 后自动休眠，并由下一次请求唤醒
-- 在图片解码前执行资源预算；高风险原图以预览或文档安全降级
-- 审核暂存采用可恢复状态，启动时修复缺失的控制消息
+## 适合什么场景
 
-## 最快开始
+| 场景 | 流程 | 适合 |
+| --- | --- | --- |
+| 社区频道 | 成员 → Bot / Mini App → 直接发布或审核 → 频道 | 社区投稿、作品征集、UGC 频道 |
+| 自动内容频道 | PixivFlow 等工具 → HTTP API → 审核 → 频道 | 自动收集内容并保留人工把关 |
+| 自定义自动化 | RSS / 爬虫 / CI / 自有脚本 → HTTP API → 频道 | 把 Telegram 作为现有工作流的发布端 |
 
-从 [最新 Release](https://github.com/redtidev1918/TelePost/releases/latest) 下载当前平台的
-单文件程序，首次运行会进入配置向导：
+```text
+用户 ──┬── Telegram Chat ──┐
+       └── Mini App ───────┤
+                           ▼
+                        TelePost ──→ Telegram Channel
+                           ▲
+外部自动化 ── HTTP API ────┘
+```
+
+Chat、Mini App 和 API 不是三套系统：它们最终进入同一个 TelePost 业务流程。Mini App 是可选的增强界面，
+审核也是可配置策略；原生 Chat 投稿默认直接发布，设置 `CHAT_REVIEW_REQUIRED=true` 后才进入审核队列。
+
+## 30 秒开始
+
+1. 在 [@BotFather](https://t.me/BotFather) 创建 Bot，并把它加入目标频道、授予发帖权限。
+2. 从 [最新 Release](https://github.com/redtidev1918/TelePost/releases/latest) 下载当前平台的单文件程序。
+3. 首次运行并按向导填写 Bot Token、频道 ID，以及推荐设置的 Owner ID。
+4. 向 Bot 发送 `/start`，再用 `/submit` 完成第一次投稿。
+
+Linux 示例：
 
 ```bash
 chmod +x telepost-linux-x64
 ./telepost-linux-x64
 ```
 
-源码运行：
+也可以使用 Docker 或源码运行；各平台下载、安装和升级方式见[安装与部署](docs/INSTALL.md)。
 
-```bash
-git clone https://github.com/redtidev1918/TelePost.git
-cd TelePost
-python3 -m venv .venv
-./.venv/bin/pip install -r requirements.txt
-./.venv/bin/python run.py --setup
-./.venv/bin/python run.py
-```
+## 核心能力
 
-最少需要：
-
-| 配置 | 说明 |
-|---|---|
-| `TOKEN` | 从 [@BotFather](https://t.me/BotFather) 获取 |
-| `CHANNEL_ID` | `@channel` 或 `-100…`；Bot 必须有发帖权限 |
-| `OWNER_ID` | 推荐设置；启用敏感管理命令和 API Token 生成 |
-
-环境变量优先于 `config.ini`。完整配置见
-[配置参考](docs/CONFIGURATION.md)，部署方式见[安装与部署](docs/INSTALL.md)。
-
-## 运行方式
-
-| 场景 | 推荐模式 |
-|---|---|
-| 本地、无公网 HTTPS | `RUN_MODE=POLLING` |
-| 有公网 HTTPS | `RUN_MODE=WEBHOOK` |
-| 希望自动选择 | `RUN_MODE=AUTO`（默认） |
-
-Webhook 和 Polling 都提供 `/live`（进程存活）、`/ready`（数据库、Bot、审核服务可用）、
-`/health` 与 `/api/v1/*`。多 Bot 入口固定为
-`/api/botN/v1/*` 和 `/webhook/botN`，详见 [Webhook 与 Polling](docs/WEBHOOK_MODE.md)。
-
-## Fly.io 与 PixivFlow
-
-低成本推荐拓扑：
-
-```text
-PixivFlow 256 MiB，常驻调度
-        │ Flycast/Fly Proxy HTTP
-        ▼
-TelePost 512 MiB，auto-stop + auto-start，双 Bot
-```
-
-PixivFlow 必须常驻才能按 Cron 执行；TelePost 只处理入站事件，可以自动休眠。不要把
-两者塞进一台会自动休眠的 Machine，否则休眠期间没有进程能触发 Cron。完整步骤见
-[Fly.io 部署](docs/FLYIO_DEPLOYMENT.md)。
-
-## 常用入口
-
-- 用户：`/submit`、`/search`、`/hot`、`/myposts`、`/mystats`
-- Owner：`/botconfig`、`/gen_token`、`/delete_posts`
-- 健康检查：`curl http://127.0.0.1:8080/health`
-- 版本追踪：`python run.py --version`（显示 release、commit SHA 与构建日期）
-- 测试：`./.venv/bin/python -m pytest -q --no-cov -o log_cli=false`
-
-全部命令见[命令参考](docs/COMMANDS.md)，自动化调用见 [HTTP API](docs/API.md)。
+- **投稿与发布**：图片、视频、音频和文件；支持预览、编辑、标签、匿名和剧透。
+- **灵活审核**：Chat 与 API 可分别选择直接发布或进入私有审核群，不强制所有投稿走同一种流程。
+- **Mini App**：普通用户投稿并查看自己的投稿，审核员处理队列和详情。
+- **HTTP API**：Bearer Token、幂等键、文件上传和 Telegram `file_id`，适合脚本与自动化服务。
+- **频道管理**：搜索频道历史、标签、个人投稿和本地热榜，并提供常用管理命令。
+- **多 Bot**：一个 supervisor 运行多个相互隔离的 Bot，各自使用独立配置与数据目录。
+- **运行方式**：支持 Polling、Webhook 和自动选择，部署不绑定特定云平台。
 
 ## Telegram Mini App
 
 ```text
-普通用户: Telegram → Mini App → 投稿 / 我的投稿
-审核员:   Telegram → Mini App → 审核队列 / 审核详情（通过、拒绝、剧透、重抓）
+普通用户：Telegram → Mini App → 投稿 / 我的投稿
+审核员：  Telegram → Mini App → 审核队列 / 审核详情
 ```
 
-- 叠加在既有 Bot 之上：Bot 的 quick actions + 通知 + fallback 全部保留。
-- 认证：服务器用 `init-data-py` 验证 Telegram `initData`，签发短期 session；
-  Bot token / 长效 API token 从不进入浏览器（§9-§12）。
-- 启动数据由 Telegram SDK 读取，两个 Bot 各用自己的 `?bot=botN` 菜单入口；
-  `/app` 可访问只证明静态资源就绪，仍须在 Telegram 内验证登录和操作。
-- 一线部署说明见 [`docs/MINIAPP.md`](docs/MINIAPP.md)。
+Mini App 复用 Bot 的身份、投稿和审核流程，不是第二套后端；关闭 Mini App 不影响聊天投稿和 HTTP API。
+当前 Mini App 投稿界面按审核流程工作，启用时应同时设置 `API_REVIEW_REQUIRED=true`。
+启用方式、同域托管与安全要求见 [Mini App 文档](docs/MINIAPP.md)。
+
+## HTTP API 与自动化
+
+外部程序可以把 TelePost 当作 Telegram 的投稿、审核与发布后端。先由 Owner 在 Bot 中执行
+`/gen_token <名称>` 生成 Token，然后提交内容：
+
+```bash
+curl -X POST 'https://example.com/api/v1/submissions' \
+  -H 'Authorization: Bearer tp_xxxx' \
+  -F 'files=@image.jpg' \
+  -F 'tags=illustration,featured' \
+  -F 'title=Example' \
+  -F 'idempotency_key=my-source:123'
+```
+
+多 Bot 路径、审核策略、响应语义和完整字段见 [HTTP API 文档](docs/API.md)。
+
+### 与其他工具配合
+
+TelePost 可以完全独立运行，也可以接收任何能调用 HTTP API 的上游：
+
+```text
+PixivFlow ─────┐
+RSS / 爬虫 ────┼──→ TelePost → 审核 / 发布 → Telegram
+自有脚本 / CI ┘
+```
+
+[PixivFlow](https://github.com/redtidev1918/PixivFlow) 是一个独立的 Pixiv 下载、筛选与自动收集工具；
+它可以把结果交给 TelePost，也可以本地下载或投递到其他接收端。**TelePost 不依赖 PixivFlow。**
+
+可选的 [MCP sidecar](docs/MCP_REVIEW.md) 允许 AI Agent 读取待审核内容并给出建议；最终发布仍由人类明确确认。
+
+## 运行与部署
+
+TelePost 可以运行在本地、VPS、Docker、Fly.io 或其他能够运行 Python / 容器的环境：
+
+| 环境 | 建议入口 |
+| --- | --- |
+| 本地或无公网 HTTPS | `RUN_MODE=POLLING` |
+| VPS / 容器平台 | Polling，或在公网 HTTPS 后使用 Webhook |
+| Fly.io | 固定版本镜像、持久卷和 Webhook |
+
+单 Bot 是最简单的起点；Mini App、多 Bot、Webhook 和 PixivFlow 组合都按需启用。通用步骤见
+[安装与部署](docs/INSTALL.md)，Fly.io 专项配置见 [Fly.io 部署](docs/FLYIO_DEPLOYMENT.md)。
+
+## 面向长期运行
+
+- 投稿和发布使用幂等语义，重试不会静默产生重复内容。
+- 审核状态、会话和运行时策略持久化，重启后可以恢复。
+- `/live`、`/ready`、`/health` 提供分层健康检查。
+- 图片处理有资源预算，高风险原图会安全降级为预览或文档。
 
 ## 文档
 
-| 文档 | 用途 |
-|---|---|
-| [安装与部署](docs/INSTALL.md) | 单文件、源码、Docker、Fly.io |
-| [配置参考](docs/CONFIGURATION.md) | 环境变量、`config.ini`、多 Bot |
-| [命令参考](docs/COMMANDS.md) | 用户、管理员和 Owner 命令 |
-| [HTTP API](docs/API.md) | Token、投稿、通知与错误 |
-| [MCP 投稿审核](docs/MCP_REVIEW.md) | AI 审稿、媒体预览、只读模式与人工确认 |
-| [Fly.io 部署](docs/FLYIO_DEPLOYMENT.md) | 自动休眠与拆分拓扑 |
-| [Webhook 与 Polling](docs/WEBHOOK_MODE.md) | 模式选择、路由和安全 |
-| [运维手册](docs/OPERATIONS.md) | 备份、升级、监控和发布 |
-| [故障排查](docs/TROUBLESHOOTING.md) | 无响应、OOM、投稿和搜索问题 |
-| [性能调优](docs/PERFORMANCE.md) | 资源档位与容量边界 |
-| [测试指南](docs/TESTING.md) | 本地与 CI 验证 |
-| [贡献指南](CONTRIBUTING.md) | 开发与提交约定 |
-| [版本历史](CHANGELOG.md) | 已发布变更 |
+| 你想做什么 | 文档 |
+| --- | --- |
+| 下载并开始使用 | [下载](docs/download.md) · [安装与部署](docs/INSTALL.md) |
+| 配置 Bot、审核或多 Bot | [配置参考](docs/CONFIGURATION.md) |
+| 查看 Telegram 命令 | [命令参考](docs/COMMANDS.md) |
+| 接入自动化 | [HTTP API](docs/API.md) |
+| 启用 Mini App | [Mini App](docs/MINIAPP.md) |
+| 配置 Webhook 或 Fly.io | [Webhook 与 Polling](docs/WEBHOOK_MODE.md) · [Fly.io 部署](docs/FLYIO_DEPLOYMENT.md) |
+| 备份、升级或排查故障 | [运维手册](docs/OPERATIONS.md) · [故障排查](docs/TROUBLESHOOTING.md) |
+| 参与开发 | [贡献指南](CONTRIBUTING.md) · [完整文档目录](docs/README.md) |
 
-内部设计见 [投稿状态机](docs/internals/submission-flow.md) 与
-[软删除](docs/internals/moderation.md)。
+## 相关项目
 
-## 许可
+- [PixivFlow](https://github.com/redtidev1918/PixivFlow)：Pixiv 下载、筛选、定时执行与 HTTP 交付工具。
+- [pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy)：组合 PixivFlow 与 TelePost 的部署和运维套件，提供 Docker、VPS 与云平台配置示例。
 
-[MIT License](LICENSE)。问题请提交到
-[GitHub Issues](https://github.com/redtidev1918/TelePost/issues)。
+## 贡献与许可
+
+问题请提交到 [GitHub Issues](https://github.com/redtidev1918/TelePost/issues)，代码贡献见
+[CONTRIBUTING.md](CONTRIBUTING.md)。TelePost 使用 [MIT License](LICENSE)。

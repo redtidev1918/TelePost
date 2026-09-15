@@ -1,64 +1,41 @@
 # Fly.io 部署
 
-TelePost 在 Fly.io 必须使用 Webhook。默认推荐固定版本镜像、持久卷和自动休眠；
-PixivFlow 有内部 Cron，必须拆到另一台常驻 Machine。
+Fly.io 只是 TelePost 的一种部署方式，不是使用项目的前提。本页只介绍 TelePost 自身；
+PixivFlow + TelePost 的组合拓扑、调度和成本优化由
+[pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy) 维护。
 
-## 推荐拓扑
+## TelePost 在 Fly.io 上如何运行
 
 ```text
-┌──────────────────────────────┐
-│ PixivFlow                    │
-│ shared-cpu-1x · 256 MiB      │
-│ always-on · min=1            │
-│ scheduler / downloader       │
-└──────────────┬───────────────┘
-               │ HTTP via Flycast/Fly Proxy
-               ▼
-┌──────────────────────────────┐
-│ TelePost                     │
-│ shared-cpu-1x · 512 MiB      │
-│ Bot 1 + Bot 2                │
-│ auto-stop · auto-start · min=0│
-└──────────────▲───────────────┘
-               │ Telegram Webhook / API
+Telegram ── Webhook ──→ Fly Proxy ──→ TelePost（常驻）
+                                           │
+                                           └── 持久卷 /app/data
 ```
 
-- PixivFlow 在自己的 256 MiB Machine 常驻，才能按时运行 scheduler。
-- TelePost 只处理入站请求，空闲时可完全停止。
-- PixivFlow 使用 `<telepost-app>.flycast`，请求经过 Fly Proxy 后可唤醒 TelePost；不要用
-  `.internal` 直连已停止的 Machine。
-- 两个 App 与各自 Volume 放在同一区域，减少延迟和跨区域流量。
+- TelePost 使用 Webhook 接收 Telegram 更新，同时提供 Mini App 和 HTTP API。
+- 投稿、审核与发布状态保存在持久卷中。
+- 服务保持常驻，避免用户私聊投稿时遇到冷启动延迟。
+- 单 Bot 与多 Bot 使用同一个运行程序；是否启用 Mini App、审核和外部 API 由配置决定。
 
-完整的拆分模板与初始化工具在
-[pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy)。
+仓库根目录的 [`fly.toml`](../fly.toml) 是 TelePost 的参考配置。它不包含 PixivFlow、外部调度器
+或作者生产环境的应用名称。
 
-## 单 Bot 部署
+## 1. 创建 App 和 Volume
 
-### 1. 准备
-
-安装并登录 `flyctl`：
+安装并登录 `flyctl`，再创建应用和同区域的持久卷：
 
 ```bash
 flyctl auth login
-git clone https://github.com/redtidev1918/TelePost.git
-cd TelePost
-```
-
-复制或直接编辑仓库内 [`fly.toml`](https://github.com/redtidev1918/TelePost/blob/main/fly.toml)，填写 `app` 和 `primary_region`。
-区域应按用户延迟、容量和数据位置选择；各区价格可能变化，以
-[Fly.io 定价](https://fly.io/docs/about/pricing/)为准，不在配置里假定“最便宜区域”。
-
-### 2. 创建 App 与 Volume
-
-```bash
 flyctl apps create <app>
-flyctl volumes create telepost_data --size 1 --region <region> --app <app>
+flyctl volumes create data --size 1 --region <region> --app <app>
 ```
 
-Volume 与 Machine 必须同区。不要省略挂载：数据库、API Token、运行时策略和投稿会话
-状态都在 `/app/data`。
+复制 `fly.toml` 后填写自己的 `app` 和 `primary_region`。Volume 不能省略：SQLite、API Token、
+审核状态、会话和运行时策略都在 `/app/data`。
 
-### 3. 设置 Secrets
+## 2. 设置 Secrets
+
+单 Bot 最少配置：
 
 ```bash
 flyctl secrets set --app <app> \
@@ -68,18 +45,38 @@ flyctl secrets set --app <app> \
   WEBHOOK_URL='https://<app>.fly.dev'
 ```
 
-需要审核时再加 `REVIEW_CHAT_ID` 与审核开关。Token 不要写入 `fly.toml`。
+需要审核时再添加 `REVIEW_CHAT_ID` 和对应审核开关；需要 Mini App 时按
+[Mini App 文档](MINIAPP.md)添加 session secret。不要把 Token 写入 `fly.toml`。
 
-### 4. 部署固定版本
+多 Bot 使用连续的 `BOT1_*`、`BOT2_*` 配置：
 
 ```bash
-flyctl deploy --app <app> \
-  --image ghcr.io/redtidev1918/telepost:2.10.39
+flyctl secrets set --app <app> \
+  BOT1_TOKEN='...' BOT1_CHANNEL_ID='@channel_one' BOT1_OWNER_ID='123456789' \
+  BOT2_TOKEN='...' BOT2_CHANNEL_ID='@channel_two' BOT2_OWNER_ID='123456789' \
+  WEBHOOK_URL='https://<app>.fly.dev'
 ```
 
-TelePost 启动时会自行调用 Telegram `setWebhook`；不需要手工注册。
+完整变量见[配置参考](CONFIGURATION.md)。
 
-### 5. 验证
+## 3. 部署
+
+可以从仓库构建：
+
+```bash
+flyctl deploy --app <app> --config fly.toml --ha=false
+```
+
+也可以部署固定版本的公开镜像：
+
+```bash
+flyctl deploy --app <app> --config fly.toml --ha=false \
+  --image ghcr.io/redtidev1918/telepost:<version>
+```
+
+生产部署应使用明确版本，不要使用会随时间变化的 `latest`。
+
+## 4. 验证
 
 ```bash
 flyctl status --app <app>
@@ -87,128 +84,63 @@ flyctl logs --app <app>
 curl -fsS https://<app>.fly.dev/live
 curl -fsS https://<app>.fly.dev/ready
 curl -fsS https://<app>.fly.dev/api/v1/health
-curl -fsS 'https://api.telegram.org/bot<TOKEN>/getWebhookInfo'
 ```
 
-三个探针语义不同：
+多 Bot 还要逐个检查 `/api/botN/v1/health`。三个通用探针含义不同：
 
-| 端点 | 语义 | 用途 |
-|---|---|---|
-| `/live` | 路由进程存活即 200，恒不阻塞 | 存活探针、外部保活 ping |
-| `/ready` | 所有 Bot 子进程 `initialize()+start()` 完成才 200，冷启动中 503 | **Fly 健康检查打这个**；proxy 会等它就绪再转发唤醒请求 |
-| `/health` | 路由存活 + 容量/存储指标，恒 200 | 观测与 auto-stop 唤醒入口，**不**代表业务就绪 |
+| 端点 | 含义 |
+| --- | --- |
+| `/live` | 路由进程存活 |
+| `/ready` | 数据库、Bot 和审核服务已就绪 |
+| `/health` | 运行状态与资源指标 |
 
-API 健康响应中的 `bot_version` 应等于部署版本。
-`getWebhookInfo` 应核对 URL、`pending_update_count`、`last_error_date` 和
-`last_error_message`，不要把完整响应连同 Token 贴到公开 Issue。
+最后在 Telegram 内执行一次 `/start` 和测试投稿，并通过 `getWebhookInfo` 核对 URL、
+待处理数量与最近错误。不要把包含 Bot Token 的完整 URL 或响应贴到公开 Issue。
 
-## 多 Bot TelePost
+## 生命周期与健康检查
 
-推荐直接使用部署套件的 `fly/telepost-split.toml`。核心 Secrets：
-
-```bash
-flyctl secrets set --app <telepost-app> \
-  BOT1_TOKEN='...' BOT1_CHANNEL_ID='@channel_one' BOT1_OWNER_ID='123456789' \
-  BOT2_TOKEN='...' BOT2_CHANNEL_ID='@channel_two' BOT2_OWNER_ID='123456789' \
-  WEBHOOK_URL='https://<telepost-app>.fly.dev'
-```
-
-父路由监听 8080，Bot 子进程使用 8081、8082……；公网路径为：
-
-- `/webhook/bot1`、`/webhook/bot2`
-- `/api/bot1/v1/*`、`/api/bot2/v1/*`
-
-双 Bot 生产实例使用 512 MiB，并在受限环境关闭搜索：
+TelePost 是用户可见的投稿入口，参考配置保持：
 
 ```toml
-[env]
-  RUN_MODE = "WEBHOOK"
-  SEARCH_ENABLED = "false"
-  SEARCH_ANALYZER = "simple"
-  DB_CACHE_KB = "1024"
-
 [http_service]
-  internal_port = 8080
-  auto_stop_machines = "suspend"
+  auto_stop_machines = false
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
-[[http_service.checks]]
-  grace_period = "60s"
-  interval = "30s"
-  timeout = "10s"
-  path = "/ready"
-
-[[vm]]
-  cpu_kind = "shared"
-  cpus = 1
-  memory_mb = 512
+  [[http_service.checks]]
+    path = "/health"
 ```
 
-Fly Proxy 的 autostop/autostart 只停止或启动现有 Machine，不会删除 Machine 或 Volume；
-配置语义见 [Fly.io 官方配置参考](https://fly.io/docs/reference/configuration/)。
+不要把 TelePost 的生命周期与可选内容采集器混为一谈。若上游任务适合按需运行，应让上游独立管理
+自己的生命周期，TelePost 继续负责即时投稿、审核和发布。
 
-## 为什么自动休眠现在可用
+## 与 PixivFlow 组合（可选）
 
-从 TelePost 2.10.39 起：
-
-- 正常关机只停止本地 HTTP 服务，不注销 Telegram Webhook。
-- 冷启动重新注册 Webhook 时不丢弃待处理更新。
-- 多 Bot 父路由先等子进程端口、再轮询子进程 `/ready`（有界，默认最多 30 秒），
-  Bot 未完成 `initialize()+start()` 前不会把 webhook 转发给半热的子进程。
-- 自动休眠使用 `suspend`：挂起期间与 `stop` 一样不计 CPU/RAM，但唤醒是 Firecracker
-  快照恢复（几百毫秒），不是完整冷启动。
-- Webhook secret 持久化在数据卷，跨重启/唤醒稳定，不会出现"重启到重新 setWebhook
-  之间所有更新 403"的窗口。
-- Telegram Webhook、HTTP API 和 PixivFlow 的 Flycast 请求都会经过 Fly Proxy，触发
-  `auto_start_machines=true`。
-
-休眠期间 TelePost 内部定时任务不会运行。这不影响 Telegram/PixivFlow 入站投递；需要
-准点执行的 scheduler 必须放在常驻的 PixivFlow App。
-
-验证冷启动：
-
-```bash
-flyctl machine suspend <machine-id> --app <app>
-flyctl machine status <machine-id> --app <app>
-# 唤醒期间 /ready 先返回 503、就绪后 200；/live 立即 200
-curl -fsS -w 'time=%{time_total}s\n' https://<app>.fly.dev/ready
+```text
+PixivFlow（发现 / 下载 / 调度）
+              │ HTTP API
+              ▼
+TelePost（投稿 / 审核 / 发布，常驻）
+              │
+              ▼
+Telegram
 ```
 
-最后再次检查两个 Webhook URL 和待处理数。
+TelePost 不依赖 PixivFlow，PixivFlow 也可以投递到其他接收端。需要在 Fly.io 上组合两者时，
+使用部署仓库提供的独立 App、独立卷和凭据边界：
 
-## PixivFlow 常驻 App
+- [选择部署架构](https://github.com/redtidev1918/pixivflow-telepost-deploy/blob/main/docs/getting-started/choose-architecture.md)
+- [Fly.io 平台指南](https://github.com/redtidev1918/pixivflow-telepost-deploy/blob/main/docs/platforms/flyio.md)
 
-使用部署套件的 `fly/pixivflow-split.toml`。核心配置：
+不要把 PixivFlow 进程塞回 TelePost 容器；组合部署的资源、调度器和上游生命周期也不要写进
+TelePost 的产品配置。
 
-```toml
-[env]
-  PIXIV_DOWNLOADER_CONFIG = "/app/data/pixivflow/config.json"
-  TELEPOST_API_BASE_URL = "http://<telepost-app>.flycast"
-  NODE_OPTIONS = "--max-old-space-size=96 --expose-gc"
+## 升级与回退
 
-[[vm]]
-  cpu_kind = "shared"
-  cpus = 1
-  memory_mb = 256
-```
-
-它没有 HTTP service 和 autostop 配置，Machine 保持运行。TelePost App 需要一次性分配
-Flycast 私网地址：
-
-```bash
-flyctl ips allocate-v6 --private --app <telepost-app>
-```
-
-## 安全升级
-
-1. 确认目标版本的 GitHub Release、GHCR amd64/arm64 manifest 和 CI 都成功。
-2. 对 Volume 建 snapshot。
-3. 更新原 Machine 的镜像，不重建 Volume。
-4. 检查 Machine ID、Volume ID、内存和 autostop 配置未变化。
-5. 检查 `/health`、每个 Bot 的 API health、Webhook 和 SQLite `PRAGMA quick_check`。
-
-示例：
+1. 部署前为 Volume 创建 snapshot。
+2. 更新到明确版本镜像。
+3. 核对原 Machine 和 Volume 仍在使用，检查健康端点与一次真实投稿。
+4. 需要回退时更新回上一版本镜像；只有数据损坏时才恢复旧 snapshot。
 
 ```bash
 flyctl volumes snapshots create <volume-id> --app <app>
@@ -216,11 +148,6 @@ flyctl machine update <machine-id> --app <app> \
   --image ghcr.io/redtidev1918/telepost:<version> --yes
 ```
 
-不要在有状态部署上用 `fly scale count 2` 做“高可用”：单个 Volume 不能同时挂到两台
-Machine，两个进程也不能同时消费同一个 Telegram Token。
-
-## 回退
-
-将原 Machine 更新回上一固定版本镜像即可。只有数据库损坏或错误迁移时才从 snapshot
-恢复；普通代码回退不要覆盖更新后的数据。更多检查见 [运维手册](OPERATIONS.md) 与
-[故障排查](TROUBLESHOOTING.md)。
+有状态服务不要通过随意增加 Machine 数量实现高可用：一个 Volume 不能同时挂载到多台 Machine，
+同一个 Telegram Token 也不能由多个进程同时消费。备份、数据库检查和故障处理见
+[运维手册](OPERATIONS.md)。

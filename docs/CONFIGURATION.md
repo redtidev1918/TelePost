@@ -35,7 +35,7 @@
 | `WEBHOOK_URL` | 空 | 公网 HTTPS 根地址，不含 `/webhook` |
 | `WEBHOOK_PORT` | `8080` | HTTP 监听端口；多 Bot 父路由使用此端口 |
 | `WEBHOOK_PATH` | `/webhook` | 单 Bot 回调路径；多 Bot 自动改为 `/webhook/botN` |
-| `WEBHOOK_SECRET_TOKEN` | 随机生成 | Telegram Webhook 请求校验令牌 |
+| `WEBHOOK_SECRET_TOKEN` | 首次生成并持久化 | Telegram Webhook 请求校验令牌；也可显式设置 |
 | `HEALTH_PORT` | `8080` | Polling 单 Bot 的健康/API 端口 |
 | `API_ENABLED` | `true` | 是否挂载 `/api/v1/*` |
 | `ROUTER_TIMEOUT_SECONDS` | `300` | 多 Bot 父路由的上游总超时 |
@@ -73,15 +73,15 @@
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `API_REVIEW_REQUIRED` | `false` | HTTP API 投稿进入审核群（生产为 `true`） |
+| `API_REVIEW_REQUIRED` | `false` | HTTP API 投稿是否进入审核群；Mini App 投稿界面启用时应设为 `true` |
 | `CHAT_REVIEW_REQUIRED` | `false` | Telegram 聊天投稿进入审核群 |
 | `REVIEW_CHAT_ID` | 空 | 任一审核开关启用时必填，且不能等于频道 |
 
 **默认处置不变量（`SubmissionDisposition`）**：原生 Telegram Chat 投稿默认直接发布到频道
-（`CHAT_REVIEW_REQUIRED=false`）；进入审核是可配置策略，不是默认。HTTP API（Mini App 投稿、
-PixivFlow 自动稿）在生产默认进入审核队列（`API_REVIEW_REQUIRED=true`）。两个入口默认值可以不同，
-但共享同一 domain/service（`QueueCommand → ReviewQueueService`）；重构任一入口不得静默改变
-另一入口的默认处置。预览/确认按钮与文案必须反映实际处置（“提交审核” / “确认发布”），
+（`CHAT_REVIEW_REQUIRED=false`）；进入审核是可配置策略，不是默认。HTTP API 的内置默认值同样为
+`false`；需要让自动化或 Mini App 投稿先审后发时，应显式设置 `API_REVIEW_REQUIRED=true`。
+两个入口配置相互独立，但共享同一 domain/service（`QueueCommand → ReviewQueueService`）；重构任一入口
+不得静默改变另一入口的处置。预览/确认按钮与文案必须反映实际处置（“提交审核” / “确认发布”），
 不得统一为“投稿成功”。
 | `REVIEW_ALBUM_SIZE` | `5` | 审核预览每组 1–10 个 |
 | `REVIEW_PREVIEW_INTERVAL_SECONDS` | `0.75` | 预览组之间的节流间隔 |
@@ -95,6 +95,8 @@ PixivFlow 自动稿）在生产默认进入审核队列（`API_REVIEW_REQUIRED=t
 | `REVIEW_RETENTION_DAYS` | `30` | 已决审核和 API 通知幂等记录保留天数 |
 | `SUPERSEDED_RETENTION_DAYS` | `30` | 被替换（重抓成功）的旧审核卡保留天数；到期后删除其 Telegram 预览/控制消息与记录，血缘（attempt/seen）保留；`0` 不清理 |
 | `REFETCH_PROGRESS_REMIND_MINUTES` | `5` | 重抓受理后超过该分钟数仍无终态，向审核群最多提醒一次；`0` 关闭提醒 |
+| `REFETCH_WAKE_MINUTES` | `12` | 远端机器不可达且超过该分钟数无进展时，watchdog 用同一 request UUID 幂等唤醒（不创建新 attempt） |
+| `REFETCH_HARD_TIMEOUT_MINUTES` | `90` | 超过该分钟数仍无终态则 attempt 标 `failed(stalled_after_hard_timeout)` 并通知；`0` 关闭硬超时 |
 | `REFETCH_STALE_TIMEOUT_MINUTES` | `45` | 无终态时开始核查 PixivFlow durable slot；未受理请求可判超时，已受理且仍在执行/投递的 attempt 不凭本地时间判失败；`0` 关闭核查 |
 | `API_MAX_FILES` | `50` | HTTP API 单次投稿文件数上限；多页/超大作品可调大（如 100），父路由只限总字节不数文件 |
 
