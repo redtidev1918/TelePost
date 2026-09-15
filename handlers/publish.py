@@ -95,6 +95,35 @@ def _telegram_timeout_kwargs():
     return _timeout_kwargs(TELEGRAM_SEND_TIMEOUT_SECONDS)
 
 
+def _caption_identity_data(*, tags, title, note, link, spoiler, anonymous,
+                           user_id, username, submitter_user_id=None,
+                           submitter_username="", source="",
+                           media_types=None) -> dict:
+    """Caption fields with strict identity semantics (§publication-presentation).
+
+    Only an EXPLICIT submitter (submitter_user_id / submitter_username) may be
+    presented as 投稿人. The request identity (``user_id``/``username``) is
+    carried for ledger/audit but never leaks into presentation: an API token
+    name (e.g. ``submit_Token``) must never appear as the submission author.
+    """
+    data = {
+        "tags": tags, "title": title, "note": note, "link": link,
+        "spoiler": "true" if spoiler else "false",
+        "anonymous": "true" if anonymous else "false",
+        "user_id": user_id, "username": username,
+    }
+    # Only set the submitter keys when a verified human submitter exists.
+    # Without them build_caption has no fallback to show (by design).
+    if submitter_user_id:
+        data["submitter_user_id"] = submitter_user_id
+        data["submitter_username"] = submitter_username or ""
+    if source:
+        data["source"] = source
+    if media_types:
+        data["media_types"] = list(media_types)
+    return data
+
+
 # ---- re-exports of the legacy dict engine (shared with review previews) ----
 def _is_local_item(item: dict) -> bool:
     return legacy_runner._is_local_item(item)
@@ -152,6 +181,26 @@ async def _run_item_batches(items, *, caption, album_size,
 
 
 # ---- compact string ↔ domain item conversions ----------------------------
+def _kinds_from_chat_items(media_list, doc_list):
+    """Attachment kind names from the chat session compact format.
+
+    Session items are ``kind:file_id`` strings (media) plus document
+    descriptors; the kinds decide media presentation (§publication-presentation).
+    """
+    from telepost.domain import presentation
+
+    kinds = []
+    for item in media_list or []:
+        if isinstance(item, str) and ":" in item:
+            kinds.append(item.split(":", 1)[0])
+        elif isinstance(item, dict):
+            kinds.append(item.get("type") or item.get("kind") or "")
+        else:
+            kinds.append("")
+    kinds.extend(["document"] * len(doc_list or []))
+    return presentation.media_kinds_from_items(kinds)
+
+
 def _review_items(media_list, doc_list):
     """Compact session file_id format → review payload dicts."""
     media = []
@@ -628,7 +677,8 @@ def _ledger_entry_to_row(entry):
 async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
                              anonymous=False, spoiler=False, user_id, username="",
                              idempotency_key="", target_id="", work_type="",
-                             pixiv_id="") -> dict:
+                             pixiv_id="", submitter_user_id=None,
+                             submitter_username="", source="") -> dict:
     """API 本地文件直投核心：不经 Telegram 会话，直接发频道。"""
     import os as _os
     from telepost.application.publication import (
@@ -672,12 +722,12 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
           "preview_path": f.get("preview_path"), "spoiler": spoiler}
          for f in files]
     )
-    data = {
-        "tags": tags, "title": title, "note": note, "link": link,
-        "spoiler": "true" if spoiler else "false",
-        "anonymous": "true" if anonymous else "false",
-        "user_id": user_id, "username": username,
-    }
+    data = _caption_identity_data(
+        tags=tags, title=title, note=note, link=link, spoiler=spoiler,
+        anonymous=anonymous, user_id=user_id, username=username,
+        submitter_user_id=submitter_user_id,
+        submitter_username=submitter_username, source=source,
+    )
 
     service = PublicationService(
         delivery=_LegacyDeliveryPort(bot, reclassify_local=True),
@@ -709,7 +759,9 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
 async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
                                 note="", link="", anonymous=False, spoiler=False,
                                 user_id, username="", idempotency_key="",
-                                target_id="", work_type="", pixiv_id="") -> dict:
+                                target_id="", work_type="", pixiv_id="",
+                                submitter_user_id=None, submitter_username="",
+                                source="") -> dict:
     """API file_id 直投核心：素材已在 Telegram 服务器，零媒体重传。"""
     from telepost.application.publication import (
         PublicationService, PublishCommand,
@@ -745,12 +797,16 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
          "filename": d.get("filename") or "file"}
         for d in documents
     ])
-    data = {
-        "tags": tags, "title": title, "note": note, "link": link,
-        "spoiler": "true" if spoiler else "false",
-        "anonymous": "true" if anonymous else "false",
-        "user_id": user_id, "username": username,
-    }
+    data = _caption_identity_data(
+        tags=tags, title=title, note=note, link=link, spoiler=spoiler,
+        anonymous=anonymous, user_id=user_id, username=username,
+        submitter_user_id=submitter_user_id,
+        submitter_username=submitter_username, source=source,
+        media_types=(
+            [m.get("type", "") for m in media]
+            + ["document"] * len(documents)
+        ),
+    )
     media_compact = [f"{m['type']}:{m['file_id']}" for m in media]
     doc_compact = [
         f"document:{d['file_id']}:{d.get('filename', 'file')}" for d in documents
@@ -1003,7 +1059,6 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                 await _reply_to_user("⚠️ 发布前必须填写标签")
             return STATE['PREVIEW']
 
-        caption = build_caption(data)
         media_list, doc_list = [], []
         try:
             if data["image_id"]:
@@ -1015,6 +1070,19 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                 doc_list = json.loads(data["document_id"])
         except (json.JSONDecodeError, TypeError):
             logger.warning("解析文档数据失败，user_id: %s", user_id)
+
+        # Chat submissions ARE human-owned: the acting Telegram user is the
+        # verified submitter (§identity). Explicit submitter identity goes into
+        # the caption; the raw draft-row fallbacks must never be used.
+        caption_data = dict(data)
+        caption_data["submitter_user_id"] = user_id
+        caption_data["submitter_username"] = (
+            data["username"]
+            if "username" in data.keys() and data["username"]
+            else (update.effective_user.username or f"user{user_id}")
+        )
+        caption_data["media_types"] = _kinds_from_chat_items(media_list, doc_list)
+        caption = build_caption(caption_data)
 
         if not media_list and not doc_list:
             await _reply_to_user("❌ 未检测到任何上传文件，请重新发送 /start")

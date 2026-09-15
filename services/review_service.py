@@ -347,6 +347,14 @@ class ReviewService:
             user_id=row["user_id"],
             username=row["username"],
         )
+        # Explicit submitter identity only (service rows have submitter NULL →
+        # not set → the caption shows no fallback author, §identity).
+        try:
+            if row["submitter_user_id"]:
+                kwargs["submitter_user_id"] = row["submitter_user_id"]
+                kwargs["submitter_username"] = row["submitter_username"] or ""
+        except (IndexError, KeyError):
+            pass
         # Carry durable dedupe identity so an approved review participates in
         # the same idempotency/ledger guarantees as direct API publication.
         if row["idempotency_key"]:
@@ -490,6 +498,12 @@ class ReviewService:
             spoiler=bool(edited.spoiler),
             user_id=row["user_id"], username=row["username"],
         )
+        try:
+            if row["submitter_user_id"]:
+                kwargs["submitter_user_id"] = row["submitter_user_id"]
+                kwargs["submitter_username"] = row["submitter_username"] or ""
+        except (IndexError, KeyError):
+            pass
         if row["idempotency_key"]:
             kwargs["idempotency_key"] = f"review:{row['id']}:{row['idempotency_key']}"
         for column in ("target_id", "work_type", "pixiv_id"):

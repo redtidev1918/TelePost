@@ -25,6 +25,7 @@ def test_channel_caption_has_no_mention_entity(monkeypatch):
         "tags": "#tag", "title": "标题", "note": "备注", "link": "",
         "anonymous": "false", "spoiler": "false",
         "user_id": 12345, "username": "alice",
+        "submitter_user_id": 12345, "submitter_username": "alice",
     }, surface="channel")
     assert "投稿人：alice" in caption
     _assert_no_mention_entity(caption)

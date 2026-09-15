@@ -16,6 +16,10 @@ def _row(**overrides):
         "link": "",
         "spoiler": "false",
         "anonymous": "false",
+        # Explicit human submitter identity (the ONLY accepted source of the
+        # displayed 投稿人, §identity) — request identity is not authorship.
+        "submitter_user_id": 42,
+        "submitter_username": "someuser",
     }
     row.update(overrides)
     return row

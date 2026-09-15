@@ -193,7 +193,10 @@ function SubmitForm(props: FormProps) {
       const result = await apiFetch<{ caption: string }>('/submissions/preview', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: props.title, tags: props.tags, note: props.note,
-          link: props.link, anonymous: props.anonymous, spoiler: props.spoiler }),
+          link: props.link, anonymous: props.anonymous, spoiler: props.spoiler,
+          media_types: selected.map((f) => ({
+            image: 'photo', video: 'video', audio: 'audio', document: 'document',
+          } as Record<string, string>)[fileKind(f)]) }),
       });
       // The server owns caption formatting. Render its text safely, never HTML.
       setCaption(new DOMParser().parseFromString(result.caption, 'text/html').body.textContent || '');

@@ -127,12 +127,19 @@ class TestHelperFunctions:
     
     @pytest.mark.unit
     def test_build_caption_with_spoiler(self):
-        """测试带剧透标记的标题"""
+        """测试带剧透标记的标题：只有当消息确实包含可预览媒体时才显示
+        「点击查看」；document-only 或空媒体绝不显示该提示（§presentation）。"""
         # Using dict instead of class
-        data = {"link": "", "title": "测试", "note": "内容", "tags": "", "spoiler": "true", "user_id": 123456789}
-        result = build_caption(data)
-        
-        assert "⚠️" in result or "点击查看" in result
+        def caption(media_types):
+            return build_caption({
+                "link": "", "title": "测试", "note": "内容", "tags": "",
+                "spoiler": "true", "user_id": 123456789,
+                "media_types": media_types,
+            })
+
+        assert "⚠️" in caption(["photo"]) or "点击查看" in caption(["photo"])
+        assert "点击查看" not in caption(["document"])
+        assert "点击查看" not in caption([])
     
     @pytest.mark.unit
     def test_build_caption_length_limit(self):

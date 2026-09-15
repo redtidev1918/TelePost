@@ -126,6 +126,7 @@ class EditorialService:
         from utils.helper_functions import build_caption
 
         row = await self._require_review(review_id)
+        from telepost.domain import presentation as _presentation
         caption_data = {
             "title": edited.title,
             "tags": edited.tags, "note": edited.note, "link": edited.link,
@@ -133,6 +134,19 @@ class EditorialService:
             "spoiler": str(bool(edited.spoiler)).lower(),
             "user_id": row["user_id"], "username": row["username"] or "",
         }
+        # Preview parity: the reviewer caption carries the same identity and
+        # media-presentation facts as the final publication — explicit
+        # submitter only, attachment kinds from the original media (§preview).
+        if "submitter_user_id" in row.keys() and row["submitter_user_id"]:
+            caption_data["submitter_user_id"] = row["submitter_user_id"]
+            caption_data["submitter_username"] = row["submitter_username"] or ""
+        caption_data["source"] = (
+            row["source"] if "source" in row.keys() and row["source"] else "")
+        try:
+            caption_data["media_types"] = _presentation.media_kinds_from_items(
+                json.loads(row["media_json"] or "[]"))
+        except (TypeError, ValueError):
+            pass
         return build_caption(caption_data, surface="review")
 
     async def finalize(self, review_id: int, revision_id: int, *,

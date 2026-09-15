@@ -237,7 +237,7 @@ class ReviewQueueService:
                     if is_local:
                         await stager.cleanup_files(files)
 
-        caption = _caption_from_command(command)
+        caption = _caption_from_command(command, media=media, documents=documents)
         preview_ids: List[int] = []
         try:
             review_id = await self._reserve(
@@ -612,9 +612,10 @@ def _loads(value) -> list:
         return []
 
 
-def _caption_from_command(command: QueueCommand) -> str:
+def _caption_from_command(command: QueueCommand, media=None, documents=None) -> str:
+    from telepost.domain import presentation
     from utils.helper_functions import build_caption
-    return build_caption({
+    data = {
         "tags": command.tags,
         "title": command.title,
         "note": command.note,
@@ -625,7 +626,15 @@ def _caption_from_command(command: QueueCommand) -> str:
         "username": command.username,
         "submitter_user_id": command.submitter_user_id,
         "submitter_username": command.submitter_username,
-    }, surface="review")
+        "source": command.source,
+    }
+    if command.source_label:
+        data["source_label"] = command.source_label
+    if media or documents:
+        data["media_types"] = presentation.media_kinds_from_items(
+            list(media or []) + list(documents or [])
+        )
+    return build_caption(data, surface="review")
 
 
 def _command_from_row(row) -> QueueCommand:
@@ -641,4 +650,10 @@ def _command_from_row(row) -> QueueCommand:
         source_ref=row["source_ref"] or "", scheduled_at=row["scheduled_at"] or "",
         review_chat_id=str(row["review_chat_id"] or ""),
         refetch_request_id=row["refetch_request_id"] or "",
+        submitter_user_id=(
+            row["submitter_user_id"]
+            if "submitter_user_id" in row.keys() else None),
+        submitter_username=(
+            row["submitter_username"]
+            if "submitter_username" in row.keys() else "") or "",
     )
