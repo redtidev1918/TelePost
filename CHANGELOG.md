@@ -10,6 +10,13 @@
 
 ---
 
+## [2.27.0](https://github.com/redtidev1918/TelePost/compare/v2.26.1...v2.27.0) (2026-09-15)
+
+
+### Features
+
+* **publication:** reviewer-edited publication + submitter publication notification ([#110](https://github.com/redtidev1918/TelePost/issues/110)) ([3b14613](https://github.com/redtidev1918/TelePost/commit/3b146132901ef3dc1dfc36aa94a0697625df420f))
+
 ## [2.26.1](https://github.com/redtidev1918/TelePost/compare/v2.26.0...v2.26.1) (2026-09-15)
 
 
