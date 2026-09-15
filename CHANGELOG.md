@@ -10,6 +10,13 @@
 
 ---
 
+## [2.31.1](https://github.com/redtidev1918/TelePost/compare/v2.31.0...v2.31.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* **run:** propagate per-bot MINIAPP_SUBMIT_CTA into child env ([#130](https://github.com/redtidev1918/TelePost/issues/130)) ([e20f69e](https://github.com/redtidev1918/TelePost/commit/e20f69ea29b3506280386fe0b22e89db0624b202))
+
 ## [2.31.0](https://github.com/redtidev1918/TelePost/compare/v2.30.0...v2.31.0) (2026-09-15)
 
 
