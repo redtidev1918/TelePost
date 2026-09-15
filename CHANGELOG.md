@@ -10,6 +10,14 @@
 
 ---
 
+## [2.31.0](https://github.com/redtidev1918/TelePost/compare/v2.30.0...v2.31.0) (2026-09-15)
+
+
+### Features
+
+* **publication:** optional TelePress novel preview enrichment ([#127](https://github.com/redtidev1918/TelePost/issues/127)) ([8413430](https://github.com/redtidev1918/TelePost/commit/84134307ef445d03375ec389bdf247ad67706862))
+* **review-cta:** review/main post submission CTA as inline URL button ([#128](https://github.com/redtidev1918/TelePost/issues/128)) ([6da1afe](https://github.com/redtidev1918/TelePost/commit/6da1afe91679a9be3743ffc51e11d18e40c9fd12))
+
 ## [2.30.0](https://github.com/redtidev1918/TelePost/compare/v2.29.0...v2.30.0) (2026-09-15)
 
 
