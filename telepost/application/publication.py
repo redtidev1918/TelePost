@@ -163,7 +163,7 @@ class PublicationService:
         request = DeliveryRequest(
             chat_id=command.chat_id,
             items=command.items,
-            caption=self._caption(command.caption_data),
+            caption=self._caption(command),
             spoiler=command.spoiler,
             reply_mode=command.reply_mode or ReplyMode.CHAIN,
             reply_to_message_id=command.reply_to_message_id,
@@ -302,8 +302,18 @@ class PublicationService:
         )
 
     @staticmethod
-    def _caption(data: dict) -> str:
+    def _caption(command) -> str:
+        """Channel caption. Attachment kinds come from the REAL delivery items,
+        so the media presentation (the spoiler "点击查看" hint) always reflects
+        what is actually published — a document-only publication never
+        advertises a media view (§publication-presentation)."""
+        from telepost.domain import presentation
         from utils.helper_functions import build_caption
+        data = dict(command.caption_data or {})
+        if not data.get("media_types"):
+            data["media_types"] = presentation.media_kinds_from_items(
+                command.items or []
+            )
         footer = _channel_footer()
         if not footer:
             return build_caption(data)

@@ -228,3 +228,31 @@ api token 持有者                     绝不是 submitter
   （submitter_user_id IS NULL）绝不把 actor/credential holder 当投稿者通知。
 - 不改变 disposition 默认值：Chat 默认 DIRECT_PUBLISH，Mini App/API 默认
   REVIEW_REQUIRED。
+
+## Publication Presentation 不变量（§publication-presentation）
+
+```text
+Only explicit submitter identity may be presented as the submission author.
+Actor, source, API credential holder, token alias, and service principal
+must never be used as fallback submitter identity.
+Anonymous hides public submitter presentation but does not erase human
+ownership.
+Service submissions with submitter_user_id = NULL have no human submitter.
+Publication media actions must reflect the actual final published
+attachment types. Document-only publications must not expose a
+visual-media "view" action unless that action explicitly means
+submission detail and is labeled accordingly.
+```
+
+- 展示语义的唯一权威在 `telepost/domain/presentation.py` + `build_caption`
+  （utils/helper_functions.py）：入口（Chat / Mini App / API / PixivFlow）不
+  决定最终频道语义，附件类型与显式 submitter 才决定。
+- “点击查看”（剧透媒体提示）只对 photo / video / animation 出现；
+  document / audio / 无附件绝不出现；mixed（photo+document）保留。
+- `投稿人` 只能来自 `submitter_user_id` / `submitter_username`；
+  `user_id` / `username`（请求身份 / token alias）永不作投稿人展示。
+- 匿名 human 隐藏公开投稿人，但 ownership 与发布成功私聊通知不变；
+  service（submitter NULL）没有任何人类投稿人，也不发 human 通知。
+- 内部 surface（审核卡/审核预览）可为无人属主投稿显示 `来源：API /
+  PixivFlow`（真实 source/provenance）；公开 surface（频道 / Mini App 预览）
+  永不显示来源行。
