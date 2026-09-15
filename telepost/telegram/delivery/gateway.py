@@ -15,6 +15,7 @@ import logging
 from typing import Optional
 
 from ...domain.delivery import (
+    MEDIA_GROUP_CAPACITY,
     DeliveredMessage,
     DeliveryRequest,
     DeliveryResult,
@@ -33,7 +34,7 @@ DEFAULT_SEND_TIMEOUT_SECONDS = 120.0
 
 class PTBTelegramDeliveryGateway:
     def __init__(self, bot, *, send_timeout: Optional[float] = None,
-                 album_size: int = 10, discussion=None,
+                 album_size: int = MEDIA_GROUP_CAPACITY, discussion=None,
                  reclassify_photos: bool = False):
         self._bot = bot
         self._timeout = send_timeout

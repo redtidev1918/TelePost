@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional, Union
 
+from .packing import MEDIA_GROUP_CAPACITY
+
 
 class MediaKind(str, Enum):
     PHOTO = "photo"
@@ -117,7 +119,8 @@ class DeliveryRequest:
     spoiler: bool = False
     reply_mode: ReplyMode = ReplyMode.CHAIN
     reply_to_message_id: Optional[int] = None
-    album_size: int = 10
+    #: Capacity-first packing: the SSOT media-group capacity (§media-packing).
+    album_size: int = MEDIA_GROUP_CAPACITY
     # Discussion-only: linked discussion chat id, resolved by the caller when
     # known; the strategy resolves it from the channel when left unset.
     discussion_chat_id: Optional[int] = None

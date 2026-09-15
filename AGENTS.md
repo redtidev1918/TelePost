@@ -279,6 +279,44 @@ api token 持有者                     绝不是 submitter
 - `chain` / `post` 的确定态部分失败必须 checkpoint 已确认消息并只续发余量；网络响应
   不确定时禁止盲目续发，保持 uncertain 直到人工核验。
 
+## Media Capacity SSOT 不变量（§media-packing）
+
+```text
+Multi-media publication uses capacity-first packing.
+```
+
+- Telegram media-group 容量只定义一次：`telepost/domain/packing.py` 的
+  `MEDIA_GROUP_CAPACITY`（env `MEDIA_GROUP_CAPACITY`，默认 10，clamp 到 Telegram 上限）。
+  `handlers.publish.CHANNEL_ALBUM_SIZE`、`PublicationService` / `PublishCommand` /
+  delivery gateway / planner 的默认值全部读取它；禁止在 handler 里散落 `10`。
+- `pack_media(ordered, capacity)` 是纯函数 SSOT：`root = first capacity`，
+  overflow 按同一 capacity 分块。11 → root 10 + reply 1；21 → root 10 + reply 10 + reply 1。
+- 一个 media group 在业务上是 ONE root publication，即使 Telegram 把它建模为多条
+  Message；caption 只挂 root，canonical link/message_id 指向 root。
+
+## Schedule 失败可观测性与 Manual Recovery 不变量（§failure-observability, §manual-recovery）
+
+```text
+Schedule terminal failures preserve normalized durable reasons.
+Recovery exhaustion is not itself the root cause.
+Automatic retry exhaustion does not prohibit operator-initiated recovery.
+Manual recovery retries failed targets only.
+Relaxed recovery is a predefined occurrence-scoped server policy,
+not arbitrary client-supplied tuning.
+```
+
+- PixivFlow 在每个 terminal cell 持久化 `terminal_reason_code` + 业务消息；outcome
+  payload 原样携带。`build_schedule_outcome_text` 只展示一级原因（业务语言），
+  绝不把 stack trace / 路径 / SQL / token 发到 Telegram。
+- 失败的 schedule 终态消息为失败 target 提供 `[再试一次]`（normal）与
+  `[放宽条件重试]`（relaxed）按钮；回调 `sched_recover|<target_id>|<mode>` 只提交
+  服务器预定义 policy preset，客户端不传 acquisition 参数。
+- Recovery 请求 durable + 幂等（同 callback key 收敛到同一 attempt；每个 target
+  同时最多一个 active attempt，数据层 partial UNIQUE 保证）；等待 resource 容量时
+  显示「已受理，系统会自动继续处理」，不显示队列内部细节。
+- Recovery 只重跑失败 target；成功 target / 历史自动执行结果绝不重写。Recovery
+  outcome 渲染为「已恢复（…）」而非 daily summary。
+
 ## Publication Presentation 不变量（§publication-presentation）
 
 ```text
