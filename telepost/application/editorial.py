@@ -59,7 +59,15 @@ class EditorialService:
         row = await self._require_review(review_id)
         if row["status"] != "pending":
             raise EditorialStateError("该审核已结束，无法编辑")
-        chain_id = row["review_chain_id"] or f"review-{review_id}"
+        # Normal submissions carry an EMPTY review_chain_id (only refetch
+        # replacements get a chain id). An empty chain id means this review is
+        # its own single-row chain: no newer generation can exist, so the DB
+        # chain lookup would only find nothing and falsely declare the pending
+        # review obsolete. Treat the row itself as the head instead of
+        # querying with a synthetic id that matches no row.
+        if not row["review_chain_id"]:
+            return row
+        chain_id = row["review_chain_id"]
         head = await self._reviews.head_of_chain(chain_id)
         if head is None or int(head["id"]) != int(review_id):
             raise EditorialObsoleteError("该审核已不是最新版本（可能已被重抓替换），请刷新后操作")
