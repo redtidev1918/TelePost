@@ -47,7 +47,9 @@ PAYLOAD = {
     "targets": [
         {"target_id": "bot1-illust-botefuku", "work_type": "illustration",
          "status": "no_candidate", "work_id": None,
-         "error_code": "duplicate_exhausted"},
+         "error_code": "duplicate_exhausted",
+         "terminal_reason_code": "duplicate_exhausted",
+         "reason": "候选作品均已投稿过"},
         {"target_id": "bot1-novel-botefuku", "work_type": "novel",
          "status": "submitted", "work_id": "29118637"},
     ],
@@ -102,11 +104,27 @@ async def test_partial_notifies_once_and_is_idempotent(monkeypatch, tmp_path):
 
         text = application.bot.send_message.await_args.kwargs["text"]
         assert "部分完成" in text
-        assert "插画：❌ 未找到合适作品" in text
+        # First-level cause in business language (§failure-observability).
+        assert "插画：❌ 没找到合适的新作品" in text
+        assert "原因：候选作品均已投稿过" in text
         assert "小说：✅ 已提交" in text
-        assert "不再重试" in text
+        # The misleading "recovery exhausted" line is gone: the root cause IS
+        # the message now.
+        assert "不再重试" not in text
+        # Operator recovery buttons for the failed target only.
+        reply_markup = application.bot.send_message.await_args.kwargs.get("reply_markup")
+        assert reply_markup is not None
+        callback_data = [
+            button.callback_data
+            for row in reply_markup.inline_keyboard
+            for button in row
+        ]
+        assert "sched_recover|bot1-illust-botefuku|normal" in callback_data
+        assert "sched_recover|bot1-illust-botefuku|relaxed" in callback_data
+        assert not any("bot1-novel" in data for data in callback_data)
         # No mention-capable content and no internal jargon.
-        for forbidden in ("@", "tg://", "cell", "slot ", "outbox"):
+        for forbidden in ("@", "tg://", "cell", "slot ", "outbox",
+                          "terminal_reason_code", "duplicate_exhausted"):
             assert forbidden not in text
 
         # A replayed delivery (or duplicate clock) never notifies twice.
@@ -160,6 +178,37 @@ async def test_success_and_failure_also_notify(monkeypatch, tmp_path):
         failed_text = application.bot.send_message.await_args.kwargs["text"]
         assert "执行失败" in failed_text
         assert "插画：❌ 执行失败" in failed_text
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_recovery_outcome_renders_recovered_style(monkeypatch, tmp_path):
+    """A MANUAL RECOVERY outcome is rendered as 已恢复, never as the daily
+    summary, and the auto-run history wording stays untouched (§manual-recovery)."""
+    await _db(monkeypatch, tmp_path)
+    app, application = _make_app(monkeypatch)
+    client = await _client(app)
+    headers = {"Authorization": "Bearer tp_service"}
+    try:
+        rec = {
+            "schedule_id": "bot1-daily",
+            "slot_id": "bot1-daily@recover-abc123",
+            "status": "success",
+            "recovery": {"mode": "relaxed", "requestId": "abc123"},
+            "targets": [
+                {"target_id": "bot1-illust-botefuku", "work_type": "illustration",
+                 "status": "submitted", "work_id": "777"},
+            ],
+        }
+        resp = await client.post("/api/v1/schedule/outcomes", json=rec, headers=headers)
+        assert resp.status == 200
+        text = application.bot.send_message.await_args.kwargs["text"]
+        assert "已恢复（放宽条件重试）" in text
+        assert "插画：✅ 已提交" in text
+        assert "部分完成" not in text
+        # No daily-summary recovery buttons on a recovery outcome.
+        assert application.bot.send_message.await_args.kwargs.get("reply_markup") is None
     finally:
         await client.close()
 

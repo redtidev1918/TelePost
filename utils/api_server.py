@@ -265,11 +265,31 @@ _TARGET_TYPE_LABEL = {"illustration": "插画", "novel": "小说"}
 
 _TARGET_STATUS_TEXT = {
     "submitted": "✅ 已提交",
-    "no_candidate": "❌ 未找到合适作品",
-    "duplicate": "❌ 候选均为历史重复",
+    "no_candidate": "❌ 没找到合适的新作品",
+    "duplicate": "❌ 候选作品均已投稿过",
     "failed": "❌ 执行失败",
     "delivery_failed": "❌ 投递失败",
     "skipped": "➖ 跳过",
+}
+
+#: First-level terminal failure reasons (§failure-observability). These are the
+#: exact codes PixivFlow persists; the review-group message shows the business
+#: message, never raw error text / stack traces / paths.
+_TERMINAL_REASON_TEXT = {
+    "no_candidate": "没有找到合适的新作品",
+    "duplicate_exhausted": "候选作品均已投稿过",
+    "filter_exhausted": "没有符合筛选条件的新作品",
+    "download_timeout": "图片下载超时",
+    "download_failed": "图片下载失败",
+    "rate_limited": "Pixiv 请求频率受限",
+    "auth_failed": "Pixiv 登录已失效，需要重新登录",
+    "remote_http_error": "Pixiv 服务器返回错误",
+    "delivery_failed": "投稿投递失败",
+    "telegram_failed": "Telegram 发送失败",
+    "network_error": "网络异常",
+    "execution_timeout": "执行超时",
+    "configuration_error": "配置错误",
+    "internal_error": "内部错误",
 }
 
 _OVERALL = {
@@ -278,15 +298,66 @@ _OVERALL = {
     "failed": ("❌", "执行失败"),
 }
 
+_RECOVERY_MODE_LABEL = {"normal": "再试一次", "relaxed": "放宽条件重试"}
+
+
+def _terminal_reason_line(target: dict) -> str:
+    """One business-language reason line for a failed terminal target."""
+    reason = target.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        code = str(target.get("terminal_reason_code") or "")
+        reason = _TERMINAL_REASON_TEXT.get(code, "")
+    if not reason.strip():
+        return ""
+    safe = str(reason).strip().replace("\n", " ")
+    return f"原因：{safe[:80]}"
+
 
 def build_schedule_outcome_text(schedule_id: str, status: str,
-                                targets: list, duration_ms=None) -> str:
+                                targets: list, duration_ms=None,
+                                recovery: dict = None) -> str:
     """Terminal schedule summary for the review/admin group (§schedule-notify).
 
-    All terminal outcomes (success/partial/failed) are reported. The text uses
-    user-facing labels only — no slot/cell/outbox jargon — and never contains
-    mention-capable entities (no @-anchors, no tg://user links, §ghost-mention).
+    All terminal outcomes (success/partial/failed) are reported. Failed targets
+    show their FIRST-LEVEL cause in business language (§failure-observability).
+    The text uses user-facing labels only — no slot/cell/outbox jargon — and
+    never contains mention-capable entities (no @-anchors, no tg://user links,
+    §ghost-mention). ``recovery`` (present for manual-recovery outcomes) flips
+    the header to the 已恢复/恢复失败 wording.
     """
+    mode_label = ""
+    if isinstance(recovery, dict) and recovery.get("mode"):
+        mode_label = _RECOVERY_MODE_LABEL.get(
+            str(recovery.get("mode") or ""), ""
+        )
+
+    if isinstance(recovery, dict) and recovery.get("requestId"):
+        # Occurrence-scoped MANUAL recovery outcome (§manual-recovery): only the
+        # re-run target is reported; the automatic run's history is untouched.
+        if status == "success":
+            header = f"✅ {schedule_id} 已恢复"
+        elif status == "partial":
+            header = f"⚠️ {schedule_id} 部分恢复"
+        else:
+            header = f"❌ {schedule_id} 恢复失败"
+        if mode_label:
+            header = f"{header}（{mode_label}）"
+        lines = [header]
+        if not targets:
+            return "\n".join(lines)
+        for item in targets:
+            if not isinstance(item, dict):
+                continue
+            label = _TARGET_TYPE_LABEL.get(str(item.get("work_type") or ""),
+                                           str(item.get("target_id") or "任务"))
+            value = _TARGET_STATUS_TEXT.get(str(item.get("status") or ""),
+                                            str(item.get("status") or "未知"))
+            lines.append(f"{label}：{value}")
+            reason_line = _terminal_reason_line(item)
+            if reason_line:
+                lines.append(reason_line)
+        return "\n".join(lines)
+
     emoji, verb = _OVERALL.get(status, ("ℹ️", "结束"))
     lines = [f"{emoji} {schedule_id} {verb}"]
     if targets:
@@ -298,8 +369,9 @@ def build_schedule_outcome_text(schedule_id: str, status: str,
             value = _TARGET_STATUS_TEXT.get(str(item.get("status") or ""),
                                             str(item.get("status") or "未知"))
             lines.append(f"{label}：{value}")
-    if status == "partial":
-        lines.append("已完成全部恢复尝试，本次不再重试。")
+            reason_line = _terminal_reason_line(item)
+            if reason_line:
+                lines.append(reason_line)
     return "\n".join(lines)
 
 
@@ -1928,6 +2000,10 @@ def add_api_routes(web_app, application) -> None:
         if not isinstance(targets, list):
             return _error(400, "invalid_targets", "targets 必须是数组")
         targets = [t for t in targets if isinstance(t, dict)][:20]
+        recovery = payload.get("recovery")
+        if recovery is not None and not isinstance(recovery, dict):
+            return _error(400, "invalid_recovery", "recovery 必须是对象")
+        recovery = recovery if isinstance(recovery, dict) else None
 
         from database import db_manager as _db_manager
         key = f"schedule-outcome:{slot_id}"
@@ -1954,10 +2030,32 @@ def add_api_routes(web_app, application) -> None:
                 return _ok({"ok": True, "replayed": True, "delivered": True,
                             "status": status})
             return _error(503, "notification_pending", "通知处理中，请重试")
-        text = build_schedule_outcome_text(schedule_id, status, targets)
+        text = build_schedule_outcome_text(schedule_id, status, targets, recovery=recovery)
+        reply_markup = None
+        if not recovery:
+            # Operator recovery UX (§manual-recovery): failed targets get
+            # [再试一次] / [放宽条件重试] buttons; both resolve to server-defined
+            # policy presets — never raw acquisition parameters.
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            failed = [
+                t for t in targets
+                if str(t.get("status") or "") in ("failed", "no_candidate", "duplicate")
+                and (t.get("target_id") or "").strip()
+            ]
+            if failed:
+                rows = []
+                for target in failed[:4]:
+                    target_id = str(target["target_id"]).strip()[:64]
+                    rows.append([
+                        InlineKeyboardButton("再试一次", callback_data=f"sched_recover|{target_id}|normal"),
+                        InlineKeyboardButton("放宽条件重试", callback_data=f"sched_recover|{target_id}|relaxed"),
+                    ])
+                if rows:
+                    reply_markup = InlineKeyboardMarkup(rows)
         try:
             message = await application.bot.send_message(
                 chat_id=REVIEW_CHAT_ID, text=text, parse_mode=None,
+                reply_markup=reply_markup,
             )
         except Exception:
             await release_api_notification(0, key)

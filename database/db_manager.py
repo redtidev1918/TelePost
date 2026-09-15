@@ -310,6 +310,35 @@ async def init_db():
                     UNIQUE(review_chain_id, candidate_id)
                 )
             ''')
+            # Durable manual RECOVERY attempts (§manual-recovery): re-running a
+            # FAILED schedule target under a server-defined policy preset.
+            # callback_key UNIQUE makes button-click redelivery idempotent; the
+            # partial UNIQUE index makes one-active-recovery-per-target a data
+            # layer guarantee.
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS recovery_attempts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    callback_key TEXT NOT NULL UNIQUE,
+                    request_id TEXT NOT NULL UNIQUE,
+                    slot_id TEXT NOT NULL DEFAULT '',
+                    schedule_id TEXT NOT NULL DEFAULT '',
+                    target_id TEXT NOT NULL,
+                    retry_mode TEXT NOT NULL DEFAULT 'normal',
+                    state TEXT NOT NULL DEFAULT 'requested',
+                    failure_code TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL,
+                    finished_at REAL
+                )
+            ''')
+            await conn.execute(
+                'CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_one_active '
+                "ON recovery_attempts(target_id) "
+                "WHERE state IN ('requested','accepted')"
+            )
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_recovery_target '
+                'ON recovery_attempts(target_id, created_at DESC)'
+            )
             # Durable dedup for terminal SCHEDULE outcome notifications
             # (§schedule-notify): one terminal summary per slot is ever sent to
             # the review/admin group, even when the same external clock replays
