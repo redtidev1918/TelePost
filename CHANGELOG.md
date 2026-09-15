@@ -10,6 +10,13 @@
 
 ---
 
+## [2.27.2](https://github.com/redtidev1918/TelePost/compare/v2.27.1...v2.27.2) (2026-09-15)
+
+
+### Bug Fixes
+
+* **editorial:** draft edits are PATCH semantics — accumulate on the draft ([#115](https://github.com/redtidev1918/TelePost/issues/115)) ([c6157ab](https://github.com/redtidev1918/TelePost/commit/c6157ab0c00362b2031f7e2b42c95afb8d0c7f25))
+
 ## [2.27.1](https://github.com/redtidev1918/TelePost/compare/v2.27.0...v2.27.1) (2026-09-15)
 
 
