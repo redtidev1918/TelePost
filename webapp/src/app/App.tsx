@@ -21,6 +21,8 @@ import { HomePage } from '../pages/Home/HomePage';
 import { SubmitPage } from '../pages/Submit/SubmitPage';
 import { MySubmissionsPage } from '../pages/MySubmissions/MySubmissionsPage';
 import { SubmissionDetailPage } from '../pages/SubmissionDetail/SubmissionDetailPage';
+import { ReviewEditPage } from '../pages/ReviewEdit/ReviewEditPage';
+import { EditorialHistoryPage } from '../pages/EditorialHistory/EditorialHistoryPage';
 import { ReviewQueuePage } from '../pages/ReviewQueue/ReviewQueuePage';
 import { ReviewDetailPage } from '../pages/ReviewDetail/ReviewDetailPage';
 
@@ -125,9 +127,13 @@ function Shell() {
           <Route path="/submit" element={<SubmitPage />} />
           <Route path="/mine" element={<MySubmissionsPage />} />
           <Route path="/mine/:id" element={<SubmissionDetailPage />} />
+          <Route path="/mine/:id/editorial" element={<EditorialHistoryPage />} />
           {isReviewer && <Route path="/review" element={<ReviewQueuePage />} />}
           {isReviewer && (
-            <Route path="/review/:id" element={<ReviewDetailPage />} />
+            <>
+              <Route path="/review/:id" element={<ReviewDetailPage />} />
+              <Route path="/review/:id/edit" element={<ReviewEditPage />} />
+            </>
           )}
         </Routes>
       </main>

@@ -200,3 +200,24 @@ api token 持有者                     绝不是 submitter
 - **硬性 SLA**：超过 `REFETCH_HARD_TIMEOUT_MINUTES` 仍无法形成任何 terminal outcome
   时，attempt 必须 `failed(stalled_after_hard_timeout)` 并通知审核群——accepted 重抓
   绝不永久 running。
+
+## Editorial Revision 与投稿者通知不变量（§editorial, §notify-submitter）
+
+- Original submissions 是 immutable historical evidence：审核员编辑的是 Revision，
+  绝不 mutate pending_reviews 原稿（含 media_json）——媒体排序/移除只生成发布子集，
+  原始附件永远保留可审计。
+- Review FSM 回答“能不能发布”；Editorial Revision 回答“发布哪个版本”。两者正交；
+  只有 finalized 版本可以发布；发布使用 immutable Publication Snapshot
+  （published_snapshot + published_source_revision_id），之后不能再改。
+- Revision 编号单调且数据层唯一（UNIQUE(review_id, revision_number)）；并发编辑用
+  version CAS（409 editorial_conflict）；stale generation（refetch 已替换链头）的
+  revision 绝不可发布（409 editorial_stale）。
+- **投稿者发布通知由 Publication Success 触发，绝不由 Review approval 触发**
+  （approval 只是中间审核事件）。适用于 DIRECT_PUBLISH、REVIEW_REQUIRED、
+  EDITORIAL 三条路径统一 pipeline；idempotency key
+  `publication:<message_id>:submitter-notification` 保证同一 publication 最多一条
+  DM；投递失败只重试通知行，绝不回滚 publication。
+- 匿名 human 投稿保留 ownership，仍可私聊通知；Service submission
+  （submitter_user_id IS NULL）绝不把 actor/credential holder 当投稿者通知。
+- 不改变 disposition 默认值：Chat 默认 DIRECT_PUBLISH，Mini App/API 默认
+  REVIEW_REQUIRED。

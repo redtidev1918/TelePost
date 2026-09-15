@@ -676,6 +676,10 @@ def setup_application(application):
             await cleanup_superseded_reviews(context.bot)
             await monitor_refetch_progress(context.bot)
             await reconcile_incomplete_reviews(context.bot)
+            from telepost.application.submitter_notify import (
+                flush_submitter_notifications,
+            )
+            await flush_submitter_notifications(context.bot)
 
         job_queue.run_repeating(cleanup_runtime_data, interval=300, first=10)
         

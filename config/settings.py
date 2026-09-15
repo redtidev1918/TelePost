@@ -135,6 +135,20 @@ if _notify_owner_env is not None:
 else:
     NOTIFY_OWNER = get_config_bool('BOT', 'NOTIFY_OWNER', True)
 
+# ---- 投稿者发布通知策略（§notify-submitter）---------------------------------
+# Publication success 是唯一触发点（review approval 不是）：所有投稿路径
+# （Chat DIRECT_PUBLISH / REVIEW_REQUIRED / EDITORIAL）共用同一条 durable
+# 通知 pipeline。
+#   off          不通知
+#   published    只通知“已发布”
+#   with_changes 另外附带 editorial change summary（无编辑时不加）
+SUBMITTER_PUBLISH_NOTIFY = os.getenv(
+    "SUBMITTER_PUBLISH_NOTIFY", get_config('BOT', 'SUBMITTER_PUBLISH_NOTIFY', 'off')
+).strip().lower() or 'off'
+if SUBMITTER_PUBLISH_NOTIFY not in ("off", "published", "with_changes"):
+    SUBMITTER_PUBLISH_NOTIFY = 'off'
+
+
 BOT_MODE = get_env_or_config('BOT_MODE', 'BOT', 'BOT_MODE', fallback='MIXED')
 
 # 允许的文件类型配置

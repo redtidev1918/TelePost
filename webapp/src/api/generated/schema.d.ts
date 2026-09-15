@@ -336,6 +336,119 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reviews/{review_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish the review — original, or a FINALIZED editorial revision
+         * @description body {revision_id?}: null → publish the ORIGINAL submission; an id →
+         *     publish the finalized editorial revision (edited snapshot). The same
+         *     review FSM + idempotency ledger serves both; the source revision is
+         *     recorded on the review row (published_source_revision_id, NULL =
+         *     original). A revision whose review generation is no longer current is
+         *     rejected (409 editorial_stale). Submit-succeeded notifications follow
+         *     publication success (never review approval).
+         */
+        post: operations["publishReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reviews/{review_id}/editorial-revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List editorial revisions (reviewer/admin) */
+        get: operations["listEditorialRevisions"];
+        put?: never;
+        /** Create the next revision draft */
+        post: operations["createEditorialRevision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reviews/{review_id}/editorial-revisions/{revision_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one revision */
+        get: operations["getEditorialRevision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update a DRAFT revision (CAS expected_version → 409 on conflict) */
+        patch: operations["updateEditorialRevision"];
+        trace?: never;
+    };
+    "/reviews/{review_id}/editorial-revisions/{revision_id}/finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** draft → finalized (only finalized may publish) */
+        post: operations["finalizeEditorialRevision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reviews/{review_id}/editorial-revisions/{revision_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Server-side caption preview of the edited version (side-effect free) */
+        post: operations["previewEditorialRevision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/submissions/{review_id}/editorial-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Owner-scoped published editorial history (submitter-safe) */
+        get: operations["editorialHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reviews/{review_id}/approve": {
         parameters: {
             query?: never;
@@ -1425,6 +1538,244 @@ export interface operations {
             };
             404: components["responses"]["reviewNotFound"];
             409: components["responses"]["reviewState"];
+        };
+    };
+    publishReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    revision_id?: number;
+                    spoiler?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description ReviewActionResult */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description review_not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description editorial_stale | editorial_state | review_busy */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listEditorialRevisions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description {revisions: EditorialRevision[]} */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createEditorialRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description EditorialRevision */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description review no longer current/pending */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getEditorialRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+                revision_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description EditorialRevision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateEditorialRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+                revision_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expected_version: number;
+                    title?: string;
+                    note?: string;
+                    tags?: string;
+                    link?: string;
+                    spoiler?: boolean;
+                    media_order?: number[];
+                    removed?: number[];
+                    /** @enum {unknown} */
+                    severity?: "minor" | "substantive";
+                };
+            };
+        };
+        responses: {
+            /** @description EditorialRevision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description editorial_conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    finalizeEditorialRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+                revision_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expected_version: number;
+                };
+            };
+        };
+        responses: {
+            /** @description EditorialRevision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description editorial_conflict | editorial_state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    previewEditorialRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+                revision_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description {caption, parse_mode} */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    editorialHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SubmitterEditorialHistory */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description review_not_found (owner scoping hides existence) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     approveReview: {
