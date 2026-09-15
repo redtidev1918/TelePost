@@ -87,3 +87,18 @@ HIGHLIGHT = false
 # SQLite page cache 大小（KB），影响内存占用
 # 内存受限可设 1024（1MB），通常 1024~4096 即可
 CACHE_SIZE_KB = 1024
+
+[NOVEL_PREVIEW]
+# 可选发布增强：TXT 小说通过 TelePress 发布到 Telegraph 提供「在线阅读」。
+# 默认关闭；开启后仅增加在线预览链接，TXT document 仍正常发送到频道，
+# Telegraph 失败/超时绝不导致投稿失败（§telepress-preview）。
+ENABLED = false
+
+# Telegraph 账户 access token（Secret，不写日志；留空 = 预览关闭）
+# TELEGRAPH_ACCESS_TOKEN =
+
+# 单次预览尝试的严格超时（秒）——Telegraph 不能无限拖住发布
+TIMEOUT_SECONDS = 15
+
+# 读取 TXT 正文的大小上限（字节），防止超大文件占用发布路径内存
+MAX_BYTES = 4194304

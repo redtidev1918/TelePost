@@ -275,6 +275,38 @@ MINIAPP_SUBMIT_CTA = str(
                       fallback='false')
     or 'false'
 ).strip().lower() in {'1', 'true', 'yes', 'on'}
+# 可选发布增强：TXT 小说通过 TelePress 发布到 Telegraph 提供「在线阅读」
+# （§telepress-preview）。它是可选 enrichment：默认关闭；开启后仍由 Telegram
+# TXT document 决定 Publication 成功与否，Telegraph 失败/超时绝不回滚或失败发布。
+# TELEGRAPH_ACCESS_TOKEN 是 Telegraph 账户 access token（可创建匿名账户获得），
+# 仅作为 Secret 注入，绝不写日志。
+_novel_preview_enabled = get_env_or_config(
+    'NOVEL_PREVIEW_ENABLED', 'NOVEL_PREVIEW', 'ENABLED', fallback='false'
+)
+NOVEL_PREVIEW_ENABLED = str(_novel_preview_enabled).lower() in ('true', '1', 'yes')
+
+_novel_preview_timeout = get_env_or_config(
+    'NOVEL_PREVIEW_TIMEOUT_SECONDS', 'NOVEL_PREVIEW', 'TIMEOUT_SECONDS',
+    fallback='15'
+)
+try:
+    NOVEL_PREVIEW_TIMEOUT_SECONDS = max(1.0, float(_novel_preview_timeout))
+except (ValueError, TypeError):
+    NOVEL_PREVIEW_TIMEOUT_SECONDS = 15.0
+
+_novel_preview_max_bytes = get_env_or_config(
+    'NOVEL_PREVIEW_MAX_BYTES', 'NOVEL_PREVIEW', 'MAX_BYTES', fallback='4194304'
+)
+try:
+    NOVEL_PREVIEW_MAX_BYTES = max(1024, int(_novel_preview_max_bytes))
+except (ValueError, TypeError):
+    NOVEL_PREVIEW_MAX_BYTES = 4 * 1024 * 1024
+
+TELEGRAPH_ACCESS_TOKEN = (
+    os.getenv('TELEGRAPH_ACCESS_TOKEN', '')
+    or get_config('NOVEL_PREVIEW', 'TELEGRAPH_ACCESS_TOKEN', '')
+    or ''
+).strip()
 
 # 模式常量定义
 MODE_MEDIA = 'MEDIA'      # 仅媒体上传

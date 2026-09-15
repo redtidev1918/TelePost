@@ -91,7 +91,27 @@ chat / HTTP API / 审核审批不存在第二套发布逻辑。
 子进程管理等非关键工作一律在 readiness 之后后台执行，失败可降级，不阻塞
 webhook 绑定与健康检查。
 
-## 为什么不抽 telegram-publish-kit
+## Novel TXT Telegraph 预览（可选发布增强）
+
+`PublicationService` 在构建频道 caption **之前**，对最终 Publication Snapshot
+（实际发布的 ordered items）做一次可选的 novel-preview enrichment：
+
+```text
+Final Publication Snapshot
+        ├── authoritative Telegram TXT delivery
+        └── optional Telegraph preview (TelePress) → publication_previews
+```
+
+- 编排：`telepost/application/novel_preview.py` 的 `NovelPreviewEnricher`
+  （幂等 by publication key → `publication_previews`；严格超时；失败/超时/不可用
+  只影响「有没有在线阅读链接」，绝不影响 Publication 结果）。
+- Provider：`telepost/domain/novel_preview.py` 的 `NovelPreviewPublisher` port；
+  `telepost/application/telepress_provider.py` 的 `TelePressNovelPreviewPublisher`
+  直接使用 `from telepress import TelegraphPublisher`（正式 Python API）。
+- 展示：`build_caption` 是 SSOT，成功才有「🔗 在线阅读」一行；TXT document
+  始终作为权威下载 artifact 发送（§telepress-preview）。
+
+
 
 当前**不拆**。投递核心确实已 PTB-free（domain/planner/executor），但：
 

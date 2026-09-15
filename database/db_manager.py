@@ -537,6 +537,22 @@ async def init_db():
                 "WHERE pixiv_id <> ''"
             )
 
+            # Optional publication enrichment: one durable row per PUBLICATION
+            # (the delivery idempotency key), so a Telegram delivery retry
+            # reuses an existing Telegraph preview instead of creating a second
+            # page. A failed/unavailable preview never blocks the TXT publish.
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS publication_previews (
+                    publication_key TEXT PRIMARY KEY,
+                    provider TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT '',
+                    url TEXT NOT NULL DEFAULT '',
+                    title TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                )
+            ''')
+
             # Append-only audit/observability log. pending_reviews remains the
             # source of truth; these rows are evidence only and are pruned by
             # cleanup_old_data (never while the referenced review is still open).
