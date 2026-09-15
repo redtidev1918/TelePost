@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 from .packing import MEDIA_GROUP_CAPACITY
 
@@ -121,6 +121,10 @@ class DeliveryRequest:
     reply_to_message_id: Optional[int] = None
     #: Capacity-first packing: the SSOT media-group capacity (§media-packing).
     album_size: int = MEDIA_GROUP_CAPACITY
+    #: Public submission CTA as (label, url) attached as a Telegram inline URL
+    #: button on the ROOT message (best-effort). PTB-free; the adapter layer
+    #: builds the keyboard. Absent ⇒ no button.
+    footer_action: Optional[Tuple[str, str]] = None
     # Discussion-only: linked discussion chat id, resolved by the caller when
     # known; the strategy resolves it from the channel when left unset.
     discussion_chat_id: Optional[int] = None
