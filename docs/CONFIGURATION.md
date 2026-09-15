@@ -219,3 +219,15 @@ Fly.io 拆分部署由独立 PixivFlow Machine 按需唤醒；TelePost 常驻。
 - `[DB]`：`CACHE_SIZE_KB`
 
 并非所有高级环境变量都有 INI 映射；部署平台优先使用环境变量/Secrets。
+
+## 投稿者发布通知（§notify-submitter）
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `SUBMITTER_PUBLISH_NOTIFY` | `off` | `off` 不通知；`published` 只通知“已发布”；`with_changes` 附带 editorial change summary |
+
+- 触发点统一为 **Publication Success**（频道发布确认），不是 review approval。
+- 覆盖 Chat 直发 / 审核原稿 / 审核编辑三条路径；匿名 human 仍私聊通知；Service
+  投稿从不通知。
+- 幂等键 `publication:<message_id>:submitter-notification`；失败只重试通知，
+  不回滚发布。

@@ -143,3 +143,10 @@ TelePost 可以运行在本地、VPS、Docker、Fly.io 或其他能够运行 Pyt
 
 问题请提交到 [GitHub Issues](https://github.com/redtidev1918/TelePost/issues)，代码贡献见
 [CONTRIBUTING.md](CONTRIBUTING.md)。TelePost 使用 [MIT License](LICENSE)。
+
+
+## Editorial Revision（审核编辑后发布）
+
+审核员可以通过“编辑后发布”修改标题/简介/标签/链接/剧透与媒体顺序/移除附件后发布；
+投稿者原始稿件不可变更（immutable），发布保存独立 snapshot，并可在配置开启后收到发布通知（含修改摘要）。
+详见 `docs/CONFIGURATION.md` 与 AGENTS.md（§editorial / §notify-submitter）。
