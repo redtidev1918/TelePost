@@ -11,7 +11,8 @@
 
 256 MiB 只描述 TelePost standalone 的起步档位，不是资源保证。双 Bot + PixivFlow combined
 runtime 的 Node、多个 Python 进程、图片上传和 ffmpeg 峰值相加，不能套用 standalone 数字。
-Fly.io 推荐拆成 PixivFlow 常驻、TelePost 自动休眠，并以生产 RSS 实测选择内存。
+Fly.io 组合部署应拆分两个服务：TelePost 常驻，PixivFlow 独立管理执行生命周期；两端都应按
+实际 RSS 选择内存。
 
 ## 主要内存来源
 
@@ -35,11 +36,11 @@ RGBA 按至少 4 B/px 估算，转换 RGB 还会产生额外工作集。TelePost
 
 ## 上传与磁盘
 
-- API：最多 50 个文件，单文件 50 MiB，累计 500 MiB。
+- API：默认最多 100 个文件（`API_MAX_FILES` 可调），单文件 50 MiB，累计 500 MiB。
 - 父路由与子服务使用 64 KiB 分块，不整体缓存请求体。
 - 临时上传目录正常结束即删除；异常中断后按
   `UPLOAD_SESSION_MAX_AGE_SECONDS`（默认 3600）清扫。
-- PixivFlow cache 与 delivery outbox 必须留在持久卷；outbox 未完成时不能删素材。
+- 兼容模式下的 PixivFlow cache 与 delivery outbox 必须留在持久卷；拆分部署由上游自己的文档负责。
 
 1 GiB Volume 接收 500 MiB 单请求前要预留数据库、WAL、outbox 和快照之外的足够空间。
 高频大投稿应提高 Volume 容量，而不是依赖请求结束后的清理。

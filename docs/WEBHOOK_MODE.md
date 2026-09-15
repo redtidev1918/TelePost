@@ -57,8 +57,7 @@ SECRET_TOKEN = replace-with-random-secret
 ## Webhook 生命周期
 
 - 启动时 TelePost 使用 Secret Token 调用 `setWebhook`，并保留 Telegram 已排队更新。
-- 正常关机或 Fly auto-stop 时只关闭本地服务器，**不会删除 Webhook**。
-- 下一次 Telegram POST 仍能到达 Fly Proxy 并唤醒 Machine。
+- 正常关机时只关闭本地服务器，**不会删除 Webhook**；重启后继续接收 Telegram 已排队的更新。
 - 改用 Polling 时，PTB 会处理 Webhook/Polling 切换；不要并行运行第二个相同 Token 实例。
 
 这是 2.10.39 的关键行为。旧版本在关机时删除 Webhook，会让已停止的 Fly Machine
@@ -89,8 +88,8 @@ TelePost 的 API 限制。只使用 Telegram 聊天投稿时可保持较小上�
 
 ## Secret Token
 
-建议在生产环境显式设置稳定的 `WEBHOOK_SECRET_TOKEN`。未设置时程序每次启动生成一个
-随机值并随 `setWebhook` 更新 Telegram；可运行，但不便于审计。不要在日志中输出它。
+建议在生产环境显式设置稳定的 `WEBHOOK_SECRET_TOKEN`。未设置时程序会首次生成随机值，
+持久化到数据目录并在后续启动时复用；数据目录不可写时启动失败。不要在日志中输出它。
 
 请求必须携带 Telegram 的 `X-Telegram-Bot-Api-Secret-Token`。不要用 URL 中的秘密值
 代替 Header 校验。
