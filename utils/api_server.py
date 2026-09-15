@@ -1643,7 +1643,8 @@ def add_api_routes(web_app, application) -> None:
 
         from telepost.storage.sqlite.refetch import RefetchRepository
         repo = RefetchRepository()
-        attempt, applied, changed = await repo.apply_outcome(
+        attempt = await repo.find_by_request_id(request_id)
+        _, applied, changed = await repo.apply_outcome(
             request_id, disposition,
             reason=str(payload.get("reason") or "")[:400],
             scanned=scanned, skipped_duplicate=dup,
@@ -1654,7 +1655,22 @@ def add_api_routes(web_app, application) -> None:
         if applied == "obsolete":
             # Source review was decided while the refetch was running: the
             # verdict is recorded as obsolete, and we never disturb the review.
-            return _ok({"ok": True, "attempt_state": applied})
+            # The attempt IS terminal — the review group must see that instead
+            # of an endless "仍在处理中" (§refetch-terminal-notify).
+            if changed:
+                review_id = attempt["source_review_id"] if attempt else None
+                try:
+                    await application.bot.send_message(
+                        chat_id=REVIEW_CHAT_ID,
+                        text=(
+                            f"🔄 审核 #{review_id} 的重抓已取消：该审核在重抓期间已被"
+                            "处理（驳回/通过），不会产生替换稿，当前稿件保持不变。"
+                        ),
+                    )
+                except Exception as exc:
+                    logger.warning("发送重抓取消通知失败: review_id=%s error=%s",
+                                   review_id, exc)
+            return _ok({"ok": True, "attempt_state": applied, "notified": bool(changed)})
         if not changed:
             # Already-terminal replay (same verdict redelivered): converge with
             # the same state, never re-notify the review group.

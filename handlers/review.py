@@ -84,7 +84,22 @@ REFETCH_PROGRESS_REMIND_MINUTES = max(
 REFETCH_STALE_TIMEOUT_MINUTES = max(
     0, int(os.getenv("REFETCH_STALE_TIMEOUT_MINUTES", "45"))
 )
+# 幂等 wake：机器不可达（停机）且超过 WAKE 分钟无进展时，TelePost 用同一个
+# request UUID 再调一次 PixivFlow refetch（Fly Proxy 拉起机器，PixivFlow 找到
+# 既有 manual slot 继续执行，绝不新建业务）。
+REFETCH_WAKE_MINUTES = max(
+    0, int(os.getenv("REFETCH_WAKE_MINUTES", "12"))
+)
+# 硬性 SLA：超过 HARD 分钟仍无法形成任何 terminal outcome（远端持续不可达）时，
+# TelePost 必须把 attempt 明确标 failed(stalled) 并通知审核群，绝不永久 running。
+REFETCH_HARD_TIMEOUT_MINUTES = max(
+    0, int(os.getenv("REFETCH_HARD_TIMEOUT_MINUTES", "90"))
+)
 REFETCH_TIMEOUT_SECONDS = 120
+
+# 进程内幂等护栏：对同一 attempt 最多发一次 wake（restart 后最多再发一次；
+# PixivFlow 端按 request UUID 幂等恢复，重复 wake 无副作用）。
+_wake_pinged: set = set()
 
 _PIXIV_ID_RE = re.compile(r"pixiv\.net/(?:artworks/|novel/show\.php\?id=)(\d+)")
 
@@ -422,6 +437,8 @@ async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
     current_time = time.time() if now is None else now
     remind_seconds = REFETCH_PROGRESS_REMIND_MINUTES * 60
     stale_seconds = REFETCH_STALE_TIMEOUT_MINUTES * 60
+    wake_seconds = REFETCH_WAKE_MINUTES * 60
+    hard_seconds = REFETCH_HARD_TIMEOUT_MINUTES * 60
     cutoff_remind = current_time - remind_seconds
     cutoff_fail = current_time - stale_seconds
 
@@ -452,7 +469,17 @@ async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
                 _, _, changed = await repo.apply_outcome(
                     row["request_id"], "failed", reason="source_review_resolved",
                 )
-                acted += int(changed)
+                if changed:
+                    acted += 1
+                    try:
+                        await context_bot_send(
+                            bot,
+                            f"🔄 审核 #{review_id} 的重抓已取消：该审核在重抓期间已被处理"
+                            "（驳回/通过），不会产生替换稿，当前稿件保持不变。",
+                        )
+                    except Exception:
+                        logger.debug("发送重抓取消通知失败: review_id=%s",
+                                     review_id, exc_info=True)
                 continue
             try:
                 remote_state = await asyncio.to_thread(
@@ -460,11 +487,13 @@ async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
                     source["target_id"], row["request_id"],
                 )
             except Exception as exc:
-                # A durable outbox may still be delivering after 45 minutes.
-                # Transport failure is not evidence that the work failed.
+                # A durable outbox may still be delivering after stale minutes.
+                # Transport failure is not evidence that the work failed; it may
+                # also mean the Machine is stopped, in which case an idempotent
+                # wake (same request UUID) restarts the resume path.
                 logger.warning("重抓远端状态不可用: review_id=%s error=%s",
                                review_id, type(exc).__name__)
-                remote_state = ""
+                remote_state = "unavailable"
             if remote_state in {"no_candidate", "duplicate", "failed", "submitted"}:
                 disposition = ("no_alternative" if remote_state in {"no_candidate", "duplicate"}
                                else "failed")
@@ -488,8 +517,45 @@ async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
                             logger.debug("发送重抓终态通知失败: review_id=%s",
                                          review_id, exc_info=True)
                 continue
-            # Active remote state or unknown transport result: one reminder,
-            # then wait for the PixivFlow terminal callback/recovery owner.
+            if remote_state == "unavailable":
+                if hard_seconds > 0 and current_time - row["created_at"] >= hard_seconds:
+                    if await repo.mark_failed(
+                        row["request_id"], "stalled_after_hard_timeout"
+                    ):
+                        acted += 1
+                        try:
+                            await context_bot_send(
+                                bot,
+                                f"❌ 审核 #{review_id} 重抓在长时间后仍未完成，"
+                                "当前稿件保持不变；请检查 PixivFlow 后重新重抓。",
+                            )
+                        except Exception:
+                            logger.debug("发送重抓硬超时通知失败: review_id=%s",
+                                         review_id, exc_info=True)
+                    continue
+                # 幂等 wake（同一 request UUID；PixivFlow 端恢复既有 manual slot）。
+                if wake_seconds > 0 and current_time - row["created_at"] >= wake_seconds:
+                    if row["request_id"] not in _wake_pinged:
+                        _wake_pinged.add(row["request_id"])
+                        try:
+                            _submit_pixivflow_refetch(
+                                source["target_id"], row["request_id"]
+                            )
+                            acted += 1
+                            try:
+                                await context_bot_send(
+                                    bot,
+                                    f"🔄 审核 #{review_id} 处理时间较长，已自动恢复任务"
+                                    "（同一重抓请求），有新结果会第一时间通知。",
+                                )
+                            except Exception:
+                                logger.debug("发送重抓唤醒通知失败: review_id=%s",
+                                             review_id, exc_info=True)
+                        except Exception:
+                            logger.warning("重抓自动唤醒失败: review_id=%s", review_id)
+                continue
+            # Active remote state: the durable cell is still working. Wait for
+            # the PixivFlow terminal callback / recovery owner.
         if remind_seconds <= 0:
             continue
         last = row["last_progress_notified_at"] or 0

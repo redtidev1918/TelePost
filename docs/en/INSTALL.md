@@ -9,7 +9,7 @@
 | Release single file | Minimal dependencies, a single bot | No preinstalled Python |
 | Source + venv | Development, self-managed VPS | Python 3.9+ |
 | Docker / Compose | General production | Docker |
-| Fly.io | Webhook, autosleep | `flyctl` |
+| Fly.io | Hosted Webhook deployment | `flyctl` |
 
 PythonAnywhere's legacy WSGI adapter is **not a supported production path**: it cannot cover
 the full runtime lifecycle (multi-bot supervisor, webhook registration, review queue). Older
@@ -82,8 +82,8 @@ a public address, keep `RUN_MODE=AUTO` or `POLLING`.
 
 ## Fly.io
 
-Fly.io uses a prebuilt image, a persistent volume and webhooks. Full configurations for a
-single bot, two bots, and "PixivFlow always-on + TelePost autosleep" are in
+Fly.io uses a prebuilt image, a persistent volume, and Webhooks. TelePost stays resident to avoid
+cold-start delays on the submission path. Single-bot, multi-bot, and optional PixivFlow integration are in
 [FLYIO_DEPLOYMENT.md](/FLYIO_DEPLOYMENT.md)（中文）.
 
 ## First-run checklist

@@ -2,122 +2,153 @@
 
 **Language / 语言:** [中文](README.md) · English
 
-A Telegram channel submission bot with chat submissions, a review queue, full-text search,
-multi-bot support and an HTTP API.
+**A submission, moderation, and automated publishing platform for Telegram channels.**
 
+[![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
-[![Docs](https://img.shields.io/badge/Docs-documentation_site-6366f1?style=flat-square)](https://redtidev1918.github.io/TelePost/)
+[![Docs](https://img.shields.io/badge/docs-online-6366f1.svg)](https://redtidev1918.github.io/TelePost/)
 
-## What it does
+People can submit through Telegram chat or a Mini App, moderators can review and manage content,
+and external programs can send submissions through the HTTP API. Every entry point shares the same
+submission, review, search, publishing, and status workflow.
+TelePost runs on its own; PixivFlow, Fly.io, the Mini App, and multi-bot mode are all optional.
 
-- Upload, preview, edit, toggle anonymity/spoiler and publish entirely inside Telegram
-- Independently control whether chat submissions and HTTP API submissions enter a private review group
-- Search channel history, tags, your own submissions and a local hot list
-- Run multiple mutually isolated bots from a single supervisor
-- Accept external automated submissions through a Bearer-token API
-- Let an AI agent read pending submissions and media safely (and suggest decisions) via the optional MCP sidecar
-- Switch between Polling, Webhook and `AUTO` modes
-- Auto-stop on Fly.io while keeping the webhook, waking on the next request
-- Enforce a resource budget before image decoding; high-risk originals degrade safely to a preview or document
-- Keep review staging in a recoverable state and repair missing control messages on startup
+## Where it fits
 
-## Quickest start
+| Use case | Flow | Good for |
+| --- | --- | --- |
+| Community channel | Member → Bot / Mini App → direct publish or review → channel | Community submissions, calls for work, UGC channels |
+| Automated content channel | PixivFlow or another tool → HTTP API → review → channel | Automated collection with human oversight |
+| Custom automation | RSS / scraper / CI / your script → HTTP API → channel | Using Telegram as the publishing end of an existing workflow |
 
-Download the single-file binary for your platform from the
-[latest release](https://github.com/redtidev1918/TelePost/releases/latest); the first run
-opens a configuration wizard:
+```text
+People ──┬── Telegram Chat ──┐
+         └── Mini App ───────┤
+                             ▼
+                          TelePost ──→ Telegram Channel
+                             ▲
+Automation ── HTTP API ──────┘
+```
+
+Chat, Mini App, and API are not separate systems: they all enter the same TelePost workflow. The Mini App
+is an optional richer interface, and moderation is a configurable policy. Native chat submissions publish
+directly by default; set `CHAT_REVIEW_REQUIRED=true` to send them to the review queue.
+
+## Start in 30 seconds
+
+1. Create a bot with [@BotFather](https://t.me/BotFather), add it to the target channel, and grant permission to post.
+2. Download the single-file program for your platform from the [latest release](https://github.com/redtidev1918/TelePost/releases/latest).
+3. Run it once and enter the Bot Token, channel ID, and the recommended Owner ID in the setup wizard.
+4. Send `/start` to the bot, then use `/submit` for your first submission.
+
+Linux example:
 
 ```bash
 chmod +x telepost-linux-x64
 ./telepost-linux-x64
 ```
 
-Run from source:
+Docker and source installs are also available. See [Install and deployment](docs/INSTALL.md) for downloads,
+platform-specific setup, and upgrades.
 
-```bash
-git clone https://github.com/redtidev1918/TelePost.git
-cd TelePost
-python3 -m venv .venv
-./.venv/bin/pip install -r requirements.txt
-./.venv/bin/python run.py --setup
-./.venv/bin/python run.py
-```
+## Core capabilities
 
-Minimum configuration:
+- **Submission and publishing:** images, video, audio, and files, with preview, editing, tags, anonymity, and spoilers.
+- **Flexible moderation:** choose direct publishing or a private review group independently for Chat and API submissions.
+- **Mini App:** contributors submit and track their own posts; moderators work through the review queue and details.
+- **HTTP API:** Bearer tokens, idempotency keys, uploads, and Telegram `file_id` reuse for scripts and services.
+- **Channel management:** search channel history, tags, personal submissions, and a local hot list, plus admin commands.
+- **Multi-bot:** run multiple isolated bots under one supervisor with separate configuration and data directories.
+- **Runtime choices:** Polling, Webhook, or automatic selection, without tying deployment to one cloud provider.
 
-| Setting | Notes |
-|---|---|
-| `TOKEN` | From [@BotFather](https://t.me/BotFather) |
-| `CHANNEL_ID` | `@channel` or `-100…`; the bot must be allowed to post |
-| `OWNER_ID` | Recommended; enables sensitive admin commands and API token generation |
-
-Environment variables take precedence over `config.ini`. See the
-[configuration reference](docs/CONFIGURATION.md) for everything, and
-[install & deploy](docs/INSTALL.md) for deployment options.
-
-## Runtime modes
-
-| Scenario | Recommended mode |
-|---|---|
-| Local, no public HTTPS | `RUN_MODE=POLLING` |
-| Public HTTPS available | `RUN_MODE=WEBHOOK` |
-| Let it decide | `RUN_MODE=AUTO` (default) |
-
-Both Webhook and Polling expose `/live` (process alive), `/ready` (database, bot and review
-service available), `/health` and `/api/v1/*`. Multi-bot entry points are always
-`/api/botN/v1/*` and `/webhook/botN`; see [Webhook and Polling](docs/WEBHOOK_MODE.md).
-
-## Fly.io with PixivFlow
-
-Recommended low-cost topology:
+## Telegram Mini App
 
 ```text
-PixivFlow 256 MiB, always-on scheduler
-        │ Flycast/Fly Proxy HTTP
-        ▼
-TelePost 512 MiB, auto-stop + auto-start, two bots
+Contributor: Telegram → Mini App → Submit / My submissions
+Moderator:   Telegram → Mini App → Review queue / Review details
 ```
 
-PixivFlow must stay resident to run jobs on cron; TelePost only handles inbound events, so it
-can auto-stop. Do not put both on one auto-stopping machine, or nothing can trigger the cron
-while it sleeps. Full steps: [Fly.io deployment](docs/FLYIO_DEPLOYMENT.md).
+The Mini App reuses the Bot's identity, submission, and moderation workflow; it is not a second backend.
+Disabling it does not affect chat submissions or the HTTP API. The current Mini App submission UI expects
+the review workflow, so enable it with `API_REVIEW_REQUIRED=true`. See the [Mini App guide](docs/MINIAPP.md)
+for setup, same-origin hosting, and security requirements.
 
-## Common entry points
+## HTTP API and automation
 
-- Users: `/submit`, `/search`, `/hot`, `/myposts`, `/mystats`
-- Owner: `/botconfig`, `/gen_token`, `/delete_posts`
-- Health check: `curl http://127.0.0.1:8080/health`
-- Version tracing: `python run.py --version` (release, commit SHA and build date)
-- Tests: `./.venv/bin/python -m pytest -q --no-cov -o log_cli=false`
+External programs can use TelePost as a Telegram submission, moderation, and publishing backend. First,
+the Owner runs `/gen_token <name>` in the Bot, then sends content:
 
-All commands are in the [command reference](docs/COMMANDS.md); automation is covered by the
-[HTTP API](docs/API.md).
+```bash
+curl -X POST 'https://example.com/api/v1/submissions' \
+  -H 'Authorization: Bearer tp_xxxx' \
+  -F 'files=@image.jpg' \
+  -F 'tags=illustration,featured' \
+  -F 'title=Example' \
+  -F 'idempotency_key=my-source:123'
+```
+
+See the [HTTP API guide](docs/API.md) for multi-bot paths, moderation policy, response semantics, and all fields.
+
+### Working with other tools
+
+TelePost runs on its own and can accept submissions from any upstream system that can call an HTTP API:
+
+```text
+PixivFlow ───────┐
+RSS / scrapers ──┼──→ TelePost → review / publish → Telegram
+Scripts / CI ────┘
+```
+
+[PixivFlow](https://github.com/redtidev1918/PixivFlow) is an independent Pixiv downloading, filtering, and
+collection tool. It can send results to TelePost, save them locally, or deliver them elsewhere.
+**TelePost does not depend on PixivFlow.**
+
+The optional [MCP sidecar](docs/MCP_REVIEW.md) lets an AI agent read pending submissions and suggest decisions;
+a human still explicitly confirms publishing.
+
+## Running and deployment
+
+TelePost can run locally, on a VPS, with Docker, on Fly.io, or anywhere else that can run Python or containers:
+
+| Environment | Suggested entry point |
+| --- | --- |
+| Local or no public HTTPS | `RUN_MODE=POLLING` |
+| VPS / container platform | Polling, or Webhook behind public HTTPS |
+| Fly.io | Pinned image, persistent volume, and Webhook |
+
+A single bot is the simplest starting point. Mini App, multi-bot, Webhook, and PixivFlow integration are all
+optional. See [Install and deployment](docs/INSTALL.md) for general setup and
+[Fly.io deployment](docs/FLYIO_DEPLOYMENT.md) for platform-specific details.
+
+## Built for long-running use
+
+- Submission and publishing use idempotent semantics, so retries do not silently duplicate content.
+- Review state, sessions, and runtime policy persist and recover across restarts.
+- `/live`, `/ready`, and `/health` provide layered health checks.
+- Image processing enforces a resource budget and safely falls back to previews or documents.
 
 ## Documentation
 
-| Document | Purpose |
-|---|---|
-| [📥 Download](docs/download.md) | Single-file builds for Windows / macOS / Linux |
-| [English docs index](docs/en/README.md) | English entry point for the documentation site |
-| [Install & deploy](docs/INSTALL.md) | Single file, source, Docker, Fly.io |
-| [Configuration](docs/CONFIGURATION.md) | Environment variables, `config.ini`, multi-bot |
-| [Commands](docs/COMMANDS.md) | User, admin and owner commands |
-| [HTTP API](docs/API.md) | Tokens, submissions, notifications and errors |
-| [MCP review](docs/MCP_REVIEW.md) | AI-assisted review, media preview, read-only mode |
-| [Webhook and Polling](docs/WEBHOOK_MODE.md) | Mode selection, routing and security |
-| [Operations](docs/OPERATIONS.md) | Backups, upgrades, monitoring and releases |
-| [Troubleshooting](docs/TROUBLESHOOTING.md) | Unresponsive bot, OOM, submissions, search |
-| [Performance](docs/PERFORMANCE.md) | Resource tiers and capacity limits |
-| [Testing](docs/TESTING.md) | Local and CI verification |
-| [Contributing](CONTRIBUTING.md) | Development and commit conventions |
-| [Changelog](CHANGELOG.md) | Released changes |
+| What you want to do | Guide |
+| --- | --- |
+| Download and get started | [Download](docs/en/download.md) · [Install and deployment](docs/INSTALL.md) |
+| Configure a bot, review, or multi-bot | [Configuration](docs/CONFIGURATION.md) |
+| Browse Telegram commands | [Command reference](docs/COMMANDS.md) |
+| Connect automation | [HTTP API](docs/API.md) |
+| Enable the Mini App | [Mini App](docs/MINIAPP.md) |
+| Configure Webhook or Fly.io | [Webhook and Polling](docs/WEBHOOK_MODE.md) · [Fly.io deployment](docs/FLYIO_DEPLOYMENT.md) |
+| Back up, upgrade, or troubleshoot | [Operations](docs/OPERATIONS.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) |
+| Contribute | [Contributing](CONTRIBUTING.md) · [Full documentation index](docs/en/README.md) |
 
-Internal design: [submission state machine](docs/internals/submission-flow.md) and
-[soft deletion](docs/internals/moderation.md).
+Detailed guides are currently written mainly in Chinese; commands, paths, and configuration names are identical.
 
-## License
+## Related projects
 
-[MIT License](LICENSE). Please file issues on
-[GitHub Issues](https://github.com/redtidev1918/TelePost/issues).
+- [PixivFlow](https://github.com/redtidev1918/PixivFlow): Pixiv downloading, filtering, scheduling, and HTTP delivery.
+- [pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy): deployment and operations toolkit for combining PixivFlow and TelePost across Docker, VPS, and cloud environments.
+
+## Contributing and license
+
+Please report problems in [GitHub Issues](https://github.com/redtidev1918/TelePost/issues) and see
+[CONTRIBUTING.md](CONTRIBUTING.md) for code contributions. TelePost is available under the [MIT License](LICENSE).

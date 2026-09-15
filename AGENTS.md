@@ -188,3 +188,15 @@ api token 持有者                     绝不是 submitter
   自动稿不能把 API credential holder 显示为人类投稿人。
 - Chat 与 Mini App 都收敛到 QueueCommand / ReviewQueueService；Mini App 发 bytes，
   服务端 Telegram staging 才获得 file_id。
+
+## Refetch 终态可见性 与 watchdog 不变量（§refetch-terminal-notify）
+
+- **已决审核的重抓终态必须可见**：obsolete（outcome 到达时源审核已被驳回/通过）与
+  watchdog 的 `source_review_resolved` 分支都必须向审核群通知一次（“重抓已取消，当前稿件
+  不变”），绝不能用无限“仍在处理中”掩盖 silent terminal。replay（已终态重复投递）不重复通知。
+- **watchdog 对同一 request UUID 可做幂等 wake**：机器不可达且超过
+  `REFETCH_WAKE_MINUTES` 无进展时，用同一 request UUID 再调 PixivFlow refetch
+  （Fly Proxy 拉起机器，PixivFlow 恢复既有 manual slot）；不得创建第二条 attempt。
+- **硬性 SLA**：超过 `REFETCH_HARD_TIMEOUT_MINUTES` 仍无法形成任何 terminal outcome
+  时，attempt 必须 `failed(stalled_after_hard_timeout)` 并通知审核群——accepted 重抓
+  绝不永久 running。

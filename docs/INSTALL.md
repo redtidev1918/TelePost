@@ -7,7 +7,7 @@
 | Release 单文件 | 最少依赖、单 Bot | 无需预装 Python |
 | 源码 + venv | 开发、自管 VPS | Python 3.9+ |
 | Docker / Compose | 通用生产环境 | Docker |
-| Fly.io | Webhook、自动休眠 | `flyctl` |
+| Fly.io | Webhook、托管运行 | `flyctl` |
 
 PythonAnywhere 的旧 WSGI 适配**不是当前受支持的生产路径**：它覆盖不了完整运行生命周期
 （多 Bot supervisor、webhook 注册与审核队列）。旧文档曾把它描述为「已验证可用」，那是不准确的，
@@ -75,8 +75,8 @@ docker compose logs -f telepost
 
 ## Fly.io
 
-Fly.io 使用预构建镜像、持久卷和 Webhook。单 Bot、双 Bot以及“PixivFlow 常驻 +
-TelePost 自动休眠”完整配置见 [FLYIO_DEPLOYMENT.md](FLYIO_DEPLOYMENT.md)。
+Fly.io 使用预构建镜像、持久卷和 Webhook。TelePost 保持常驻，避免投稿入口出现冷启动延迟；
+单 Bot、多 Bot和可选 PixivFlow 组合见 [FLYIO_DEPLOYMENT.md](FLYIO_DEPLOYMENT.md)。
 
 ## 首次运行核对
 

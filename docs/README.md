@@ -1,6 +1,7 @@
 # TelePost 文档中心
 
-> TelePost 是一个 Telegram 频道投稿机器人：聊天投稿、审核队列、全文搜索、多 Bot 与 HTTP API。这里汇聚它的全部文档。
+> TelePost 是一个面向 Telegram 频道的投稿、审核与自动化发布平台，支持聊天、Mini App、
+> 多 Bot 和 HTTP API。这里汇聚它的全部文档。
 
 > **English:** English pages live under [`/en/`](en/); see the
 > [English README](https://github.com/redtidev1918/TelePost/blob/main/README.en.md)
@@ -17,12 +18,14 @@ Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](downloa
 | 第一次部署，跑起来 | [安装与部署](INSTALL.md) |
 | 了解所有 Telegram 命令 | [命令参考](COMMANDS.md) |
 | 精细配置（Token、频道、审核、多 Bot） | [配置参考](CONFIGURATION.md) |
+| 启用 Telegram Mini App | [Mini App](MINIAPP.md) |
 | 部署到 Fly.io | [Fly.io 部署](FLYIO_DEPLOYMENT.md) |
 | 理解 Webhook 与 Polling 的区别 | [Webhook 与 Polling](WEBHOOK_MODE.md) |
 | 日常运维、升级、备份 | [运维手册](OPERATIONS.md) |
 | 排查问题 | [故障排查](TROUBLESHOOTING.md) |
 | 调内存 / 容量 | [性能与容量](PERFORMANCE.md) |
 | 接外部自动化投稿（HTTP API） | [HTTP API](API.md) |
+| 让 AI Agent 辅助审核 | [MCP 投稿审核](MCP_REVIEW.md) |
 | 二次开发、改代码 | [投稿状态机](internals/submission-flow.md) · [删帖与软删除](internals/moderation.md) · [测试指南](TESTING.md) |
 
 ## 📚 全部文档
@@ -39,7 +42,8 @@ Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](downloa
 | 文档 | 内容 |
 | --- | --- |
 | [CONFIGURATION](CONFIGURATION.md) | 环境变量 / config.ini 逐项说明 |
-| [FLYIO_DEPLOYMENT](FLYIO_DEPLOYMENT.md) | Fly.io 部署与自动休眠 |
+| [MINIAPP](MINIAPP.md) | Mini App 配置、构建与安全边界 |
+| [FLYIO_DEPLOYMENT](FLYIO_DEPLOYMENT.md) | TelePost 的 Fly.io 部署 |
 | [WEBHOOK_MODE](WEBHOOK_MODE.md) | Webhook 与 Polling 两种模式 |
 
 ### 运维
