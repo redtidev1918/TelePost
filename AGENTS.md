@@ -93,6 +93,41 @@ python check_config.py             # 配置自检
 - 替换稿必须在预览和控制卡准备成功后，与旧稿 `superseded`、attempt `replaced`
   同事务提交。来源不明或过期的 `refetch_request_id` 不能作为普通投稿落库。
 
+## Refetch Generation Replacement 不变量（§refetch-replacement）
+
+```text
+Refetch is a generation replacement operation, not the creation of
+an independent parallel review.
+
+A successful replacement atomically supersedes the previous current
+review generation and installs the replacement as the new chain head.
+
+A failed or no-alternative refetch leaves the current review unchanged.
+
+Superseded reviews are terminal history and must reject all moderation
+mutations.
+
+Superseded is not rejected and must never trigger submitter rejection
+notifications.
+
+Only explicit rejection of the current chain head may produce a
+rejection notification.
+```
+
+- 原子 replacement（同一事务）：`finalize_control` → B pending 落库 + A
+  `superseded` + A/B 链与 generation 链接 + attempt `replaced`；B 变成链头。
+- 任何时刻每条链至多一个 active generation（preparing/pending/publishing），
+  由数据层 partial UNIQUE + 应用事务保证，测试用 consistency query 复核。
+- stale guard 是后端的硬防线（UI 只辅助）：对 `superseded` 代的 approve /
+  reject / spoiler / refetch / editorial create-update-finalize-publish 全部拒绝
+  （409 review_superseded / editorial_stale），提示「该审核稿已被重抓结果替代，
+  请审核最新版本。」Telegram 旧按钮点击同样被挡，绝不发「投稿已拒绝」通知。
+- replacement 提交后 best-effort 重写旧审核卡为「♻️ 已被重抓结果替代 + 新稿
+  编号」并移除内联键盘；失败不回滚 replacement（后端 stale guard 仍生效）。
+- reject 通知只由 current head 的显式拒绝触发：chat 投稿人发到 user_id，
+  human Mini App 投稿人发到 submitter_user_id（service 绝不通知）。
+- superseded 绝不发拒绝通知；superseded ≠ rejected（历史记录，非审核结论）。
+
 ## 已知待办（本仓库范围）
 
 - `ROADMAP.md` 中与「拆分拓扑」相关的条目若已完成，请更新；不要再保留第二份 Fly 拓扑文件。

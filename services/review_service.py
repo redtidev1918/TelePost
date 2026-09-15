@@ -59,9 +59,31 @@ class ReviewStateError(ReviewError):
     http_status = 409
 
 
+def _row_value(row, key, default=None):
+    """Read a column from a dict OR a sqlite3.Row (``row.get`` does not exist
+    on Row; ``key in row`` compares VALUES, so use ``row.keys()``)."""
+    try:
+        if hasattr(row, "keys"):
+            return row[key] if key in row.keys() else default
+        return row.get(key, default)
+    except (KeyError, IndexError, TypeError):
+        return default
+
+
 class ReviewBusyError(ReviewStateError):
     code = "review_busy"
     http_status = 409
+
+
+class ReviewSupersededError(ReviewStateError):
+    """A moderation action targeted a SUPERSEDED (replaced) generation.
+
+    Superseded generations are terminal historical records: they are not
+    rejected, and they must never accept approve/reject/spoiler/publish
+    mutations. The reviewer is directed to the current chain head."""
+    code = "review_superseded"
+    http_status = 409
+    message = "该审核稿已被重抓结果替代，请审核最新版本。"
 
 
 class MediaNotFoundError(ReviewError):
@@ -434,6 +456,9 @@ class ReviewService:
             if row["status"] == "publishing":
                 raise ReviewBusyError("Review is currently being processed",
                                       details={"status": row["status"]})
+            if row["status"] == "superseded":
+                raise ReviewSupersededError(
+                    "该审核稿已被重抓结果替代，请审核最新版本。")
             raise ReviewStateError(f"该投稿当前状态：{row['status']}")
         await _record_review_event("publish.started", row, actor,
                                    detail={"revision_id": int(revision_id)})
@@ -634,6 +659,9 @@ class ReviewService:
                     "Review is currently being processed",
                     details={"status": row["status"]},
                 )
+            if row["status"] == "superseded":
+                raise ReviewSupersededError(
+                    "该审核稿已被重抓结果替代，请审核最新版本。")
             raise ReviewStateError(f"该投稿当前状态：{row['status']}")
         _audit("set_spoiler", int(review_id), actor, "ok",
                source=source, spoiler=bool(spoiler))
@@ -649,6 +677,9 @@ class ReviewService:
                     "Review is currently being processed",
                     details={"status": row["status"]},
                 )
+            if row["status"] == "superseded":
+                raise ReviewSupersededError(
+                    "该审核稿已被重抓结果替代，请审核最新版本。")
             raise ReviewStateError(f"该投稿当前状态：{row['status']}")
         _audit("toggle_spoiler", int(review_id), actor, "ok")
         return ActionResult(int(review_id), row["status"], False, link=row["link"])
@@ -666,17 +697,32 @@ class ReviewService:
                     "Review is currently being processed",
                     details={"status": row["status"]},
                 )
+            if row["status"] == "superseded":
+                raise ReviewSupersededError(
+                    "该审核稿已被重抓结果替代，请审核最新版本。")
             raise ReviewStateError(f"该投稿当前状态：{row['status']}")
 
-        if notify_chat_submitter and row["source"] == "chat":
-            try:
-                await bot.send_message(
-                    chat_id=row["user_id"],
-                    text="❌ 你的投稿未通过审核。如需了解原因，请联系频道管理员。",
-                )
-            except Exception:
-                logger.warning("通知聊天投稿人拒绝结果失败: review_id=%s",
-                               review_id, exc_info=True)
+        if notify_chat_submitter:
+            # Explicit rejection of the CURRENT head is the only rejection
+            # notification; a superseded generation never reaches here (the
+            # transaction above only transitions from pending). Chat submitters
+            # are addressed at the legacy user_id; human Mini App submitters at
+            # their verified submitter identity. Service submissions (submitter
+            # NULL) are never notified.
+            target_id = None
+            if row["source"] == "chat":
+                target_id = row["user_id"]
+            elif _row_value(row, "submitter_user_id"):
+                target_id = _row_value(row, "submitter_user_id")
+            if target_id:
+                try:
+                    await bot.send_message(
+                        chat_id=target_id,
+                        text="❌ 你的投稿未通过审核。如需了解原因，请联系频道管理员。",
+                    )
+                except Exception:
+                    logger.warning("通知投稿人拒绝结果失败: review_id=%s",
+                                   review_id, exc_info=True)
         _audit("reject", int(review_id), actor, "ok",
                source=source, reason=safe_reason or None)
         await _record_review_event(
@@ -729,6 +775,9 @@ class ReviewService:
                     "Review is currently being processed",
                     details={"status": row["status"]},
                 )
+            if row["status"] == "superseded":
+                raise ReviewSupersededError(
+                    "该审核稿已被重抓结果替代，请审核最新版本。")
             raise ReviewStateError(f"该投稿当前状态：{row['status']}")
 
         current_spoiler = bool(row["spoiler"]) if spoiler is None else bool(spoiler)

@@ -193,6 +193,41 @@ class TelegramReviewStager:
         logger.info("重复投稿已在审核群提示: review_id=%s status=%s",
                     row["id"], row["status"])
 
+    async def notify_superseded(self, *, source_review_id: int,
+                                old_message_ids, new_review_id: int) -> None:
+        """Make the replaced generation's review card non-actionable.
+
+        The replacement is already committed, so this is presentation only: the
+        old control message is rewritten as history and its inline keyboard is
+        removed. A failure here never invalidates the replacement — every
+        moderation path re-checks the chain head server-side (§refetch)."""
+        message_ids = [int(m) for m in (old_message_ids or []) if m]
+        if not message_ids:
+            return
+        from telegram import InlineKeyboardMarkup
+
+        text = review_keyboard.superseded_notice_text(
+            new_review_id=int(new_review_id),
+            source_review_id=int(source_review_id or 0),
+        )
+        control_id = message_ids[-1]
+        try:
+            await self._bot.edit_message_text(
+                chat_id=self.chat_id,
+                message_id=control_id,
+                text=text,
+                reply_markup=InlineKeyboardMarkup([]),
+                disable_web_page_preview=True,
+                **self._timeouts_now(),
+            )
+        except Exception:
+            logger.warning("替换后更新旧审核卡失败（后端 stale guard 仍生效）: "
+                           "review_id=%s message=%s", source_review_id, control_id,
+                           exc_info=True)
+            return
+        logger.info("被替代审核卡已失效: review_id=%s → 新审核 #%s",
+                    source_review_id, new_review_id)
+
     async def send_control_message_id(self, *, review_id, command,
                                       preview_message_ids,
                                       media_count: int = 0,

@@ -223,6 +223,42 @@ class ReviewRepository:
             )
             return cur.rowcount == 1
 
+    async def superseded_context(self, new_review_id: int):
+        """``(source_review_id, message_ids)`` of the generation this review
+        replaced (image/control message ids), or ``(None, [])`` when the review
+        is not a replacement. Used to invalidate the old review card after the
+        replacement transaction committed."""
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT supersedes_review_id FROM pending_reviews WHERE id=?",
+                (int(new_review_id),),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                return None, []
+            source_raw = (row["supersedes_review_id"]
+                          if "supersedes_review_id" in row.keys() else None)
+            if not source_raw:
+                return None, []
+            source_id = int(source_raw)
+            cur = await conn.execute(
+                "SELECT review_message_ids, control_message_id "
+                "FROM pending_reviews WHERE id=?",
+                (source_id,),
+            )
+            source = await cur.fetchone()
+        ids = []
+        if source is not None:
+            try:
+                ids = [int(m) for m in json.loads(source["review_message_ids"] or "[]")]
+            except (TypeError, ValueError):
+                ids = []
+            control_id = (source["control_message_id"]
+                          if "control_message_id" in source.keys() else None)
+            if control_id:
+                ids.append(int(control_id))
+        return source_id, ids
+
     async def mark_preparation_failed(self, review_id: int, error: str, *,
                                       clear_previews: bool = False) -> bool:
         previews = ", review_message_ids='[]'" if clear_previews else ""

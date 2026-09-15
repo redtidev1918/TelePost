@@ -96,7 +96,7 @@ async def request_refetch(
 
     # Review-state gate: only a still-pending review may be replaced.
     if row["status"] == "superseded":
-        raise RefetchStateError("该审核稿已被替换，请在最新审核稿上操作")
+        raise RefetchStateError("该审核稿已被重抓结果替代，请审核最新版本。")
     if row["status"] != "pending":
         raise RefetchStateError("该审核稿已结束，请操作最新审核稿")
 

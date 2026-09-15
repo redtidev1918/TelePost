@@ -132,6 +132,10 @@ class StagingPort(Protocol):
 
     async def notify_reused(self, row) -> None: ...
 
+    async def notify_superseded(self, *, source_review_id: int,
+                                old_message_ids: List[int],
+                                new_review_id: int) -> None: ...
+
     async def cleanup_files(self, files) -> None: ...
 
 
@@ -144,6 +148,40 @@ class ReviewQueueService:
         self._dedup_window = dedup_window_seconds
         self._staging_deadline_seconds = staging_deadline_seconds
         self._heartbeat_seconds = heartbeat_seconds
+
+    async def _post_replacement_cleanup(self, stager, *, review_id: int,
+                                        command: QueueCommand) -> None:
+        """Post-commit effects of a refetch generation replacement.
+
+        The replacement transaction already superseded the previous generation
+        (its rows and the refetch attempt are consistent on disk). This only
+        reflects that fact in the surfaces: the old review card loses its
+        actions, and the superseded review's open editorial drafts become
+        unpublishable history. Failures here never roll back the replacement —
+        every moderation path re-checks the chain head server-side.
+        """
+        try:
+            source_id, message_ids = await self._repo.superseded_context(review_id)
+        except Exception:
+            logger.warning("读取被替代审核稿上下文失败: review_id=%s",
+                           review_id, exc_info=True)
+            return
+        if source_id:
+            try:
+                from telepost.application.editorial import EditorialService
+                await EditorialService().supersede_for_review(int(source_id))
+            except Exception:
+                logger.warning("终结被替代审核稿的编辑草稿失败: review_id=%s",
+                               source_id, exc_info=True)
+        try:
+            await stager.notify_superseded(
+                source_review_id=int(source_id or 0),
+                old_message_ids=list(message_ids or []),
+                new_review_id=int(review_id),
+            )
+        except Exception:
+            logger.warning("更新被替代审核卡失败: review_id=%s", source_id,
+                           exc_info=True)
 
     # ---- in-flight liveness ---------------------------------------------
     async def _heartbeat_preparing(self, review_id: int) -> None:
@@ -343,13 +381,23 @@ class ReviewQueueService:
             await _record("review.control_created", command,
                           review_id=review_id,
                           detail={"control_message_id": control_id})
-            if not await self._repo.finalize_control(
+            replaced = await self._repo.finalize_control(
                 review_id, control_id,
                 refetch_request_id=command.refetch_request_id,
-            ):
+            )
+            if not replaced:
                 await stager.delete_preview_messages([control_id])
                 raise RuntimeError("审核控制消息无法绑定到记录")
             await _record("review.pending", command, review_id=review_id)
+            if command.refetch_request_id:
+                # The replacement is COMMITTED: the previous generation is now
+                # superseded history. Invalidate its review-group card so it can
+                # no longer look actionable, and terminalize its editorial
+                # drafts. Both are best effort — the backend stale guard is the
+                # authority if Telegram delivery fails (§refetch-replacement).
+                await self._post_replacement_cleanup(
+                    stager, review_id=review_id, command=command
+                )
         except Exception as exc:
             await stager.delete_preview_messages(preview_ids)
             await self._repo.mark_preparation_failed(

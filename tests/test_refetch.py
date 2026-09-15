@@ -114,7 +114,9 @@ async def test_refetch_rejected_when_review_superseded(refetch_db, monkeypatch):
     await review.refetch_review(update, context)
 
     text = update.callback_query.answer.await_args.kwargs["text"]
-    assert "已被替换" in text
+    # Superseded ≠ rejected: the reviewer is pointed at the current head.
+    assert "已被重抓结果替代" in text
+    assert "最新版本" in text
     context.bot.send_message.assert_not_awaited()
 
 
