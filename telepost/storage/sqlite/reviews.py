@@ -60,6 +60,7 @@ class NewReview:
     # the legacy user_id/username (request identity and display only).
     submitter_user_id: Optional[int] = None
     submitter_username: str = ""
+    submitter_display_name: str = ""
     actor_kind: str = "user"  # 'user' | 'service'
     actor_subject: str = ""
 
@@ -127,11 +128,11 @@ class ReviewRepository:
                 pixiv_id, work_type, delivery_target,
                 review_chain_id, generation, supersedes_review_id,
                 refetch_request_id,
-                submitter_user_id, submitter_username, actor_kind,
+                submitter_user_id, submitter_username, submitter_display_name, actor_kind,
                 actor_subject,
                 created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                       ?, ?)
             """,
             (
@@ -149,6 +150,7 @@ class ReviewRepository:
                 review.supersedes_review_id,
                 review.refetch_request_id,
                 review.submitter_user_id, review.submitter_username,
+                review.submitter_display_name,
                 review.actor_kind, review.actor_subject,
                 now, now,
             ),

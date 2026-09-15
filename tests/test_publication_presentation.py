@@ -99,11 +99,16 @@ class TestSubmitterIdentity:
             "media_types": ["photo"],
             "submitter_user_id": 42, "submitter_username": "alice",
         })
-        assert "投稿人：alice" in caption
+        assert '投稿人：<a href="tg://user?id=42">@alice</a>' in caption
 
-    def test_human_without_username_uses_user_id(self):
-        caption = _caption({"submitter_user_id": 42, "submitter_username": ""})
-        assert "投稿人：user42" in caption
+    def test_human_without_username_uses_display_name(self):
+        caption = _caption({
+            "submitter_user_id": 42,
+            "submitter_username": "",
+            "submitter_display_name": "Alice Zhang",
+        })
+        assert '投稿人：<a href="tg://user?id=42">Alice Zhang</a>' in caption
+        assert "user42" not in caption
 
     def test_anonymous_human_hides_submitter(self):
         caption = _caption({
@@ -212,6 +217,7 @@ class TestReviewCardIdentity:
             submitter_user_id=12345, submitter_username="alice"),
             media=[{"type": "photo", "file_id": "a"}])
         assert "投稿人：alice" in caption
+        assert "tg://" not in caption
 
 
 class TestPublicationServiceKinds:

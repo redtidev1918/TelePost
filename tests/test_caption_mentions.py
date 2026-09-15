@@ -19,7 +19,7 @@ def _assert_no_mention_entity(text: str) -> None:
     assert "@" not in text
 
 
-def test_channel_caption_has_no_mention_entity(monkeypatch):
+def test_channel_caption_has_intentional_submitter_link(monkeypatch):
     monkeypatch.setattr("utils.helper_functions.SHOW_SUBMITTER", True)
     caption = build_caption({
         "tags": "#tag", "title": "标题", "note": "备注", "link": "",
@@ -27,8 +27,7 @@ def test_channel_caption_has_no_mention_entity(monkeypatch):
         "user_id": 12345, "username": "alice",
         "submitter_user_id": 12345, "submitter_username": "alice",
     }, surface="channel")
-    assert "投稿人：alice" in caption
-    _assert_no_mention_entity(caption)
+    assert '投稿人：<a href="tg://user?id=12345">@alice</a>' in caption
 
 
 def test_review_caption_has_no_mention_entity(monkeypatch):

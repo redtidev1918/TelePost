@@ -224,7 +224,7 @@ def test_ten_items_make_one_album():
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("count", [11, 23])
+@pytest.mark.parametrize("count", [0, 1, 2, 9, 10, 11, 19, 20, 21, 23])
 def test_more_than_ten_items_split_into_albums_keeping_order(count):
     items = [MediaItem.file_id("photo", f"p{i}") for i in range(count)]
     plan = plan_delivery(items, album_size=10)

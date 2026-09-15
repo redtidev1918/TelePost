@@ -24,6 +24,7 @@ class LedgerEntry:
     status: str
     message_id: Optional[int]
     related_message_ids: list
+    progress: list
     user_id: Optional[int]
     created_at: float
 
@@ -33,6 +34,10 @@ class LedgerEntry:
             related = json.loads(row["related_message_ids"] or "[]")
         except (TypeError, ValueError, json.JSONDecodeError):
             related = []
+        try:
+            progress = json.loads(row["progress_json"] or "[]")
+        except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            progress = []
         return cls(
             idempotency_key=row["idempotency_key"],
             target_id=row["target_id"] or "",
@@ -41,6 +46,7 @@ class LedgerEntry:
             status=row["status"],
             message_id=row["message_id"],
             related_message_ids=related,
+            progress=progress,
             user_id=row["user_id"],
             created_at=row["created_at"],
         )
@@ -85,18 +91,59 @@ class DeliveryLedgerRepository:
             return False
         async with db_manager.get_db() as conn:
             try:
-                await conn.execute(
+                cur = await conn.execute(
                     "INSERT INTO delivery_ledger "
                     "(idempotency_key, target_id, pixiv_id, work_type, status, "
-                    "message_id, related_message_ids, user_id, created_at) "
-                    "VALUES (?, ?, ?, ?, 'published', ?, ?, ?, ?)",
+                    "message_id, related_message_ids, progress_json, user_id, created_at) "
+                    "VALUES (?, ?, ?, ?, 'published', ?, ?, '[]', ?, ?) "
+                    "ON CONFLICT(idempotency_key) DO UPDATE SET "
+                    "status='published', message_id=excluded.message_id, "
+                    "related_message_ids=excluded.related_message_ids "
+                    "WHERE delivery_ledger.status='partial'",
                     (
                         idempotency_key, target_id or "", pixiv_id or "",
                         work_type or "", message_id,
                         json.dumps(related_message_ids or []), user_id, time.time(),
                     ),
                 )
-                return True
+                return cur.rowcount == 1
             except Exception:
                 # UNIQUE race / replay: the other attempt owns the channel post.
                 return False
+
+    async def record_partial(self, idempotency_key: str, *, target_id: str,
+                             pixiv_id: str, work_type: str, user_id: int,
+                             messages: list, uncertain: bool = False) -> bool:
+        """Checkpoint confirmed progress, or poison an uncertain key."""
+        if not idempotency_key:
+            return False
+        progress = [{
+            "chat_id": m.chat_id,
+            "message_id": m.message_id,
+            "kind": m.kind.value,
+            "file_id": m.file_id,
+            "thumbnail_file_id": m.thumbnail_file_id,
+        } for m in messages]
+        message_ids = [m.message_id for m in messages]
+        status = "uncertain" if uncertain else "partial"
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "INSERT INTO delivery_ledger "
+                "(idempotency_key, target_id, pixiv_id, work_type, status, "
+                "message_id, related_message_ids, progress_json, user_id, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(idempotency_key) DO UPDATE SET "
+                "status=excluded.status, "
+                "message_id=excluded.message_id, "
+                "related_message_ids=excluded.related_message_ids, "
+                "progress_json=excluded.progress_json "
+                "WHERE delivery_ledger.status='partial'",
+                (
+                    idempotency_key, target_id or "", pixiv_id or "",
+                    work_type or "", status,
+                    message_ids[0] if message_ids else None,
+                    json.dumps(message_ids),
+                    json.dumps(progress), user_id, time.time(),
+                ),
+            )
+            return cur.rowcount == 1

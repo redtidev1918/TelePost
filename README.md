@@ -67,7 +67,7 @@ chmod +x telepost-linux-x64
 ```
 
 Mini App 复用 Bot 的身份、投稿和审核流程，不是第二套后端；关闭 Mini App 不影响聊天投稿和 HTTP API。
-当前 Mini App 投稿界面按审核流程工作，启用时应同时设置 `API_REVIEW_REQUIRED=true`。
+当前 Mini App 投稿界面按审核流程工作；`API_REVIEW_REQUIRED` 内置默认即为 `true`。
 启用方式、同域托管与安全要求见 [Mini App 文档](docs/MINIAPP.md)。
 
 ## HTTP API 与自动化

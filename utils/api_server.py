@@ -550,14 +550,16 @@ def detect_kind(filename: str, content_type: str) -> str:
     return "document"
 
 
-async def _maybe_notify_direct_submitter(result: dict, submitter_user_id,
-                                         anonymous: bool, source: str) -> None:
+async def _maybe_notify_direct_human(result: dict, submitter_user_id,
+                                     submitter_username: str,
+                                     submitter_display_name: str,
+                                     anonymous: bool, source: str) -> None:
     """UNIFIED publication-success hook for DIRECT_PUBLISH API submissions
     (§notify-submitter). Only after a CONFIRMED channel publish; service rows
     (submitter NULL) skip; replays never re-notify."""
     from telepost.application.submitter_notify import (
-        PublicationContext,
-        SubmitterNotifyService,
+        ManagerAcceptanceContext, ManagerNotifyService,
+        PublicationContext, SubmitterNotifyService,
     )
 
     if not submitter_user_id:
@@ -582,6 +584,17 @@ async def _maybe_notify_direct_submitter(result: dict, submitter_user_id,
             link=link,
         )
         await SubmitterNotifyService().notify_published(context)
+        await ManagerNotifyService().notify_accepted(
+            ManagerAcceptanceContext(
+                logical_submission_id=f"publication:{int(message_id)}",
+                publication_id=int(message_id),
+                submitter_user_id=int(submitter_user_id),
+                submitter_username=submitter_username,
+                submitter_display_name=submitter_display_name,
+                anonymous=bool(anonymous),
+                link=link,
+            )
+        )
     except Exception as exc:
         logger.warning("API 直发投稿者通知失败: message=%s error=%s", message_id, exc)
 
@@ -1005,11 +1018,13 @@ def add_api_routes(web_app, application) -> None:
         )
         if principal_kind == "user":
             submitter_user_id = int(user_id) if user_id else None
-            submitter_username = username or ""
+            submitter_username = principal.get("username") or ""
+            submitter_display_name = principal.get("display_name") or ""
             actor_subject = principal.get("actor_subject") or f"telegram:{user_id}"
         else:
             submitter_user_id = None
             submitter_username = ""
+            submitter_display_name = ""
             actor_subject = principal.get("actor_subject") or (
                 f"api_token:{principal.get('token_id') or 0}"
             )
@@ -1073,6 +1088,7 @@ def add_api_routes(web_app, application) -> None:
                     "username": username,
                     "submitter_user_id": submitter_user_id,
                     "submitter_username": submitter_username,
+                    "submitter_display_name": submitter_display_name,
                     "actor_kind": actor_kind,
                     "actor_subject": actor_subject,
                 }
@@ -1127,9 +1143,11 @@ def add_api_routes(web_app, application) -> None:
                     _fields_refetch_request_id(payload), result.get("review_id")
                 )
             if not _api_review():
-                await _maybe_notify_direct_submitter(
-                    result, common.get("submitter_user_id"), bool(common.get("anonymous")),
-                    "api_direct",
+                await _maybe_notify_direct_human(
+                    result, common.get("submitter_user_id"),
+                    common.get("submitter_username", ""),
+                    common.get("submitter_display_name", ""),
+                    bool(common.get("anonymous")), "api_direct",
                 )
             return _business_ack(result)
 
@@ -1231,6 +1249,7 @@ def add_api_routes(web_app, application) -> None:
                 "username": username,
                 "submitter_user_id": submitter_user_id,
                 "submitter_username": submitter_username,
+                "submitter_display_name": submitter_display_name,
                 "actor_kind": actor_kind,
                 "actor_subject": actor_subject,
             }
@@ -1282,9 +1301,11 @@ def add_api_routes(web_app, application) -> None:
                 _fields_refetch_request_id(fields), result.get("review_id")
             )
         if not _api_review():
-            await _maybe_notify_direct_submitter(
-                result, common.get("submitter_user_id"), bool(common.get("anonymous")),
-                "api_direct",
+            await _maybe_notify_direct_human(
+                result, common.get("submitter_user_id"),
+                common.get("submitter_username", ""),
+                common.get("submitter_display_name", ""),
+                bool(common.get("anonymous")), "api_direct",
             )
         return _business_ack(result)
 

@@ -14,6 +14,7 @@ os.environ['TESTING'] = 'true'
 os.environ['TOKEN'] = 'test_token_123456789'
 os.environ['CHANNEL_ID'] = '@test_channel'
 os.environ['OWNER_ID'] = '123456789'
+os.environ['API_REVIEW_REQUIRED'] = 'false'
 
 # 添加项目根目录到 Python 路径
 project_root = Path(__file__).parent.parent

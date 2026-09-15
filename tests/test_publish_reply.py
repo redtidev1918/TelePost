@@ -114,11 +114,11 @@ async def test_album_fallback_preserves_reply_layout(mode, anchor, expected):
 
 
 @pytest.mark.asyncio
-async def test_discussion_mode_keeps_cover_in_channel_and_replies_with_rest(monkeypatch):
+async def test_discussion_mode_fills_root_capacity_then_replies_with_overflow(monkeypatch):
     bot = AsyncMock()
     bot.get_chat.return_value = SimpleNamespace(id=-1001, linked_chat_id=-1002)
-    bot.send_photo.return_value = _Msg(10, -1001)
-    bot.send_media_group.return_value = [_Msg(20, -1002), _Msg(21, -1002)]
+    bot.send_media_group.return_value = [_Msg(i, -1001) for i in range(10, 20)]
+    bot.send_photo.return_value = _Msg(20, -1002)
     monkeypatch.setattr(
         publish, "_wait_for_discussion_forward", AsyncMock(return_value=(-1002, 77))
     )
@@ -126,18 +126,41 @@ async def test_discussion_mode_keeps_cover_in_channel_and_replies_with_rest(monk
     sent, main = await publish.deliver_items_to_chat(
         bot,
         -1001,
-        [{"kind": "photo", "file_id": str(i)} for i in range(3)],
+        [{"kind": "photo", "file_id": str(i)} for i in range(11)],
         caption="caption",
         timeout_kwargs={},
         reply_mode="discussion",
     )
 
     assert main.message_id == 10
-    assert [message.message_id for message in sent] == [10, 20, 21]
-    assert publish._channel_message_ids(sent, main) == [10]
-    assert bot.send_photo.await_args.kwargs["chat_id"] == -1001
-    assert bot.send_media_group.await_args.kwargs["chat_id"] == -1002
-    assert bot.send_media_group.await_args.kwargs["reply_to_message_id"] == 77
+    assert [message.message_id for message in sent] == list(range(10, 21))
+    assert publish._channel_message_ids(sent, main) == list(range(10, 20))
+    assert len(bot.send_media_group.await_args.kwargs["media"]) == 10
+    assert bot.send_media_group.await_args.kwargs["chat_id"] == -1001
+    assert bot.send_media_group.await_args.kwargs["media"][0].caption == "caption"
+    assert all(m.caption is None for m in bot.send_media_group.await_args.kwargs["media"][1:])
+    assert bot.send_photo.await_args.kwargs["chat_id"] == -1002
+    assert bot.send_photo.await_args.kwargs["reply_to_message_id"] == 77
+    assert bot.send_photo.await_args.kwargs["caption"] is None
+
+
+@pytest.mark.asyncio
+async def test_discussion_mode_at_capacity_needs_no_overflow_anchor(monkeypatch):
+    bot = AsyncMock()
+    bot.get_chat.return_value = SimpleNamespace(id=-1001, linked_chat_id=-1002)
+    bot.send_media_group.return_value = [_Msg(i, -1001) for i in range(1, 11)]
+    waiter = AsyncMock(side_effect=AssertionError("no overflow, no anchor wait"))
+    monkeypatch.setattr(publish, "_wait_for_discussion_forward", waiter)
+
+    sent, main = await publish.deliver_items_to_chat(
+        bot, -1001,
+        [{"kind": "photo", "file_id": str(i)} for i in range(10)],
+        caption="caption", timeout_kwargs={}, reply_mode="discussion",
+    )
+
+    assert main.message_id == 1
+    assert len(sent) == 10
+    waiter.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -179,7 +202,7 @@ async def test_discussion_mode_raises_without_linked_chat_before_sending():
 async def test_discussion_mode_deletes_channel_post_when_forward_wait_times_out(monkeypatch):
     bot = AsyncMock()
     bot.get_chat.return_value = SimpleNamespace(id=-1001, linked_chat_id=-1002)
-    bot.send_photo.return_value = _Msg(10, -1001)
+    bot.send_media_group.return_value = [_Msg(i, -1001) for i in range(10, 20)]
     monkeypatch.setattr(
         publish,
         "_wait_for_discussion_forward",
@@ -190,7 +213,7 @@ async def test_discussion_mode_deletes_channel_post_when_forward_wait_times_out(
         await publish.deliver_items_to_chat(
             bot,
             -1001,
-            [{"kind": "photo", "file_id": str(i)} for i in range(3)],
+            [{"kind": "photo", "file_id": str(i)} for i in range(11)],
             caption="caption",
             timeout_kwargs={},
             reply_mode="discussion",
@@ -199,11 +222,9 @@ async def test_discussion_mode_deletes_channel_post_when_forward_wait_times_out(
     # 讨论串没建成：频道封面主贴必须回滚删掉，且不得有图片落到评论区。
     # 确定态失败会自动重试一次（两次首贴各删一次），重试仍超时才抛出。
     deleted = [c.kwargs for c in bot.delete_message.await_args_list]
-    assert deleted == [
-        {"chat_id": -1001, "message_id": 10},
-        {"chat_id": -1001, "message_id": 10},
-    ]
-    bot.send_media_group.assert_not_awaited()
+    assert len(deleted) == 20
+    assert {d["message_id"] for d in deleted} == set(range(10, 20))
+    bot.send_photo.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -213,8 +234,8 @@ async def test_discussion_rest_album_network_error_is_uncertain_and_not_retried(
 
     bot = AsyncMock()
     bot.get_chat.return_value = SimpleNamespace(id=-1001, linked_chat_id=-1002)
-    bot.send_photo.return_value = _Msg(10, -1001)
-    bot.send_media_group.side_effect = NetworkError("read error")
+    root = [_Msg(i, -1001) for i in range(10, 20)]
+    bot.send_media_group.side_effect = [root, NetworkError("read error")]
     monkeypatch.setattr(
         publish, "_wait_for_discussion_forward", AsyncMock(return_value=(-1002, 77))
     )
@@ -222,16 +243,16 @@ async def test_discussion_rest_album_network_error_is_uncertain_and_not_retried(
     with pytest.raises(publish.DiscussionPublishError) as exc:
         await publish.deliver_items_to_chat(
             bot, -1001,
-            [{"kind": "photo", "file_id": str(i)} for i in range(3)],
+            [{"kind": "photo", "file_id": str(i)} for i in range(12)],
             caption="caption", timeout_kwargs={}, reply_mode="discussion",
         )
     assert exc.value.uncertain is True
     # 首贴只发一次：评论相册不确定，不做整组重发。
-    assert bot.send_photo.await_count == 1
+    assert bot.send_media_group.await_count == 2
     # 已落地的频道首贴与讨论组锚点都回滚删除。
     deleted = {(c.kwargs["chat_id"], c.kwargs["message_id"])
                for c in bot.delete_message.await_args_list}
-    assert deleted == {(-1001, 10), (-1002, 77)}
+    assert deleted == ({(-1001, i) for i in range(10, 20)} | {(-1002, 77)})
 
 
 @pytest.mark.asyncio
@@ -239,8 +260,10 @@ async def test_discussion_determinate_failure_retries_once_and_then_succeeds(mon
     # 首次等转发超时（确定态，首贴回滚）→ 自动重试一次 → 第二次成功。
     bot = AsyncMock()
     bot.get_chat.return_value = SimpleNamespace(id=-1001, linked_chat_id=-1002)
-    bot.send_photo.side_effect = [_Msg(10, -1001), _Msg(11, -1001)]
-    bot.send_media_group.return_value = [_Msg(20, -1002), _Msg(21, -1002)]
+    root1 = [_Msg(i, -1001) for i in range(10, 20)]
+    root2 = [_Msg(i, -1001) for i in range(30, 40)]
+    rest = [_Msg(40, -1002), _Msg(41, -1002)]
+    bot.send_media_group.side_effect = [root1, root2, rest]
     monkeypatch.setattr(
         publish, "_wait_for_discussion_forward",
         AsyncMock(side_effect=[asyncio.TimeoutError, (-1002, 88)]),
@@ -248,15 +271,15 @@ async def test_discussion_determinate_failure_retries_once_and_then_succeeds(mon
 
     sent, main = await publish.deliver_items_to_chat(
         bot, -1001,
-        [{"kind": "photo", "file_id": str(i)} for i in range(3)],
+        [{"kind": "photo", "file_id": str(i)} for i in range(12)],
         caption="caption", timeout_kwargs={}, reply_mode="discussion",
     )
 
-    assert main.message_id == 11  # 第二次的首贴成为主贴
-    assert bot.send_photo.await_count == 2
-    # 第一次的首贴已在重试前回滚；最终相册回复第二次锚点 88。
+    assert main.message_id == 30  # 第二次的主相册成为 root
+    assert bot.send_media_group.await_count == 3
+    # 第一次的主相册已在重试前回滚；最终相册回复第二次锚点 88。
     assert bot.delete_message.await_args_list[0].kwargs == {
         "chat_id": -1001, "message_id": 10,
     }
     assert bot.send_media_group.await_args.kwargs["reply_to_message_id"] == 88
-    assert [m.message_id for m in sent] == [11, 20, 21]
+    assert [m.message_id for m in sent] == list(range(30, 42))

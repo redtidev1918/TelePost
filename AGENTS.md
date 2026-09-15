@@ -264,6 +264,21 @@ api token 持有者                     绝不是 submitter
 - 不改变 disposition 默认值：Chat 默认 DIRECT_PUBLISH，Mini App/API 默认
   REVIEW_REQUIRED。
 
+## Manager 新投稿通知与多图 packing 不变量
+
+- Human submission acceptance 与 submitter publication notification 是两个事件：
+  REVIEW_REQUIRED 在审核稿/控制卡 durable 落库后通知 manager；DIRECT_PUBLISH 只在
+  Publication Success 后通知。
+- Manager 通知复用 durable notification outbox，按 logical submission 幂等；refetch
+  generation、editorial revision 和重放不重复发送，manager 自投不发冗余提醒。
+- 匿名 human 保留 ownership 但 manager 消息隐藏身份；service submission 不发 manager
+  新投稿提醒。允许展示时，username 或 display name 均链接到显式 submitter_user_id。
+- 多图 publication 使用 capacity-first packing：root publication 先填满 Telegram
+  media-group 容量，再把 overflow 按同一容量分批发到 replies/discussion；caption 只在
+  root，canonical link/message_id 也始终指向 root。
+- `chain` / `post` 的确定态部分失败必须 checkpoint 已确认消息并只续发余量；网络响应
+  不确定时禁止盲目续发，保持 uncertain 直到人工核验。
+
 ## Publication Presentation 不变量（§publication-presentation）
 
 ```text
@@ -284,10 +299,14 @@ submission detail and is labeled accordingly.
   决定最终频道语义，附件类型与显式 submitter 才决定。
 - “点击查看”（剧透媒体提示）只对 photo / video / animation 出现；
   document / audio / 无附件绝不出现；mixed（photo+document）保留。
-- `投稿人` 只能来自 `submitter_user_id` / `submitter_username`；
+- `投稿人` 只能来自 `submitter_user_id` / `submitter_username` /
+  `submitter_display_name`；
   `user_id` / `username`（请求身份 / token alias）永不作投稿人展示。
 - 匿名 human 隐藏公开投稿人，但 ownership 与发布成功私聊通知不变；
   service（submitter NULL）没有任何人类投稿人，也不发 human 通知。
 - 内部 surface（审核卡/审核预览）可为无人属主投稿显示 `来源：API /
   PixivFlow`（真实 source/provenance）；公开 surface（频道 / Mini App 预览）
   永不显示来源行。
+- 频道公开署名与 manager 新投稿消息是 intentional identity contexts：非匿名 human
+  使用显式 submitter_user_id 的 `tg://user` link；review/refetch/schedule/system 状态消息
+  不创建 user mention entity。

@@ -284,6 +284,7 @@ async def queue_review_from_file_ids(
     idempotency_key="", source="api", target_id="", source_label="",
     source_ref="", scheduled_at="", work_type="", pixiv_id="",
     refetch_request_id="", submitter_user_id=None, submitter_username="",
+    submitter_display_name="",
     actor_kind="user", actor_subject="",
 ) -> dict:
     """Stage a file_id submission and create a durable pending review."""
@@ -297,6 +298,7 @@ async def queue_review_from_file_ids(
         refetch_request_id=refetch_request_id,
         submitter_user_id=submitter_user_id,
         submitter_username=submitter_username,
+        submitter_display_name=submitter_display_name,
         actor_kind=actor_kind, actor_subject=actor_subject,
     )
     return await queue_service.enqueue(
@@ -310,6 +312,7 @@ async def queue_review_from_files(
     idempotency_key="", source="api", target_id="", source_label="",
     source_ref="", scheduled_at="", work_type="", pixiv_id="",
     refetch_request_id="", submitter_user_id=None, submitter_username="",
+    submitter_display_name="",
     actor_kind="user", actor_subject="",
 ) -> dict:
     """Stage multipart API files and create a durable pending review."""
@@ -325,6 +328,7 @@ async def queue_review_from_files(
         refetch_request_id=refetch_request_id,
         submitter_user_id=submitter_user_id,
         submitter_username=submitter_username,
+        submitter_display_name=submitter_display_name,
         actor_kind=actor_kind, actor_subject=actor_subject,
     )
     return await queue_service.enqueue(

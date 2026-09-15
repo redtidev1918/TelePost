@@ -27,6 +27,7 @@ from ..domain.delivery import (
     DeliveryRequest,
     DeliveryResult,
     MediaItem,
+    MediaKind,
 )
 from ..observability import audit
 from ..observability.errors import classify as classify_error
@@ -142,6 +143,7 @@ class PublicationService:
 
     async def _publish(self, command: PublishCommand, key: str) -> PublicationOutcome:
         from ..domain.delivery import ReplyMode
+        from ..telegram.delivery.planner import PlanningOrder, plan_delivery
 
         pid = (command.pixiv_id or "").strip()
         event_fields = self._event_fields(command, key)
@@ -151,40 +153,134 @@ class PublicationService:
         audit_publish = not (key.startswith("review:") and event_fields["review_id"])
 
         replay = await self._ledger.find_by_key(key)
-        if replay is not None:
-            return self._replay(replay, reason="idempotent_replay")
+        if replay is not None and replay.status == "published":
+            return await self._replay(replay, reason="idempotent_replay")
+        if replay is not None and replay.status == "uncertain":
+            return PublicationOutcome(
+                status="uncertain",
+                reason="previous delivery is uncertain; verify Telegram before retrying",
+                retryable=False,
+                uncertain=True,
+                known_messages=self._progress_messages(replay),
+                delivery_status="uncertain",
+            )
 
         historical = await self._ledger.find_work(
             command.target_id, command.work_type, pid, self._dedup_window
         )
         if historical is not None and historical.idempotency_key != key:
-            return self._replay(historical, reason="duplicate_existing")
+            return await self._replay(historical, reason="duplicate_existing")
 
+        mode = command.reply_mode or ReplyMode.CHAIN
+        plan = plan_delivery(
+            command.items,
+            album_size=command.album_size,
+            reply_mode=mode,
+            ordering=PlanningOrder.FAMILY,
+        )
+        ordered_items = [item for batch in plan.batches for item in batch.items]
+        prior = self._progress_messages(replay) if replay is not None else []
+        if replay is not None and replay.status != "partial":
+            return PublicationOutcome(
+                status="uncertain",
+                reason=f"unsupported delivery ledger state: {replay.status}",
+                retryable=False,
+                uncertain=True,
+                known_messages=prior,
+                delivery_status="uncertain",
+            )
+        if replay is not None and replay.status == "partial" and not prior:
+            return PublicationOutcome(
+                status="uncertain",
+                reason="delivery checkpoint is unreadable; verify Telegram before retrying",
+                retryable=False,
+                uncertain=True,
+                delivery_status="uncertain",
+            )
+        if prior and mode is ReplyMode.DISCUSSION:
+            return PublicationOutcome(
+                status="uncertain",
+                reason="partial discussion delivery requires manual verification",
+                retryable=False,
+                uncertain=True,
+                known_messages=prior,
+                delivery_status="uncertain",
+            )
+        if any(
+            delivered.kind is not item.kind
+            for delivered, item in zip(prior, ordered_items)
+        ):
+            return PublicationOutcome(
+                status="uncertain",
+                reason="delivery checkpoint does not match the current request",
+                retryable=False,
+                uncertain=True,
+                known_messages=prior,
+                delivery_status="uncertain",
+            )
+        if len(prior) > len(ordered_items):
+            return PublicationOutcome(
+                status="uncertain",
+                reason="delivery checkpoint does not match the current request",
+                retryable=False,
+                uncertain=True,
+                known_messages=prior,
+                delivery_status="uncertain",
+            )
+
+        reply_to = command.reply_to_message_id
+        if prior:
+            if mode is ReplyMode.POST:
+                reply_to = command.reply_to_message_id or prior[0].message_id
+            else:
+                reply_to = prior[-1].message_id
         request = DeliveryRequest(
             chat_id=command.chat_id,
-            items=command.items,
-            caption=self._caption(command),
+            items=ordered_items[len(prior):],
+            caption=None if prior else self._caption(command),
             spoiler=command.spoiler,
-            reply_mode=command.reply_mode or ReplyMode.CHAIN,
-            reply_to_message_id=command.reply_to_message_id,
+            reply_mode=mode,
+            reply_to_message_id=reply_to,
             album_size=command.album_size,
         )
         if audit_publish:
             await audit.record_event("publish.started", **event_fields)
-        result = await self._delivery.deliver(request)
+        result = (
+            DeliveryResult.delivered(prior, prior[0] if prior else None)
+            if not request.items else await self._delivery.deliver(request)
+        )
 
         if result.is_uncertain:
+            await self._ledger.record_partial(
+                key,
+                target_id=command.target_id,
+                pixiv_id=pid,
+                work_type=command.work_type,
+                user_id=command.user_id,
+                messages=prior + result.known_messages,
+                uncertain=True,
+            )
             return PublicationOutcome(
                 status="uncertain",
                 reason=result.reason,
                 retryable=False,
                 uncertain=True,
-                known_messages=result.known_messages,
+                known_messages=prior + result.known_messages,
                 delivery_status="uncertain",
                 error=getattr(result, "error", None),
             )
         if not result.ok or result.main_message is None:
             error = getattr(result, "error", None)
+            known = prior + result.known_messages
+            if known:
+                await self._ledger.record_partial(
+                    key,
+                    target_id=command.target_id,
+                    pixiv_id=pid,
+                    work_type=command.work_type,
+                    user_id=command.user_id,
+                    messages=known,
+                )
             if audit_publish:
                 await audit.record_event(
                     "publish.failed",
@@ -196,15 +292,17 @@ class PublicationService:
                 status="failed",
                 reason=result.reason or "delivery failed",
                 retryable=result.retryable,
-                known_messages=result.known_messages,
+                known_messages=known,
                 delivery_status="failed",
                 error=error,
             )
 
-        main = result.main_message
+        messages = prior + result.messages
+        main = messages[0]
+        result = DeliveryResult.delivered(messages, main)
         channel_ids = result.channel_message_ids(main.chat_id)
-        media_count = sum(1 for m in result.messages if m.kind.value != "document")
-        document_count = sum(1 for m in result.messages if m.kind.value == "document")
+        media_count = sum(1 for m in messages if m.kind.value != "document")
+        document_count = sum(1 for m in messages if m.kind.value == "document")
 
         if self._record_post is not None:
             await self._record_post(command, result, media_count, document_count)
@@ -250,6 +348,24 @@ class PublicationService:
         )
 
     @staticmethod
+    def _progress_messages(entry: Optional[LedgerEntry]) -> List[DeliveredMessage]:
+        if entry is None:
+            return []
+        messages = []
+        try:
+            for item in entry.progress:
+                messages.append(DeliveredMessage(
+                    chat_id=item["chat_id"],
+                    message_id=item["message_id"],
+                    kind=MediaKind.coerce(item["kind"]),
+                    file_id=item.get("file_id"),
+                    thumbnail_file_id=item.get("thumbnail_file_id"),
+                ))
+        except (KeyError, TypeError, ValueError):
+            return []
+        return messages
+
+    @staticmethod
     def _event_fields(command: PublishCommand, key: str) -> dict:
         # Review-approved publishes use keys shaped review:<id>:<original>.
         review_id = None
@@ -265,7 +381,7 @@ class PublicationService:
             "actor": f"telegram_user:{command.user_id}" if command.user_id else "api",
         }
 
-    def _replay(self, entry: LedgerEntry, *, reason: str) -> PublicationOutcome:
+    async def _replay(self, entry: LedgerEntry, *, reason: str) -> PublicationOutcome:
         key = entry.idempotency_key or ""
         review_id = None
         parts = key.split(":", 2)
@@ -277,18 +393,15 @@ class PublicationService:
         # review-keyed replays are audited by ReviewService (or short-circuited
         # before the publisher entirely) — never double-emit from the service.
         if not is_review_key:
-            try:
-                asyncio.get_running_loop().create_task(audit.record_event(
-                    "publish.duplicate_suppressed",
-                    pixiv_id=entry.pixiv_id or None,
-                    work_type=entry.work_type or None,
-                    target_id=entry.target_id or None,
-                    idempotency_key=key or None,
-                    detail={"reuse_reason": reason,
-                            "matched_idempotency_key": entry.idempotency_key},
-                ))
-            except RuntimeError:
-                pass
+            await audit.record_event(
+                "publish.duplicate_suppressed",
+                pixiv_id=entry.pixiv_id or None,
+                work_type=entry.work_type or None,
+                target_id=entry.target_id or None,
+                idempotency_key=key or None,
+                detail={"reuse_reason": reason,
+                        "matched_idempotency_key": entry.idempotency_key},
+            )
         message_id = entry.message_id or 0
         return PublicationOutcome(
             status="published",

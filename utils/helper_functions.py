@@ -228,22 +228,27 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
         # ONLY an explicit human submitter may be presented as the author
         # (§identity): never the actor, the API token name, the credential
         # holder, the transport source, nor the legacy request identity.
+        submitter_user_id = _field(data, "submitter_user_id")
+        submitter_username = _field(data, "submitter_username")
         display = presentation.submitter_display(
-            _field(data, "submitter_user_id"),
-            _field(data, "submitter_username"),
+            submitter_user_id,
+            submitter_username,
+            _field(data, "submitter_display_name"),
         )
         if not display:
             return ""
 
-        # Display identity and mention notification are different concepts
-        # (§ghost-mention): never emit a notification-capable entity
-        # (tg://user text_mention / @-anchor). Plain text shows the submitter
-        # without making the Telegram client flag a mention — critical for
-        # review previews that get superseded/cleaned afterwards (the stale
-        # "@" badge would otherwise linger). Surface only affects future
-        # context, the entity policy is identical for channel and review.
-        safe_username = esc(display)
-        return f"\n\n投稿人：{safe_username}"
+        label = display
+        if surface == "channel":
+            if submitter_username:
+                label = f"@{str(submitter_username).strip().lstrip('@')}"
+            return (
+                f'\n\n投稿人：<a href="tg://user?id={int(submitter_user_id)}">'
+                f"{esc(label)}</a>"
+            )
+        # Review/system status remains plain text: only the public attribution
+        # and manager-new-submission contexts intentionally create identity links.
+        return f"\n\n投稿人：{esc(label)}"
 
     def get_source_part() -> str:
         """Internal-only provenance. Public surfaces never show it, and it is
@@ -251,7 +256,9 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
         if not presentation.is_internal_surface(surface):
             return ""
         if _anonymous(data) or presentation.submitter_display(
-            _field(data, "submitter_user_id"), _field(data, "submitter_username")
+            _field(data, "submitter_user_id"),
+            _field(data, "submitter_username"),
+            _field(data, "submitter_display_name"),
         ):
             return ""
         label = presentation.source_display(
