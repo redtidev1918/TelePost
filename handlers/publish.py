@@ -47,6 +47,7 @@ from telepost.domain.delivery import (
     TelegramFileId,
     LocalFile,
 )
+from telepost.domain.packing import MEDIA_GROUP_CAPACITY
 from telepost.telegram.delivery.preparation import (
     PHOTO_MAX_BYTES,
     compress_photo as _compress_photo,
@@ -74,7 +75,10 @@ TELEGRAM_SEND_TIMEOUT_SECONDS = max(
     float(os.getenv("TELEGRAM_SEND_TIMEOUT_SECONDS",
                     os.getenv("REVIEW_PREVIEW_TIMEOUT_SECONDS", "120"))),
 )
-CHANNEL_ALBUM_SIZE = 10
+# Capacity-first publication packing: ONE SSOT for the media-group capacity
+# (§media-packing). All channel-publish paths read this constant; Telegram's
+# hard cap is enforced inside telepost.domain.packing.
+CHANNEL_ALBUM_SIZE = MEDIA_GROUP_CAPACITY
 CHANNEL_ALBUM_REPLY = os.getenv("CHANNEL_ALBUM_REPLY", "chain").strip().lower()
 DISCUSSION_FORWARD_TIMEOUT_SECONDS = max(
     1.0, float(os.getenv("DISCUSSION_FORWARD_TIMEOUT_SECONDS", "10"))

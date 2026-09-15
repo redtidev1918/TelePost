@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Protocol
 
 from ..domain.delivery import (
+    MEDIA_GROUP_CAPACITY,
     DeliveredMessage,
     DeliveryRequest,
     DeliveryResult,
@@ -94,7 +95,7 @@ class PublishCommand:
     pixiv_id: str = ""
     reply_mode: object = None         # domain ReplyMode; default CHAIN
     reply_to_message_id: Optional[int] = None
-    album_size: int = 10
+    album_size: int = MEDIA_GROUP_CAPACITY
 
 
 # ---- ports ----------------------------------------------------------------

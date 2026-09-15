@@ -754,6 +754,14 @@ paths:
                 status: {type: string, enum: [success, partial, failed]}
                 duration_ms: {type: integer}
                 cells: {type: object}
+                # Present when this terminal outcome belongs to a MANUAL
+                # RECOVERY run: policy preset + request id. The receiver then
+                # renders "已恢复/恢复失败" instead of the daily summary.
+                recovery:
+                  type: object
+                  properties:
+                    mode: {type: string, enum: [normal, relaxed]}
+                    requestId: {type: string}
                 targets:
                   type: array
                   items:
@@ -764,6 +772,12 @@ paths:
                       status: {type: string}
                       work_id: {type: [string, 'null']}
                       error_code: {type: string}
+                      # Normalized first-level terminal failure reason
+                      # (§failure-observability): stable code + business message.
+                      # The review-group text shows the message, never raw error.
+                      terminal_reason_code: {type: [string, 'null']}
+                      reason: {type: [string, 'null']}
+                      error: {type: [string, 'null']}
       responses:
         '200': {description: Notified (or replayed idempotently)}
         '400': {description: Validation error}

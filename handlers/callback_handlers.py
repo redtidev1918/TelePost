@@ -62,6 +62,9 @@ async def handle_callback_query(update: Update, context: CallbackContext):
         elif data.startswith("review_refetch:"):
             from handlers.review import refetch_review
             return await refetch_review(update, context)
+        elif data.startswith("sched_recover|"):
+            from handlers.recovery import schedule_recover
+            return await schedule_recover(update, context)
 
         # 投稿确认相关（旧流程回调，已由预览面板取代，无调用方）
         # 热门帖子筛选

@@ -28,6 +28,7 @@ from enum import Enum
 from typing import List, Optional
 
 from ...domain.delivery import MediaItem, MediaKind, ReplyMode
+from ...domain.packing import MEDIA_GROUP_CAPACITY
 
 
 class BatchKind(str, Enum):
@@ -108,7 +109,7 @@ def _chunk_runs(ordering: PlanningOrder, items: List[MediaItem],
     return runs
 
 
-def plan_delivery(items: List[MediaItem], *, album_size: int = 10,
+def plan_delivery(items: List[MediaItem], *, album_size: int = MEDIA_GROUP_CAPACITY,
                   reply_mode: ReplyMode = ReplyMode.CHAIN,
                   anchor_message_id: Optional[int] = None,
                   ordering: PlanningOrder = PlanningOrder.INPUT) -> DeliveryPlan:
