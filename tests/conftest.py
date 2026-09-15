@@ -120,3 +120,22 @@ def mock_config():
         'SHOW_SUBMITTER': True,
         'NET_TIMEOUT': 30
     }
+
+
+@pytest.fixture
+async def refetch_db(monkeypatch, tmp_path):
+    """Isolated review/refetch DB with the refetch remote configured.
+
+    Shared by the refetch state-machine suites (replacement, races, stale
+    buttons) so every test starts from one clean chain ledger."""
+    from database import db_manager
+    from handlers import review as review_handlers
+
+    db_path = str(tmp_path / "refetch.db")
+    monkeypatch.setattr(db_manager, "DB_PATH", db_path)
+    monkeypatch.setattr(review_handlers, "REVIEW_CHAT_ID", -100123)
+    monkeypatch.setattr(review_handlers, "ADMIN_IDS", [123456789])
+    monkeypatch.setenv("PIXIVFLOW_REFETCH_BASE_URL", "https://pixivflow.example")
+    monkeypatch.setenv("PIXIVFLOW_REFETCH_TOKEN", "secret")
+    await db_manager.init_db()
+    return db_path

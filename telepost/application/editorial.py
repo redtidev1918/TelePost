@@ -57,6 +57,10 @@ class EditorialService:
         refetch that produced a new generation makes every older revision
         unpublishable (§35)."""
         row = await self._require_review(review_id)
+        if row["status"] == "superseded":
+            # The generation was replaced by a refetch result: its revisions are
+            # terminal history and can never be finalized or published (§19).
+            raise EditorialObsoleteError("该审核稿已被重抓结果替代，请审核最新版本。")
         if row["status"] != "pending":
             raise EditorialStateError("该审核已结束，无法编辑")
         # Normal submissions carry an EMPTY review_chain_id (only refetch
@@ -96,6 +100,7 @@ class EditorialService:
     async def update(self, review_id: int, revision_id: int, *,
                      payload: Dict[str, Any], expected_version: int,
                      actor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        await self._require_current(review_id)  # stale generation guard
         revision = await self.get(review_id, revision_id)
         # PATCH semantics: the payload carries only the changed fields, so it
         # is merged onto the draft's CURRENT state. Merging onto the original

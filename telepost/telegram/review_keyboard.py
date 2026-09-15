@@ -62,6 +62,17 @@ def control_text(*, review_id: int, command, media_count: int,
     )
 
 
+def superseded_notice_text(*, new_review_id: int, source_review_id: int = 0) -> str:
+    """Text that replaces a superseded review card (actions removed).
+
+    Superseded ≠ rejected: the generation was replaced by a refetch result, so
+    the card becomes history and points at the new chain head."""
+    head = f"♻️ 此审核稿已被重抓结果替代\n\n新的审核稿：#{new_review_id}"
+    if source_review_id:
+        head += f"（原审核 #{source_review_id}）"
+    return head + "\n请在新审核稿上继续审核。"
+
+
 def reused_notice_text(row) -> str:
     labels = {
         "pending": "待审核",
