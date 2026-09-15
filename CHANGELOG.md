@@ -10,6 +10,13 @@
 
 ---
 
+## [2.26.1](https://github.com/redtidev1918/TelePost/compare/v2.26.0...v2.26.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* refetch terminal visibility — obsolete outcome notifies, watchdog wakes + hard stalls ([#108](https://github.com/redtidev1918/TelePost/issues/108)) ([4dd0de7](https://github.com/redtidev1918/TelePost/commit/4dd0de767317935ce9ea7a672180581594c25f5c))
+
 ## [2.26.0](https://github.com/redtidev1918/TelePost/compare/v2.25.0...v2.26.0) (2026-09-14)
 
 
