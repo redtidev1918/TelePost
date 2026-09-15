@@ -84,6 +84,28 @@ class TestBuildBotEnv:
         assert out["CHAT_REVIEW_REQUIRED"] == "true"
         assert out["REVIEW_CHAT_ID"] == "-100123"
 
+    def test_miniapp_submit_cta_is_per_bot(self):
+        # The review/main-post submission CTA toggle must reach the owning
+        # bot's child process. BOT1 off / BOT2 on → each child only sees its
+        # own MINIAPP_SUBMIT_CTA (deploy config sets BOT{n}_MINIAPP_SUBMIT_CTA).
+        env = self.base()
+        env["BOT1_MINIAPP_SUBMIT_CTA"] = "false"
+        env["BOT2_MINIAPP_SUBMIT_CTA"] = "true"
+
+        child1 = run.build_bot_env(1, env)
+        child2 = run.build_bot_env(2, env)
+
+        assert child1["MINIAPP_SUBMIT_CTA"] == "false"
+        assert child2["MINIAPP_SUBMIT_CTA"] == "true"
+
+    def test_miniapp_submit_cta_not_leaked_between_bots(self):
+        # A MINIAPP_SUBMIT_CTA configured only for bot2 must not be injected
+        # into bot1's child env (each bot reads only its own BOT{n}_{key}).
+        env = self.base()
+        env["BOT2_MINIAPP_SUBMIT_CTA"] = "true"
+        child1 = run.build_bot_env(1, env)
+        assert "MINIAPP_SUBMIT_CTA" not in child1
+
     def test_health_ports_stay_isolated_from_parent_default(self):
         env = self.base()
         env["HEALTH_PORT"] = "8080"
