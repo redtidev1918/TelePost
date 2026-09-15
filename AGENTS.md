@@ -294,6 +294,22 @@ Multi-media publication uses capacity-first packing.
 - 一个 media group 在业务上是 ONE root publication，即使 Telegram 把它建模为多条
   Message；caption 只挂 root，canonical link/message_id 指向 root。
 
+## Discussion 失败隔离不变量（§discussion-failure-isolation）
+
+```text
+A confirmed channel root must never be rolled back because a
+linked-discussion follow-up failed, and must never be re-posted on retry.
+```
+
+- 一旦频道 root（cover）确认投递，它就是既定 `Publication`。linked-discussion
+  的 overflow（anchor 等待 / 评论区相册）失败**绝不删除**已确认的 root，也**绝不整组重跑**
+  （重跑会重复发 root）。cover 未确认时的失败才允许回滚整个 attempt 并重试一次。
+- 确定态 overflow 失败：best-effort 删除评论区已确认的 overflow，保留 root，把 root
+  作为发布结果返回；溢出缺失仅降级并被操作者告警日志标记。
+- 不确定态 overflow（评论区相册响应丢失）：保留 root **且不盲删**可能已落地的 overflow；
+  Publication 以 root 记成功，操作者需人工核验评论区。
+- 回滚函数 `_do_rollback` / `_discussion_rollback` 只清理 rest/anchor，绝不触碰 cover。
+
 ## Schedule 失败可观测性与 Manual Recovery 不变量（§failure-observability, §manual-recovery）
 
 ```text
@@ -403,10 +419,12 @@ removing stale moderation actions must not weaken backend stale guards.
   `[✉️ 我要投稿]` inline URL button 挂在 root 消息（单条直发附加 reply_markup；
   媒体组 / discussion 用 `edit_message_reply_markup` best-effort 附加）。同一帖子
   绝不同时出现文本投稿链接 + 按钮。
-- 审核群控制卡在 moderation 行之下追加一行独立 CTA 按钮（同一 owning-bot
-  entrypoint）；CTA 永不与 通过/拒绝/重抓 同排，也绝不参与 Review FSM。
-- superseded 旧卡：所有 moderation 按钮移除（后端 stale guard 仍是权威）；
-  公共投稿 CTA 可保留为唯一按钮行，但保留它绝不等于保留任何 stale action。
+- 审核群控制卡与 superseded 旧卡**永不携带公共投稿 CTA**（`✉️ 我要投稿` /
+  Mini App startapp）：公共投稿 CTA 只属于最终频道出版（§submission-entrypoint）。
+  moderation 按钮（通过/拒绝/重抓/遮罩）与查看原链接按钮不受影响；后端 stale guard
+  仍是权威。
+- superseded 旧卡：所有 moderation 按钮移除（后端 stale guard 仍是权威）；也绝不
+  追加公共投稿 CTA。
 - 按钮附加是 best-effort：失败只丢失 CTA 展示，绝不使已确认的 Publication /
   review card 发送失败。
 ## Novel TXT Telegraph Preview（§telepress-preview）

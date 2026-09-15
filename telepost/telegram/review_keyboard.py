@@ -9,8 +9,7 @@ from ..domain.presentation import submitter_display
 
 def review_keyboard(review_id: int, link: str = "", *,
                     spoiler: bool = False, source: str = "api",
-                    pixiv_id: str = "", failed: bool = False,
-                    submission_url: str = "") -> InlineKeyboardMarkup:
+                    pixiv_id: str = "", failed: bool = False) -> InlineKeyboardMarkup:
     approve_label = "🔄 重试发布" if failed else "✅ 发布到频道"
     rows = [[
         InlineKeyboardButton(approve_label, callback_data=f"review_approve:{review_id}"),
@@ -31,11 +30,9 @@ def review_keyboard(review_id: int, link: str = "", *,
         )
     if link:
         rows.append([InlineKeyboardButton("🔗 查看原链接", url=link)])
-    # Public Mini App submission CTA — an INDEPENDENT bottom row, never merged
-    # into moderation actions. Same owning-bot entrypoint as the channel
-    # publication CTA (§submission-entrypoint, §review-cta).
-    if submission_url:
-        rows.append([InlineKeyboardButton("✉️ 我要投稿", url=submission_url)])
+    # §submission-entrypoint: the public submission CTA ([✉️ 我要投稿] / Mini App)
+    # belongs ONLY to final Channel Publications, never to Review/staging/
+    # moderation messages. Removing it here keeps a single, consistent UI rule.
     return InlineKeyboardMarkup(rows)
 
 
