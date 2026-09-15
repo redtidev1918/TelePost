@@ -10,6 +10,13 @@
 
 ---
 
+## [2.28.0](https://github.com/redtidev1918/TelePost/compare/v2.27.4...v2.28.0) (2026-09-15)
+
+
+### Features
+
+* **publication:** harden human submission delivery ([#121](https://github.com/redtidev1918/TelePost/issues/121)) ([329d1eb](https://github.com/redtidev1918/TelePost/commit/329d1eb8ba9697c5239333fcc39d320137b57d7d))
+
 ## [2.27.4](https://github.com/redtidev1918/TelePost/compare/v2.27.3...v2.27.4) (2026-09-15)
 
 
