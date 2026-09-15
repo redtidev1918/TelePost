@@ -13,8 +13,10 @@ import { useBotNavigate } from '../lib/useBotNavigate';
  * ReviewQueue/ReviewDetail additionally. Server-side RBAC remains the
  * authority — the router only hides what the verified roles say (§45).
  */
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Route, Routes, useLocation } from 'react-router-dom';
+import { initDataStartParam } from '@telegram-apps/sdk';
+import { submissionIntent } from '../lib/submissionEntry';
 import { Tabbar } from '@telegram-apps/telegram-ui';
 import { AuthProvider, useAuth } from '../auth/AuthProvider';
 import { HomePage } from '../pages/Home/HomePage';
@@ -98,6 +100,24 @@ function Shell() {
   const location = useLocation();
   const navigate = useBotNavigate();
   const navRef = useBottomNavReserve();
+
+  // Submission deep link (§submission-entrypoint): startapp=submit is
+  // NAVIGATION INTENT ONLY — it never authenticates. The real identity still
+  // comes from server-validated Telegram initData (AuthProvider); this effect
+  // only lands an authenticated session on the submit route.
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    let startParam: string | undefined;
+    try {
+      startParam = initDataStartParam();
+    } catch {
+      return; // browser/dev launch without Telegram launch params
+    }
+    const route = submissionIntent(startParam);
+    if (route) {
+      navigate(route);
+    }
+  }, [status, navigate]);
 
   if (status === 'loading' || status === 'authenticating') {
     // Never flash an error before we positively know it: session boot is
