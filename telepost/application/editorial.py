@@ -97,7 +97,11 @@ class EditorialService:
                      payload: Dict[str, Any], expected_version: int,
                      actor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         revision = await self.get(review_id, revision_id)
-        base = domain.Snapshot.from_dict(json.loads(revision["base_snapshot"] or "{}"))
+        # PATCH semantics: the payload carries only the changed fields, so it
+        # is merged onto the draft's CURRENT state. Merging onto the original
+        # submission instead would silently revert every field the caller did
+        # not mention (the draft starts out as a copy of the submission).
+        base = _current_snapshot(revision)
         try:
             edited = _snapshot_from_payload(base, payload)
         except (TypeError, ValueError) as exc:
@@ -114,14 +118,11 @@ class EditorialService:
     async def preview(self, review_id: int, revision_id: int,
                       payload: Optional[Dict[str, Any]] = None) -> str:
         """Server-side caption preview of an edited version (side-effect free)."""
+        revision = await self.get(review_id, revision_id)
         if payload:
-            revision = await self.get(review_id, revision_id)
-            base = domain.Snapshot.from_dict(json.loads(revision["base_snapshot"] or "{}"))
-            edited = _snapshot_from_payload(base, payload)
+            edited = _snapshot_from_payload(_current_snapshot(revision), payload)
         else:
-            revision = await self.get(review_id, revision_id)
-            edited = domain.Snapshot.from_dict(
-                json.loads(revision["edited_snapshot"] or "{}"))
+            edited = _current_snapshot(revision)
         from utils.helper_functions import build_caption
 
         row = await self._require_review(review_id)
@@ -143,9 +144,18 @@ class EditorialService:
         return await self._repo.supersede_for_review(int(review_id))
 
 
+def _current_snapshot(revision: Dict[str, Any]) -> domain.Snapshot:
+    """The draft's live state: the edited snapshot once one exists, otherwise the
+    original submission's content (a brand-new draft is seeded from it)."""
+    edited = revision["edited_snapshot"] if "edited_snapshot" in revision else None
+    if edited:
+        return domain.Snapshot.from_dict(json.loads(edited))
+    return domain.Snapshot.from_dict(json.loads(revision["base_snapshot"] or "{}"))
+
+
 def _snapshot_from_payload(base: domain.Snapshot, payload: Dict[str, Any]) -> domain.Snapshot:
-    """Build an edited snapshot from a PATCH payload; unspecified fields fall
-    back to the base snapshot (partial edits, §26)."""
+    """Build an edited snapshot from a PATCH payload; unspecified fields keep
+    the given (current) snapshot's value — partial edits accumulate (§26)."""
     media_order = payload.get("media_order")
     removed = payload.get("removed")
     order = [int(i) for i in media_order] if media_order is not None else list(base.media_order)

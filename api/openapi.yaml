@@ -437,6 +437,12 @@ paths:
             schema:
               type: object
               required: [expected_version]
+              description: >-
+                Partial update: only the fields present are changed, and omitted
+                fields keep the draft's CURRENT value (a fresh draft starts as a
+                copy of the submission). Send an explicit empty value to revert a
+                field. expected_version is the CAS token; a stale save returns
+                409 editorial_conflict.
               properties:
                 expected_version: {type: integer}
                 title: {type: string}

@@ -212,6 +212,13 @@ api token 持有者                     绝不是 submitter
 - Revision 编号单调且数据层唯一（UNIQUE(review_id, revision_number)）；并发编辑用
   version CAS（409 editorial_conflict）；stale generation（refetch 已替换链头）的
   revision 绝不可发布（409 editorial_stale）。
+- **空 `review_chain_id` 的审核就是自己单行链的链头**：普通投稿（chat / Mini App / API）
+  落库时 chain id 是空串，只有 refetch 替换稿才带 chain id（替换时两行同时写入）。
+  所以空 chain id 必须直接视为 current head，绝不能拿合成 id 去查链——否则每条新投稿
+  都会被误判为「已过时」而完全无法编辑（2.27.1 修复）。
+- **Revision 编辑是 PATCH 语义**：payload 只改它携带的字段，其余字段保留 draft 的当前值
+  （新建 draft 从投稿原稿复制）。未提到的字段绝不回退成原稿——那会静默丢掉上一次编辑；
+  要还原某个字段就显式传空值。webapp 每次保存都发送完整可编辑状态。
 - **投稿者发布通知由 Publication Success 触发，绝不由 Review approval 触发**
   （approval 只是中间审核事件）。适用于 DIRECT_PUBLISH、REVIEW_REQUIRED、
   EDITORIAL 三条路径统一 pipeline；idempotency key
