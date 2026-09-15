@@ -265,6 +265,17 @@ CHANNEL_FOOTER_TEXT = (
     or '点击投稿'
 ).strip()
 
+# 频道发布 CTA 直达本 bot 的 Mini App 投稿页（§submission-entrypoint）。
+# 启用后 footer 从「点击投稿（bot 深链）」升级为
+# https://t.me/<bot>?startapp=submit —— startapp 只是导航意图，身份仍由
+# 服务器校验的 Telegram initData 决定。未启用或链接缺失时保持旧行为，
+# 绝不为缺失配置生成坏链接。
+MINIAPP_SUBMIT_CTA = str(
+    get_env_or_config('MINIAPP_SUBMIT_CTA', 'BOT', 'MINIAPP_SUBMIT_CTA',
+                      fallback='false')
+    or 'false'
+).strip().lower() in {'1', 'true', 'yes', 'on'}
+
 # 模式常量定义
 MODE_MEDIA = 'MEDIA'      # 仅媒体上传
 MODE_DOCUMENT = 'DOCUMENT'  # 仅文档上传

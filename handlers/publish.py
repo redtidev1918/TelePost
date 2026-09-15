@@ -963,7 +963,11 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
             ) if isinstance(part, str) and part
         )
         caption_data["media_types"] = _kinds_from_chat_items(media_list, doc_list)
-        caption = build_caption(caption_data)
+        # Shared channel caption builder (body + CTA footer) — the same one the
+        # API/review/editorial paths use (§submission-entrypoint), so the CTA
+        # never diverges per handler.
+        from telepost.application.publication import channel_caption
+        caption = channel_caption(caption_data)
 
         if not media_list and not doc_list:
             await _reply_to_user("❌ 未检测到任何上传文件，请重新发送 /start")

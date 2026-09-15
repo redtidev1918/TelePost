@@ -422,29 +422,49 @@ class PublicationService:
         what is actually published — a document-only publication never
         advertises a media view (§publication-presentation)."""
         from telepost.domain import presentation
-        from utils.helper_functions import build_caption
         data = dict(command.caption_data or {})
         if not data.get("media_types"):
             data["media_types"] = presentation.media_kinds_from_items(
                 command.items or []
             )
-        footer = _channel_footer()
-        if not footer:
-            return build_caption(data)
-        # 预留 footer 的字符空间，保证总长不超 Telegram 上限且不切坏 HTML。
-        return build_caption(data, max_length=1024 - len(footer)) + footer
+        return channel_caption(data)
+
+
+def channel_caption(caption_data: dict) -> str:
+    """Shared channel caption builder for REAL publication: body + CTA footer.
+
+    ONE implementation for every publication path (chat direct, API direct,
+    review approval, editorial, PixivFlow/service). The submission CTA is a
+    Publication Presentation concern — it is never assembled per-handler
+    (§submission-entrypoint). Caption budgeting stays here so the CTA can
+    never overflow Telegram's limit.
+    """
+    from utils.helper_functions import build_caption
+    data = dict(caption_data or {})
+    footer = _channel_footer()
+    if not footer:
+        return build_caption(data)
+    # 预留 footer 的字符空间，保证总长不超 Telegram 上限且不切坏 HTML。
+    return build_caption(data, max_length=1024 - len(footer)) + footer
 
 
 def _channel_footer() -> str:
     """频道发布 footer：正式发布时才追加，审核预览与排队均不经过这里。
 
-    语义：让频道读者点「点击投稿」进入本 bot 发起投稿。链接由
-    ``CHANNEL_FOOTER_LINK`` 配置（空 = 关闭）；链接文本可用
-    ``CHANNEL_FOOTER_TEXT`` 覆盖（默认「点击投稿」）。返回完整 HTML
-    片段（含前导换行）或空字符串。
+    语义：让频道读者直接进入本 bot 的 Mini App 投稿页。链接由
+    ``CHANNEL_FOOTER_LINK`` 配置（空 = 关闭）；``MINIAPP_SUBMIT_CTA=true`` 时
+    把同一 bot 入口升级为 ``https://t.me/<bot>?startapp=submit``（打开该 Bot
+    的 Main Mini App 投稿页，startapp 只是导航意图、绝不携带身份）；未启用或
+    链接非法时回退旧语义（bot 深链 + 默认「点击投稿」），绝不生成坏链接。
+    链接文本可用 ``CHANNEL_FOOTER_TEXT`` 覆盖（默认「✉️ 我要投稿」）。返回
+    完整 HTML 片段（含前导换行）或空字符串。
     """
     try:
-        from config.settings import CHANNEL_FOOTER_LINK, CHANNEL_FOOTER_TEXT
+        from config.settings import (
+            CHANNEL_FOOTER_LINK,
+            CHANNEL_FOOTER_TEXT,
+            MINIAPP_SUBMIT_CTA,
+        )
     except Exception:
         return ""
     link = (CHANNEL_FOOTER_LINK or "").strip()
@@ -453,9 +473,28 @@ def _channel_footer() -> str:
     # 只接受 http(s) 链接，且必须是干净 URL，避免把任意 HTML 塞进 caption。
     if not link.startswith(("http://", "https://")):
         return ""
-    text = (CHANNEL_FOOTER_TEXT or "点击投稿").strip() or "点击投稿"
+
+    from telepost.domain.navigation import DEFAULT_CTA_LABEL, submission_entrypoint_url
+
+    custom_text = (CHANNEL_FOOTER_TEXT or "").strip()
+    entrypoint = submission_entrypoint_url(
+        link,
+        mini_app_enabled=MINIAPP_SUBMIT_CTA,
+    )
+    if entrypoint is not None:
+        target = entrypoint
+        # Mini App enabled: default label is the CTA; a custom CHANNEL_FOOTER_TEXT
+        # (anything other than the legacy default) still overrides it.
+        if custom_text and custom_text != "点击投稿":
+            text = custom_text
+        else:
+            text = DEFAULT_CTA_LABEL
+    else:
+        # Mini App 未启用/链接非法：保持旧语义（bot 深链），CTA 绝不因此坏掉。
+        target = link
+        text = custom_text or "点击投稿"
     import html as _html
-    safe_link = _html.escape(link, quote=True)
+    safe_link = _html.escape(target, quote=True)
     safe_text = _html.escape(text, quote=False)
     return f'\n\n<a href="{safe_link}">{safe_text}</a>'
 

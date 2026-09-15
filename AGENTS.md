@@ -348,3 +348,39 @@ submission detail and is labeled accordingly.
 - 频道公开署名与 manager 新投稿消息是 intentional identity contexts：非匿名 human
   使用显式 submitter_user_id 的 `tg://user` link；review/refetch/schedule/system 状态消息
   不创建 user mention entity。
+
+## Submission CTA 不变量（§submission-entrypoint）
+
+```text
+Channel publication submission CTAs open the owning bot's
+Mini App submission surface directly when Mini App configuration
+is available.
+
+Submission CTA targets are derived from bot/runtime context and must
+not be globally hardcoded to one bot.
+
+Mini App start parameters are navigation intent only and must never
+be trusted as authentication or authorization data.
+
+Submission CTA rendering is a shared Publication Presentation concern
+and must not be duplicated across direct, reviewed, editorial,
+PixivFlow or novel publication paths.
+
+A missing Mini App configuration must never produce a malformed
+submission URL or fail an otherwise valid Publication.
+```
+
+- URL 构造唯一权威在 `telepost/domain/navigation.py`：`submission_entrypoint_url`
+  只接受 `https://t.me/<bot>` 形式 + `MINIAPP_SUBMIT_CTA` 开关；链路是
+  `https://t.me/<bot>?startapp=submit`（或 Direct Mini App 的
+  `https://t.me/<bot>/<short_name>?startapp=submit`）。
+- `startapp=submit` 只是导航意图：绝不放入 user id / username / token /
+  session，也不被当成认证或授权；Mini App 身份仍只来自服务器校验的
+  Telegram initData。
+- 单条 caption 只出现一个投稿 CTA：`_channel_footer()` 是加入 footer 的唯一
+  位置，chat-DIRECT、API 直发、review 通过、editorial、PixivFlow/service
+  全部经 `channel_caption()` 汇聚；禁止各 handler 各自拼 CTA。
+- `MINIAPP_SUBMIT_CTA` 未启用、链接缺失或非法时保持旧语义（bot 深链 +
+  `点击投稿`）或省略 CTA；绝不产生 `https://t.me/None...` 或坏链接。
+- CTA 进入既有 caption 预算（`channel_caption` 预留 footer 宽度），不得让
+  Publication 因加 CTA 超出 Telegram 上限。
