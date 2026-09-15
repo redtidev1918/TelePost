@@ -10,6 +10,14 @@
 
 ---
 
+## [2.27.4](https://github.com/redtidev1918/TelePost/compare/v2.27.3...v2.27.4) (2026-09-15)
+
+
+### Bug Fixes
+
+* postRelease deploy-docs dispatches on default branch (Pages needs branch ref) ([467a97e](https://github.com/redtidev1918/TelePost/commit/467a97eb1f6fc606f5f7804abfe86700e8c1d788))
+* **refetch:** generation replacement — harden stale guard, invalidate old card ([#120](https://github.com/redtidev1918/TelePost/issues/120)) ([0caef1a](https://github.com/redtidev1918/TelePost/commit/0caef1a298e93cb1fcfbbcadc7b40008e5db9585))
+
 ## [2.27.3](https://github.com/redtidev1918/TelePost/compare/v2.27.2...v2.27.3) (2026-09-15)
 
 
