@@ -550,6 +550,42 @@ def detect_kind(filename: str, content_type: str) -> str:
     return "document"
 
 
+async def _maybe_notify_direct_submitter(result: dict, submitter_user_id,
+                                         anonymous: bool, source: str) -> None:
+    """UNIFIED publication-success hook for DIRECT_PUBLISH API submissions
+    (§notify-submitter). Only after a CONFIRMED channel publish; service rows
+    (submitter NULL) skip; replays never re-notify."""
+    from telepost.application.submitter_notify import (
+        PublicationContext,
+        SubmitterNotifyService,
+    )
+
+    if not submitter_user_id:
+        return
+    if result.get("reused") or str(result.get("status") or "") != "published":
+        return
+    message_id = result.get("message_id") or result.get("published_message_id")
+    if not message_id:
+        return
+    try:
+        link = ""
+        try:
+            from telepost.application.publication import _legacy_link
+            link = _legacy_link(int(message_id))
+        except Exception:
+            pass
+        context = PublicationContext(
+            source=source,
+            publication_id=int(message_id),
+            submitter_user_id=int(submitter_user_id),
+            anonymous=bool(anonymous),
+            link=link,
+        )
+        await SubmitterNotifyService().notify_published(context)
+    except Exception as exc:
+        logger.warning("API 直发投稿者通知失败: message=%s error=%s", message_id, exc)
+
+
 def _api_review() -> bool:
     """API (Mini App / service) submissions route to the review queue when the
     operator policy says so (API_REVIEW_REQUIRED=true). Domain-owned disposition
@@ -640,6 +676,84 @@ async def _review_owner_principal(request) -> Optional[int]:
 
 def _review_error(exc: ReviewError) -> web.Response:
     return _error(exc.http_status, exc.code, str(exc)[:200])
+
+
+def _editorial_error(exc: Exception) -> web.Response:
+    from telepost.application.editorial import EditorialObsoleteError
+    from telepost.storage.sqlite.editorial import (
+        EditorialConflictError,
+        EditorialNotFoundError,
+        EditorialStateError,
+    )
+
+    if isinstance(exc, EditorialNotFoundError):
+        return _error(404, "editorial_not_found", str(exc)[:200])
+    if isinstance(exc, EditorialObsoleteError):
+        return _error(409, "editorial_stale", str(exc)[:200])
+    if isinstance(exc, EditorialConflictError):
+        return _error(409, "editorial_conflict", str(exc)[:200])
+    if isinstance(exc, EditorialStateError):
+        return _error(409, "editorial_state", str(exc)[:200])
+    return _error(409, "editorial_error", str(exc)[:200])
+
+
+def _editor_actor(actor_row) -> dict:
+    """Editor identity for revision bookkeeping (never exposed to submitters)."""
+    name = str(actor_row.get("name") or "") if isinstance(actor_row, dict) else ""
+    uid = actor_row.get("telegram_user_id") if isinstance(actor_row, dict) else None
+    username = str(actor_row.get("username") or "") if isinstance(actor_row, dict) else ""
+    if not username:
+        username = name
+    return {
+        "telegram_user_id": uid,
+        "username": username,
+        "display_name": name,
+    }
+
+
+def editorial_dto(revision: dict) -> dict:
+    import json as _json
+
+    return {
+        "id": revision["id"],
+        "review_id": revision["review_id"],
+        "revision_number": revision["revision_number"],
+        "status": revision["status"],
+        "severity": revision["severity"],
+        "summary": revision["summary"],
+        "change_set": _json.loads(revision["change_set"] or "{}"),
+        "base_snapshot": _json.loads(revision["base_snapshot"] or "{}"),
+        "edited_snapshot": _json.loads(revision["edited_snapshot"] or "{}"),
+        "version": revision["version"],
+        "editor_display": revision["editor_display_name"] or revision["editor_username"] or "",
+        "created_at": revision["created_at"],
+        "updated_at": revision["updated_at"],
+        "finalized_at": revision["finalized_at"],
+        "published_at": revision["published_at"],
+        "published_message_id": revision["published_message_id"],
+        "published_snapshot": _json.loads(revision["published_snapshot"] or "{}"),
+    }
+
+
+def editorial_submitter_dto(revision: dict) -> dict:
+    """Submitter-safe DTO: no editor_user_id, no internal fields (§49-§54)."""
+    import json as _json
+
+    changes = _json.loads(revision["change_set"] or "{}")
+    published = _json.loads(revision["published_snapshot"] or "{}")
+    edited = _json.loads(revision["edited_snapshot"] or "{}")
+    return {
+        "revision_number": revision["revision_number"],
+        "status": revision["status"],
+        "summary": revision["summary"] or "",
+        "change_set": changes,
+        "edited_snapshot": edited,
+        "published_snapshot": published,
+        "finalized_at": revision["finalized_at"],
+        "published_at": revision["published_at"],
+        "published_message_id": revision["published_message_id"],
+        "editor_display": "频道管理员",
+    }
 
 
 async def _run_review_action(handler):
@@ -1004,6 +1118,11 @@ def add_api_routes(web_app, application) -> None:
                 await _notify_refetch_replacement(
                     _fields_refetch_request_id(payload), result.get("review_id")
                 )
+            if not _api_review():
+                await _maybe_notify_direct_submitter(
+                    result, common.get("submitter_user_id"), bool(common.get("anonymous")),
+                    "api_direct",
+                )
             return _business_ack(result)
 
         if not (request.content_type or "").startswith("multipart/"):
@@ -1153,6 +1272,11 @@ def add_api_routes(web_app, application) -> None:
         if not result.get("reused"):
             await _notify_refetch_replacement(
                 _fields_refetch_request_id(fields), result.get("review_id")
+            )
+        if not _api_review():
+            await _maybe_notify_direct_submitter(
+                result, common.get("submitter_user_id"), bool(common.get("anonymous")),
+                "api_direct",
             )
         return _business_ack(result)
 
@@ -1828,6 +1952,256 @@ def add_api_routes(web_app, application) -> None:
         except Exception:
             logger.debug("审计 schedule.outcome_notified 失败", exc_info=True)
         return _ok({"ok": True, "delivered": delivered, "status": status})
+
+
+    # ---- Editorial Revision API (§editorial) --------------------------------
+    async def editorial_list(request):
+        async def action():
+            _actor_row, auth_error = await _review_auth(request, write=False)
+            if auth_error:
+                return auth_error
+            try:
+                review_id = int(request.match_info["review_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_review_id", "review_id 必须是整数")
+            from telepost.application.editorial import EditorialService
+            revisions = await EditorialService().list_for_review(review_id)
+            return _ok({"revisions": [editorial_dto(r) for r in revisions]})
+        return await _run_review_action(action)
+
+    async def editorial_create(request):
+        async def action():
+            actor_row, auth_error = await _review_auth(request, write=True)
+            if auth_error:
+                return auth_error
+            try:
+                review_id = int(request.match_info["review_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_review_id", "review_id 必须是整数")
+            from telepost.application.editorial import EditorialService
+            revision = await EditorialService().create(
+                review_id, actor=_editor_actor(actor_row)
+            )
+            from telepost.observability import audit
+            await audit.record_event(
+                "editorial_revision.created",
+                review_id=review_id, actor=_action_actor(actor_row),
+                detail={"revision_id": revision["id"],
+                        "revision_number": revision["revision_number"]},
+            )
+            return _ok(editorial_dto(revision), status=201)
+        return await _run_review_action(action)
+
+    async def editorial_get(request):
+        async def action():
+            _actor_row, auth_error = await _review_auth(request, write=False)
+            if auth_error:
+                return auth_error
+            try:
+                review_id = int(request.match_info["review_id"])
+                revision_id = int(request.match_info["revision_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_revision_id", "revision_id 必须是整数")
+            from telepost.application.editorial import EditorialService
+            revision = await EditorialService().get(review_id, revision_id)
+            return _ok(editorial_dto(revision))
+        return await _run_review_action(action)
+
+    async def editorial_update(request):
+        async def action():
+            actor_row, auth_error = await _review_auth(request, write=True)
+            if auth_error:
+                return auth_error
+            try:
+                review_id = int(request.match_info["review_id"])
+                revision_id = int(request.match_info["revision_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_revision_id", "revision_id 必须是整数")
+            payload, body_error = await _json_body(request)
+            if body_error:
+                return body_error
+            expected_version = payload.get("expected_version")
+            if not isinstance(expected_version, int) or expected_version < 1:
+                return _error(400, "invalid_version", "expected_version 必填")
+            from telepost.application.editorial import EditorialService
+            try:
+                updated = await EditorialService().update(
+                    review_id, revision_id, payload=payload,
+                    expected_version=expected_version,
+                    actor=_editor_actor(actor_row),
+                )
+            except Exception as exc:
+                return _editorial_error(exc)
+            from telepost.observability import audit
+            await audit.record_event(
+                "editorial_revision.updated",
+                review_id=review_id, actor=_action_actor(actor_row),
+                detail={"revision_id": revision_id,
+                        "version": updated["version"]},
+            )
+            return _ok(editorial_dto(updated))
+        return await _run_review_action(action)
+
+    async def editorial_finalize(request):
+        async def action():
+            actor_row, auth_error = await _review_auth(request, write=True)
+            if auth_error:
+                return auth_error
+            try:
+                review_id = int(request.match_info["review_id"])
+                revision_id = int(request.match_info["revision_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_revision_id", "revision_id 必须是整数")
+            payload, body_error = await _json_body(request)
+            if body_error:
+                return body_error
+            expected_version = payload.get("expected_version")
+            if not isinstance(expected_version, int) or expected_version < 1:
+                return _error(400, "invalid_version", "expected_version 必填")
+            from telepost.application.editorial import EditorialService
+            try:
+                finalized = await EditorialService().finalize(
+                    review_id, revision_id, expected_version=expected_version)
+            except Exception as exc:
+                return _editorial_error(exc)
+            from telepost.observability import audit
+            await audit.record_event(
+                "editorial_revision.finalized",
+                review_id=review_id, actor=_action_actor(actor_row),
+                detail={"revision_id": revision_id,
+                        "revision_number": finalized["revision_number"]},
+            )
+            return _ok(editorial_dto(finalized))
+        return await _run_review_action(action)
+
+    async def editorial_preview(request):
+        async def action():
+            _actor_row, auth_error = await _review_auth(request, write=False)
+            if auth_error:
+                return auth_error
+            try:
+                review_id = int(request.match_info["review_id"])
+                revision_id = int(request.match_info["revision_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_revision_id", "revision_id 必须是整数")
+            payload, body_error = await _json_body(request)
+            if body_error:
+                return body_error
+            from telepost.application.editorial import EditorialService
+            try:
+                caption = await EditorialService().preview(
+                    review_id, revision_id,
+                    payload=payload if payload else None,
+                )
+            except Exception as exc:
+                return _editorial_error(exc)
+            return _ok({"caption": caption, "parse_mode": "HTML"})
+        return await _run_review_action(action)
+
+    async def publish_with_source(request):
+        """POST /api/v1/reviews/{id}/publish — body {revision_id?}.
+
+        None  → approve ORIGINAL;
+        id    → publish the FINALIZED editorial revision (edited snapshot).
+        Same review FSM + one idempotency ledger; the source revision is
+        recorded on the review row (NULL = original, §33).
+        """
+        async def action():
+            actor_row, auth_error = await _review_auth(request, write=True)
+            if auth_error:
+                return auth_error
+            payload, body_error = await _json_body(request)
+            if body_error:
+                return body_error
+            try:
+                review_id = int(request.match_info["review_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_review_id", "review_id 必须是整数")
+            revision_id = payload.get("revision_id")
+            if revision_id is not None and not isinstance(revision_id, int):
+                return _error(400, "invalid_revision_id", "revision_id 必须是整数")
+            spoiler = payload.get("spoiler")
+            if spoiler is not None and not isinstance(spoiler, bool):
+                return _error(400, "invalid_spoiler", "spoiler 必须是布尔值")
+            source = _action_source(request, actor_row)
+            try:
+                if revision_id is None:
+                    result = await review_service.approve(
+                        bot, review_id, spoiler=spoiler,
+                        actor=_action_actor(actor_row), source=source,
+                        notify_chat_submitter=True,
+                    )
+                else:
+                    result = await review_service.publish_edited(
+                        bot, review_id, int(revision_id),
+                        actor=_action_actor(actor_row), source=source,
+                        notify_chat_submitter=True,
+                    )
+            except ReviewError as exc:
+                return _review_error(exc)
+            except Exception as exc:
+                return _editorial_error(exc)
+            return _ok(result.to_dict())
+        return await _run_review_action(action)
+
+    async def editorial_history_me(request):
+        """GET /api/v1/me/submissions/{id}/editorial-history — OWNER only.
+
+        Returns published revisions with submitter-safe DTO: no editor ids,
+        no internal moderation fields (§49-§50). Editor identity is rendered
+        as a label ('频道管理员' unless SHOW_EDITOR_USERNAME is configured).
+        """
+        principal = await _resolve_principal(request)
+        if principal is None:
+            return _error(401, "invalid_token", "token 无效或已吊销")
+        if principal.get("kind") != "user":
+            return _error(403, "permission_denied", "需要用户会话")
+        uid = int(principal["telegram_user_id"])
+        try:
+            review_id = int(request.match_info["review_id"])
+        except (TypeError, ValueError):
+            return _error(400, "invalid_review_id", "review_id 必须是整数")
+        from telepost.storage.sqlite.reviews import ReviewRepository
+        row = await ReviewRepository().get(review_id)
+        if row is None:
+            return _error(404, "review_not_found", "review not found")
+        row = dict(row) if not isinstance(row, dict) else row
+        if int(row.get("submitter_user_id") or 0) != uid:
+            # Never reveal that someone else's submission exists.
+            return _error(404, "review_not_found", "review not found")
+        chain_id = row["review_chain_id"] or f"review-{review_id}"
+        from telepost.storage.sqlite.editorial import EditorialRepository
+        revisions = await EditorialRepository().list_published_for_chain(chain_id)
+        return _ok({
+            "review_id": review_id,
+            "status": row["status"],
+            "edited_before_publication": bool(
+                row.get("published_source_revision_id")),
+            "published_message_id": row.get("published_message_id"),
+            "revisions": [editorial_submitter_dto(r) for r in revisions],
+        })
+
+    web_app.router.add_get(
+        "/api/v1/reviews/{review_id}/editorial-revisions", editorial_list)
+    web_app.router.add_post(
+        "/api/v1/reviews/{review_id}/editorial-revisions", editorial_create)
+    web_app.router.add_get(
+        "/api/v1/reviews/{review_id}/editorial-revisions/{revision_id}",
+        editorial_get)
+    web_app.router.add_patch(
+        "/api/v1/reviews/{review_id}/editorial-revisions/{revision_id}",
+        editorial_update)
+    web_app.router.add_post(
+        "/api/v1/reviews/{review_id}/editorial-revisions/{revision_id}/finalize",
+        editorial_finalize)
+    web_app.router.add_post(
+        "/api/v1/reviews/{review_id}/editorial-revisions/{revision_id}/preview",
+        editorial_preview)
+    web_app.router.add_post(
+        "/api/v1/reviews/{review_id}/publish", publish_with_source)
+    web_app.router.add_get(
+        "/api/v1/me/submissions/{review_id}/editorial-history",
+        editorial_history_me)
 
     web_app.router.add_post("/api/v1/schedule/outcomes", schedule_outcome)
     web_app.router.add_post("/api/v1/refetch/outcomes", refetch_outcome)

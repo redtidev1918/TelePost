@@ -133,3 +133,143 @@ export function fetchRefetchAttempt(
 ): Promise<{ attempt: RefetchAttempt | null; lineage: { generation: number; candidate_id: string; status: string }[] }> {
   return apiFetch(`/reviews/${id}/refetch`);
 }
+
+// ---- Editorial Revision (§editorial) --------------------------------------
+
+export interface EditorialSnapshot {
+  title: string;
+  note: string;
+  tags: string;
+  link: string;
+  spoiler: boolean;
+  media_order: number[];
+  removed: number[];
+}
+
+export interface EditorialChangeSet {
+  title?: { before: string; after: string };
+  note?: { changed: boolean };
+  tags?: { added: string[]; removed: string[] };
+  link?: { before: string; after: string };
+  spoiler?: { before: boolean; after: boolean };
+  media?: { reordered: boolean; removed: number[] };
+}
+
+export interface EditorialRevision {
+  id: number;
+  review_id: number;
+  revision_number: number;
+  status: 'draft' | 'finalized' | 'published' | 'superseded';
+  severity: 'minor' | 'substantive';
+  summary: string;
+  change_set: EditorialChangeSet;
+  base_snapshot: EditorialSnapshot;
+  edited_snapshot: EditorialSnapshot;
+  version: number;
+  editor_display: string;
+  created_at: number;
+  updated_at: number;
+  finalized_at: number | null;
+  published_at: number | null;
+  published_message_id: number | null;
+  published_snapshot: EditorialSnapshot;
+}
+
+export interface SubmitterEditorialRevision {
+  revision_number: number;
+  status: string;
+  summary: string;
+  change_set: EditorialChangeSet;
+  edited_snapshot: EditorialSnapshot;
+  published_snapshot: EditorialSnapshot;
+  finalized_at: number | null;
+  published_at: number | null;
+  published_message_id: number | null;
+  editor_display: string;
+}
+
+export interface SubmitterEditorialHistory {
+  review_id: number;
+  status: string;
+  edited_before_publication: boolean;
+  published_message_id: number | null;
+  revisions: SubmitterEditorialRevision[];
+}
+
+export function fetchEditorialRevisions(
+  id: number | string,
+): Promise<{ revisions: EditorialRevision[] }> {
+  return apiFetch(`/reviews/${id}/editorial-revisions`);
+}
+
+export function createEditorialRevision(
+  id: number | string,
+): Promise<EditorialRevision> {
+  return apiFetch(`/reviews/${id}/editorial-revisions`, { method: 'POST' });
+}
+
+export interface EditorialPatch {
+  expected_version: number;
+  title?: string;
+  note?: string;
+  tags?: string;
+  link?: string;
+  spoiler?: boolean;
+  media_order?: number[];
+  removed?: number[];
+  severity?: 'minor' | 'substantive';
+}
+
+export function updateEditorialRevision(
+  id: number | string,
+  revisionId: number,
+  patch: EditorialPatch,
+): Promise<EditorialRevision> {
+  return apiFetch(`/reviews/${id}/editorial-revisions/${revisionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+}
+
+export function finalizeEditorialRevision(
+  id: number | string,
+  revisionId: number,
+  expectedVersion: number,
+): Promise<EditorialRevision> {
+  return apiFetch(`/reviews/${id}/editorial-revisions/${revisionId}/finalize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expected_version: expectedVersion }),
+  });
+}
+
+export function previewEditorialRevision(
+  id: number | string,
+  revisionId: number,
+  patch?: Partial<EditorialPatch>,
+): Promise<{ caption: string }> {
+  return apiFetch(`/reviews/${id}/editorial-revisions/${revisionId}/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch || {}),
+  });
+}
+
+/** Publish the ORIGINAL (revisionId null) or a FINALIZED revision. */
+export function publishReview(
+  id: number | string,
+  revisionId?: number | null,
+): Promise<ReviewActionResult> {
+  return apiFetch(`/reviews/${id}/publish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(revisionId ? { revision_id: revisionId } : {}),
+  });
+}
+
+export function fetchEditorialHistory(
+  id: number | string,
+): Promise<SubmitterEditorialHistory> {
+  return apiFetch(`/me/submissions/${id}/editorial-history`);
+}

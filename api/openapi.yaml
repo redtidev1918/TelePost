@@ -371,6 +371,129 @@ paths:
               schema: {type: string, format: binary}
         '404': {$ref: '#/components/responses/reviewNotFound'}
         '409': {$ref: '#/components/responses/reviewState'}
+  /reviews/{review_id}/publish:
+    post:
+      summary: Publish the review — original, or a FINALIZED editorial revision
+      operationId: publishReview
+      description: |
+        body {revision_id?}: null → publish the ORIGINAL submission; an id →
+        publish the finalized editorial revision (edited snapshot). The same
+        review FSM + idempotency ledger serves both; the source revision is
+        recorded on the review row (published_source_revision_id, NULL =
+        original). A revision whose review generation is no longer current is
+        rejected (409 editorial_stale). Submit-succeeded notifications follow
+        publication success (never review approval).
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                revision_id: {type: integer}
+                spoiler: {type: boolean}
+      responses:
+        '200': {description: ReviewActionResult}
+        '409': {description: editorial_stale | editorial_state | review_busy}
+        '404': {description: review_not_found}
+
+  /reviews/{review_id}/editorial-revisions:
+    get:
+      summary: List editorial revisions (reviewer/admin)
+      operationId: listEditorialRevisions
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {description: "{revisions: EditorialRevision[]}"}
+    post:
+      summary: Create the next revision draft
+      operationId: createEditorialRevision
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '201': {description: EditorialRevision}
+        '409': {description: review no longer current/pending}
+  /reviews/{review_id}/editorial-revisions/{revision_id}:
+    get:
+      summary: Get one revision
+      operationId: getEditorialRevision
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+        - {name: revision_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {description: EditorialRevision}
+    patch:
+      summary: Update a DRAFT revision (CAS expected_version → 409 on conflict)
+      operationId: updateEditorialRevision
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+        - {name: revision_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expected_version]
+              properties:
+                expected_version: {type: integer}
+                title: {type: string}
+                note: {type: string}
+                tags: {type: string}
+                link: {type: string}
+                spoiler: {type: boolean}
+                media_order: {type: array, items: {type: integer}}
+                removed: {type: array, items: {type: integer}}
+                severity: {enum: [minor, substantive]}
+      responses:
+        '200': {description: EditorialRevision}
+        '409': {description: editorial_conflict}
+  /reviews/{review_id}/editorial-revisions/{revision_id}/finalize:
+    post:
+      summary: draft → finalized (only finalized may publish)
+      operationId: finalizeEditorialRevision
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+        - {name: revision_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expected_version]
+              properties: {expected_version: {type: integer}}
+      responses:
+        '200': {description: EditorialRevision}
+        '409': {description: editorial_conflict | editorial_state}
+  /reviews/{review_id}/editorial-revisions/{revision_id}/preview:
+    post:
+      summary: Server-side caption preview of the edited version (side-effect free)
+      operationId: previewEditorialRevision
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+        - {name: revision_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Optional unsaved field overrides for live preview
+      responses:
+        '200': {description: "{caption, parse_mode}"}
+  /me/submissions/{review_id}/editorial-history:
+    get:
+      summary: Owner-scoped published editorial history (submitter-safe)
+      operationId: editorialHistory
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {description: SubmitterEditorialHistory}
+        '404': {description: review_not_found (owner scoping hides existence)}
+
   /reviews/{review_id}/approve:
     post:
       summary: Claim and publish a review (destructive; human confirmation required)

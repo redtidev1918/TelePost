@@ -364,6 +364,206 @@ class ReviewService:
             **kwargs,
         )
 
+    # ---- Editorial Revision publication (§editorial) ------------------------
+
+    async def _merged_media(self, row) -> tuple:
+        """(media_items, document_items) exactly as the publisher expects."""
+        media = json.loads(row["media_json"] or "[]")
+        documents = json.loads(row["documents_json"] or "[]")
+        return media, documents
+
+    async def _subset_media(self, row, ordered_indexes: List[int]) -> tuple:
+        """Ordered publication subset of the ORIGINAL media (immutability: the
+        review row and its media_json are never modified, §12/§19)."""
+        media, documents = await self._merged_media(row)
+        merged = media + documents
+        total = len(merged)
+        picked = [i for i in ordered_indexes if 0 <= i < total]
+        picked = sorted(set(picked), key=lambda i: ordered_indexes.index(i))
+        media_set = set(range(len(media)))
+        out_media = [merged[i] for i in picked if i in media_set]
+        out_documents = [merged[i] for i in picked if i not in media_set]
+        # Documents carry a filename; media entries do not.
+        return out_media, out_documents
+
+    async def publish_edited(self, bot, review_id: int, revision_id: int, *,
+                             actor: Any = None, source: str = "service",
+                             notify_chat_submitter: bool = True) -> ActionResult:
+        """Publish a FINALIZED editorial revision (same review FSM + idempotency
+        as original approve). Refetches that replaced the generation make this
+        a stale publish and are rejected (409)."""
+        from telepost.application.editorial import EditorialService
+        from telepost.storage.sqlite.editorial import (
+            EditorialNotFoundError, EditorialStateError,
+        )
+
+        editorial = EditorialService()
+        revision = await editorial.get(int(review_id), int(revision_id))
+        # Stale generation guard FIRST (§35): the review must still be the
+        # PENDING current chain head; a refetch that replaced it makes this
+        # revision unpublishable. Runs before the publishing claim so the
+        # status check is not racing our own transition.
+        await editorial._require_current(int(review_id))  # noqa: SLF001
+        if revision["status"] != "finalized":
+            raise EditorialStateError("该版本尚未定稿，无法发布")
+        if revision["review_id"] != int(review_id):
+            raise ReviewNotFoundError("revision 不属于该审核")
+        requested_spoiler = bool(revision["edited_snapshot"]) and bool(
+            json.loads(revision["edited_snapshot"] or "{}").get("spoiler")
+        )
+        claimed, row = await self._repo.claim_for_publishing(
+            int(review_id), stale_seconds=PUBLISHING_STALE_SECONDS,
+            spoiler=requested_spoiler,
+        )
+        if row is None:
+            raise ReviewNotFoundError("审核记录不存在")
+        if not claimed:
+            if row["status"] == "published":
+                await _record_review_event("publish.duplicate_suppressed", row, actor,
+                                           detail={"reuse_reason": "already_published"})
+                return ActionResult(int(review_id), "published", True,
+                                    row["published_message_id"], None)
+            if row["status"] == "publishing":
+                raise ReviewBusyError("Review is currently being processed",
+                                      details={"status": row["status"]})
+            raise ReviewStateError(f"该投稿当前状态：{row['status']}")
+        await _record_review_event("publish.started", row, actor,
+                                   detail={"revision_id": int(revision_id)})
+        try:
+            result = await self._publish_edited_payload(bot, row, revision)
+        except Exception as error:
+            logger.error("编辑后发布失败: review_id=%s revision=%s", review_id,
+                         revision_id, exc_info=True)
+            await self._repo.mark_failed(int(review_id), str(error))
+            _audit("approve_edited", review_id, actor, "failed", source=source,
+                   error=str(error)[:120])
+            await _record_review_event("review.failed", row, actor,
+                                       error_class=classify_error(error),
+                                       detail={"error": str(error)[:200],
+                                               "revision_id": int(revision_id)})
+            raise PublishFailedError(str(error)[:200],
+                                     retry_hint=self.failure_hint(error),
+                                     original=error)
+
+        marked = await self._repo.mark_published(
+            int(review_id), actor=actor, message_id=result["message_id"]
+        )
+        if marked:
+            success = await self._record_edited_publication(
+                int(review_id), int(revision_id), result["message_id"], revision
+            )
+            await _record_review_event(
+                "publication.published_from_revision", row, actor,
+                detail={"revision_id": int(revision_id),
+                        "message_id": result["message_id"],
+                        "recorded": bool(success)},
+            )
+            import json as _json
+            summary_lines = []
+            try:
+                summary_lines = str(revision.get("summary") or "").split("\n")
+            except Exception:
+                pass
+            await self._notify_submitter_published(
+                int(review_id), int(revision_id), int(result["message_id"]), row,
+                source="editorial", change_summary=summary_lines,
+            )
+        return ActionResult(int(review_id), "published", True,
+                            result["message_id"], None)
+
+    async def _publish_edited_payload(self, bot, row, revision: dict) -> Dict[str, Any]:
+        publisher = self._publisher
+        if publisher is None:
+            from handlers.publish import publish_from_file_ids
+            publisher = publish_from_file_ids
+        from telepost.domain.editorial import Snapshot
+
+        edited = Snapshot.from_dict(
+            json.loads(revision["edited_snapshot"] or "{}")
+        )
+        media, documents = await self._subset_media(
+            row, edited.ordered_indexes()
+        )
+        kwargs = dict(
+            tags=edited.tags, title=edited.title, note=edited.note,
+            link=edited.link, anonymous=bool(row["anonymous"]),
+            spoiler=bool(edited.spoiler),
+            user_id=row["user_id"], username=row["username"],
+        )
+        if row["idempotency_key"]:
+            kwargs["idempotency_key"] = f"review:{row['id']}:{row['idempotency_key']}"
+        for column in ("target_id", "work_type", "pixiv_id"):
+            try:
+                if row[column]:
+                    kwargs[column] = row[column]
+            except (IndexError, KeyError):
+                pass
+        return await publisher(bot, media, documents, **kwargs)
+
+    async def _record_edited_publication(self, review_id: int, revision_id: int,
+                                         message_id: int, revision: dict) -> bool:
+        """Link the confirmed channel post to the immutable published snapshot."""
+        from telepost.storage.sqlite.editorial import EditorialRepository
+        from telepost.domain.editorial import Snapshot
+
+        edited = Snapshot.from_dict(json.loads(revision["edited_snapshot"] or "{}"))
+        published = {
+            **edited.to_dict(),
+            "caption_source": "edited",
+            "published_message_id": int(message_id),
+        }
+        await EditorialRepository().mark_published(int(revision_id), int(message_id), published)
+        from database.db_manager import get_db
+        async with get_db() as conn:
+            cur = await conn.execute(
+                "UPDATE pending_reviews SET published_source_revision_id = ?, "
+                "updated_at = ? WHERE id = ?",
+                (int(revision_id), time.time(), int(review_id)),
+            )
+            return cur.rowcount == 1
+
+    async def _notify_submitter_published(self, review_id: int,
+                                          revision_id: Optional[int],
+                                          message_id: int, row: Dict[str, Any],
+                                          source: str,
+                                          change_summary: Optional[List[str]] = None,
+                                          ) -> None:
+        """UNIFIED publication-success hook (§notify-submitter): the trigger is a
+        CONFIRMED channel publish, never review approval. One durable intent per
+        publication message id; service submissions are skipped inside."""
+        from telepost.application.submitter_notify import (
+            PublicationContext,
+            SubmitterNotifyService,
+        )
+
+        try:
+            row = dict(row) if not isinstance(row, dict) else row
+            submitter_user_id = row.get("submitter_user_id")
+            if not submitter_user_id:
+                return  # service submission: no human to notify (§6)
+            link = ""
+            try:
+                from telepost.application.publication import _legacy_link
+                link = _legacy_link(int(message_id))
+            except Exception:
+                pass
+            summary = [str(x) for x in (change_summary or []) if x]
+            context = PublicationContext(
+                source=source,
+                publication_id=int(message_id),
+                submitter_user_id=int(submitter_user_id),
+                submitter_username=str(row.get("submitter_username") or ""),
+                anonymous=bool(row.get("anonymous")),
+                review_id=int(review_id),
+                revision_id=int(revision_id) if revision_id else None,
+                change_summary=summary,
+                link=link,
+            )
+            await SubmitterNotifyService().notify_published(context)
+        except Exception as exc:
+            logger.warning("投稿者发布通知失败: review_id=%s error=%s",
+                           review_id, exc)
+
     async def list_pending(self, *, limit: int = 20, cursor: Optional[str] = None) -> Dict[str, Any]:
         limit = max(1, min(int(limit or 20), 100))
         created_cursor: Optional[float] = None
@@ -550,6 +750,11 @@ class ReviewService:
         marked = await self._repo.mark_published(
             review_id, actor=actor, message_id=result["message_id"]
         )
+        if marked:
+            await self._notify_submitter_published(
+                review_id, None, int(result["message_id"]), row,
+                source="review",
+            )
         if not marked:
             current = await self.get_row(review_id)
             logger.warning(
