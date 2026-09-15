@@ -252,6 +252,36 @@ async def test_stale_generation_cannot_publish(editorial_db):
 
 
 @pytest.mark.asyncio
+async def test_partial_updates_accumulate_on_draft(editorial_db):
+    """PATCH semantics: a payload only changes the fields it carries, so two
+    partial saves accumulate. Merging onto the ORIGINAL submission instead
+    would silently revert every field the caller did not mention."""
+    review_id = await _insert_review(keep_chain_empty=True)
+    service = EditorialService()
+    revision = await service.create(review_id, actor={"id": 11, "username": "editor"})
+
+    first = await service.update(review_id, revision["id"], payload={"note": "只改备注"},
+                                 expected_version=revision["version"], actor={"id": 11})
+    second = await service.update(review_id, revision["id"], payload={"title": "只改标题"},
+                                  expected_version=first["version"], actor={"id": 11})
+    snap = json.loads(second["edited_snapshot"])
+    assert snap["note"] == "只改备注"      # survived the title-only save
+    assert snap["title"] == "只改标题"
+    assert snap["tags"] == "#a #b"          # untouched field keeps the original
+
+    # A live-preview override is applied on top of the draft, not the original.
+    caption = await service.preview(review_id, revision["id"], payload={"tags": "预览标签"})
+    assert "只改标题" in caption
+    assert "预览标签" in caption
+
+    # An explicit empty value is how a reviewer reverts a field.
+    third = await service.update(review_id, revision["id"], payload={"note": ""},
+                                 expected_version=second["version"], actor={"id": 11})
+    assert json.loads(third["edited_snapshot"])["note"] == ""
+    assert json.loads(third["edited_snapshot"])["title"] == "只改标题"
+
+
+@pytest.mark.asyncio
 async def test_plain_submission_without_chain_id_is_editable(editorial_db):
     """Fresh submissions carry an EMPTY review_chain_id until the next app
     restart backfills it (init_db). They must still be editable/publishable:
