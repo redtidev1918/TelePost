@@ -10,6 +10,13 @@
 
 ---
 
+## [2.29.0](https://github.com/redtidev1918/TelePost/compare/v2.28.0...v2.29.0) (2026-09-15)
+
+
+### Features
+
+* **recovery-ux, packing-ssot:** manual recovery buttons + reason rendering + media capacity SSOT ([#123](https://github.com/redtidev1918/TelePost/issues/123)) ([56fff95](https://github.com/redtidev1918/TelePost/commit/56fff95424bec25e6ac389f9dd9c05beb7ec8ce5))
+
 ## [2.28.0](https://github.com/redtidev1918/TelePost/compare/v2.27.4...v2.28.0) (2026-09-15)
 
 
