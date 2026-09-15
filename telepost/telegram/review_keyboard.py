@@ -43,12 +43,20 @@ def control_text(*, review_id: int, command, media_count: int,
         provenance_line = f"🏷️ {command.source_label}\n"
     elif command.scheduled_at:
         provenance_line = f"🕐 {command.scheduled_at}\n"
+    # Only an explicit human submitter is presented as 投稿人 (§identity).
+    # Service/API rows (submitter_user_id NULL) have no author; the card still
+    # shows 投稿方式 + provenance instead of a token name.
+    submitter_line = ""
+    if getattr(command, "submitter_user_id", None):
+        submitter_line = (
+            f"投稿人：{command.submitter_username or command.username or ''}\n"
+        )
     return (
         f"🕵️ 投稿待审核 #{review_id}\n"
         + provenance_line
         + f"投稿方式：{source_label(command.source)}\n"
-        f"投稿人：{command.username}\n"
-        f"标题：{command.title or '（无）'}\n"
+        + submitter_line
+        + f"标题：{command.title or '（无）'}\n"
         f"标签：{command.tags or '（无）'}\n"
         f"文件：{media_count} 个媒体 / {document_count} 个文档"
     )

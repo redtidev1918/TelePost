@@ -13,8 +13,51 @@ from telegram.ext import ConversationHandler, CallbackContext
 
 from config.settings import ALLOWED_TAGS, NET_TIMEOUT, SHOW_SUBMITTER
 from database.db_manager import get_db
+from telepost.domain import presentation
 
 logger = logging.getLogger(__name__)
+
+
+def _field(data, key, default=""):
+    """Read a presentation field from a dict OR a ``sqlite3.Row``.
+
+    ``key in row`` compares row VALUES (always False), so column presence must
+    be checked through ``data.keys()``.
+    """
+    try:
+        if hasattr(data, "keys"):
+            if key in data.keys():
+                value = data[key]
+                return default if value is None else value
+            return default
+        return data.get(key, default)
+    except (KeyError, TypeError, IndexError, AttributeError):
+        return default
+
+
+def _anonymous(data) -> bool:
+    return presentation.is_anonymous(_field(data, "anonymous", "false"))
+
+
+def _previewable_media(data) -> bool:
+    """Whether the publication carries inline-previewable media.
+
+    ``media_types`` (attachment kinds) is authoritative; ``has_previewable_media``
+    is accepted for callers that already resolved it. Absent media information
+    means "not previewable": a media-view hint is never promised on a guess.
+    """
+    if hasattr(data, "keys") and "media_types" in data.keys():
+        kinds = data["media_types"]
+    elif hasattr(data, "get") or hasattr(data, "keys"):
+        kinds = _field(data, "media_types", None)
+    else:
+        kinds = None
+    if kinds:
+        return presentation.has_previewable_media(kinds)
+    explicit = _field(data, "has_previewable_media", None)
+    if explicit is not None:
+        return presentation.is_anonymous(explicit) if isinstance(explicit, str) else bool(explicit)
+    return False
 
 # 标签分割正则表达式：逗号/空白/中文逗号，以及会让 Telegram hashtag 失效的斜杠
 TAG_SPLIT_PATTERN = re.compile(r'[,，\s/／]+')
@@ -125,20 +168,25 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
     构建媒体说明文本。
     所有用户输入字段都会做 HTML 转义（caption 以 parse_mode="HTML" 发送），
     否则包含 <、>、& 的投稿会导致 Telegram 解析失败，投稿无法发布。
-    ``surface`` 区分展示语境（``channel`` 频道 / ``review`` 审核预览等），
-    用于未来按语境调整「是否展示/如何展示投稿人」；实体策略对两个 surface
-    一致：绝不生成 notification-capable mention entity（§ghost-mention）。
-    
+    ``surface`` 区分展示语境（``channel`` 频道 / ``miniapp`` Mini App 预览 /
+    ``review`` 审核内部 / ``system`` 系统消息），决定投稿人与来源的呈现：
+    公开 surface 只显示显式 human submitter，内部 surface 在无人属主时可显示
+    来源（绝不把 token / actor 当投稿人）。媒体动作（剧透「点击查看」）只看
+    真实附件类型（photo/video/animation 才可预览，document-only 不给该提示）。
+    实体策略对所有 surface 一致：绝不生成 notification-capable mention entity
+    （§ghost-mention）。
+
     Args:
         data: 包含投稿信息的数据对象
         max_length: 允许的最大 caption 长度。默认 1024（Telegram 上限）；
             需要尾部追加固定内容（如频道 footer 链接）时，调用方传入
             1024 - len(footer) 预留空间，避免截断/超限。
-        
+
     Returns:
         str: 格式化的说明文本（已转义，长度不超过 max_length）
     """
     MAX_CAPTION_LENGTH = max_length  # Telegram 的最大 caption 长度（可预留）
+    previewable_media = _previewable_media(data)
 
     def esc(value) -> str:
         """转义并保证输入为字符串；异常数据退化为空串，确保 caption 总能构建"""
@@ -161,36 +209,32 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
         return f"🏷 Tags: {esc(tags)}" if tags else ""
     
     def get_spoiler_part(spoiler: str) -> str:
-        return "⚠️点击查看⚠️" if spoiler.lower() == "true" else ""
-    
-    def get_submitter_part(user_id: int) -> str:
+        # A "click to reveal" hint is a MEDIA action: it only makes sense when
+        # the message actually carries inline-previewable media (photo / video /
+        # animation). Document-only and attachment-less publications already open
+        # directly in Telegram, so they must not grow this hint (§presentation).
+        if str(spoiler).lower() != "true" or not previewable_media:
+            return ""
+        return "⚠️点击查看⚠️"
+
+    def get_submitter_part() -> str:
         if not SHOW_SUBMITTER or surface == "system":
             return ""
 
-        # 匿名投稿：频道内不展示投稿人
-        try:
-            if "anonymous" in data.keys() and (data["anonymous"] or "false") == "true":
-                return ""
-        except (KeyError, TypeError, IndexError):
-            pass
+        # Anonymous submissions hide the public submitter but keep ownership.
+        if _anonymous(data):
+            return ""
 
-        if "submitter_user_id" in data.keys():
-            if not data["submitter_user_id"]:
-                return ""
-            user_id = data["submitter_user_id"]
+        # ONLY an explicit human submitter may be presented as the author
+        # (§identity): never the actor, the API token name, the credential
+        # holder, the transport source, nor the legacy request identity.
+        display = presentation.submitter_display(
+            _field(data, "submitter_user_id"),
+            _field(data, "submitter_username"),
+        )
+        if not display:
+            return ""
 
-        # 获取保存的用户名，如果存在的话
-        # 注意：对 sqlite3.Row 使用 "col" in data 判断的是"值"是否相等（几乎恒为 False），
-        # 必须用 data.keys() 判断列是否存在
-        try:
-            username = (data["submitter_username"]
-                        if "submitter_username" in data.keys()
-                        else data["username"] if "username" in data.keys() else f"user{user_id}")
-            if not username:
-                username = f"user{user_id}"
-        except (KeyError, TypeError, IndexError):
-            username = f"user{user_id}"
-        
         # Display identity and mention notification are different concepts
         # (§ghost-mention): never emit a notification-capable entity
         # (tg://user text_mention / @-anchor). Plain text shows the submitter
@@ -198,8 +242,25 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
         # review previews that get superseded/cleaned afterwards (the stale
         # "@" badge would otherwise linger). Surface only affects future
         # context, the entity policy is identical for channel and review.
-        safe_username = esc(str(username).lstrip("@")) if username else f"user{user_id}"
+        safe_username = esc(display)
         return f"\n\n投稿人：{safe_username}"
+
+    def get_source_part() -> str:
+        """Internal-only provenance. Public surfaces never show it, and it is
+        never rendered as a submitter (a service submission has no author)."""
+        if not presentation.is_internal_surface(surface):
+            return ""
+        if _anonymous(data) or presentation.submitter_display(
+            _field(data, "submitter_user_id"), _field(data, "submitter_username")
+        ):
+            return ""
+        label = presentation.source_display(
+            _field(data, "source"), _field(data, "source_label")
+        )
+        # System surfaces stay silent about provenance too (bot notices).
+        if not label or surface == "system":
+            return ""
+        return f"\n\n来源：{esc(label)}"
 
     # 收集各部分，只有内容不为空时才添加，避免产生多余的换行
     parts = []
@@ -247,11 +308,8 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
     except (KeyError, TypeError):
         spoiler = ""
     
-    # 添加投稿人信息（如果启用）
-    try:
-        submitter = get_submitter_part(data["user_id"])
-    except (KeyError, TypeError):
-        submitter = ""
+    # 添加投稿人信息（如果启用）与内部来源（仅审核 surface）
+    submitter = get_submitter_part() + get_source_part()
     
     # 如果存在正文内容且有剧透提示，则剧透提示单独占一行
     if caption_body:

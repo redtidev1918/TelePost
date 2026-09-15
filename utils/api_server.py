@@ -945,12 +945,20 @@ def add_api_routes(web_app, application) -> None:
             if field in payload and not isinstance(payload[field], bool):
                 return _error(400, "invalid_field", f"{field} 必须是布尔值")
         from utils.helper_functions import build_caption
+        # Public-facing preview (Mini App). The client renders the submitter
+        # line from the verified session identity, so the caption itself carries
+        # no submitter fallback; media kinds decide the media action
+        # (§publication-presentation: document-only never shows 点击查看).
+        media_types = payload.get("media_types")
+        if media_types is not None and not isinstance(media_types, list):
+            return _error(400, "invalid_field", "media_types 必须是数组")
         caption = build_caption({
             **{k: payload.get(k, "") for k in ("title", "tags", "note", "link")},
             "anonymous": str(payload.get("anonymous", False)).lower(),
             "spoiler": str(payload.get("spoiler", False)).lower(),
             "user_id": principal["telegram_user_id"], "username": principal["name"],
-        }, surface="review")
+            "media_types": media_types or [],
+        }, surface="miniapp")
         return _ok({"caption": caption, "parse_mode": "HTML"})
 
     async def _notify_refetch_replacement(refetch_request_id: str,
