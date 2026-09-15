@@ -34,6 +34,7 @@ from .delivery.preparation import (
 )
 from .delivery.sender import file_id_of, timeout_kwargs
 from . import review_keyboard
+from ..application.publication import channel_submission_action
 
 logger = logging.getLogger(__name__)
 
@@ -204,19 +205,30 @@ class TelegramReviewStager:
         message_ids = [int(m) for m in (old_message_ids or []) if m]
         if not message_ids:
             return
-        from telegram import InlineKeyboardMarkup
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         text = review_keyboard.superseded_notice_text(
             new_review_id=int(new_review_id),
             source_review_id=int(source_review_id or 0),
         )
+        # Superseded ⇒ ALL moderation actions removed. The PUBLIC submission
+        # CTA may stay (it is not a moderation action and never weakens the
+        # backend stale guard — §review-cta).
+        submission_action = channel_submission_action()
+        if submission_action:
+            label, url = submission_action
+            reply_markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton(label, url=url)],
+            ])
+        else:
+            reply_markup = InlineKeyboardMarkup([])
         control_id = message_ids[-1]
         try:
             await self._bot.edit_message_text(
                 chat_id=self.chat_id,
                 message_id=control_id,
                 text=text,
-                reply_markup=InlineKeyboardMarkup([]),
+                reply_markup=reply_markup,
                 disable_web_page_preview=True,
                 **self._timeouts_now(),
             )
@@ -240,6 +252,7 @@ class TelegramReviewStager:
             preview_message_ids[-1]
             if self._thread and preview_message_ids else None
         )
+        submission_action = channel_submission_action()
         message = await self._send_throttled(lambda: self._bot.send_message(
             chat_id=self.chat_id,
             text=text,
@@ -251,6 +264,7 @@ class TelegramReviewStager:
                 source=command.source,
                 pixiv_id=(command.pixiv_id
                           or pixiv_id_from_link(command.link or "")),
+                submission_url=(submission_action[1] if submission_action else ""),
             ),
             disable_web_page_preview=True,
             **self._timeouts_now(),
