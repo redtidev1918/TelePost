@@ -205,6 +205,14 @@ export function ReviewDetailPage() {
             <Button
               size="s"
               mode="bezeled"
+              data-testid="edit-before-publish"
+              onClick={() => navigate(`/review/${item.id}/edit`)}
+            >
+              ✏️ 编辑后发布
+            </Button>
+            <Button
+              size="s"
+              mode="bezeled"
               disabled={spoiler.isPending || item.spoiler}
               onClick={() => void spoiler.mutateAsync(true)}
             >

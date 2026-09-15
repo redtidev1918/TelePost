@@ -3,6 +3,7 @@ import { Button, Cell, Section } from '@telegram-apps/telegram-ui';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { fetchMySubmission, LogicalSubmissionDetail } from '../../api/me';
+import { fetchEditorialHistory } from '../../api/reviews';
 import { SubmissionMedia } from '../../components/SubmissionMedia';
 import { useBackButton } from '../../lib/useBackButton';
 
@@ -28,6 +29,13 @@ export function SubmissionDetailPage() {
   const submission = useQuery({
     queryKey: ['my-submission', id],
     queryFn: () => fetchMySubmission(id!),
+  });
+  // Publication + editorial context for the owner (§47): the SERVER decides
+  // whether publication was preceded by an edit; the UI only renders it.
+  const history = useQuery({
+    queryKey: ['editorial-history', id],
+    queryFn: () => fetchEditorialHistory(id!),
+    retry: false,
   });
 
   if (submission.isLoading) {
@@ -78,7 +86,27 @@ export function SubmissionDetailPage() {
         {item.refetch_count > 0 && (
           <Cell subtitle={`已更换候选 ${item.refetch_count} 次`}>重抓记录</Cell>
         )}
+        {history.data && (history.data.status === 'published' || history.data.revisions.length > 0) && (
+          <Cell
+            subtitle={history.data.edited_before_publication ? '是（可查看修改详情）' : '否'}
+            data-testid="published-edited-flag"
+          >
+            发布前经过编辑
+          </Cell>
+        )}
       </Section>
+      {history.data && history.data.revisions.length > 0 && (
+        <div style={{ padding: '0 16px 12px' }}>
+          <Button
+            stretched
+            mode="bezeled"
+            data-testid="view-editorial-history"
+            onClick={() => navigate(`/mine/${id}/editorial`)}
+          >
+            查看修改详情
+          </Button>
+        </div>
+      )}
       <div style={{ marginTop: 16 }}>
         <Button mode="bezeled" onClick={() => navigate('/mine')}>
           返回
