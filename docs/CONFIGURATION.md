@@ -20,7 +20,8 @@
 | `SHOW_SUBMITTER` | `true` | 频道是否显示投稿人 |
 | `NOTIFY_OWNER` | `true` | 是否 durable 私聊 Owner：审核稿入队成功或直发成功后各按 logical submission 通知一次；refetch/editorial 不重复 |
 | `CHANNEL_FOOTER_LINK` | 空 | **正式发布到频道**时，在 caption 最下方追加「点击投稿」超链接指向该 bot（如 `https://t.me/your_bot`）。空 = 关闭。审核预览/排队**不**带 footer |
-| `CHANNEL_FOOTER_TEXT` | `点击投稿` | footer 链接文本 |
+| `CHANNEL_FOOTER_TEXT` | `点击投稿` | footer 链接文本；Mini App CTA 开启时默认 `✉️ 我要投稿`，自定义值仍可覆盖 |
+| `MINIAPP_SUBMIT_CTA` | `false` | 频道 CTA 直达该 bot 的 Mini App 投稿页：把 footer 升级为 `https://t.me/<bot>?startapp=submit`（startapp 只是导航意图，身份仍由服务器校验 initData 决定）。未启用/链接缺失时保持旧「点击投稿→bot 深链」语义，绝不生成坏链接 |
 | `SUBMIT_LIMIT_PER_HOUR` | `10` | 每用户每小时投稿次数；`0` 关闭 |
 | `ALLOWED_TAGS` | `30` | 单次最大标签数 |
 | `TIMEOUT` | `300` | 数据库中过期上传数据的清理阈值（秒） |
