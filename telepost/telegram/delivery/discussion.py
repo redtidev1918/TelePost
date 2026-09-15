@@ -2,7 +2,7 @@
 
 Workflow (previously embedded in ``handlers/publish._deliver_discussion``):
 
-1. send only the cover (first item) to the channel;
+1. fill the channel root publication to media-group capacity;
 2. wait for Telegram's automatic forward of that post into the linked
    discussion group to obtain the anchor message;
 3. send the remaining items into the discussion group, all attached to the
@@ -59,7 +59,7 @@ Rollback = Callable[[dict], Awaitable[bool]]
 
 
 class DiscussionStrategy:
-    """Channel cover + discussion-thread strategy.
+    """Capacity-filled channel root + discussion-thread overflow strategy.
 
     A chain gateway is used for the cover post; the remaining items are
     planned/sent directly into the discussion chat so an ``on_sent`` callback
@@ -124,11 +124,20 @@ class DiscussionStrategy:
         items = request.items
         sent = {"cover": [], "anchor": [], "rest": []}
 
-        # Stage 1: channel cover.
+        plan = plan_delivery(
+            items,
+            album_size=request.album_size,
+            reply_mode=ReplyMode.POST,
+            ordering=PlanningOrder.FAMILY,
+        )
+        root_items = list(plan.batches[0].items)
+        rest_items = [item for batch in plan.batches[1:] for item in batch.items]
+
+        # Stage 1: the first compatible batch is the whole root publication.
         cover_result = await self._gateway.deliver(
             DeliveryRequest(
                 chat_id=request.chat_id,
-                items=items[:1],
+                items=root_items,
                 caption=request.caption,
                 spoiler=request.spoiler,
                 reply_mode=ReplyMode.POST,
@@ -154,6 +163,9 @@ class DiscussionStrategy:
         main = cover_result.main_message
         sent["cover"] = [(m.chat_id, m.message_id) for m in cover_result.messages]
 
+        if not rest_items:
+            return list(cover_result.messages), main
+
         # Stage 2: wait for the auto-forward anchor.
         try:
             dchat, dmsg = await self._wait_forward(
@@ -170,7 +182,6 @@ class DiscussionStrategy:
         sent["anchor"] = [(dchat, dmsg)]
 
         # Stage 3: remaining items into the discussion thread.
-        rest_items = items[1:]
         rest_known: list = []
         if rest_items:
             def _collect(messages):

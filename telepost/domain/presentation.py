@@ -121,7 +121,8 @@ def _split_compact(item: Any) -> str:
 
 
 def submitter_display(submitter_user_id: Any,
-                      submitter_username: Any = "") -> str:
+                      submitter_username: Any = "",
+                      submitter_display_name: Any = "") -> str:
     """The ONLY accepted source of a displayed submitter.
 
     Returns an empty string when there is no explicit human submitter — a
@@ -137,7 +138,8 @@ def submitter_display(submitter_user_id: Any,
     if explicit_id <= 0:
         return ""
     username = str(submitter_username or "").strip().lstrip("@")
-    return username or f"user{explicit_id}"
+    display_name = str(submitter_display_name or "").strip()
+    return username or display_name
 
 
 def is_anonymous(value: Any) -> bool:

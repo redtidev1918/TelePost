@@ -27,8 +27,6 @@ from telegram.ext import ConversationHandler, CallbackContext
 
 from config.settings import (
     CHANNEL_ID,
-    NOTIFY_OWNER,
-    OWNER_ID,
 )
 from telepost.domain.submission import (
     SubmissionDisposition,
@@ -65,7 +63,6 @@ from telepost.telegram.delivery import legacy_runner
 from telepost.telegram.delivery.legacy_runner import run_item_batches as _new_run_item_batches
 from telepost.telegram.delivery.discussion import (
     DiscussionDeliveryError as DiscussionPublishError,
-    DiscussionStrategy,
 )
 from telepost.telegram.delivery.gateway import PTBTelegramDeliveryGateway
 from telepost.telegram.delivery.registry import default_registry
@@ -97,7 +94,8 @@ def _telegram_timeout_kwargs():
 
 def _caption_identity_data(*, tags, title, note, link, spoiler, anonymous,
                            user_id, username, submitter_user_id=None,
-                           submitter_username="", source="",
+                           submitter_username="", submitter_display_name="",
+                           source="",
                            media_types=None) -> dict:
     """Caption fields with strict identity semantics (§publication-presentation).
 
@@ -117,6 +115,7 @@ def _caption_identity_data(*, tags, title, note, link, spoiler, anonymous,
     if submitter_user_id:
         data["submitter_user_id"] = submitter_user_id
         data["submitter_username"] = submitter_username or ""
+        data["submitter_display_name"] = submitter_display_name or ""
     if source:
         data["source"] = source
     if media_types:
@@ -382,19 +381,32 @@ async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
     result = await _execute_with_on_sent(gateway, request, on_sent)
     raw_messages = [m.raw for m in result.messages if m.raw is not None]
     if not result.ok:
+        known_messages = list(result.known_messages)
         if result.is_uncertain:
             # Preserve the original PTB exception type when known: callers
             # (review approval / tests) distinguish TimedOut from NetworkError
             # and must never retry a possibly-accepted album.
             original = getattr(result, "error", None)
             if original is not None:
+                try:
+                    original.known_messages = known_messages
+                except Exception:
+                    pass
                 raise original
             from telegram.error import NetworkError
-            raise NetworkError(result.reason)
+            error = NetworkError(result.reason)
+            error.known_messages = known_messages
+            raise error
         original = getattr(result, "error", None)
         if original is not None:
+            try:
+                original.known_messages = known_messages
+            except Exception:
+                pass
             raise original
-        raise RuntimeError(result.reason or "delivery failed")
+        error = RuntimeError(result.reason or "delivery failed")
+        error.known_messages = known_messages
+        raise error
     return raw_messages, result.main_message.raw
 
 
@@ -427,37 +439,31 @@ async def _execute_with_on_sent(gateway, request, on_sent):
 async def _deliver_discussion(bot, channel, items, *, caption, spoiler,
                               album_size, timeout_kwargs):
     """Legacy-seamed discussion strategy: module globals stay monkeypatchable."""
-    gateway = _build_gateway(bot, timeout_kwargs=timeout_kwargs)
-    strategy = DiscussionStrategy(
-        gateway, bot,
-        registry=default_registry,
-        forward_timeout=DISCUSSION_FORWARD_TIMEOUT_SECONDS,
-        waiter=lambda cid, mid: _wait_for_discussion_forward(cid, mid),
-        scanner=lambda cid: _scan_recent_forward(cid),
-        rollback=lambda sent: _discussion_rollback(bot, sent),
-    )
-
-    async def cover(req_items, *, cap, reply_mode=ReplyMode.POST):
-        dict_items = _dicts_from_items(req_items)
-        sent, main = await deliver_items_to_chat(
-            bot, channel.id, dict_items, caption=cap, spoiler=spoiler,
-            album_size=album_size, timeout_kwargs=timeout_kwargs,
-            reply_mode=reply_mode.value,
-        )
-        return sent, main
-
     # Re-implement via the old two-phase flow to preserve exact semantics and
     # the monkeypatched _wait_for_discussion_forward/_scan_recent_forward seams.
     from telegram.error import NetworkError
+    from telepost.telegram.delivery.planner import PlanningOrder, plan_delivery
 
     linked = channel.linked_chat_id
+    plan = plan_delivery(
+        _items_from_dicts(
+            [dict(item, spoiler=item.get("spoiler", spoiler)) for item in items]
+        ),
+        album_size=album_size,
+        reply_mode=ReplyMode.POST,
+        ordering=PlanningOrder.FAMILY,
+    )
+    root_items = _dicts_from_items(plan.batches[0].items)
+    overflow_items = _dicts_from_items([
+        item for batch in plan.batches[1:] for item in batch.items
+    ])
 
     async def attempt():
         sent = {"cover": [], "anchor": [], "rest": []}
         first_sent = None
         try:
             first_sent, main = await deliver_items_to_chat(
-                bot, channel.id, items[:1],
+                bot, channel.id, root_items,
                 caption=caption, spoiler=spoiler, album_size=album_size,
                 timeout_kwargs=timeout_kwargs, reply_mode="post",
             )
@@ -481,6 +487,9 @@ async def _deliver_discussion(bot, channel, items, *, caption, spoiler,
             )
         sent["cover"] = [(m.chat.id, m.message_id) for m in first_sent]
 
+        if not overflow_items:
+            return first_sent, main
+
         try:
             dchat, dmsg = await _wait_for_discussion_forward(
                 channel.id, main.message_id
@@ -498,7 +507,7 @@ async def _deliver_discussion(bot, channel, items, *, caption, spoiler,
         rest_collected = []
         try:
             rest_sent, _ = await deliver_items_to_chat(
-                bot, dchat, items[1:],
+                bot, dchat, overflow_items,
                 caption=None, spoiler=spoiler, album_size=album_size,
                 timeout_kwargs=timeout_kwargs, reply_to_message_id=dmsg,
                 reply_mode="post",
@@ -580,11 +589,6 @@ async def save_published_post(user_id, message_id, data, media_list, doc_list,
 # ---------------------------------------------------------------------------
 # API direct publish (publication service seam)
 # ---------------------------------------------------------------------------
-# Circular seam: handlers.review imports this module's publish_from_file_ids,
-# so the review-side helper is resolved lazily where it is needed.
-PUBLISHED_DEDUP_WINDOW_SECONDS = 7 * 86400
-
-
 def _pixiv_id_from_link(link: str) -> str:
     from handlers.review import _pixiv_id_from_link as _impl
     return _impl(link)
@@ -597,88 +601,12 @@ def _link_of(message_id: int) -> str:
     return f"https://t.me/c/{channel.replace('-100', '')}/{message_id}"
 
 
-def _ledger_replay(row) -> dict:
-    def _get(name):
-        if isinstance(row, dict):
-            return row.get(name)
-        try:
-            return row[name]
-        except (TypeError, KeyError, IndexError):
-            return getattr(row, name, None)
-
-    message_id = _get("message_id")
-    return {
-        "status": "published",
-        "message_id": message_id,
-        "link": _link_of(message_id) if message_id else "",
-        "reused": True,
-        "reuse_reason": "idempotent_replay",
-        "matched_idempotency_key": _get("idempotency_key"),
-        "delivery_status": "published",
-    }
-
-
-async def _audit_duplicate_suppressed(row, reason, *, user_id, target_id,
-                                      work_type, pixiv_id):
-    """Durable audit for pre-send dedupe short-circuits (direct API path)."""
-    from telepost.observability import audit as audit_mod
-    matched = None
-    try:
-        matched = row.get("matched_idempotency_key")
-    except (AttributeError, TypeError):
-        matched = getattr(row, "idempotency_key", None)
-    await audit_mod.record_event(
-        "publish.duplicate_suppressed",
-        actor=f"telegram_user:{user_id}" if user_id else "api",
-        idempotency_key=getattr(row, "idempotency_key", None) or matched,
-        target_id=target_id or None, work_type=work_type or None,
-        pixiv_id=pixiv_id or None,
-        detail={"reuse_reason": reason, "matched_idempotency_key": matched},
-    )
-
-
-# Legacy ledger module-level helpers (kept as seams; delegate to repository).
-async def _ledger_find_by_key(idempotency_key: str):
-    from telepost.storage.sqlite.ledger import DeliveryLedgerRepository
-    entry = await DeliveryLedgerRepository().find_by_key(idempotency_key)
-    return _ledger_entry_to_row(entry) if entry else None
-
-
-async def _ledger_find_work(target_id, work_type, pixiv_id, window_seconds):
-    from telepost.storage.sqlite.ledger import DeliveryLedgerRepository
-    entry = await DeliveryLedgerRepository().find_work(
-        target_id, work_type, pixiv_id, window_seconds
-    )
-    return _ledger_entry_to_row(entry) if entry else None
-
-
-async def _ledger_record(idempotency_key, *, target_id, pixiv_id, work_type,
-                         message_id, related_message_ids, user_id):
-    from telepost.storage.sqlite.ledger import DeliveryLedgerRepository
-    return await DeliveryLedgerRepository().record_published(
-        idempotency_key, target_id=target_id, pixiv_id=pixiv_id,
-        work_type=work_type, message_id=message_id,
-        related_message_ids=related_message_ids, user_id=user_id,
-    )
-
-
-def _ledger_entry_to_row(entry):
-    from types import SimpleNamespace
-    return SimpleNamespace(
-        idempotency_key=entry.idempotency_key,
-        message_id=entry.message_id,
-        target_id=entry.target_id,
-        pixiv_id=entry.pixiv_id,
-        work_type=entry.work_type,
-        status=entry.status,
-    )
-
-
 async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
                              anonymous=False, spoiler=False, user_id, username="",
                              idempotency_key="", target_id="", work_type="",
                              pixiv_id="", submitter_user_id=None,
-                             submitter_username="", source="") -> dict:
+                             submitter_username="", submitter_display_name="",
+                             source="") -> dict:
     """API 本地文件直投核心：不经 Telegram 会话，直接发频道。"""
     import os as _os
     from telepost.application.publication import (
@@ -687,35 +615,6 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
 
     key = idempotency_key.strip()[:240]
     pid = (pixiv_id or _pixiv_id_from_link(link or "")).strip()
-
-    ledger = _LedgerBridge()
-    replay = await ledger.find_by_key(key)
-    if replay is not None:
-        for fobj in files:
-            try:
-                _os.remove(fobj["path"])
-            except OSError:
-                pass
-        await _audit_duplicate_suppressed(
-            replay, "idempotent_replay", user_id=user_id, target_id=target_id,
-            work_type=work_type, pixiv_id=pid,
-        )
-        return replay
-    historical = await ledger.find_work(
-        target_id, work_type, pid, PUBLISHED_DEDUP_WINDOW_SECONDS
-    )
-    if historical is not None and historical.get("matched_idempotency_key") != key:
-        for fobj in files:
-            try:
-                _os.remove(fobj["path"])
-            except OSError:
-                pass
-        historical["reuse_reason"] = "duplicate_existing"
-        await _audit_duplicate_suppressed(
-            historical, "duplicate_existing", user_id=user_id,
-            target_id=target_id, work_type=work_type, pixiv_id=pid,
-        )
-        return historical
 
     items = _items_from_dicts(
         [{"kind": f["kind"], "path": f["path"], "filename": f["filename"],
@@ -726,7 +625,8 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
         tags=tags, title=title, note=note, link=link, spoiler=spoiler,
         anonymous=anonymous, user_id=user_id, username=username,
         submitter_user_id=submitter_user_id,
-        submitter_username=submitter_username, source=source,
+        submitter_username=submitter_username,
+        submitter_display_name=submitter_display_name, source=source,
     )
 
     service = PublicationService(
@@ -761,7 +661,7 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
                                 user_id, username="", idempotency_key="",
                                 target_id="", work_type="", pixiv_id="",
                                 submitter_user_id=None, submitter_username="",
-                                source="") -> dict:
+                                submitter_display_name="", source="") -> dict:
     """API file_id 直投核心：素材已在 Telegram 服务器，零媒体重传。"""
     from telepost.application.publication import (
         PublicationService, PublishCommand,
@@ -769,25 +669,6 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
 
     key = idempotency_key.strip()[:240]
     pid = (pixiv_id or _pixiv_id_from_link(link or "")).strip()
-
-    ledger = _LedgerBridge()
-    replay = await ledger.find_by_key(key)
-    if replay is not None:
-        await _audit_duplicate_suppressed(
-            replay, "idempotent_replay", user_id=user_id, target_id=target_id,
-            work_type=work_type, pixiv_id=pid,
-        )
-        return replay
-    historical = await ledger.find_work(
-        target_id, work_type, pid, PUBLISHED_DEDUP_WINDOW_SECONDS
-    )
-    if historical is not None and historical.get("matched_idempotency_key") != key:
-        historical["reuse_reason"] = "duplicate_existing"
-        await _audit_duplicate_suppressed(
-            historical, "duplicate_existing", user_id=user_id,
-            target_id=target_id, work_type=work_type, pixiv_id=pid,
-        )
-        return historical
 
     items = _items_from_dicts([
         {"kind": m["type"], "file_id": m["file_id"], "spoiler": spoiler}
@@ -801,7 +682,8 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
         tags=tags, title=title, note=note, link=link, spoiler=spoiler,
         anonymous=anonymous, user_id=user_id, username=username,
         submitter_user_id=submitter_user_id,
-        submitter_username=submitter_username, source=source,
+        submitter_username=submitter_username,
+        submitter_display_name=submitter_display_name, source=source,
         media_types=(
             [m.get("type", "") for m in media]
             + ["document"] * len(documents)
@@ -901,11 +783,16 @@ class _LegacyDeliveryPort:
                 or "timed out" in str(exc).lower()
                 or "network" in str(exc).lower()
             )
+            known_messages = getattr(exc, "known_messages", [])
             if uncertain:
-                result = DeliveryResult.uncertain(str(exc))
+                result = DeliveryResult.uncertain(
+                    str(exc), known_messages=known_messages
+                )
                 result.error = exc
                 return result
-            result = DeliveryResult.failed(str(exc), retryable=True)
+            result = DeliveryResult.failed(
+                str(exc), retryable=True, known_messages=known_messages
+            )
             result.error = exc
             return result
 
@@ -933,22 +820,6 @@ def _kind_of_raw_message(message) -> str:
         if getattr(message, attr, None):
             return attr
     return "document"
-
-
-class _LedgerBridge:
-    """Replay dictionaries in the exact legacy shape callers expect."""
-
-    async def find_by_key(self, key):
-        row = await _ledger_find_by_key(key)
-        return _ledger_replay(row) if row is not None else None
-
-    async def find_work(self, target_id, work_type, pid, window):
-        row = await _ledger_find_work(target_id, work_type, pid, window)
-        if row is None:
-            return None
-        out = _ledger_replay(row)
-        out["reuse_reason"] = "duplicate_existing"
-        return out
 
 
 def _make_post_recorder(data, *, local, files=None, media_compact=None,
@@ -1079,7 +950,13 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
         caption_data["submitter_username"] = (
             data["username"]
             if "username" in data.keys() and data["username"]
-            else (update.effective_user.username or f"user{user_id}")
+            else (update.effective_user.username or "")
+        )
+        caption_data["submitter_display_name"] = " ".join(
+            part for part in (
+                update.effective_user.first_name,
+                update.effective_user.last_name,
+            ) if isinstance(part, str) and part
         )
         caption_data["media_types"] = _kinds_from_chat_items(media_list, doc_list)
         caption = build_caption(caption_data)
@@ -1104,7 +981,7 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
             username = (
                 data["username"]
                 if "username" in data.keys() and data["username"]
-                else (update.effective_user.username or f"user{user_id}")
+                else (update.effective_user.username or "")
             )
             anonymous_value = (
                 data["anonymous"]
@@ -1129,6 +1006,7 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                 # Telegram user IS the verified submitter (§identity).
                 submitter_user_id=user_id,
                 submitter_username=username,
+                submitter_display_name=caption_data["submitter_display_name"],
                 actor_kind="user",
                 actor_subject=f"telegram:{user_id}",
             )
@@ -1184,6 +1062,8 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
         # exactly as reviewed/editorial publishes — never before success.
         try:
             from telepost.application.submitter_notify import (
+                ManagerAcceptanceContext,
+                ManagerNotifyService,
                 PublicationContext,
                 SubmitterNotifyService,
             )
@@ -1199,33 +1079,19 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                 link=submission_link,
             )
             await SubmitterNotifyService().notify_published(context)
-        except Exception:
-            logger.debug("Chat 直发投稿者通知失败: user_id=%s", user_id)
-
-        if NOTIFY_OWNER and OWNER_ID:
-            try:
-                username = data["username"] if "username" in data.keys() else f"user{user_id}"
-            except (KeyError, TypeError):
-                username = f"user{user_id}"
-            user = update.effective_user
-            real_username = user.username or username
-            notification_text = (
-                "📨 新投稿通知\n\n"
-                "👤 投稿人信息:\n"
-                f"  • ID: {user_id}\n"
-                f"  • 用户名: {('@' + real_username) if user.username else real_username}\n"
-                f"  • 昵称: {user.first_name}{f' {user.last_name}' if user.last_name else ''}\n\n"
-                f"🔗 查看投稿: {submission_link}\n\n"
-                "⚙️ 管理操作:\n"
-                f"封禁此用户: /blacklist_add {user_id} 违规内容\n"
-                "查看黑名单: /blacklist_list"
-            )
-            try:
-                await context.bot.send_message(
-                    chat_id=OWNER_ID, text=notification_text
+            await ManagerNotifyService().notify_accepted(
+                ManagerAcceptanceContext(
+                    logical_submission_id=f"publication:{int(sent_message.message_id)}",
+                    publication_id=int(sent_message.message_id),
+                    submitter_user_id=int(user_id),
+                    submitter_username=str(update.effective_user.username or ""),
+                    submitter_display_name=caption_data["submitter_display_name"],
+                    anonymous=anonymous_flag,
+                    link=submission_link,
                 )
-            except Exception:
-                logger.warning("⚠️ 投稿已发布，但无法确认管理员通知是否送达")
+            )
+        except Exception:
+            logger.debug("Chat 直发人类通知入队失败: user_id=%s", user_id)
 
     except Exception as exc:
         logger.error("发布投稿失败: %s", exc, exc_info=True)

@@ -145,6 +145,10 @@ class EditorialService:
         if "submitter_user_id" in row.keys() and row["submitter_user_id"]:
             caption_data["submitter_user_id"] = row["submitter_user_id"]
             caption_data["submitter_username"] = row["submitter_username"] or ""
+            caption_data["submitter_display_name"] = (
+                row["submitter_display_name"] or ""
+                if "submitter_display_name" in row.keys() else ""
+            )
         caption_data["source"] = (
             row["source"] if "source" in row.keys() and row["source"] else "")
         try:

@@ -29,6 +29,12 @@ info:
     /submissions` derives ownership from the principal kind, never from the
     request body, and `GET /me/submissions` returns rows only when
     `submitter_user_id` matches the current Telegram user.
+
+    Human submission acceptance and submitter publication notification are
+    separate durable events. Manager acceptance alerts are emitted once per
+    logical human submission; submitter notifications are emitted only after
+    confirmed publication success. Refetch generations and editorial revisions
+    never create a second manager-new-submission event.
 servers:
   - url: /api/v1
 security:

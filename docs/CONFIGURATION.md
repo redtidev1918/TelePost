@@ -18,7 +18,7 @@
 | `BOT_MODE` | `MIXED` | `MEDIA`、`DOCUMENT` 或 `MIXED` |
 | `ALLOWED_FILE_TYPES` | `*` | 文档扩展名或 MIME，逗号分隔 |
 | `SHOW_SUBMITTER` | `true` | 频道是否显示投稿人 |
-| `NOTIFY_OWNER` | `true` | 发布完成后是否私聊 Owner |
+| `NOTIFY_OWNER` | `true` | 是否 durable 私聊 Owner：审核稿入队成功或直发成功后各按 logical submission 通知一次；refetch/editorial 不重复 |
 | `CHANNEL_FOOTER_LINK` | 空 | **正式发布到频道**时，在 caption 最下方追加「点击投稿」超链接指向该 bot（如 `https://t.me/your_bot`）。空 = 关闭。审核预览/排队**不**带 footer |
 | `CHANNEL_FOOTER_TEXT` | `点击投稿` | footer 链接文本 |
 | `SUBMIT_LIMIT_PER_HOUR` | `10` | 每用户每小时投稿次数；`0` 关闭 |
@@ -73,13 +73,13 @@
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `API_REVIEW_REQUIRED` | `false` | HTTP API 投稿是否进入审核群；Mini App 投稿界面启用时应设为 `true` |
+| `API_REVIEW_REQUIRED` | `true` | HTTP API / Mini App 投稿默认进入审核群；仅明确需要服务直发时设为 `false` |
 | `CHAT_REVIEW_REQUIRED` | `false` | Telegram 聊天投稿进入审核群 |
 | `REVIEW_CHAT_ID` | 空 | 任一审核开关启用时必填，且不能等于频道 |
 
 **默认处置不变量（`SubmissionDisposition`）**：原生 Telegram Chat 投稿默认直接发布到频道
 （`CHAT_REVIEW_REQUIRED=false`）；进入审核是可配置策略，不是默认。HTTP API 的内置默认值同样为
-`false`；需要让自动化或 Mini App 投稿先审后发时，应显式设置 `API_REVIEW_REQUIRED=true`。
+`true`；只有明确需要 HTTP/API 直发时才设置 `API_REVIEW_REQUIRED=false`。
 两个入口配置相互独立，但共享同一 domain/service（`QueueCommand → ReviewQueueService`）；重构任一入口
 不得静默改变另一入口的处置。预览/确认按钮与文案必须反映实际处置（“提交审核” / “确认发布”），
 不得统一为“投稿成功”。
@@ -87,7 +87,7 @@
 | `REVIEW_PREVIEW_INTERVAL_SECONDS` | `0.75` | 预览组之间的节流间隔 |
 | `REVIEW_PREVIEW_TIMEOUT_SECONDS` | `120` | 单次审核预览 Telegram I/O 超时 |
 | `TELEGRAM_SEND_TIMEOUT_SECONDS` | `REVIEW_PREVIEW_TIMEOUT_SECONDS` | 频道发布 Telegram I/O 超时；大相册建议保持 120 秒 |
-| `CHANNEL_ALBUM_REPLY` | `chain` | 多图展示：`chain` 在频道逐级回复；`post` 在频道都回复主贴；`discussion` 频道只发首图主贴，其余图片发到关联讨论组的该帖评论串（Webhook 模式） |
+| `CHANNEL_ALBUM_REPLY` | `chain` | 多图展示：`chain` 在频道逐级回复；`post` 在频道都回复主贴；`discussion` 先把主贴填满相册容量（默认 10），仅 overflow 发到关联讨论组（Webhook 模式） |
 | `DISCUSSION_FORWARD_TIMEOUT_SECONDS` | `10` | `discussion` 模式等待频道帖自动转发到讨论组的超时；超时则删除频道主贴并判为发布失败，最小 1 秒 |
 | `REVIEW_PREVIEW_THREAD` | `1` | 后续预览和控制消息回复上一条 |
 | `PENDING_REVIEW_RETENTION_DAYS` | `0` | 待审过期天数；`0` 永久保留 |
@@ -122,7 +122,8 @@ fly secrets set -a <app> API_MAX_FILES=100
 - `CHANNEL_ALBUM_REPLY` 生效样例：30 张图发布到频道 → 第 1 组（10 张）是主贴，第 2、3 组都回复主贴。
 - 2.10.43 起，相册降级为单张发送时也保持所选层级：`chain` 逐条回复上一条，`post` 都回复主贴（或调用方指定的锚点）。网络超时仍不自动重发，需先确认频道中是否已送达。
 - `post` 指同一频道内的消息回复，不会把后续图片移到关联讨论群的评论区；它不改变发送目标。
-- `discussion` 才是评论区展示：Bot 必须在频道的关联讨论组中且可发消息。
+- `discussion` 才是评论区展示：主贴先填满相册容量（11 张为 10+1，21 张为 10+10+1），Bot 必须在频道的关联讨论组中且可发消息。
+- 普通 `chain` / `post` 多批发布遇到**确定失败**时，会把已确认的 Telegram 消息写入 delivery ledger；同一幂等键重试只续发剩余批次。响应状态不确定时该键会停止自动发送，必须先人工核对，避免重复主贴。
 - `discussion` 仅在 **Webhook 模式**可用——自动转发事件要在进入 PTB 更新队列前捕获；Polling 模式拿不到，多图发布会在 `DISCUSSION_FORWARD_TIMEOUT_SECONDS` 超时后回滚（删除频道主贴）并判失败。配错时启动日志会有告警。
 - 讨论串建立失败（未关联讨论组 / Bot 不在讨论组 / 转发超时）时，已落地的频道封面主贴、讨论组锚点、已发相册会**完整回滚删除**，不留半成品；确定态失败会**自动重试一次**。首贴发送"响应丢失"时会反查自动转发自愈。仅评论相册"发了没成功"这类无法判断是否重复的情况不自动重试，审核群提示人工核对评论串后再点重试。
 - 审核发布若进程中途崩溃，记录会卡在 `publishing`；超过 `PUBLISHING_STALE_SECONDS`（默认 300）秒后点「重试发布」会自动解锁重发。
