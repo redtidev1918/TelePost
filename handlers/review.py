@@ -150,9 +150,14 @@ def _stager(bot) -> TelegramReviewStager:
 # ---- back-compat UI names -------------------------------------------------
 def _review_keyboard(review_id, link="", *, spoiler=False, source="api",
                      pixiv_id="", failed=False):
+    # Public Mini App submission CTA row — same owning-bot entrypoint as the
+    # channel publication CTA (§submission-entrypoint, §review-cta).
+    from telepost.application.publication import channel_submission_action
+    action = channel_submission_action()
     return review_keyboard.review_keyboard(
         review_id, link, spoiler=spoiler, source=source,
         pixiv_id=pixiv_id, failed=failed,
+        submission_url=(action[1] if action else ""),
     )
 
 
