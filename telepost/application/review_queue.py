@@ -113,6 +113,7 @@ class QueueCommand:
     # the API-token owner) + the acting principal kind/subject.
     submitter_user_id: Optional[int] = None
     submitter_username: str = ""
+    submitter_display_name: str = ""
     actor_kind: str = "user"  # 'user' | 'service'
     actor_subject: str = ""
 
@@ -398,6 +399,23 @@ class ReviewQueueService:
                 await self._post_replacement_cleanup(
                     stager, review_id=review_id, command=command
                 )
+            else:
+                # REVIEW_REQUIRED acceptance: the review/control card is now
+                # durable. Refetch generations deliberately skip this event.
+                from telepost.application.submitter_notify import (
+                    ManagerAcceptanceContext,
+                    ManagerNotifyService,
+                )
+                await ManagerNotifyService().notify_accepted(
+                    ManagerAcceptanceContext(
+                        logical_submission_id=f"review:{review_id}",
+                        review_id=review_id,
+                        submitter_user_id=command.submitter_user_id or 0,
+                        submitter_username=command.submitter_username,
+                        submitter_display_name=command.submitter_display_name,
+                        anonymous=command.anonymous,
+                    )
+                )
         except Exception as exc:
             await stager.delete_preview_messages(preview_ids)
             await self._repo.mark_preparation_failed(
@@ -449,6 +467,7 @@ class ReviewQueueService:
             refetch_request_id=command.refetch_request_id,
             submitter_user_id=command.submitter_user_id,
             submitter_username=command.submitter_username,
+            submitter_display_name=command.submitter_display_name,
             actor_kind=command.actor_kind,
             actor_subject=command.actor_subject,
         )
@@ -553,6 +572,10 @@ class ReviewQueueService:
                 new_review.submitter_user_id = source["submitter_user_id"]
                 new_review.submitter_username = (
                     source["submitter_username"] or ""
+                )
+                new_review.submitter_display_name = (
+                    source["submitter_display_name"] or ""
+                    if "submitter_display_name" in source.keys() else ""
                 )
                 try:
                     review_id = await self._repo.insert_into(conn, new_review)
@@ -674,6 +697,7 @@ def _caption_from_command(command: QueueCommand, media=None, documents=None) -> 
         "username": command.username,
         "submitter_user_id": command.submitter_user_id,
         "submitter_username": command.submitter_username,
+        "submitter_display_name": command.submitter_display_name,
         "source": command.source,
     }
     if command.source_label:
@@ -704,4 +728,7 @@ def _command_from_row(row) -> QueueCommand:
         submitter_username=(
             row["submitter_username"]
             if "submitter_username" in row.keys() else "") or "",
+        submitter_display_name=(
+            row["submitter_display_name"]
+            if "submitter_display_name" in row.keys() else "") or "",
     )

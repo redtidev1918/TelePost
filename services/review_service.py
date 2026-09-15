@@ -245,6 +245,20 @@ def _media(row) -> List[ReviewMedia]:
 
 
 def _to_item(row) -> ReviewItem:
+    from telepost.domain.presentation import submitter_display
+
+    submitter_user_id = (
+        row["submitter_user_id"]
+        if "submitter_user_id" in row.keys() else None
+    )
+    submitter_name = None
+    if submitter_user_id and not bool(row["anonymous"]):
+        submitter_name = submitter_display(
+            submitter_user_id,
+            row["submitter_username"] if "submitter_username" in row.keys() else "",
+            row["submitter_display_name"]
+            if "submitter_display_name" in row.keys() else "",
+        ) or None
     return ReviewItem(
         id=row["id"],
         status=row["status"],
@@ -254,12 +268,9 @@ def _to_item(row) -> ReviewItem:
         link=row["link"] or "",
         anonymous=bool(row["anonymous"]),
         spoiler=bool(row["spoiler"]),
-        submitter_name=row["username"] or None,
-        submitter_id=row["user_id"],
-        submitter_user_id=(
-            row["submitter_user_id"]
-            if "submitter_user_id" in row.keys() else None
-        ),
+        submitter_name=submitter_name,
+        submitter_id=submitter_user_id,
+        submitter_user_id=submitter_user_id,
         source_label=row["source_label"] or None,
         source_ref=row["source_ref"] or None,
         scheduled_at=row["scheduled_at"] or None,
@@ -375,6 +386,10 @@ class ReviewService:
             if row["submitter_user_id"]:
                 kwargs["submitter_user_id"] = row["submitter_user_id"]
                 kwargs["submitter_username"] = row["submitter_username"] or ""
+                kwargs["submitter_display_name"] = (
+                    row["submitter_display_name"] or ""
+                    if "submitter_display_name" in row.keys() else ""
+                )
         except (IndexError, KeyError):
             pass
         # Carry durable dedupe identity so an approved review participates in

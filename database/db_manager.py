@@ -218,6 +218,7 @@ async def init_db():
             for column, ddl in (
                 ("submitter_user_id", "INTEGER"),
                 ("submitter_username", "TEXT"),
+                ("submitter_display_name", "TEXT"),
                 ("actor_kind", "TEXT NOT NULL DEFAULT 'user'"),
                 ("actor_subject", "TEXT NOT NULL DEFAULT ''"),
             ):
@@ -489,10 +490,18 @@ async def init_db():
                     status TEXT NOT NULL DEFAULT 'published',
                     message_id INTEGER,
                     related_message_ids TEXT NOT NULL DEFAULT '[]',
+                    progress_json TEXT NOT NULL DEFAULT '[]',
                     user_id INTEGER,
                     created_at REAL NOT NULL
                 )
             ''')
+            try:
+                await conn.execute(
+                    "ALTER TABLE delivery_ledger ADD COLUMN "
+                    "progress_json TEXT NOT NULL DEFAULT '[]'"
+                )
+            except Exception:
+                pass
             await conn.execute(
                 'CREATE INDEX IF NOT EXISTS idx_delivery_ledger_dedupe '
                 "ON delivery_ledger(target_id, work_type, pixiv_id) "

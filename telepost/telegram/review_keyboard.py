@@ -4,6 +4,7 @@ from __future__ import annotations
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..application.review_queue import pixiv_id_from_link
+from ..domain.presentation import submitter_display
 
 
 def review_keyboard(review_id: int, link: str = "", *,
@@ -47,10 +48,13 @@ def control_text(*, review_id: int, command, media_count: int,
     # Service/API rows (submitter_user_id NULL) have no author; the card still
     # shows 投稿方式 + provenance instead of a token name.
     submitter_line = ""
-    if getattr(command, "submitter_user_id", None):
-        submitter_line = (
-            f"投稿人：{command.submitter_username or command.username or ''}\n"
-        )
+    display = submitter_display(
+        getattr(command, "submitter_user_id", None),
+        getattr(command, "submitter_username", ""),
+        getattr(command, "submitter_display_name", ""),
+    )
+    if display:
+        submitter_line = f"投稿人：{display}\n"
     return (
         f"🕵️ 投稿待审核 #{review_id}\n"
         + provenance_line

@@ -37,7 +37,7 @@ ALLOWED_FILE_TYPES = *
 SUBMIT_LIMIT_PER_HOUR = 10
 
 # 是否将 HTTP API 投稿先发送到私有审核群
-API_REVIEW_REQUIRED = false
+API_REVIEW_REQUIRED = true
 
 # 是否将 Telegram 聊天 /submit 投稿先发送到私有审核群
 CHAT_REVIEW_REQUIRED = false

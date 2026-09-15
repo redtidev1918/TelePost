@@ -85,6 +85,68 @@ class SubmitterNotifyService:
             return False
 
 
+@dataclass
+class ManagerAcceptanceContext:
+    logical_submission_id: str
+    submitter_user_id: int
+    submitter_username: str = ""
+    submitter_display_name: str = ""
+    anonymous: bool = False
+    review_id: Optional[int] = None
+    publication_id: Optional[int] = None
+    link: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+class ManagerNotifyService:
+    """Durable manager alert emitted once per logical human submission."""
+
+    def __init__(self, repository: Optional[SubmitterNotificationRepository] = None):
+        self._repo = repository or SubmitterNotificationRepository()
+
+    async def notify_accepted(self, context: ManagerAcceptanceContext) -> bool:
+        from config.settings import NOTIFY_OWNER, OWNER_ID
+
+        if not NOTIFY_OWNER or not OWNER_ID or not context.submitter_user_id:
+            return False
+        if int(context.submitter_user_id) == int(OWNER_ID):
+            return False
+        try:
+            return await self._repo.enqueue_manager(
+                context.logical_submission_id, int(OWNER_ID), context.to_dict()
+            )
+        except Exception as exc:
+            logger.warning("管理者新投稿通知入队失败: submission=%s error=%s",
+                           context.logical_submission_id, exc)
+            return False
+
+
+def format_manager_acceptance(payload: Dict[str, Any]) -> tuple[str, Optional[dict]]:
+    """Return plain text plus one intentional explicit-user link entity spec."""
+    anonymous = bool(payload.get("anonymous"))
+    review_id = payload.get("review_id")
+    link = str(payload.get("link") or "")
+    lines = ["📨 新匿名投稿" if anonymous else "📨 新投稿通知"]
+    entity = None
+    if not anonymous:
+        uid = int(payload["submitter_user_id"])
+        username = str(payload.get("submitter_username") or "").strip().lstrip("@")
+        display_name = str(payload.get("submitter_display_name") or "").strip()
+        label = f"@{username}" if username else (display_name or "Telegram 用户")
+        lines += ["", f"投稿人：{label}"]
+        start = len("\n".join(lines)) - len(label)
+        entity = {
+            "offset": start, "length": len(label), "url": f"tg://user?id={uid}",
+        }
+    if review_id:
+        lines += ["", f"审核稿：#{int(review_id)}"]
+    if link:
+        lines += ["", f"查看发布内容：{link}"]
+    return "\n".join(lines), entity
+
+
 def format_publication_message(payload: Dict[str, Any], include_changes: bool,
                                editor_label: str = "频道主") -> str:
     """Single formatter for the three paths (§11): one place, no handler copies."""
@@ -142,5 +204,34 @@ async def flush_submitter_notifications(bot, *, limit: int = 20) -> int:
             )
         except Exception as exc:  # durable retry; never drop
             logger.warning("投稿者通知发送失败: id=%s error=%s", row["id"], exc)
+            await repo.record_error(int(row["id"]), str(exc))
+    return sent
+
+
+async def flush_manager_notifications(bot, *, limit: int = 20) -> int:
+    """Deliver durable manager alerts; only this intentional context links a user."""
+    repo = SubmitterNotificationRepository()
+    rows = await repo.pending_manager(limit=limit)
+    sent = 0
+    for row in rows:
+        try:
+            payload = json.loads(row["payload"] or "{}")
+            text, entity = format_manager_acceptance(payload)
+            kwargs = {"chat_id": int(row["telegram_user_id"]), "text": text}
+            if entity:
+                from telegram import MessageEntity
+                entities = [MessageEntity(
+                    type=MessageEntity.TEXT_LINK,
+                    offset=entity["offset"], length=entity["length"],
+                    url=entity["url"],
+                )]
+                kwargs["entities"] = MessageEntity.adjust_message_entities_to_utf_16(
+                    text, entities
+                )
+            result = await bot.send_message(**kwargs)
+            if await repo.mark_sent(int(row["id"]), int(result.message_id)):
+                sent += 1
+        except Exception as exc:
+            logger.warning("管理者新投稿通知发送失败: id=%s error=%s", row["id"], exc)
             await repo.record_error(int(row["id"]), str(exc))
     return sent

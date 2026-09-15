@@ -36,7 +36,11 @@ class RecordingDelivery:
 
 
 class UncertainDelivery:
+    def __init__(self):
+        self.calls = 0
+
     async def deliver(self, request: DeliveryRequest) -> DeliveryResult:
+        self.calls += 1
         return DeliveryResult.uncertain("response lost")
 
 
@@ -107,15 +111,71 @@ async def test_different_key_same_work_is_historical_duplicate(ledger_db):
 
 
 @pytest.mark.asyncio
-async def test_uncertain_delivery_is_never_acked_as_success_or_ledgered(ledger_db):
-    service = PublicationService(
-        delivery=UncertainDelivery(), ledger=ledger_db,
-    )
+async def test_uncertain_delivery_is_never_acked_or_blindly_retried(ledger_db):
+    delivery = UncertainDelivery()
+    service = PublicationService(delivery=delivery, ledger=ledger_db)
     outcome = await service.publish(_command("uncertain-key"))
     assert outcome.status == "uncertain" and outcome.uncertain
     assert not outcome.ok
-    # Nothing confirmed -> the key must not poison future retries.
-    assert await ledger_db.find_by_key("uncertain-key") is None
+    assert (await ledger_db.find_by_key("uncertain-key")).status == "uncertain"
+
+    retry = await service.publish(_command("uncertain-key"))
+    assert retry.status == "uncertain"
+    assert delivery.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_certain_partial_failure_resumes_without_resending_root_album(ledger_db):
+    class PartialThenSuccess:
+        def __init__(self):
+            self.requests = []
+
+        async def deliver(self, request):
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                known = [
+                    DeliveredMessage(
+                        chat_id=-1001, message_id=100 + index,
+                        kind=MediaKind.PHOTO, file_id=f"sent-{index}",
+                    )
+                    for index in range(10)
+                ]
+                return DeliveryResult.failed(
+                    "last batch rejected", retryable=True,
+                    known_messages=known,
+                )
+            return DeliveryResult.delivered([
+                DeliveredMessage(
+                    chat_id=-1001, message_id=110,
+                    kind=MediaKind.PHOTO, file_id="sent-10",
+                )
+            ])
+
+    delivery = PartialThenSuccess()
+    service = PublicationService(
+        delivery=delivery, ledger=ledger_db, link_builder=lambda mid: f"/{mid}",
+    )
+    command = _command("partial-key")
+    command.chat_id = -1001
+    command.items = [MediaItem.file_id("photo", f"PHOTO-{i}") for i in range(11)]
+
+    failed = await service.publish(command)
+    assert failed.status == "failed"
+    assert len(failed.known_messages) == 10
+    assert (await ledger_db.find_by_key("partial-key")).status == "partial"
+
+    published = await service.publish(command)
+    assert published.status == "published"
+    assert published.message_id == 100
+    assert published.media_count == 11
+    assert len(delivery.requests) == 2
+    assert len(delivery.requests[0].items) == 11
+    assert len(delivery.requests[1].items) == 1
+    assert delivery.requests[1].caption is None
+    assert delivery.requests[1].reply_to_message_id == 109
+    entry = await ledger_db.find_by_key("partial-key")
+    assert entry.status == "published"
+    assert entry.related_message_ids == list(range(100, 111))
 
 
 # --------------------------------------------------------------------------

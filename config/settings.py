@@ -201,7 +201,7 @@ except (ValueError, TypeError):
 
 # 投稿审核来源开关。两个开关相互独立，可只审核 API、只审核聊天，或同时审核。
 _api_review_required = get_env_or_config(
-    'API_REVIEW_REQUIRED', 'BOT', 'API_REVIEW_REQUIRED', fallback='false'
+    'API_REVIEW_REQUIRED', 'BOT', 'API_REVIEW_REQUIRED', fallback='true'
 )
 API_REVIEW_REQUIRED = str(_api_review_required).lower() in ('true', '1', 'yes')
 
