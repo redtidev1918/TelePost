@@ -1110,6 +1110,30 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
             media_list, doc_list, all_message_ids,
         )
 
+        # UNIFIED publication-success hook (§notify-submitter): the trigger is
+        # the CONFIRMED channel publish. DIRECT_PUBLISH chat submissions are
+        # human-owned (submitter == the acting Telegram user) and are notified
+        # exactly as reviewed/editorial publishes — never before success.
+        try:
+            from telepost.application.submitter_notify import (
+                PublicationContext,
+                SubmitterNotifyService,
+            )
+            anonymous_flag = (
+                (data["anonymous"] if "anonymous" in data.keys() else "false")
+            ) == "true"
+            context = PublicationContext(
+                source="chat_direct",
+                publication_id=int(sent_message.message_id),
+                submitter_user_id=int(user_id),
+                submitter_username=str(update.effective_user.username or ""),
+                anonymous=anonymous_flag,
+                link=submission_link,
+            )
+            await SubmitterNotifyService().notify_published(context)
+        except Exception:
+            logger.debug("Chat 直发投稿者通知失败: user_id=%s", user_id)
+
         if NOTIFY_OWNER and OWNER_ID:
             try:
                 username = data["username"] if "username" in data.keys() else f"user{user_id}"

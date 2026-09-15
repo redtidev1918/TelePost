@@ -331,6 +331,84 @@ async def init_db():
                 "FROM pending_reviews WHERE pixiv_id <> ''"
             )
 
+            # ---- Editorial Revision (§editorial) -------------------------------
+            # Reviewer edits never mutate the ORIGINAL pending_reviews row: each
+            # revision stores its own immutable base/edited snapshots, a structured
+            # change set and a human summary. The Review FSM stays the sole owner
+            # of "may this publish?"; revisions only answer "which version".
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS editorial_revisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    review_id INTEGER NOT NULL,
+                    review_chain_id TEXT NOT NULL DEFAULT '',
+                    revision_number INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'draft',
+                    base_snapshot TEXT NOT NULL DEFAULT '{}',
+                    edited_snapshot TEXT NOT NULL DEFAULT '{}',
+                    change_set TEXT NOT NULL DEFAULT '{}',
+                    summary TEXT NOT NULL DEFAULT '',
+                    severity TEXT NOT NULL DEFAULT 'minor',
+                    editor_user_id INTEGER,
+                    editor_username TEXT NOT NULL DEFAULT '',
+                    editor_display_name TEXT NOT NULL DEFAULT '',
+                    version INTEGER NOT NULL DEFAULT 1,
+                    published_message_id INTEGER,
+                    published_snapshot TEXT NOT NULL DEFAULT '{}',
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    finalized_at REAL,
+                    published_at REAL,
+                    UNIQUE(review_id, revision_number)
+                )
+            ''')
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_editorial_revisions_review '
+                'ON editorial_revisions(review_id, revision_number)'
+            )
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_editorial_revisions_chain '
+                'ON editorial_revisions(review_chain_id, status)'
+            )
+            # Publication linkage: which revision (if any) produced the confirmed
+            # channel post. NULL = original direct publish (backward-compatible).
+            try:
+                await conn.execute(
+                    'ALTER TABLE pending_reviews ADD COLUMN '
+                    'published_source_revision_id INTEGER'
+                )
+            except Exception:
+                pass  # column already exists
+
+            # ---- Submitter publication notification (durable + idempotent) -----
+            # Enqueued at publish time, delivered by the periodic worker. One row
+            # per (review, submitter): replay of the same publish can never send a
+            # second Telegram message. Failures retry; the publication stands
+            # regardless (§41-§42).
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS submitter_notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    -- NULL for DIRECT_PUBLISH (no review row exists): the
+                    -- notification is keyed by the PUBLICATION, not the review.
+                    review_id INTEGER,
+                    revision_id INTEGER,
+                    telegram_user_id INTEGER NOT NULL,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    kind TEXT NOT NULL DEFAULT 'published',
+                    state TEXT NOT NULL DEFAULT 'pending',
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT NOT NULL DEFAULT '',
+                    message_id INTEGER,
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    sent_at REAL
+                )
+            ''')
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_submitter_notifications_state '
+                'ON submitter_notifications(state, updated_at)'
+            )
+
             # API 运维通知的持久幂等记录。不同 token 所绑定的用户可以复用同一业务键；
             # 同一用户在 Bot 重启后仍不会重复发送同一条通知。
             await conn.execute('''
