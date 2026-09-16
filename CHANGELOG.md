@@ -10,6 +10,13 @@
 
 ---
 
+## [2.31.3](https://github.com/redtidev1918/TelePost/compare/v2.31.2...v2.31.3) (2026-09-16)
+
+
+### Bug Fixes
+
+* make submission updates exclusive ([#135](https://github.com/redtidev1918/TelePost/issues/135)) ([c42cfe4](https://github.com/redtidev1918/TelePost/commit/c42cfe47fb217542c589c770f3a825b87a1b9042))
+
 ## [2.31.2](https://github.com/redtidev1918/TelePost/compare/v2.31.1...v2.31.2) (2026-09-15)
 
 
