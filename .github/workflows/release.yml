@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   release:
-    uses: redtidev1918/releasegraph/.github/workflows/reusable-release.yml@4e2fde5ed6398ef34c5469c16fe66e44d61c51f5 # ReleaseGraph v1.5.2
+    uses: redtidev1918/releasegraph/.github/workflows/reusable-release.yml@a52ff7f09485f550a8e0823d90115bbda73c9075 # ReleaseGraph post-release actions:write fix
     with:
       version: ${{ inputs.version || '' }}
       dry_run: ${{ github.event_name == 'pull_request' || inputs.dry_run || false }}
