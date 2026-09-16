@@ -15,6 +15,17 @@ from handlers.search_handlers import search_posts_by_tag
 
 logger = logging.getLogger(__name__)
 
+GLOBAL_CALLBACK_PATTERNS = (
+    r"^review_(?:approve|reject|spoiler|refetch):",
+    r"^sched_recover\|",
+    r"^(?:hot_filter_|hot_limit_|hot_refresh$)",
+    r"^(?:search_|tag_search_|time_)",
+    r"^(?:view_post_|stats_post_|delete_post_)",
+    r"^(?:admin_|unblock_|userinfo_)",
+    r"^(?:page_|confirm_|cancel_)",
+    r"^(?:back_main|back)$",
+)
+
 
 async def _safe_answer(query, text: str = None, **kwargs):
     """
@@ -137,7 +148,7 @@ async def handle_callback_query(update: Update, context: CallbackContext):
             await handle_back(update, context)
         
         else:
-            await query.edit_message_text("❌ 未知操作")
+            await handle_unknown_callback(update, context)
             
     except Exception as e:
         logger.error(f"处理回调查询时出错: {e}", exc_info=True)
@@ -147,6 +158,11 @@ async def handle_callback_query(update: Update, context: CallbackContext):
             )
         except:
             pass
+
+
+async def handle_unknown_callback(update: Update, context: CallbackContext):
+    """Final fallback for callback data unclaimed by every business namespace."""
+    await update.callback_query.edit_message_text("❌ 未知操作")
 
 
 async def handle_hot_filter(update: Update, context: CallbackContext):
