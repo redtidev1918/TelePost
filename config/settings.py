@@ -251,9 +251,11 @@ if REVIEW_CHAT_ID is not None:
         except ValueError:
             pass
 
-# 频道发布 footer：正式发布到频道的帖子会在 caption 最下方追加
-# 「点击投稿」超链接（指向本 bot，供频道读者发起投稿）。
-# CHANNEL_FOOTER_LINK 为空 = 关闭（默认）；审核预览/排队从不带 footer。
+# 频道发布 footer（§submission-entrypoint）：正式发布到频道的帖子会在 caption
+# 最下方追加文本导航 footer：
+#   ✉️ TG 投稿  → https://t.me/<bot>?start=submit
+#   📱 Mini App → https://t.me/<bot>?startapp=submit（MINIAPP_SUBMIT_CTA=true 时）
+# 标签是固定展示契约，不读取 CHANNEL_FOOTER_TEXT（保留仅为兼容旧部署）。
 CHANNEL_FOOTER_LINK = (
     get_env_or_config('CHANNEL_FOOTER_LINK', 'BOT', 'CHANNEL_FOOTER_LINK',
                       fallback='')
@@ -265,10 +267,8 @@ CHANNEL_FOOTER_TEXT = (
     or '点击投稿'
 ).strip()
 
-# 频道发布 CTA 直达本 bot 的 Mini App 投稿页（§submission-entrypoint）。
-# 启用后 footer 从「点击投稿（bot 深链）」升级为
-# https://t.me/<bot>?startapp=submit —— startapp 只是导航意图，身份仍由
-# 服务器校验的 Telegram initData 决定。未启用或链接缺失时保持旧行为，
+# 频道 footer 额外追加 Mini App 导航项。startapp 只是导航意图，身份仍由
+# 服务器校验的 Telegram initData 决定。未启用或链接缺失时省略该导航项，
 # 绝不为缺失配置生成坏链接。
 MINIAPP_SUBMIT_CTA = str(
     get_env_or_config('MINIAPP_SUBMIT_CTA', 'BOT', 'MINIAPP_SUBMIT_CTA',

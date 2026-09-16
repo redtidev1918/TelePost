@@ -1,25 +1,34 @@
-"""Submission entry point CTA tests (§submission-entrypoint).
+"""Submission navigation (channel publication footer) tests (§submission-entrypoint).
 
 Contract:
-* the footer CTA is derived from the OWNING bot's context (never a global
-  hardcoded bot) and only carries the navigation intent startapp=submit;
-* one CTA per publication, shared across all publication paths;
-* missing Mini App config never produces a malformed URL or a broken footer;
-* the CTA respects the caption budget.
+* the footer is derived from the OWNING bot's context (never a global
+  hardcoded bot);
+* BOT_SUBMIT always uses ``?start=submit``; MINI_APP_SUBMIT uses
+  ``?startapp=submit`` — the two intents must never be mixed;
+* each navigation action appears exactly once in the caption footer;
+* READ_ONLINE appears only when a real http(s) Telegraph preview URL exists,
+  and never duplicates the legacy body ``🔗 在线阅读`` line;
+* missing/invalid config never produces a malformed URL or a broken footer;
+* the footer respects the caption budget.
 """
 import html
 
 import pytest
 
 from telepost.application.publication import (
-    _channel_footer,
+    _publication_navigation,
     channel_caption,
-    channel_submission_action,
 )
 from telepost.domain.navigation import (
-    DEFAULT_CTA_LABEL,
+    BOT_SUBMIT_ACTION,
+    BOT_SUBMIT_LABEL,
+    MINI_APP_SUBMIT_ACTION,
+    MINI_APP_SUBMIT_LABEL,
+    READ_ONLINE_ACTION,
+    READ_ONLINE_LABEL,
+    bot_submission_url,
     bot_username_from_link,
-    submission_entrypoint_url,
+    miniapp_submission_url,
 )
 
 
@@ -35,151 +44,159 @@ def test_bot_username_from_link(link, username):
     assert bot_username_from_link(link) == username
 
 
-def test_entrypoint_is_per_bot_and_never_hardcoded():
-    bot1 = submission_entrypoint_url("https://t.me/xgdPost_bot",
-                                     mini_app_enabled=True)
-    bot2 = submission_entrypoint_url("https://t.me/vorePost_bot",
-                                     mini_app_enabled=True)
-    assert bot1 == "https://t.me/xgdPost_bot?startapp=submit"
-    assert bot2 == "https://t.me/vorePost_bot?startapp=submit"
-    assert bot1 != bot2
-    # Navigation intent only — any identity material would be a bug.
-    for url in (bot1, bot2):
+def test_bot_submission_url_is_per_bot_and_uses_start():
+    assert bot_submission_url("https://t.me/xgdPost_bot") == \
+        "https://t.me/xgdPost_bot?start=submit"
+    assert bot_submission_url("https://t.me/vorePost_bot") == \
+        "https://t.me/vorePost_bot?start=submit"
+    assert bot_submission_url("") is None
+    assert bot_submission_url("https://example.org/x") is None
+    # `start` intent only — any identity material would be a bug.
+    for url in bot_submission_url("https://t.me/xgdPost_bot"), \
+               bot_submission_url("https://t.me/vorePost_bot"):
         assert "user" not in url
         assert "token" not in url
         assert "id=" not in url
 
 
-def test_direct_mini_app_short_name_form_when_provided():
-    url = submission_entrypoint_url(
-        "https://t.me/xgdPost_bot", mini_app_enabled=True,
-        short_name="submitapp",
-    )
+def test_miniapp_submission_url_is_per_bot_and_uses_startapp():
+    assert miniapp_submission_url("https://t.me/xgdPost_bot") == \
+        "https://t.me/xgdPost_bot?startapp=submit"
+    assert miniapp_submission_url("https://t.me/vorePost_bot") == \
+        "https://t.me/vorePost_bot?startapp=submit"
+    assert miniapp_submission_url("") is None
+    assert miniapp_submission_url("https://example.org/x") is None
+    for url in miniapp_submission_url("https://t.me/xgdPost_bot"), \
+               miniapp_submission_url("https://t.me/vorePost_bot"):
+        assert "user" not in url
+        assert "token" not in url
+        assert "id=" not in url
+
+
+def test_miniapp_direct_short_name_form_when_provided():
+    url = miniapp_submission_url("https://t.me/xgdPost_bot", short_name="submitapp")
     assert url == "https://t.me/xgdPost_bot/submitapp?startapp=submit"
+    # Invalid short name → clean Main Mini App form, never a malformed URL.
+    assert miniapp_submission_url("https://t.me/xgdPost_bot", short_name="not allowed!") == \
+        "https://t.me/xgdPost_bot?startapp=submit"
 
 
-def test_disabled_or_missing_config_is_no_broken_link():
-    # Mini App disabled → caller falls back to the plain bot deep link.
-    assert submission_entrypoint_url("https://t.me/xgdPost_bot",
-                                     mini_app_enabled=False) is None
-    # Enabled but no configured link → None (no malformed URL).
-    assert submission_entrypoint_url("", mini_app_enabled=True) is None
-    assert submission_entrypoint_url("https://example.org/x",
-                                     mini_app_enabled=True) is None
-
-
-def _patch(monkeypatch, *, link, cta, text=None):
+def _patch(monkeypatch, *, link, cta):
     from config import settings
     monkeypatch.setattr(settings, "CHANNEL_FOOTER_LINK", link)
     monkeypatch.setattr(settings, "MINIAPP_SUBMIT_CTA", cta)
-    if text is not None:
-        monkeypatch.setattr(settings, "CHANNEL_FOOTER_TEXT", text)
 
 
-def test_footer_opens_owning_bot_mini_app_submit(monkeypatch):
-    # bot1 runtime context → bot1 Mini App URL.
+def test_navigation_is_typed_exactly_once_full_miniapp(monkeypatch):
     _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=True)
-    footer = _channel_footer()
-    assert 'href="https://t.me/xgdPost_bot?startapp=submit"' in footer
-    assert "✉️ 我要投稿" in footer
-    assert "https://t.me/xgdPost_bot?startapp=submit" in footer
-    # Exactly ONE CTA anchor.
-    assert footer.count("<a ") == 1
-
-    _patch(monkeypatch, link="https://t.me/vorePost_bot", cta=True)
-    footer2 = _channel_footer()
-    assert 'href="https://t.me/vorePost_bot?startapp=submit"' in footer2
-    assert "xgdPost_bot" not in footer2
+    items = _publication_navigation({"novel_preview_url": "https://telegra.ph/x-1"})
+    kinds = [it.action for it in items]
+    assert kinds == [READ_ONLINE_ACTION, BOT_SUBMIT_ACTION, MINI_APP_SUBMIT_ACTION]
+    assert items[0].url == "https://telegra.ph/x-1"
+    assert items[1].url == "https://t.me/xgdPost_bot?start=submit"
+    assert items[2].url == "https://t.me/xgdPost_bot?startapp=submit"
 
 
-def test_footer_falls_back_to_bot_deep_link_when_miniapp_off(monkeypatch):
-    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=False)
-    footer = _channel_footer()
-    assert 'href="https://t.me/xgdPost_bot"' in footer
-    assert "startapp" not in footer
-    assert "点击投稿" in footer
-
-
-def test_footer_absent_and_safe_when_no_config(monkeypatch):
+def test_navigation_unconfigured_or_disabled(monkeypatch):
     _patch(monkeypatch, link="", cta=True)
-    assert _channel_footer() == ""
+    assert _publication_navigation({}) == []
+    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=False)
+    items = _publication_navigation({})
+    assert [it.action for it in items] == [BOT_SUBMIT_ACTION]
+    assert items[0].url == "https://t.me/xgdPost_bot?start=submit"
+    assert "startapp" not in items[0].url
 
 
-def test_channel_caption_has_exactly_one_submission_cta(monkeypatch):
-    """Mini App CTA active ⇒ the CTA is an INLINE BUTTON, so the caption
-    carries NO textual submission link (never both)."""
+def test_navigation_read_online_only_for_real_url(monkeypatch):
+    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=False)
+    items = _publication_navigation({})
+    assert [it.action for it in items] == [BOT_SUBMIT_ACTION]
+    items = _publication_navigation({"novel_preview_url": "telegra.ph/x"})
+    assert [it.action for it in items] == [BOT_SUBMIT_ACTION]
+    items = _publication_navigation({"novel_preview_url": "https://telegra.ph/x"})
+    assert [it.action for it in items] == [READ_ONLINE_ACTION, BOT_SUBMIT_ACTION]
+    assert items[0].url == "https://telegra.ph/x"
+
+
+def test_caption_footer_opens_owning_bot_semantics(monkeypatch):
     _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=True)
-    caption = channel_caption({"tags": "#test", "title": "标题"})
+    caption = channel_caption({
+        "tags": "#test",
+        "title": "标题",
+        "novel_preview_url": "https://telegra.ph/x-1",
+    })
+    assert 'href="https://telegra.ph/x-1"' in caption
+    assert 'href="https://t.me/xgdPost_bot?start=submit"' in caption
+    assert 'href="https://t.me/xgdPost_bot?startapp=submit"' in caption
+    # Each label appears exactly once; READ_ONLINE only in the footer.
+    for label in (READ_ONLINE_LABEL, BOT_SUBMIT_LABEL, MINI_APP_SUBMIT_LABEL):
+        assert caption.count(label) == 1
+    assert "🔗 在线阅读" not in caption  # no duplicate body block
+
+    # BOT_SUBMIT and MINI_APP directly follow each other when no preview.
+    caption2 = channel_caption({"tags": "#test", "title": "标题"})
+    assert 'href="https://t.me/xgdPost_bot?start=submit"' in caption2
+    assert 'href="https://t.me/xgdPost_bot?startapp=submit"' in caption2
+    assert READ_ONLINE_LABEL not in caption2
+
+
+def test_caption_footer_is_per_bot(monkeypatch):
+    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=True)
+    caption1 = channel_caption({"tags": "#test"})
+    _patch(monkeypatch, link="https://t.me/vorePost_bot", cta=True)
+    caption2 = channel_caption({"tags": "#test"})
+    assert "xgdPost_bot" in caption1 and "xgdPost_bot" not in caption2
+    assert "vorePost_bot" in caption2 and "vorePost_bot" not in caption1
+    assert "start=submit" in caption1
+    assert "startapp=submit" in caption1
+    assert caption1.count(BOT_SUBMIT_LABEL) == 1
+    assert caption1.count(MINI_APP_SUBMIT_LABEL) == 1
+    assert caption2.count(BOT_SUBMIT_LABEL) == 1
+    assert caption2.count(MINI_APP_SUBMIT_LABEL) == 1
+
+
+def test_caption_footer_miniapp_disabled_has_only_bot_submit(monkeypatch):
+    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=False)
+    caption = channel_caption({"tags": "#test"})
+    assert 'href="https://t.me/xgdPost_bot?start=submit"' in caption
+    assert BOT_SUBMIT_LABEL in caption
     assert "startapp=submit" not in caption
-    assert "我要投稿" not in caption
-    # The one CTA lives in the action handed to the delivery adapter.
-    action = channel_submission_action()
-    assert action == ("✉️ 我要投稿", "https://t.me/xgdPost_bot?startapp=submit")
+    assert MINI_APP_SUBMIT_LABEL not in caption
+    assert caption.count(BOT_SUBMIT_LABEL) == 1
 
 
-def test_channel_submission_action_is_per_bot(monkeypatch):
-    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=True)
-    bot1 = channel_submission_action()
-    _patch(monkeypatch, link="https://t.me/vorePost_bot", cta=True)
-    bot2 = channel_submission_action()
-    assert bot1 == ("✉️ 我要投稿", "https://t.me/xgdPost_bot?startapp=submit")
-    assert bot2 == ("✉️ 我要投稿", "https://t.me/vorePost_bot?startapp=submit")
-    assert bot1 != bot2
-    # Navigation intent only.
-    for _, url in (bot1, bot2):
-        assert "startapp=submit" in url
-        assert "user" not in url and "token" not in url
-
-
-def test_channel_submission_action_none_when_disabled_or_missing(monkeypatch):
-    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=False)
-    assert channel_submission_action() is None
+def test_caption_footer_absent_and_safe_when_no_config(monkeypatch):
     _patch(monkeypatch, link="", cta=True)
-    assert channel_submission_action() is None
+    caption = channel_caption({"tags": "#test", "novel_preview_url": "https://telegra.ph/x"})
+    assert BOT_SUBMIT_LABEL not in caption
+    assert "TG 投稿" not in caption
+    # No footer ⇒ normal build_caption behavior preserves the legacy body link.
+    assert "🔗 在线阅读" in caption
 
 
-def test_channel_caption_respects_caption_budget(monkeypatch):
-    # Mini App ON: no submission footer text in the caption, but the body still
-    # respects the 1024 limit with room to spare.
-    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=True)
+def test_caption_respects_budget_with_footer(monkeypatch):
     import re
+    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=True)
     near_limit = {"tags": "#test", "title": "标题", "note": "内容" * 400}
     caption = channel_caption(near_limit)
     visible = re.sub(r"<[^>]+>", "", caption)
     assert len(visible) <= 1024
+    assert 'href="https://t.me/xgdPost_bot?start=submit"' in caption
+    assert 'href="https://t.me/xgdPost_bot?startapp=submit"' in caption
 
-    # Mini App OFF: the textual footer is used AND the budget is preserved.
     _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=False)
     caption_off = channel_caption({"tags": "#test", "title": "标题", "note": "内容" * 200})
     visible_off = re.sub(r"<[^>]+>", "", caption_off)
     assert len(visible_off) <= 1024
-    assert "点击投稿" in caption_off
+    assert 'href="https://t.me/xgdPost_bot?start=submit"' in caption_off
+    assert "startapp=submit" not in caption_off
 
 
-def test_online_reading_and_submission_cta_coexist(monkeypatch):
-    """TelePress novel preview (在线阅读 → Telegraph) and the submission CTA
-    are two different actions; the TXT itself is a delivery artifact. With the
-    Mini App CTA active, 在线阅读 stays in the caption and the submission CTA
-    is the inline button action."""
-    _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=True)
-    caption = channel_caption({
-        "tags": "#novel",
-        "title": "短篇",
-        "note": "📖 <a href=\"https://telegra.ph/example-123\">在线阅读</a>",
-    })
-    assert "telegra.ph/example-123" in caption
-    assert "在线阅读" in caption
-    action = channel_submission_action()
-    assert action is not None
-    assert action[1].startswith("https://t.me/xgdPost_bot?startapp=")
-    assert "telegra.ph" not in action[1]
+def test_labels_are_fixed_and_html_safe():
+    for label in (READ_ONLINE_LABEL, BOT_SUBMIT_LABEL, MINI_APP_SUBMIT_LABEL):
+        out = html.escape(label, quote=False)
+        assert out == label
 
-
-def test_exported_label_constant_is_simple_and_stable():
-    assert DEFAULT_CTA_LABEL == "✉️ 我要投稿"
-    # Escape round-trip stays valid HTML for Telegram parse mode.
-    out = html.escape("✉️ 我要投稿", quote=False)
-    assert out == "✉️ 我要投稿"
 
 def _keyboard_to_tuples(kb):
     return [
@@ -190,7 +207,7 @@ def _keyboard_to_tuples(kb):
 
 def test_review_keyboard_has_no_submission_cta_and_keeps_moderation():
     """Review control cards NEVER expose the public submission CTA, even when
-    the owning bot's Mini App submission entrypoint is configured (§review-cta)."""
+    the owning bot's submission entrypoints are configured (§review-cta)."""
     from telepost.telegram.review_keyboard import review_keyboard
     kb = review_keyboard(
         55, "https://www.pixiv.net/artworks/1", source="api", pixiv_id="1",
@@ -199,8 +216,8 @@ def test_review_keyboard_has_no_submission_cta_and_keeps_moderation():
     # Moderation controls unchanged.
     assert rows[0] == [("✅ 发布到频道", "review_approve:55"), ("❌ 拒绝", "review_reject:55")]
     assert any(text == "🔇 遮罩：关" for text, _ in rows[1])
-    # No public submission-acquisition CTA (✉️ 我要投稿 / Mini App startapp).
-    assert all("我要投稿" not in text for row in rows for text, _ in row)
+    # No public submission-acquisition CTA (TG 投稿 / Mini App / startapp).
+    assert all(BOT_SUBMIT_LABEL not in text for row in rows for text, _ in row)
     assert all("startapp=submit" not in str(entry) for row in rows for entry in row)
 
 
@@ -208,7 +225,7 @@ def test_review_keyboard_omits_cta_when_no_submission_url():
     from telepost.telegram.review_keyboard import review_keyboard
     kb = review_keyboard(55, "https://www.pixiv.net/artworks/1")
     rows = _keyboard_to_tuples(kb)
-    assert all("我要投稿" not in text for row in rows for text, _ in row)
+    assert all(BOT_SUBMIT_LABEL not in text for row in rows for text, _ in row)
 
 
 @pytest.mark.asyncio
@@ -237,7 +254,7 @@ async def test_superseded_notice_has_no_submission_cta_and_no_moderation(monkeyp
     for row in rows:
         for text, _ in row:
             assert "review_" not in text
-            assert "我要投稿" not in text
+            assert BOT_SUBMIT_LABEL not in text
 
 
 @pytest.mark.asyncio

@@ -111,7 +111,7 @@ describe('SubmitPage (Uppy React integration)', () => {
       .mockResolvedValue({ status: 'pending_review', review_id: 42 });
     renderPage();
     await addFiles(['a.png']);
-    fireEvent.change(screen.getByPlaceholderText('标签（必填，如 #示例 #壁纸）'), {
+    fireEvent.change(screen.getByPlaceholderText('标签（必填，可用空格或逗号分隔）'), {
       target: { value: '#test' },
     });
     fireEvent.click(screen.getByTestId('submit'));
@@ -138,7 +138,7 @@ describe('SubmitPage (Uppy React integration)', () => {
       .mockResolvedValueOnce({ status: 'pending_review', review_id: 43 });
     renderPage();
     await addFiles(['b.png']);
-    fireEvent.change(screen.getByPlaceholderText('标签（必填，如 #示例 #壁纸）'), {
+    fireEvent.change(screen.getByPlaceholderText('标签（必填，可用空格或逗号分隔）'), {
       target: { value: '#retry' },
     });
     fireEvent.click(screen.getByTestId('submit'));
@@ -175,7 +175,7 @@ describe('SubmitPage tag UX + preview (tag hint, real media, submitter)', () => 
     vi.spyOn(client, 'apiFetch').mockResolvedValue({ caption: '🏷 #e2e\n投稿人：devuser' });
     renderPage();
       await addFiles(['photo.png']);
-      fireEvent.change(screen.getByPlaceholderText('标签（必填，如 #示例 #壁纸）'), {
+      fireEvent.change(screen.getByPlaceholderText('标签（必填，可用空格或逗号分隔）'), {
         target: { value: 'ボテ腹, R18' },
       });
       fireEvent.click(screen.getByRole('button', { name: '预览投稿' }));
@@ -196,7 +196,7 @@ describe('SubmitPage tag UX + preview (tag hint, real media, submitter)', () => 
     vi.spyOn(client, 'apiFetch').mockResolvedValue({ caption: '' });
     renderPage();
       await addFiles(['a.png', 'b.png']);
-      fireEvent.change(screen.getByPlaceholderText('标签（必填，如 #示例 #壁纸）'), {
+      fireEvent.change(screen.getByPlaceholderText('标签（必填，可用空格或逗号分隔）'), {
         target: { value: '#x' },
       });
       fireEvent.click(screen.getByRole('button', { name: '预览投稿' }));

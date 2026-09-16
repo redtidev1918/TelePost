@@ -42,7 +42,7 @@ const MAX_FILES = 20;
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
 const TAG_HINT =
-  '多个标签可用空格、英文逗号或中文逗号分隔，无需手动输入 #。例如：ボテ腹, R18 pregnancy';
+  '例如：ボテ腹, R18 pregnancy\n空格、英文逗号、中文逗号均可，无需输入 #';
 
 function formatSize(bytes?: number | null): string {
   if (!bytes) return '';
@@ -331,7 +331,7 @@ function SubmitForm(props: FormProps) {
         />
         <div style={{ padding: '0 16px' }}>
           <Input
-            placeholder="标签（必填，如 #示例 #壁纸）"
+            placeholder="标签（必填，可用空格或逗号分隔）"
             value={props.tags}
             onChange={(e) => props.setTags(e.target.value)}
           />
