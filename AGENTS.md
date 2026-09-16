@@ -46,6 +46,12 @@ HTTP 投稿接口、幂等键、审核队列、批准/驳回、发布与发布�
 
 ## 改动前必须保持的行为
 
+- **Telegram Update 单一语义属主**：Submission `ConversationHandler` 一旦接管更新，必须用
+  `ApplicationHandlerStop(next_state)` 同时提交状态并停止后续 handler groups；普通
+  `return next_state` 不会阻止跨 group 传播。通用消息/回调 fallback 只处理真正无人接管的
+  update，业务 callback 必须先按明确 namespace/pattern 注册。静态“callback 可路由”测试不能
+  代替复用 `setup_application()` 的生产 wiring 测试。
+
 - **投稿幂等**：投稿接口接受 `idempotency_key`（也接受表单/字段形式），经
   `normalize_idempotency_key(user_id, raw_key, "api")` 归一；已受理/已发布的重放返回
   `idempotent_replay`，**不重复通知、不重复发布**。这是 PixivFlow 槽位账本之外的最后一道防线。

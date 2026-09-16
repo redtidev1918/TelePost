@@ -663,8 +663,16 @@ def setup_application(application):
     application.add_handler(
         CallbackQueryHandler(botconfig_callback, pattern="^botconfig:"), group=3
     )
-    from handlers.callback_handlers import handle_callback_query
-    application.add_handler(CallbackQueryHandler(handle_callback_query), group=3)
+    from handlers.callback_handlers import (
+        GLOBAL_CALLBACK_PATTERNS,
+        handle_callback_query,
+        handle_unknown_callback,
+    )
+    for pattern in GLOBAL_CALLBACK_PATTERNS:
+        application.add_handler(
+            CallbackQueryHandler(handle_callback_query, pattern=pattern), group=3
+        )
+    application.add_handler(CallbackQueryHandler(handle_unknown_callback), group=3)
     
     # 添加周期性清理任务
     try:
