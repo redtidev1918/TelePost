@@ -10,6 +10,13 @@
 
 ---
 
+## [2.31.4](https://github.com/redtidev1918/TelePost/compare/v2.31.3...v2.31.4) (2026-09-16)
+
+
+### Bug Fixes
+
+* semantic channel navigation footer and tag separator UX ([#137](https://github.com/redtidev1918/TelePost/issues/137)) ([#137](https://github.com/redtidev1918/TelePost/issues/137)) ([fa13b44](https://github.com/redtidev1918/TelePost/commit/fa13b44f82aab7588e80ec494be2121f0eba14aa))
+
 ## [2.31.3](https://github.com/redtidev1918/TelePost/compare/v2.31.2...v2.31.3) (2026-09-16)
 
 
