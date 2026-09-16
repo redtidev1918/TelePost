@@ -285,37 +285,34 @@ class CapturingDelivery(RecordingDelivery):
         self.captions.append(request.caption)
         return await super().deliver(request)
 
-
 def _footer_caption(data=None):
-    from utils.helper_functions import build_caption
-    from telepost.application.publication import _channel_footer
-    footer = _channel_footer()
+    from telepost.application.publication import channel_caption
     body = data if data is not None else {"tags": "#x"}
-    if not footer:
-        return build_caption(body)
-    return build_caption(body, max_length=1024 - len(footer)) + footer
+    return channel_caption(body)
 
 
 @pytest.mark.asyncio
 async def test_channel_footer_appended_on_real_publish(ledger_db, monkeypatch):
-    """配置 CHANNEL_FOOTER_LINK 后，正式发布 caption 末尾有「点击投稿」链接。"""
+    """配置 CHANNEL_FOOTER_LINK + MINIAPP_SUBMIT_CTA 后，正式发布 caption 末尾含
+    语义正确的导航 footer（BOT_SUBMIT ?start=submit / MINI_APP ?startapp=submit）。"""
     monkeypatch.setattr(
         "config.settings.CHANNEL_FOOTER_LINK", "https://t.me/xgdPost_bot"
     )
-    monkeypatch.setattr(
-        "config.settings.CHANNEL_FOOTER_TEXT", "点击投稿"
-    )
+    monkeypatch.setattr("config.settings.MINIAPP_SUBMIT_CTA", True)
     delivery = CapturingDelivery()
     service = PublicationService(delivery=delivery, ledger=ledger_db)
     await service.publish(_command("footer-key"))
     assert delivery.captions, "delivery must have been called once"
     caption = delivery.captions[0]
-    assert caption.endswith(
-        '<a href="https://t.me/xgdPost_bot">点击投稿</a>'
+    assert (
+        '<a href="https://t.me/xgdPost_bot?start=submit">✉️ TG 投稿</a>' in caption
     )
-    # 正文不加 footer（preview 路径不经过 service）。
-    from utils.helper_functions import build_caption
-    assert "点击投稿" not in build_caption({"tags": "#x"})
+    assert (
+        '<a href="https://t.me/xgdPost_bot?startapp=submit">📱 Mini App</a>'
+        in caption
+    )
+    assert caption.count("✉️ TG 投稿") == 1
+    assert caption.count("📱 Mini App") == 1
 
 
 @pytest.mark.asyncio
@@ -327,7 +324,9 @@ async def test_channel_footer_absent_when_not_configured(ledger_db, monkeypatch)
     service = PublicationService(delivery=delivery, ledger=ledger_db)
     await service.publish(_command("no-footer-key"))
     assert delivery.captions
-    assert "点击投稿" not in delivery.captions[0]
+    assert "TG 投稿" not in delivery.captions[0]
+    assert "start=submit" not in delivery.captions[0]
+    assert "startapp=submit" not in delivery.captions[0]
 
 
 @pytest.mark.asyncio
@@ -350,9 +349,11 @@ async def test_channel_footer_respects_caption_length_cap(monkeypatch):
     monkeypatch.setattr(
         "config.settings.CHANNEL_FOOTER_LINK", "https://t.me/xgdPost_bot"
     )
+    monkeypatch.setattr("config.settings.MINIAPP_SUBMIT_CTA", False)
     long_data = {"tags": "#x", "title": "标题", "note": "很长的简介 " * 200}
     caption = _footer_caption(long_data)
     assert len(caption) <= 1024
-    assert caption.endswith(
-        '<a href="https://t.me/xgdPost_bot">点击投稿</a>'
+    assert (
+        '<a href="https://t.me/xgdPost_bot?start=submit">✉️ TG 投稿</a>'
+        in caption
     )

@@ -467,112 +467,81 @@ class PublicationService:
 
 
 def channel_caption(caption_data: dict) -> str:
-    """Shared channel caption builder for REAL publication: body + CTA.
+    """Shared channel caption builder for REAL publication: body + navigation footer.
 
     ONE implementation for every publication path (chat direct, API direct,
-    review approval, editorial, PixivFlow/service). The submission CTA is a
+    review approval, editorial, PixivFlow/service). The channel footer is a
     Publication Presentation concern — it is never assembled per-handler
-    (§submission-entrypoint). When the Mini App submission CTA is active it is
-    rendered as an INLINE BUTTON on the root message, so the caption carries NO
-    textual submission link (never both). Caption budgeting stays here so the
-    CTA can never overflow Telegram's limit. An optional novel preview link
-    (Telegraph "read online") is injected through ``novel_preview_url``; its
-    absence never alters the rest of the presentation.
+    (§submission-entrypoint). The footer carries each navigation action
+    exactly once: READ_ONLINE (Telegraph preview), BOT_SUBMIT
+    (`?start=submit`) and MINI_APP_SUBMIT (`?startapp=submit`) when the owning
+    bot enables it. Caption budgeting stays here so the footer can never
+    overflow Telegram's limit.
     """
     from utils.helper_functions import build_caption
-    data = dict(caption_data or {})
-    if channel_submission_action() is not None:
-        # The CTA is an inline button (attached by the delivery adapter); the
-        # caption body keeps full budget for the real content (TelePress 在线阅读
-        # link, submitter attribution, tags … — all unchanged).
-        return build_caption(data)
-    return _caption_with_text_footer(data)
-
-
-def _caption_with_text_footer(data: dict) -> str:
-    """Pre-inline-button behavior: textual footer appended to the caption."""
-    from utils.helper_functions import build_caption
-    footer = _channel_footer()
-    if not footer:
-        return build_caption(data)
-    # 预留 footer 的字符空间，保证总长不超 Telegram 上限且不切坏 HTML。
-    return build_caption(data, max_length=1024 - len(footer)) + footer
-
-
-def channel_submission_action():
-    """(label, url) for the owning bot's Mini App submission CTA, or None.
-
-    Reads bot/runtime config (CHANNEL_FOOTER_LINK + MINIAPP_SUBMIT_CTA) and is
-    the single source the delivery adapter / review keyboard use to attach the
-    ``[✉️ 我要投稿]`` inline button. None ⇒ omit the CTA entirely (never a
-    malformed link).
-    """
-    try:
-        from config.settings import (
-            CHANNEL_FOOTER_LINK,
-            CHANNEL_FOOTER_TEXT,
-            MINIAPP_SUBMIT_CTA,
+    footer_html = ""
+    items = _publication_navigation(data := dict(caption_data or {}))
+    if items:
+        import html as _html
+        footer_html = "\n\n" + " | ".join(
+            f'<a href="{_html.escape(item.url, quote=True)}">'
+            f"{_html.escape(item.label, quote=False)}</a>"
+            for item in items
         )
-    except Exception:
-        return None
-    link = (CHANNEL_FOOTER_LINK or "").strip()
-    if not link:
-        return None
-    from telepost.domain.navigation import DEFAULT_CTA_LABEL, submission_action
-    custom_text = (CHANNEL_FOOTER_TEXT or "").strip()
-    label = custom_text if custom_text and custom_text != "点击投稿" else DEFAULT_CTA_LABEL
-    return submission_action(link, mini_app_enabled=MINIAPP_SUBMIT_CTA, label=label)
+    body_data = dict(data)
+    if footer_html and body_data.get("novel_preview_url"):
+        # READ_ONLINE lives in the navigation footer once; no duplicate body
+        # block on real publications (review/preview surfaces keep the old
+        # `🔗 在线阅读` line via build_caption directly).
+        body_data["novel_preview_url"] = ""
+    max_length = 1024 - len(footer_html) if footer_html else 1024
+    return build_caption(body_data, max_length=max_length) + footer_html
 
 
-def _channel_footer() -> str:
-    """频道发布 footer：正式发布时才追加，审核预览与排队均不经过这里。
+def _publication_navigation(caption_data: dict):
+    """Typed footer actions for the OWNING bot, or ``[]`` when unconfigured.
 
-    语义：让频道读者直接进入本 bot 的 Mini App 投稿页。链接由
-    ``CHANNEL_FOOTER_LINK`` 配置（空 = 关闭）；``MINIAPP_SUBMIT_CTA=true`` 时
-    把同一 bot 入口升级为 ``https://t.me/<bot>?startapp=submit``（打开该 Bot
-    的 Main Mini App 投稿页，startapp 只是导航意图、绝不携带身份）；未启用或
-    链接非法时回退旧语义（bot 深链 + 默认「点击投稿」），绝不生成坏链接。
-    链接文本可用 ``CHANNEL_FOOTER_TEXT`` 覆盖（默认「✉️ 我要投稿」）。返回
-    完整 HTML 片段（含前导换行）或空字符串。
+    Reads bot/runtime config (CHANNEL_FOOTER_LINK + MINIAPP_SUBMIT_CTA):
+    * BOT_SUBMIT       always when a valid owning-bot link is configured;
+    * MINI_APP_SUBMIT  additionally when ``MINIAPP_SUBMIT_CTA`` is enabled;
+    * READ_ONLINE      when this publication has a Telegraph ``novel_preview_url``.
+    Missing/invalid config never produces a malformed link.
     """
-    try:
-        from config.settings import (
-            CHANNEL_FOOTER_LINK,
-            CHANNEL_FOOTER_TEXT,
-            MINIAPP_SUBMIT_CTA,
-        )
-    except Exception:
-        return ""
-    link = (CHANNEL_FOOTER_LINK or "").strip()
-    if not link:
-        return ""
-    # 只接受 http(s) 链接，且必须是干净 URL，避免把任意 HTML 塞进 caption。
-    if not link.startswith(("http://", "https://")):
-        return ""
-
-    from telepost.domain.navigation import DEFAULT_CTA_LABEL, submission_entrypoint_url
-
-    custom_text = (CHANNEL_FOOTER_TEXT or "").strip()
-    entrypoint = submission_entrypoint_url(
-        link,
-        mini_app_enabled=MINIAPP_SUBMIT_CTA,
+    from telepost.domain.navigation import (
+        BOT_SUBMIT_ACTION,
+        BOT_SUBMIT_LABEL,
+        MINI_APP_SUBMIT_ACTION,
+        MINI_APP_SUBMIT_LABEL,
+        READ_ONLINE_ACTION,
+        READ_ONLINE_LABEL,
+        NavigationItem,
+        bot_submission_url,
+        miniapp_submission_url,
     )
-    if entrypoint is not None:
-        target = entrypoint
-        # Mini App enabled: default label is the CTA; a custom CHANNEL_FOOTER_TEXT
-        # (anything other than the legacy default) still overrides it.
-        if custom_text and custom_text != "点击投稿":
-            text = custom_text
-        else:
-            text = DEFAULT_CTA_LABEL
-    else:
-        # Mini App 未启用/链接非法：保持旧语义（bot 深链），CTA 绝不因此坏掉。
-        target = link
-        text = custom_text or "点击投稿"
-    import html as _html
-    safe_link = _html.escape(target, quote=True)
-    safe_text = _html.escape(text, quote=False)
-    return f'\n\n<a href="{safe_link}">{safe_text}</a>'
+    try:
+        from config.settings import (
+            CHANNEL_FOOTER_LINK,
+            MINIAPP_SUBMIT_CTA,
+        )
+    except Exception:
+        return []
+    link = (CHANNEL_FOOTER_LINK or "").strip()
+    if not link or not link.startswith(("http://", "https://")):
+        return []
+
+    data = dict(caption_data or {})
+    items = []
+    preview_url = data.get("novel_preview_url")
+    if preview_url and str(preview_url).startswith(("http://", "https://")):
+        items.append(NavigationItem(READ_ONLINE_ACTION, READ_ONLINE_LABEL, str(preview_url)))
+    bot_url = bot_submission_url(link)
+    if bot_url:
+        items.append(NavigationItem(BOT_SUBMIT_ACTION, BOT_SUBMIT_LABEL, bot_url))
+    if MINIAPP_SUBMIT_CTA:
+        mini_url = miniapp_submission_url(link)
+        if mini_url:
+            items.append(NavigationItem(MINI_APP_SUBMIT_ACTION, MINI_APP_SUBMIT_LABEL, mini_url))
+    return items
 
 
 def _legacy_link(message_id: int) -> str:
