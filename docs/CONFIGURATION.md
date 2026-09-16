@@ -19,9 +19,8 @@
 | `ALLOWED_FILE_TYPES` | `*` | 文档扩展名或 MIME，逗号分隔 |
 | `SHOW_SUBMITTER` | `true` | 频道是否显示投稿人 |
 | `NOTIFY_OWNER` | `true` | 是否 durable 私聊 Owner：审核稿入队成功或直发成功后各按 logical submission 通知一次；refetch/editorial 不重复 |
-| `CHANNEL_FOOTER_LINK` | 空 | **正式发布到频道**时，在 caption 最下方追加「点击投稿」超链接指向该 bot（如 `https://t.me/your_bot`）。空 = 关闭。审核预览/排队**不**带 footer |
-| `CHANNEL_FOOTER_TEXT` | `点击投稿` | footer 链接文本；Mini App CTA 开启时默认 `✉️ 我要投稿`，自定义值仍可覆盖 |
-| `MINIAPP_SUBMIT_CTA` | `false` | 频道 CTA 直达该 bot 的 Mini App 投稿页：把 footer 升级为 `https://t.me/<bot>?startapp=submit`（startapp 只是导航意图，身份仍由服务器校验 initData 决定）。未启用/链接缺失时保持旧「点击投稿→bot 深链」语义，绝不生成坏链接 |
+| `CHANNEL_FOOTER_LINK` | 空 | **正式发布到频道**时，在 caption 最下方追加文本导航 footer（`✉️ TG 投稿` → `https://t.me/<bot>?start=submit`；Mini App 开启时再加 `📱 Mini App` → `?startapp=submit`）。空 = 关闭。审核预览/排队**不**带 footer |
+| `MINIAPP_SUBMIT_CTA` | `false` | 频道 footer 额外追加 Mini App 导航项：`https://t.me/<bot>?startapp=submit`（startapp 只是导航意图，身份仍由服务器校验 initData 决定）。未启用/链接缺失时该导航项省略，绝不生成坏链接 |
 | `SUBMIT_LIMIT_PER_HOUR` | `10` | 每用户每小时投稿次数；`0` 关闭 |
 | `ALLOWED_TAGS` | `30` | 单次最大标签数 |
 | `TIMEOUT` | `300` | 数据库中过期上传数据的清理阈值（秒） |
@@ -151,7 +150,7 @@ BOT2_OWNER_ID=123456789
 
 可用 `BOT{n}_` 覆盖 `run.py` 的 `OVERRIDABLE_KEYS`：Owner/Admin、显示与通知、Bot
 模式、文件类型、限频、审核、数据库、搜索、健康端口、超时、运行模式、Webhook
-Secret，以及频道 footer（`BOT{n}_CHANNEL_FOOTER_LINK` / `BOT{n}_CHANNEL_FOOTER_TEXT`）。
+Secret，以及频道 footer（`BOT{n}_CHANNEL_FOOTER_LINK` / `BOT{n}_MINIAPP_SUBMIT_CTA`）。
 默认数据目录为 `data/botN/`，父路由固定提供：
 
 - `/webhook/botN`

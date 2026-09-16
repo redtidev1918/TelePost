@@ -374,65 +374,52 @@ submission detail and is labeled accordingly.
 ## Submission CTA 不变量（§submission-entrypoint）
 
 ```text
-Channel publication submission CTAs open the owning bot's
-Mini App submission surface directly when Mini App configuration
-is available.
+Channel publication navigation footer CTAs open the owning bot's
+submission surfaces:
+  READ_ONLINE     → Telegraph preview (novel_preview_url), when present
+  BOT_SUBMIT      → https://t.me/<bot>?start=submit
+  MINI_APP_SUBMIT → https://t.me/<bot>?startapp=submit (or Direct Mini App)
+                    when MINIAPP_SUBMIT_CTA is enabled
 
-Submission CTA targets are derived from bot/runtime context and must
-not be globally hardcoded to one bot.
-
-Mini App start parameters are navigation intent only and must never
-be trusted as authentication or authorization data.
-
-Submission CTA rendering is a shared Publication Presentation concern
-and must not be duplicated across direct, reviewed, editorial,
-PixivFlow or novel publication paths.
-
-A missing Mini App configuration must never produce a malformed
-submission URL or fail an otherwise valid Publication.
+Each action appears EXACTLY ONCE in the footer.
 ```
 
-- URL 构造唯一权威在 `telepost/domain/navigation.py`：`submission_entrypoint_url`
-  只接受 `https://t.me/<bot>` 形式 + `MINIAPP_SUBMIT_CTA` 开关；链路是
-  `https://t.me/<bot>?startapp=submit`（或 Direct Mini App 的
+- URL 构造唯一权威在 `telepost/domain/navigation.py`：`bot_submission_url`
+  只接受 `https://t.me/<bot>` 形式并返回 `?start=submit`；`miniapp_submission_url`
+  返回 `?startapp=submit`（或 Direct Mini App 的
   `https://t.me/<bot>/<short_name>?startapp=submit`）。
-- `startapp=submit` 只是导航意图：绝不放入 user id / username / token /
-  session，也不被当成认证或授权；Mini App 身份仍只来自服务器校验的
-  Telegram initData。
-- 单条 caption 只出现一个投稿 CTA：`_channel_footer()` 是加入 footer 的唯一
-  位置，chat-DIRECT、API 直发、review 通过、editorial、PixivFlow/service
-  全部经 `channel_caption()` 汇聚；禁止各 handler 各自拼 CTA。
-- `MINIAPP_SUBMIT_CTA` 未启用、链接缺失或非法时保持旧语义（bot 深链 +
-  `点击投稿`）或省略 CTA；绝不产生 `https://t.me/None...` 或坏链接。
+- `start=submit` / `startapp=submit` 只是导航意图：绝不放入 user id /
+  username / token / session，也不被当成认证或授权；Mini App 身份仍只来自
+  服务器校验的 Telegram initData。
+- 频道 footer 是在 caption 内的文本导航行（不是单一 inline button）：
+  TXT 带预览时 `📖 在线阅读 | ✉️ TG 投稿 | 📱 Mini App`；普通投稿
+  `✉️ TG 投稿 | 📱 Mini App`；Mini App 未启用则只剩 `✉️ TG 投稿`。标签是固定
+  展示契约，不接受 `CHANNEL_FOOTER_TEXT` 覆盖。
+- `_publication_navigation()` 是加入 footer 的唯一位置，chat-DIRECT、API 直发、
+  review 通过、editorial、PixivFlow/service 全部经 `channel_caption()` 汇聚；
+  禁止各 handler 各自拼 CTA。
+- `MINIAPP_SUBMIT_CTA` 未启用、链接缺失或非法时省略对应导航项；绝不产生
+  `https://t.me/None...` 或坏链接。
 - CTA 进入既有 caption 预算（`channel_caption` 预留 footer 宽度），不得让
-  Publication 因加 CTA 超出 Telegram 上限。
+  Publication 因加 footer 超出 Telegram 上限。
 
-## Review/main Post Inline CTA 不变量（§review-cta）
+## Review 卡不携带公共投稿 CTA（§review-cta）
 
 ```text
-Submission/review-group main posts use a Telegram inline URL button for
-the public Mini App submission CTA instead of embedding the submission
-entrypoint as a caption/text hyperlink.
-
-The submission CTA is derived from the owning bot context and opens that
-bot's Mini App submission surface.
-
-The Mini App submission CTA is independent from moderation controls;
-removing stale moderation actions must not weaken backend stale guards.
+Review control cards NEVER expose the public submission CTA (BOT_SUBMIT /
+MINI_APP_SUBMIT / READ_ONLINE), even when the owning bot's submission
+entrypoints are configured.
 ```
 
-- Mini App CTA 激活时，频道主贴 caption 不再携带文本投稿链接：CTA 以
-  `[✉️ 我要投稿]` inline URL button 挂在 root 消息（单条直发附加 reply_markup；
-  媒体组 / discussion 用 `edit_message_reply_markup` best-effort 附加）。同一帖子
-  绝不同时出现文本投稿链接 + 按钮。
-- 审核群控制卡与 superseded 旧卡**永不携带公共投稿 CTA**（`✉️ 我要投稿` /
-  Mini App startapp）：公共投稿 CTA 只属于最终频道出版（§submission-entrypoint）。
+- 频道出版使用 caption/text 文本导航 footer（§submission-entrypoint），不再
+  使用 `[✉️ 我要投稿]` 单一 inline URL button。
+- 审核群控制卡与 superseded 旧卡**永不携带公共投稿 CTA**（`✉️ TG 投稿` /
+  `📱 Mini App` / `startapp=submit`）：公共投稿 CTA 只属于最终频道出版。
   moderation 按钮（通过/拒绝/重抓/遮罩）与查看原链接按钮不受影响；后端 stale guard
   仍是权威。
 - superseded 旧卡：所有 moderation 按钮移除（后端 stale guard 仍是权威）；也绝不
   追加公共投稿 CTA。
-- 按钮附加是 best-effort：失败只丢失 CTA 展示，绝不使已确认的 Publication /
-  review card 发送失败。
+
 ## Novel TXT Telegraph Preview（§telepress-preview）
 
 ```text

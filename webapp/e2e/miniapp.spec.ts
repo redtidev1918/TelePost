@@ -292,7 +292,7 @@ test.describe('Upload: real file chooser + selection + submit', () => {
     ]);
     await expect(page.getByTestId('selected-files')).toContainText('已选择 2 个文件');
 
-    await page.getByPlaceholder('标签（必填，如 #示例 #壁纸）').fill('#e2e');
+    await page.getByPlaceholder('标签（必填，可用空格或逗号分隔）').fill('#e2e');
     await page.getByTestId('submit').click();
     await expect(page.getByText(/投稿已提交/)).toBeVisible({ timeout: 10_000 });
   });
@@ -337,7 +337,7 @@ test.describe('Preview: real local media, no Telegram side effects', () => {
       'hex',
     );
     await chooser.setFiles({ name: 'photo.png', mimeType: 'image/png', buffer: png });
-    await page.getByPlaceholder('标签（必填，如 #示例 #壁纸）').fill('#e2e');
+    await page.getByPlaceholder('标签（必填，可用空格或逗号分隔）').fill('#e2e');
     await page.getByRole('button', { name: /预览投稿/ }).click();
 
     await expect(page.getByTestId('preview-panel')).toBeVisible();
@@ -356,7 +356,7 @@ test.describe('Preview: real local media, no Telegram side effects', () => {
       page.getByTestId('add-files').click(),
     ]);
     await chooser.setFiles({ name: 'a.png', mimeType: 'image/png', buffer: Buffer.from('aaa') });
-    await page.getByPlaceholder('标签（必填，如 #示例 #壁纸）').fill('#e2e');
+    await page.getByPlaceholder('标签（必填，可用空格或逗号分隔）').fill('#e2e');
     await page.getByRole('button', { name: /预览投稿/ }).click();
     await expect(page.getByTestId('preview-submitter')).toContainText('@e2e');
   });
@@ -374,7 +374,7 @@ test.describe('Preview: real local media, no Telegram side effects', () => {
       { name: 'a.png', mimeType: 'image/png', buffer: Buffer.from('aaa') },
       { name: 'b.png', mimeType: 'image/png', buffer: Buffer.from('bbb') },
     ]);
-    await page.getByPlaceholder('标签（必填，如 #示例 #壁纸）').fill('#e2e');
+    await page.getByPlaceholder('标签（必填，可用空格或逗号分隔）').fill('#e2e');
     await page.getByRole('button', { name: /预览投稿/ }).click();
     await expect(page.getByTestId('preview-media-0')).toBeVisible();
     await expect(page.getByTestId('preview-media-1')).toBeVisible();

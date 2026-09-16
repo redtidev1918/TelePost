@@ -34,7 +34,6 @@ from telepost.domain.submission import (
 )
 from database.db_manager import get_db, cleanup_old_data
 from models.state import STATE
-from utils.helper_functions import build_caption
 
 # --- delivery engine (moved) ----------------------------------------------
 from telepost.domain.delivery import (
@@ -371,20 +370,12 @@ async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
             bot, channel, items, caption=caption, spoiler=spoiler,
             album_size=album_size, timeout_kwargs=timeout_kwargs,
         )
-        from telepost.application.publication import channel_submission_action
-        action = channel_submission_action()
-        if action and main is not None:
-            await _attach_submission_cta_button(
-                bot, chat_id, main.message_id, action
-            )
         return sent, main
 
     domain_items = _items_from_dicts(
         [dict(item, spoiler=item.get("spoiler", spoiler)) for item in items]
     )
     gateway = _build_gateway(bot, timeout_kwargs=timeout_kwargs)
-    from telepost.application.publication import channel_submission_action
-    footer_action = channel_submission_action()
     request = DeliveryRequest(
         chat_id=chat_id,
         items=domain_items,
@@ -393,7 +384,6 @@ async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
         reply_mode=mode,
         reply_to_message_id=reply_to_message_id,
         album_size=album_size,
-        footer_action=footer_action,
     )
     result = await _execute_with_on_sent(gateway, request, on_sent)
     raw_messages = [m.raw for m in result.messages if m.raw is not None]
@@ -424,36 +414,7 @@ async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
         error = RuntimeError(result.reason or "delivery failed")
         error.known_messages = known_messages
         raise error
-    # Best-effort CTA button on the ROOT message (§review-cta): the caption no
-    # longer carries a textual submission link when the Mini App CTA is active.
-    # A failed edit never fails the (already confirmed) Publication.
-    if footer_action and result.main_message is not None:
-        await _attach_submission_cta_button(
-            bot, chat_id, result.main_message.message_id, footer_action
-        )
     return raw_messages, result.main_message.raw
-
-
-async def _attach_submission_cta_button(bot, chat_id, message_id, action) -> None:
-    """Best-effort: attach ``[✉️ 我要投稿]`` URL button to a confirmed message.
-
-    Works for single-root messages AND media-group roots (Telegram allows
-    editing the reply markup of an album member). Never raises into the
-    publication path.
-    """
-    if not action:
-        return
-    try:
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-        label, url = action
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(label, url=url)],
-        ])
-        await bot.edit_message_reply_markup(
-            chat_id=chat_id, message_id=message_id, reply_markup=keyboard
-        )
-    except Exception as exc:
-        logger.debug("追加投稿 CTA 按钮失败（发布已确认，不重试）: %s", exc)
 
 
 async def _execute_with_on_sent(gateway, request, on_sent):
@@ -1152,7 +1113,7 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
             except Exception as exc:
                 logger.warning("chat novel preview skipped: %s", type(exc).__name__)
         if preview_url:
-            caption = build_caption({**caption_data, "novel_preview_url": preview_url})
+            caption = channel_caption({**caption_data, "novel_preview_url": preview_url})
 
         chat_items = _normalize_chat_items(media_list, doc_list)
         sent_message = None

@@ -30,8 +30,8 @@ def review_keyboard(review_id: int, link: str = "", *,
         )
     if link:
         rows.append([InlineKeyboardButton("🔗 查看原链接", url=link)])
-    # §submission-entrypoint: the public submission CTA ([✉️ 我要投稿] / Mini App)
-    # belongs ONLY to final Channel Publications, never to Review/staging/
+    # §submission-entrypoint: the public submission CTA (✉️ TG 投稿 / 📱 Mini App)
+    # belongs ONLY to final Channel Publication footers, never to Review/staging/
     # moderation messages. Removing it here keeps a single, consistent UI rule.
     return InlineKeyboardMarkup(rows)
 
