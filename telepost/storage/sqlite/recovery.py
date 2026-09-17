@@ -30,7 +30,7 @@ class RecoveryRepository:
         One active recovery per target is enforced by the partial UNIQUE index
         on (target_id) WHERE state IN ('requested','accepted').
         """
-        request_id = uuid.uuid4().hex
+        request_id = str(uuid.uuid4())
         try:
             await self._conn.execute(
                 "INSERT INTO recovery_attempts "
