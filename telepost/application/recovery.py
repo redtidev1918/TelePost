@@ -207,8 +207,10 @@ async def request_target_recovery(
             )
         except Exception:
             pass
+        cause = str(exc).strip().rstrip("。") or ""
+        reason = f"：{cause[:200]}" if cause else ""
         raise RecoveryError(
-            "恢复请求提交失败，请稍后重试",
+            f"恢复请求提交失败{reason}，请稍后重试",
             code=code or failure["code"],
             stage="recovery_request",
             retryable=failure["retryable"],
@@ -239,11 +241,19 @@ def _submit_pixivflow_recover(target_id: str, request_id: str,
                 raise RuntimeError(f"PixivFlow 拒绝恢复（HTTP {response.status}）")
             return result
     except HTTPError as error:
-        raise RuntimeError(f"PixivFlow 拒绝恢复（HTTP {error.code}）") from error
+        detail = ""
+        try:
+            body_bytes = error.read()
+            if body_bytes:
+                detail = " " + body_bytes.decode("utf-8", "replace")[:300]
+        except Exception:
+            pass
+        raise RuntimeError(f"PixivFlow 拒绝恢复（HTTP {error.code}{detail}）") from error
 
 
 _FAILURE_META = {
     "unauthorized": {"retryable": False, "hint": "服务凭据无效，需管理员检查配置后重试"},
+    "invalid_request": {"retryable": False, "hint": "请求格式或参数被 PixivFlow 拒绝，需管理员检查后重试"},
     "not_found": {"retryable": False, "hint": "目标不存在或已被处理，无需重试"},
     "remote_error": {"retryable": True, "hint": "PixivFlow 服务暂时不可用，稍后重试"},
     "timeout": {"retryable": True, "hint": "请求超时，稍后重试"},
@@ -258,6 +268,8 @@ def _classify_recovery_error(exc: Exception) -> dict:
         code = "unauthorized"
     elif "http 404" in lowered:
         code = "not_found"
+    elif "http 400" in lowered or ("http 4" in lowered and "http 41" not in lowered):
+        code = "invalid_request"
     elif "http 5" in lowered:
         code = "remote_error"
     elif "timeout" in lowered or "超时" in message:

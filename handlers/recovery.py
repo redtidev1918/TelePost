@@ -20,10 +20,10 @@ ALREADY_TEXT = "该目标已在处理中，请稍候。"
 MODE_LABEL = {"normal": "再试一次", "relaxed": "放宽条件重试"}
 
 
-async def _answer(query, text: str = "") -> None:
+async def _answer(query, text: str = "", **kwargs) -> None:
     try:
-        if text:
-            await query.answer(text=text, show_alert=False)
+        if text or kwargs:
+            await query.answer(text=text, **kwargs)
         else:
             await query.answer()
     except Exception as exc:  # pragma: no cover - best effort
