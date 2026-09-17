@@ -42,6 +42,17 @@ export interface LogicalSubmissionDetail extends LogicalSubmission {
   note: string;
   link: string;
   media: SubmissionAttachment[];
+  /** Owner may re-submit a terminal non-published submission (§resubmit). */
+  resubmit_available?: boolean;
+}
+
+export interface ResubmitResult {
+  outcome: 'resubmit_success' | 'resubmit_already_pending' | 'resubmit_failed';
+  message: string;
+  review_chain_id: string;
+  current_review_id: number;
+  new_review_id: number | null;
+  generation: number;
 }
 
 export interface OwnSubmissionPage {
@@ -77,4 +88,18 @@ export function fetchMySubmission(
   reviewId: string | number,
 ): Promise<LogicalSubmissionDetail> {
   return apiFetch<LogicalSubmissionDetail>(`/me/submissions/${reviewId}`);
+}
+
+/**
+ * Owner-scoped resubmit of a rejected/failed submission. The server decides
+ * outcome semantics: pending → resubmit_already_pending (no second task),
+ * rejected → creates a new pending review in the same chain.
+ */
+export function resubmitSubmission(
+  reviewId: string | number,
+): Promise<ResubmitResult> {
+  return apiFetch<ResubmitResult>(`/me/submissions/${reviewId}/resubmit`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
 }

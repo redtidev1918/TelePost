@@ -257,6 +257,9 @@ async def _own_submission_detail(user_id: int, review_id: int) -> dict:
                   for item in _media(source)],
         "note": source["note"] or "",
         "link": source["link"] or "",
+        # A terminal non-published chain head may be resubmitted by its owner.
+        "resubmit_available": source["status"] in ("rejected", "failed",
+                                                   "expired", "cancelled"),
     })
     return base
 
@@ -841,6 +844,13 @@ def editorial_submitter_dto(revision: dict) -> dict:
     }
 
 
+
+def _resubmit_error(exc) -> web.Response:
+    return _error(
+        getattr(exc, "http_status", 409),
+        getattr(exc, "code", "resubmit_error"),
+        str(exc)[:200],
+    )
 async def _run_review_action(handler):
     try:
         return await handler()
@@ -1013,6 +1023,49 @@ def add_api_routes(web_app, application) -> None:
             response.headers["Content-Disposition"] = "attachment"
             response.headers["Content-Security-Policy"] = "sandbox"
         return response
+
+    async def resubmit_submission(request):
+        """POST /api/v1/me/submissions/{review_id}/resubmit — owned resubmit.
+
+        Only the verified human submitter of a TERMINAL, not-yet-published chain
+        may resubmit. A still-in-review chain returns resubmit_already_pending
+        and never creates a second task; the created new review stays in the
+        same chain (history preserved). Rapid double-click converges because
+        the first accepted request leaves a durable preparing/pending head.
+        """
+        principal = await _resolve_principal(request)
+        if principal is None:
+            return _error(401, "invalid_token", "token 无效或已吊销")
+        uid = principal["telegram_user_id"]
+        if not uid or principal.get("kind") != "user":
+            return _error(403, "permission_denied", "需要用户会话")
+        try:
+            review_id = int(request.match_info["review_id"])
+        except (TypeError, ValueError):
+            return _error(400, "invalid_review_id", "review_id 必须是整数")
+
+        from telepost.application.resubmit import (
+            ResubmitError, request_resubmit,
+        )
+        callback_key = None
+        try:
+            body = await request.json()
+            if isinstance(body, dict) and body.get("callbackKey"):
+                callback_key = str(body["callbackKey"])[:200]
+        except Exception:
+            body = None
+        try:
+            result = await request_resubmit(
+                review_id, actor=uid, surface=principal["surface"],
+                callback_key=callback_key, bot=bot,
+            )
+        except ResubmitError as exc:
+            logger.warning("重投被拒: review=%s code=%s", review_id, exc.code)
+            return _resubmit_error(exc)
+        except Exception as exc:
+            logger.error("重投失败: review=%s", review_id, exc_info=True)
+            return _error(502, "resubmit_failed", "重新提交失败，请稍后重试。")
+        return _ok(result)
 
     async def submission_preview(request):
         principal = await _resolve_principal(request)
@@ -1943,6 +1996,7 @@ def add_api_routes(web_app, application) -> None:
     )
 
     web_app.router.add_get("/api/v1/me/submissions/{review_id}/media/{index}", my_submission_media)
+    web_app.router.add_post("/api/v1/me/submissions/{review_id}/resubmit", resubmit_submission)
     web_app.router.add_post("/api/v1/submissions/preview", submission_preview)
     web_app.router.add_get("/api/v1/reviews/policy", review_policy)
     web_app.router.add_get("/api/v1/reviews", list_reviews)
