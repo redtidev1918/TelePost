@@ -126,6 +126,11 @@ TelePost（投稿 / 审核 / 发布，常驻）
 Telegram
 ```
 
+富媒体小说链路还可在 TelePost 与 PixivFlow 之间增加独立富媒体发布端 `telepress-publish`
+（负责 markdown 解析、Catbox 上传、Telegraph 渲染，返回 `novel_preview_url`）。它是独立
+App，有自己的卷与凭据边界：PixivFlow 只发送 artifact，TelePost 只消费 URL，TelePress
+不接触 Telegram 令牌与投稿审核。
+
 TelePost 不依赖 PixivFlow，PixivFlow 也可以投递到其他接收端。需要在 Fly.io 上组合两者时，
 使用部署仓库提供的独立 App、独立卷和凭据边界：
 

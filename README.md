@@ -52,7 +52,7 @@ chmod +x telepost-linux-x64
 ## 核心能力
 
 - **投稿与发布**：图片、视频、音频和文件；支持预览、编辑、标签、匿名和剧透。
-- **灵活审核**：Chat 与 API 可分别选择直接发布或进入私有审核群，不强制所有投稿走同一种流程。
+- **按来源可信度审核**：Chat 直发默认直接发布（可配置审核）；API 自动化投稿**固定**进入私有审核群；Mini App 由独立的 `MINIAPP_REVIEW_REQUIRED` 控制，不与 API 共用开关。
 - **Mini App**：普通用户投稿并查看自己的投稿，审核员处理队列和详情。
 - **HTTP API**：Bearer Token、幂等键、文件上传和 Telegram `file_id`，适合脚本与自动化服务。
 - **频道管理**：搜索频道历史、标签、个人投稿和本地热榜，并提供常用管理命令。
@@ -67,7 +67,7 @@ chmod +x telepost-linux-x64
 ```
 
 Mini App 复用 Bot 的身份、投稿和审核流程，不是第二套后端；关闭 Mini App 不影响聊天投稿和 HTTP API。
-当前 Mini App 投稿界面按审核流程工作；`API_REVIEW_REQUIRED` 内置默认即为 `true`。
+当前 Mini App 投稿界面按审核流程工作；`MINIAPP_REVIEW_REQUIRED` 内置默认即为 `true`（与 `API_REVIEW_REQUIRED` 相互独立）。
 启用方式、同域托管与安全要求见 [Mini App 文档](docs/MINIAPP.md)。
 
 ## HTTP API 与自动化
