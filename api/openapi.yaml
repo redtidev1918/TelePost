@@ -729,8 +729,48 @@ paths:
                   updated_at: {type: number}
                   generation: {type: integer}
                   refetch_count: {type: integer}
+                  resubmit_available: {type: boolean, description: Owner may re-submit this terminal non-published submission}
         '401': {$ref: '#/components/responses/unauthorized'}
         '404': {description: Not found or not owned by the caller}
+  /me/submissions/{review_id}/resubmit:
+    post:
+      summary: Owner-scoped resubmit of a terminal non-published submission (§resubmit)
+      description: |
+        Only the verified human submitter of a rejected/failed/expired/cancelled
+        chain may resubmit. A still-pending head returns
+        `resubmit_already_pending` and never creates a second task. An accepted
+        resubmit creates a NEW pending review in the SAME chain (generation+1,
+        supersedes the rejected head) so history is preserved and a rejected
+        resubmission leaves two readable rows.
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                callbackKey: {type: string, maxLength: 200, description: Stable request identity for transport retries}
+      responses:
+        '200':
+          description: Resubmit outcome
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  outcome: {type: string, enum: [resubmit_success, resubmit_already_pending, resubmit_pending, resubmit_failed]}
+                  message: {type: string}
+                  request_id: {type: string}
+                  review_chain_id: {type: string}
+                  current_review_id: {type: integer}
+                  generation: {type: integer}
+                  new_review_id: {type: [integer, 'null']}
+        '401': {$ref: '#/components/responses/unauthorized'}
+        '404': {description: Not found or not owned by the caller}
+        '409': {description: Business state refused (resubmit_published / resubmit_state_error)}
+        '502': {description: System failure; resubmit_failed}
   /schedule/outcomes:
     post:
       summary: PixivFlow reports a TERMINAL schedule occurrence verdict

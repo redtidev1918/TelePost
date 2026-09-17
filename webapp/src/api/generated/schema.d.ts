@@ -770,6 +770,8 @@ export interface paths {
                             updated_at?: number;
                             generation?: number;
                             refetch_count?: number;
+                            /** @description Owner may re-submit this terminal non-published submission */
+                            resubmit_available?: boolean;
                         };
                     };
                 };
@@ -785,6 +787,90 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/submissions/{review_id}/resubmit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Owner-scoped resubmit of a terminal non-published submission (§resubmit)
+         * @description Only the verified human submitter of a rejected/failed/expired/cancelled
+         *     chain may resubmit. A still-pending head returns
+         *     `resubmit_already_pending` and never creates a second task. An accepted
+         *     resubmit creates a NEW pending review in the SAME chain (generation+1,
+         *     supersedes the rejected head) so history is preserved and a rejected
+         *     resubmission leaves two readable rows.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    review_id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @description Stable request identity for transport retries */
+                        callbackKey?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Resubmit outcome */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            outcome?: "resubmit_success" | "resubmit_already_pending" | "resubmit_pending" | "resubmit_failed";
+                            message?: string;
+                            request_id?: string;
+                            review_chain_id?: string;
+                            current_review_id?: number;
+                            generation?: number;
+                            new_review_id?: number | null;
+                        };
+                    };
+                };
+                401: components["responses"]["unauthorized"];
+                /** @description Not found or not owned by the caller */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Business state refused (resubmit_published / resubmit_state_error) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description System failure; resubmit_failed */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;

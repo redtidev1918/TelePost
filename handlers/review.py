@@ -288,6 +288,7 @@ async def queue_review_from_file_ids(
     refetch_request_id="", submitter_user_id=None, submitter_username="",
     submitter_display_name="",
     actor_kind="user", actor_subject="",
+    review_chain_id="", generation=0, supersedes_review_id=None,
 ) -> dict:
     """Stage a file_id submission and create a durable pending review."""
     key = normalize_idempotency_key(user_id, idempotency_key, source)
@@ -302,6 +303,8 @@ async def queue_review_from_file_ids(
         submitter_username=submitter_username,
         submitter_display_name=submitter_display_name,
         actor_kind=actor_kind, actor_subject=actor_subject,
+        review_chain_id=review_chain_id, generation=generation,
+        supersedes_review_id=supersedes_review_id,
     )
     return await queue_service.enqueue(
         command, _stager(bot), media=media, documents=documents
