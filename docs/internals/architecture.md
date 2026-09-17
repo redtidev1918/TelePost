@@ -113,6 +113,34 @@ Final Publication Snapshot
 
 
 
+## Rich Novel 富媒体预览（PixivFlow → TelePress → Telegraph）
+
+生产富媒体小说链路使用独立 TelePress 服务（app `telepress-publish`），经由 HTTP
+`/publish/rich-novel` 接收 PixivFlow 生成的 `md` + `images`，上传 Catbox，渲染
+Telegraph，返回 `novel_preview_url`：
+
+```text
+PixivFlow Novel Artifact (txt / md / images / zip)
+        │
+        ▼
+TelePress /publish/rich-novel → Catbox → Telegraph
+        │
+        ▼
+novel_preview_url
+        │
+        ▼
+TelePost channel caption  →  📖 在线阅读
+```
+
+- `build_caption` 是 SSOT：凡 publication 数据携带可用于导航的 `novel_preview_url`
+  （无论来自上游 PixivFlow 字段还是本侧 TelePress enrichment），频道 footer 就会
+  显示「📖 在线阅读」，且只出现一次。
+- 富媒体正文与插图顺序由 TelePress/Telegraph 负责；TelePost 不解析 Pixiv Novel
+  结构，仍然以 TXT/ZIP document 作为权威下载 artifact。
+- 可选的 TelePost 本地 TXT 预览（`NOVEL_PREVIEW_ENABLED`）走 `telepress` Python
+  库，与上面这条 HTTP 富媒体链路是两个独立入口，共享同一个 `novel_preview_url`
+  展示契约。
+
 当前**不拆**。投递核心确实已 PTB-free（domain/planner/executor），但：
 
 1. 仓库内只有 TelePost 一个真实消费者，YAGNI；

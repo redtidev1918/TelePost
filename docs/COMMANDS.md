@@ -65,7 +65,8 @@
 | `/botconfig channel @频道或-100ID` | 修改投稿频道 |
 | `/botconfig review here` | 把当前群设为审核群 |
 | `/botconfig review -100ID` | 按 ID 设置审核群 |
-| `/botconfig api_review on\|off` | API 审核开关 |
+| `/botconfig api_review on\|off` | API 审核开关（仅兼容保留；API 投稿固定进入审核） |
+| `/botconfig miniapp_review on\|off` | Mini App 审核开关 |
 | `/botconfig chat_review on\|off` | 聊天审核开关 |
 | `/botconfig show_submitter on\|off` | 频道署名开关 |
 | `/botconfig reset` | 删除运行时覆盖，恢复部署配置 |

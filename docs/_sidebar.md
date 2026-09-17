@@ -18,4 +18,5 @@
   - [测试指南](/TESTING.md)
   - [运行时架构](/internals/architecture.md)
   - [投稿状态机](/internals/submission-flow.md)
+  - [管理控制面与治理](/internals/admin-control-plane.md)
   - [删帖与软删除](/internals/moderation.md)

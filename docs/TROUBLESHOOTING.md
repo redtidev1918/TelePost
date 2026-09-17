@@ -96,6 +96,20 @@ Machine；同一 Token 不能同时 Polling，也不能同时使用 Polling 与 
   - 持续失败按「未关联讨论组 / Bot 不在讨论组 / Bot 非管理员」排查：Bot 必须在
     频道的关联讨论组里且可发消息；该模式仅 Webhook 可用（Polling 拿不到自动转发）。
 
+## 「恢复请求失败」/「放宽条件重试」失败
+
+恢复与重抓的错误不再只显示「恢复请求失败」。按钮被拒时审核群消息应包含
+`code` / `stage` / `retryable` / 原因提示。如果仍然只见笼统失败信息，按顺序排查：
+
+1. TelePost 容器内确认 `PIXIVFLOW_REFETCH_BASE_URL` 与 `PIXIVFLOW_REFETCH_TOKEN`
+   都已设置，且 token 是纯值（不要把 `apikey=` 前缀裹进值里）。
+2. 在 TelePost 容器里执行一次受认证的探测：
+   `GET {base}/internal/targets/<target>/recover/<fake-uuid>`。
+   返回「manual recovery not found」（HTTP 404）说明认证与路由正常；401/403 说明
+   token/secret 不一致，超时说明 base URL 不可达。
+3. 若错误码是 `recovery_already_running`，说明同一 target 已有活动恢复，等待
+   `REFETCH_HARD_TIMEOUT_MINUTES` 后重试，不要重复点击造并行任务。
+
 ## 搜索与统计
 
 - 搜索为空：确认 `SEARCH_ENABLED=true`，再运行 `python -m utils.index_manager status`。
