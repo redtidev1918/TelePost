@@ -116,6 +116,12 @@ class QueueCommand:
     submitter_display_name: str = ""
     actor_kind: str = "user"  # 'user' | 'service'
     actor_subject: str = ""
+    # Submission resubmit lineage (§resubmit). Mirrors the refetch replacement
+    # columns so a rejected→resubmit new review stays in the SAME logical chain
+    # instead of starting an unrelated submission. NULL/0 for originals.
+    review_chain_id: str = ""
+    generation: int = 0
+    supersedes_review_id: Optional[int] = None
 
 
 class StagingPort(Protocol):
@@ -464,6 +470,9 @@ class ReviewQueueService:
             work_type=command.work_type,
             delivery_target=command.target_id,
             status="preparing",
+            review_chain_id=command.review_chain_id,
+            generation=int(command.generation or 0),
+            supersedes_review_id=command.supersedes_review_id,
             refetch_request_id=command.refetch_request_id,
             submitter_user_id=command.submitter_user_id,
             submitter_username=command.submitter_username,
