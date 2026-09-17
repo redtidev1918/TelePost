@@ -10,6 +10,12 @@
 
 ---
 
+## [2.35.0](https://github.com/redtidev1918/TelePost/compare/v2.34.0...v2.35.0) (2026-09-18)
+
+
+### Features
+
+* 投稿审核按来源可信度决定：API 自动化投稿固定进入审核；Mini App 由独立的 MINIAPP_REVIEW_REQUIRED 控制；聊天直发维持默认直接发布。审核通知与审核策略分离，所有来源都进入管理员通知 ([#148](https://github.com/redtidev1918/TelePost/issues/148))
 
 ## [2.34.0](https://github.com/redtidev1918/TelePost/compare/v2.33.0...v2.34.0) (2026-09-18)
 
