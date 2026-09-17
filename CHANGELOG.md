@@ -11,6 +11,13 @@
 ---
 
 
+## [2.34.0](https://github.com/redtidev1918/TelePost/compare/v2.33.0...v2.34.0) (2026-09-18)
+
+
+### Features
+
+* 管理员控制面：统一投稿通知（来源 / 投稿人 / 状态 / 链接）、快速封禁用户与禁用 API、恢复失败结构化提示；治理基于 actor identity，不依赖审核记录 ([#146](https://github.com/redtidev1918/TelePost/issues/146))
+
 ## [2.33.0](https://github.com/redtidev1918/TelePost/compare/v2.32.0...v2.33.0) (2026-09-17)
 
 
