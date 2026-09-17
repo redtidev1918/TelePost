@@ -45,11 +45,21 @@ class RecoveryError(Exception):
     """Base class for recovery admission failures (user-safe message)."""
 
     code = "recovery_error"
+    stage = "recovery_request"
+    retryable = True
+    hint = ""
 
-    def __init__(self, message: str, *, code: str = None):
+    def __init__(self, message: str, *, code: str = None, stage: str = None,
+                 retryable: bool = None, hint: str = None):
         super().__init__(message)
         if code is not None:
             self.code = code
+        if stage is not None:
+            self.stage = stage
+        if retryable is not None:
+            self.retryable = bool(retryable)
+        if hint is not None:
+            self.hint = hint
 
 
 class RecoveryNotConfiguredError(RecoveryError):
@@ -183,7 +193,8 @@ async def request_target_recovery(
             "schedule_id": schedule_id,
         }
     except Exception as exc:
-        code = _classify_recovery_error(exc)
+        failure = _classify_recovery_error(exc)
+        code = failure["code"]
         async with db_manager.get_db() as conn:
             from telepost.storage.sqlite.recovery import RecoveryRepository
             repo = RecoveryRepository(conn)
@@ -196,7 +207,13 @@ async def request_target_recovery(
             )
         except Exception:
             pass
-        raise RecoveryError("恢复请求提交失败，请稍后重试", code=code) from exc
+        raise RecoveryError(
+            "恢复请求提交失败，请稍后重试",
+            code=code or failure["code"],
+            stage="recovery_request",
+            retryable=failure["retryable"],
+            hint=failure["hint"],
+        ) from exc
 
 
 def _submit_pixivflow_recover(target_id: str, request_id: str,
@@ -225,15 +242,28 @@ def _submit_pixivflow_recover(target_id: str, request_id: str,
         raise RuntimeError(f"PixivFlow 拒绝恢复（HTTP {error.code}）") from error
 
 
-def _classify_recovery_error(exc: Exception) -> str:
+_FAILURE_META = {
+    "unauthorized": {"retryable": False, "hint": "服务凭据无效，需管理员检查配置后重试"},
+    "not_found": {"retryable": False, "hint": "目标不存在或已被处理，无需重试"},
+    "remote_error": {"retryable": True, "hint": "PixivFlow 服务暂时不可用，稍后重试"},
+    "timeout": {"retryable": True, "hint": "请求超时，稍后重试"},
+    "network_error": {"retryable": True, "hint": "网络连接失败，稍后重试"},
+}
+
+
+def _classify_recovery_error(exc: Exception) -> dict:
     message = str(exc)
     lowered = message.lower()
     if "http 401" in lowered or "http 403" in lowered:
-        return "unauthorized"
-    if "http 404" in lowered:
-        return "not_found"
-    if "http 5" in lowered:
-        return "remote_error"
-    if "timeout" in lowered or "超时" in message:
-        return "timeout"
-    return "network_error"
+        code = "unauthorized"
+    elif "http 404" in lowered:
+        code = "not_found"
+    elif "http 5" in lowered:
+        code = "remote_error"
+    elif "timeout" in lowered or "超时" in message:
+        code = "timeout"
+    else:
+        code = "network_error"
+    meta = _FAILURE_META.get(code, {})
+    return {"code": code, "retryable": bool(meta.get("retryable", True)),
+            "hint": meta.get("hint", "网络或服务异常，稍后重试")}

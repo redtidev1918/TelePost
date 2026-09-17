@@ -115,6 +115,12 @@ class ManagerAcceptanceContext:
     review_id: Optional[int] = None
     publication_id: Optional[int] = None
     link: str = ""
+    source: str = ""
+    review_chat_id: str = ""
+    control_message_id: Optional[int] = None
+    status: str = "pending"
+    actor_kind: str = "user"
+    actor_subject: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -129,9 +135,16 @@ class ManagerNotifyService:
     async def notify_accepted(self, context: ManagerAcceptanceContext) -> bool:
         from config.settings import NOTIFY_OWNER, OWNER_ID
 
-        if not NOTIFY_OWNER or not OWNER_ID or not context.submitter_user_id:
+        if not NOTIFY_OWNER or not OWNER_ID:
             return False
-        if int(context.submitter_user_id) == int(OWNER_ID):
+        # A service/API submission has no human submitter; the API actor
+        # identity still warrants an operator DM (§admin-plane).
+        has_actor = bool(context.submitter_user_id) or bool(
+            context.actor_subject and context.actor_subject != "user:0"
+        )
+        if not has_actor:
+            return False
+        if context.submitter_user_id and int(context.submitter_user_id) == int(OWNER_ID):
             return False
         try:
             return await self._repo.enqueue_manager(
@@ -144,14 +157,36 @@ class ManagerNotifyService:
 
 
 def format_manager_acceptance(payload: Dict[str, Any]) -> tuple[str, Optional[dict]]:
-    """Return plain text plus one intentional explicit-user link entity spec."""
+    """Return plain text plus one intentional explicit-user link entity spec.
+
+    Every source (chat / api / miniapp) is represented by its submitter or its
+    API actor identity, always with a status and review/publication links when
+    they exist. Missing links are shown explicitly rather than silently dropped.
+    """
     anonymous = bool(payload.get("anonymous"))
     review_id = payload.get("review_id")
     link = str(payload.get("link") or "")
-    lines = ["📨 新匿名投稿" if anonymous else "📨 新投稿通知"]
+    source = str(payload.get("source") or "")
+    submitter_uid = payload.get("submitter_user_id") or 0
+    actor_subject = str(payload.get("actor_subject") or "")
+    status = str(payload.get("status") or "pending")
+    statuses = {
+        "pending": "待审核",
+        "pending_review": "待审核",
+        "published": "已发布",
+        "accepted": "已受理",
+        "failed": "失败",
+    }
+    head = "📝 投稿通知"
+    lines = [head]
+    if source:
+        label = "Telegram 私聊" if source in ("chat", "chat_direct") else (
+            "Mini App" if "miniapp" in source else "HTTP API"
+        )
+        lines.append(f"来源：{label}")
     entity = None
-    if not anonymous:
-        uid = int(payload["submitter_user_id"])
+    if not anonymous and submitter_uid:
+        uid = int(submitter_uid)
         username = str(payload.get("submitter_username") or "").strip().lstrip("@")
         display_name = str(payload.get("submitter_display_name") or "").strip()
         label = f"@{username}" if username else (display_name or "Telegram 用户")
@@ -160,10 +195,22 @@ def format_manager_acceptance(payload: Dict[str, Any]) -> tuple[str, Optional[di
         entity = {
             "offset": start, "length": len(label), "url": f"tg://user?id={uid}",
         }
+    elif not anonymous and actor_subject.startswith("api:"):
+        token_id = actor_subject.split(":", 1)[1].strip()
+        lines.append(f"API token：#{token_id}")
+    elif anonymous:
+        lines.append("（匿名投稿）")
+    lines.append(f"状态：{statuses.get(status, status)}")
     if review_id:
-        lines += ["", f"审核稿：#{int(review_id)}"]
+        lines.append(f"审核稿：#{int(review_id)}")
+    review_chat = str(payload.get("review_chat_id") or "").replace("@", "")
+    control_msg = payload.get("control_message_id")
+    if review_chat and control_msg:
+        lines.append(f"🔗 审核：https://t.me/c/{review_chat.replace('-100', '')}/{int(control_msg)}")
+    elif review_id:
+        lines.append("🔗 审核：链接不可用")
     if link:
-        lines += ["", f"查看发布内容：{link}"]
+        lines += ["", f"📂 原投稿：{link}"]
     return "\n".join(lines), entity
 
 
@@ -254,6 +301,25 @@ async def flush_manager_notifications(bot, *, limit: int = 20) -> int:
                 kwargs["entities"] = MessageEntity.adjust_message_entities_to_utf_16(
                     text, entities
                 )
+            # §moderation: governance buttons ride the admin DM itself, so a
+            # chat_direct post (no review card) is still actionable. Button
+            # backends are actor-identity based, never review-scoped.
+            from telegram import InlineKeyboardButton
+            buttons = []
+            if payload.get("submitter_user_id"):
+                buttons.append(InlineKeyboardButton(
+                    "🚫 封禁用户",
+                    callback_data=f"admin_block:user:{int(payload['submitter_user_id'])}",
+                ))
+            actor = str(payload.get("actor_subject") or "")
+            if actor.startswith("api:"):
+                buttons.append(InlineKeyboardButton(
+                    "🔑 禁用API",
+                    callback_data=f"admin_block:api:{actor.split(':', 1)[1].strip()}",
+                ))
+            if buttons:
+                from telegram import InlineKeyboardMarkup
+                kwargs["reply_markup"] = InlineKeyboardMarkup([buttons])
             result = await bot.send_message(**kwargs)
             if await repo.mark_sent(int(row["id"]), int(result.message_id)):
                 sent += 1

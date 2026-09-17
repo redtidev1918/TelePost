@@ -60,7 +60,17 @@ async def schedule_recover(update: Update, context: CallbackContext) -> None:
         await _answer(query, str(exc))
         return
     except RecoveryError as exc:
-        await _answer(query, str(exc))
+        lines = ["❌ 恢复请求失败", "", f"原因：{exc}"]
+        code = getattr(exc, "code", "recovery_error")
+        if code:
+            lines.append(f"错误码：{code}")
+        retryable = getattr(exc, "retryable", None)
+        if isinstance(retryable, bool):
+            lines.append("后续处理：可重试" if retryable else "后续处理：需先人工处理")
+        hint = getattr(exc, "hint", "")
+        if hint:
+            lines.append(f"建议：{hint}")
+        await _answer(query, "\n".join(lines), show_alert=True)
         return
 
     label = MODE_LABEL.get(mode, "重试")

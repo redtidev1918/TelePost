@@ -49,7 +49,8 @@ PAYLOAD = {
          "status": "no_candidate", "work_id": None,
          "error_code": "duplicate_exhausted",
          "terminal_reason_code": "duplicate_exhausted",
-         "reason": "候选作品均已投稿过"},
+         "reason": "候选作品均已投稿过", "stage": "acquisition",
+         "retryable": True, "operator_hint": "可等待新作品或放宽条件重试。"},
         {"target_id": "bot1-novel-botefuku", "work_type": "novel",
          "status": "submitted", "work_id": "29118637"},
     ],
@@ -107,6 +108,8 @@ async def test_partial_notifies_once_and_is_idempotent(monkeypatch, tmp_path):
         # First-level cause in business language (§failure-observability).
         assert "插画：❌ 没找到合适的新作品" in text
         assert "原因：候选作品均已投稿过" in text
+        assert "后续处理：可重试" in text
+        assert "建议：可等待新作品或放宽条件重试。" in text
         assert "小说：✅ 已提交" in text
         # The misleading "recovery exhausted" line is gone: the root cause IS
         # the message now.
