@@ -420,6 +420,13 @@ class ReviewQueueService:
                         submitter_username=command.submitter_username,
                         submitter_display_name=command.submitter_display_name,
                         anonymous=command.anonymous,
+                        link=command.link,
+                        source=command.source,
+                        review_chat_id=command.review_chat_id,
+                        control_message_id=control_id,
+                        status="pending_review",
+                        actor_kind=command.actor_kind,
+                        actor_subject=command.actor_subject,
                     )
                 )
         except Exception as exc:

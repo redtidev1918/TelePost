@@ -586,6 +586,23 @@ async def init_db():
                 'ON audit_events(ts)'
             )
 
+            # Moderation blocks (operator deny list). A block never deletes
+            # history; it only stops NEW submissions from that subject.
+            # subject is the canonical actor identity ('user:<id>' | 'api:<id>').
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS moderation_blocks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    subject TEXT NOT NULL UNIQUE,
+                    reason TEXT NOT NULL DEFAULT '',
+                    created_by INTEGER NOT NULL,
+                    created_at REAL NOT NULL
+                )
+            """)
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_moderation_blocks_subject '
+                'ON moderation_blocks(subject)'
+            )
+
             # published_posts 是频道现状，pending_reviews 是审核审计。频道消息被软删除时
             # 同步把对应审核记录从“曾发布”推进到“已删除”，避免把历史终态误当成
             # 当前仍在线的发布。触发器覆盖项目内所有软删除入口。

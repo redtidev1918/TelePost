@@ -963,6 +963,20 @@ def InputMediaDocumentFactory(file_handle, filename, caption):
 async def publish_submission(update: Update, context: CallbackContext) -> int:
     """聊天会话发布/入审核队列 handler（薄层）。"""
     user_id = update.effective_user.id
+    # §moderation: chat-origin submissions are explicit human submissions. An
+    # operator block stops NEW posts from this user (history is untouched).
+    try:
+        from telepost.storage.sqlite.moderation import (
+            ModerationRepository, user_subject,
+        )
+        if await ModerationRepository().is_blocked(user_subject(user_id)):
+            await update.effective_message.reply_text(
+                "🚫 你的投稿权限已被限制，如有疑问请联系管理员。"
+            )
+            return ConversationHandler.END
+    except Exception as exc:
+        logger.debug("查阅封禁列表失败，按未封禁放行: %s", exc)
+
     publish_success = False
     is_callback = update.callback_query is not None
 
@@ -1192,6 +1206,10 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                     submitter_display_name=caption_data["submitter_display_name"],
                     anonymous=anonymous_flag,
                     link=submission_link,
+                    source="chat_direct",
+                    status="published",
+                    actor_kind="user",
+                    actor_subject=f"user:{int(user_id)}",
                 )
             )
         except Exception:
