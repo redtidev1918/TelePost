@@ -10,6 +10,13 @@
 
 ---
 
+## [2.32.0](https://github.com/redtidev1918/TelePost/compare/v2.31.4...v2.32.0) (2026-09-17)
+
+
+### Features
+
+* **review:** submission resubmit outcome model ([#141](https://github.com/redtidev1918/TelePost/issues/141)) ([533824b](https://github.com/redtidev1918/TelePost/commit/533824b6042c119c3e512e32ad3ed8f8116a5c6a))
+
 ## [2.31.4](https://github.com/redtidev1918/TelePost/compare/v2.31.3...v2.31.4) (2026-09-16)
 
 
