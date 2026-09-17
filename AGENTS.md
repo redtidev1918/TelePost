@@ -32,11 +32,13 @@ HTTP 投稿接口、幂等键、审核队列、批准/驳回、发布与发布�
    成本由 PixivFlow 侧「平时 stopped、按需唤醒」来省。
 2. **不要在同一个容器/机器里再跑一个 PixivFlow。** 那会共用内存、进程生命周期、机器生命周期与
    故障域，是历史混部问题的根源。PixivFlow 现在是部署仓库里的独立 App + 独立卷。
-3. **投稿处置必须显式建模（`SubmissionDisposition`）。** 原生 Telegram Chat 投稿默认
-   `DIRECT_PUBLISH`（直接发布到频道），`CHAT_REVIEW_REQUIRED=true` 才进入审核队列；HTTP API
-   （Mini App / 服务，含 PixivFlow 自动稿）默认 `REVIEW_REQUIRED`（生产
-   `API_REVIEW_REQUIRED=true`）——自动投稿必须进入审核队列、**人工批准后**才发布，不接受自动批准。
-   两个入口默认值可以不同，但共享同一 domain/service；重构任一入口**不得**静默改变另一入口的默认处置。
+3. **投稿处置必须按来源可信度显式建模（`SubmissionDisposition`）。**
+   - Telegram Chat（`chat_direct`）：默认 `DIRECT_PUBLISH`，`CHAT_REVIEW_REQUIRED=true` 才进入审核队列。
+   - HTTP API / 自动化服务（`source=api`，含 PixivFlow 自动稿）：**固定 `REVIEW_REQUIRED`**，
+     必须人工批准后才发布，`API_REVIEW_REQUIRED` 不能关闭 API 审核（仅保留兼容）。
+   - Mini App（`source=miniapp`）：由**独立** `MINIAPP_REVIEW_REQUIRED` 控制，绝不与 API 共用开关。
+   入口共享同一 domain/service（`queue_review_*` / `publish_from_*`）；重构任一入口**不得**静默改变
+   另一入口的默认处置。
 4. **不要删掉 `force_https = false`。** 独立 PixivFlow App 通过 Flycast 私网以明文 HTTP 调用投稿
    接口，`force_https = true` 会把它 301 到 HTTPS 并直接打断投递（Flycast/6PN 本身在 WireGuard 上加密）。
 5. **不要在别处注册/删除 webhook。** webhook 的负责人只有本仓库的 `webhook_server.py`。

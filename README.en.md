@@ -55,7 +55,7 @@ platform-specific setup, and upgrades.
 ## Core capabilities
 
 - **Submission and publishing:** images, video, audio, and files, with preview, editing, tags, anonymity, and spoilers.
-- **Flexible moderation:** choose direct publishing or a private review group independently for Chat and API submissions.
+- **Source-trust-based moderation:** native Chat submissions publish directly by default (opt-in review via `CHAT_REVIEW_REQUIRED`); API/automation submissions always enter the review queue; Mini App review is controlled independently by `MINIAPP_REVIEW_REQUIRED`.
 - **Mini App:** contributors submit and track their own posts; moderators work through the review queue and details.
 - **HTTP API:** Bearer tokens, idempotency keys, uploads, and Telegram `file_id` reuse for scripts and services.
 - **Channel management:** search channel history, tags, personal submissions, and a local hot list, plus admin commands.
@@ -71,7 +71,7 @@ Moderator:   Telegram → Mini App → Review queue / Review details
 
 The Mini App reuses the Bot's identity, submission, and moderation workflow; it is not a second backend.
 Disabling it does not affect chat submissions or the HTTP API. The current Mini App submission UI expects
-the review workflow, so enable it with `API_REVIEW_REQUIRED=true`. See the [Mini App guide](docs/MINIAPP.md)
+the review workflow, so it is enabled by `MINIAPP_REVIEW_REQUIRED=true` (independent of the API flag). See the [Mini App guide](docs/MINIAPP.md)
 for setup, same-origin hosting, and security requirements.
 
 ## HTTP API and automation

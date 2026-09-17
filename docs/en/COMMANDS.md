@@ -60,7 +60,8 @@ Admin.
 | `/botconfig channel @channel or -100ID` | Change the submission channel |
 | `/botconfig review here` | Make the current group the review group |
 | `/botconfig review -100ID` | Set the review group by ID |
-| `/botconfig api_review on\|off` | API review toggle |
+| `/botconfig api_review on\|off` | API review toggle (kept for compatibility; API submissions always enter review) |
+| `/botconfig miniapp_review on\|off` | Mini App review toggle |
 | `/botconfig chat_review on\|off` | Chat review toggle |
 | `/botconfig show_submitter on\|off` | Channel attribution toggle |
 | `/botconfig reset` | Delete runtime overrides and fall back to the deployed configuration |

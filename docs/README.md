@@ -61,6 +61,7 @@ Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](downloa
 | [API](API.md) | HTTP API v1 投稿接口参考 |
 | [TESTING](TESTING.md) | 测试指南 |
 | [submission-flow](internals/submission-flow.md) | 内部设计：聊天投稿状态机 |
+| [admin-control-plane](internals/admin-control-plane.md) | 管理控制面：来源可信度审核、治理名单、错误契约 |
 | [moderation](internals/moderation.md) | 内部设计：删帖与软删除 |
 
 ## 🔗 其他入口
