@@ -160,3 +160,54 @@ async def test_recovery_not_configured_is_a_clear_error(monkeypatch, tmp_path):
     )
     with pytest.raises(RecoveryNotConfiguredError):
         await request_target_recovery("bot1-illust-botefuku", callback_key="cb-x")
+
+async def test_recovery_request_id_is_hyphenated_uuid(monkeypatch, tmp_path,
+                                                      pixivflow_env):
+    """PixivFlow validates the recovery requestId as a hyphenated UUID (regression)."""
+    await _init(monkeypatch, tmp_path)
+    calls = _fake_remote(monkeypatch)
+
+    from telepost.application.recovery import request_target_recovery
+
+    result = await request_target_recovery(
+        "bot1-illust-botefuku", retry_mode="normal", callback_key=f"cb-{uuid.uuid4().hex}")
+    assert result["state"] == "accepted"
+
+    uuid_v4 = uuid.UUID(result["request_id"], version=4)  # raises if not 32-hex/hyphenated
+    assert str(uuid_v4) == result["request_id"]
+    body = calls[0].data.decode()
+    assert f'"requestId": "{result["request_id"]}"' in body
+
+
+async def test_schedule_recover_shows_real_failure_reason(monkeypatch, tmp_path,
+                                                          pixivflow_env):
+    """HTTP 400 from PixivFlow must surface code+stage+hint, not generic '请稍后重试'."""
+    await _init(monkeypatch, tmp_path)
+
+    from urllib.error import HTTPError
+
+    from handlers.recovery import schedule_recover
+
+    def boom(request, timeout=None):
+        from io import BytesIO
+        raise HTTPError("http://pixivflow.invalid/recover", 400, "Bad Request",
+                        {}, BytesIO(b'{"error":"requestId must be a UUID"}'))
+
+    monkeypatch.setattr("telepost.application.recovery.urlopen", boom)
+
+    query = SimpleNamespace(
+        id="cb-recover-error",
+        data="sched_recover|bot1-illust-botefuku|relaxed",
+        answer=AsyncMock(),
+        edit_message_reply_markup=AsyncMock(),
+    )
+    update = SimpleNamespace(callback_query=query)
+    await schedule_recover(update, MagicMock())
+
+    call = query.answer.await_args
+    answer = (call.kwargs.get("text") if call.kwargs else call.args[0])
+    assert call.kwargs.get("show_alert") is True
+    assert "❌ 恢复请求失败" in answer
+    assert "错误码：invalid_request" in answer
+    assert "请求格式或参数被 PixivFlow 拒绝" in answer
+    assert "requestId must be a UUID" in answer
