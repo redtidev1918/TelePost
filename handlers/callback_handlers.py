@@ -16,7 +16,8 @@ from handlers.search_handlers import search_posts_by_tag
 logger = logging.getLogger(__name__)
 
 GLOBAL_CALLBACK_PATTERNS = (
-    r"^review_(?:approve|reject|spoiler|refetch):",
+    r"^review_(?:approve|reject|spoiler|refetch|block_user|block_api):",
+    r"^admin_block:",
     r"^sched_recover\|",
     r"^(?:hot_filter_|hot_limit_|hot_refresh$)",
     r"^(?:search_|tag_search_|time_)",
@@ -73,9 +74,18 @@ async def handle_callback_query(update: Update, context: CallbackContext):
         elif data.startswith("review_refetch:"):
             from handlers.review import refetch_review
             return await refetch_review(update, context)
+        elif data.startswith("review_block_user:"):
+            from handlers.review import block_review_user
+            return await block_review_user(update, context)
+        elif data.startswith("review_block_api:"):
+            from handlers.review import block_review_api
+            return await block_review_api(update, context)
         elif data.startswith("sched_recover|"):
             from handlers.recovery import schedule_recover
             return await schedule_recover(update, context)
+        elif data.startswith("admin_block:"):
+            from handlers.moderation import admin_block
+            return await admin_block(update, context)
 
         # 投稿确认相关（旧流程回调，已由预览面板取代，无调用方）
         # 热门帖子筛选

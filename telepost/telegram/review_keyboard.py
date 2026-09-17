@@ -9,7 +9,9 @@ from ..domain.presentation import submitter_display
 
 def review_keyboard(review_id: int, link: str = "", *,
                     spoiler: bool = False, source: str = "api",
-                    pixiv_id: str = "", failed: bool = False) -> InlineKeyboardMarkup:
+                    pixiv_id: str = "", failed: bool = False,
+                    submitter_user_id=None, actor_kind: str = "user",
+                    actor_subject: str = "") -> InlineKeyboardMarkup:
     approve_label = "🔄 重试发布" if failed else "✅ 发布到频道"
     rows = [[
         InlineKeyboardButton(approve_label, callback_data=f"review_approve:{review_id}"),
@@ -30,6 +32,18 @@ def review_keyboard(review_id: int, link: str = "", *,
         )
     if link:
         rows.append([InlineKeyboardButton("🔗 查看原链接", url=link)])
+    # §moderation: operator governance is a first-class review action. Only
+    # subjects that exist on the card get a button (human submitter and/or
+    # API/service actor); everything that is blocked is recorded who/when/why.
+    mod_row = []
+    if submitter_user_id:
+        mod_row.append(InlineKeyboardButton("🚫 封禁投稿人",
+                                            callback_data=f"review_block_user:{review_id}"))
+    if source == "api" or actor_kind == "service":
+        mod_row.append(InlineKeyboardButton("🔑 禁用API",
+                                            callback_data=f"review_block_api:{review_id}"))
+    if mod_row:
+        rows.append(mod_row)
     # §submission-entrypoint: the public submission CTA (✉️ TG 投稿 / 📱 Mini App)
     # belongs ONLY to final Channel Publication footers, never to Review/staging/
     # moderation messages. Removing it here keeps a single, consistent UI rule.
