@@ -10,6 +10,14 @@
 
 ---
 
+
+## [2.33.0](https://github.com/redtidev1918/TelePost/compare/v2.32.0...v2.33.0) (2026-09-17)
+
+
+### Dependencies
+
+* bump `telepress` 0.6.1 → 0.9.0 (rich novel Telegraph preview: local Catbox image upload + inline Telegraph renderer) ([#144](https://github.com/redtidev1918/TelePost/issues/144)) ([94650f3](https://github.com/redtidev1918/TelePost/commit/94650f36def6e40cff9e819099258e4b7bba3623))
+
 ## [2.32.0](https://github.com/redtidev1918/TelePost/compare/v2.31.4...v2.32.0) (2026-09-17)
 
 
