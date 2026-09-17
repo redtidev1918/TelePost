@@ -215,17 +215,23 @@ async def test_new_intentional_click_after_terminal_creates_new_generation(refet
     context2 = MagicMock(bot=AsyncMock())
     await review.refetch_review(update2, context2)
 
-    async with db_manager.get_db() as conn:
-        cur = await conn.execute(
-            "SELECT * FROM refetch_attempts WHERE source_review_id=? ORDER BY id",
-            (review_id,),
-        )
-        all_rows = list(await cur.fetchall())
+    # Remote submission is admitted in a background task; drain it so the
+    # assertion below is deterministic regardless of scheduler timing.
+    for _ in range(200):
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM refetch_attempts WHERE source_review_id=? ORDER BY id",
+                (review_id,),
+            )
+            all_rows = list(await cur.fetchall())
+        second = all_rows[1]
+        if second["state"] != "requested":
+            break
+        await asyncio.sleep(0.005)
     assert len(all_rows) == 2
-    second = all_rows[1]
     assert second["request_id"] != first["request_id"]
     assert second["generation"] == first["generation"] + 1
-    assert second["state"] == "requested"
+    assert second["state"] == "admitted"
 
 
 @pytest.mark.asyncio
