@@ -255,6 +255,9 @@ class TelegramReviewStager:
                 source=command.source,
                 pixiv_id=(command.pixiv_id
                           or pixiv_id_from_link(command.link or "")),
+                submitter_user_id=command.submitter_user_id,
+                actor_kind=command.actor_kind,
+                actor_subject=command.actor_subject,
             ),
             disable_web_page_preview=True,
             **self._timeouts_now(),

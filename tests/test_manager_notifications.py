@@ -172,7 +172,9 @@ async def test_anonymous_alert_hides_identity_but_keeps_owner(notification_db):
 
     await flush_manager_notifications(bot)
     kwargs = bot.send_message.await_args.kwargs
-    assert kwargs["text"] == "📨 新匿名投稿"
+    assert "📝 投稿通知" in kwargs["text"]
+    assert "（匿名投稿）" in kwargs["text"]
+    assert "状态：待审核" in kwargs["text"]
     assert "entities" not in kwargs
     assert "secret" not in kwargs["text"].lower()
 

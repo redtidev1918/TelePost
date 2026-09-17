@@ -149,12 +149,15 @@ def _stager(bot) -> TelegramReviewStager:
 
 # ---- back-compat UI names -------------------------------------------------
 def _review_keyboard(review_id, link="", *, spoiler=False, source="api",
-                     pixiv_id="", failed=False):
+                     pixiv_id="", failed=False, submitter_user_id=None,
+                     actor_kind="user", actor_subject=""):
     # §submission-entrypoint: review/staging cards never expose the public
     # submission acquisition CTA (it belongs only to final Channel Publications).
     return review_keyboard.review_keyboard(
         review_id, link, spoiler=spoiler, source=source,
         pixiv_id=pixiv_id, failed=failed,
+        submitter_user_id=submitter_user_id, actor_kind=actor_kind,
+        actor_subject=actor_subject,
     )
 
 
@@ -602,6 +605,18 @@ async def _load_review_for_action(query, review_id):
     return await review_service.get_row(review_id)
 
 
+def _row_value(row, key, default=None):
+    """Read a column from either sqlite3.Row or plain dict."""
+    try:
+        if key in row.keys():
+            return row[key]
+    except (AttributeError, TypeError):
+        pass
+    if isinstance(row, dict):
+        return row.get(key, default)
+    return default
+
+
 # ---- callback handlers ----------------------------------------------------
 async def _answer(query, text=None, **kwargs):
     try:
@@ -642,6 +657,9 @@ async def toggle_review_spoiler(update, context):
                 review_id, row["link"], spoiler=new_spoiler,
                 source=row["source"],
                 pixiv_id=_pixiv_id_from_link(row["link"] or ""),
+                submitter_user_id=_row_value(row, "submitter_user_id"),
+                actor_kind=_row_value(row, "actor_kind") or "user",
+                actor_subject=_row_value(row, "actor_subject") or "",
             )
         )
     except Exception:
@@ -864,6 +882,9 @@ async def approve_review(update, context):
                 spoiler=bool(row["spoiler"]), source=row["source"],
                 pixiv_id=_pixiv_id_from_link(row["link"] or ""),
                 failed=True,
+                submitter_user_id=_row_value(row, "submitter_user_id"),
+                actor_kind=_row_value(row, "actor_kind") or "user",
+                actor_subject=_row_value(row, "actor_subject") or "",
             ),
         )
         return
@@ -899,3 +920,84 @@ async def reject_review(update, context):
         return
 
     await query.edit_message_text(f"❌ 审核 #{review_id} 已拒绝")
+
+
+async def block_review_user(update, context):
+    """🚫 封禁投稿人 — insert a moderation block for a review's human submitter."""
+    query = update.callback_query
+    if update.effective_user.id not in ADMIN_IDS:
+        await _answer(query, "你没有审核权限", show_alert=True)
+        return
+    try:
+        review_id = int(query.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await _answer(query, "无效的审核记录", show_alert=True)
+        return
+    row = await _load_review_for_action(query, review_id)
+    if row is None:
+        await _answer(query, "审核记录不存在", show_alert=True)
+        return
+    from telepost.storage.sqlite.moderation import ModerationRepository, user_subject
+    subject = user_subject(
+        _row_value(row, "submitter_user_id") or _row_value(row, "user_id")
+        or 0
+    )
+    if subject == "user:0":
+        await _answer(query, "该投稿没有可封禁的投稿人", show_alert=True)
+        return
+    from telepost.observability import audit
+    await ModerationRepository().add_block(
+        subject, reason="admin block from review card", created_by=update.effective_user.id
+    )
+    await audit.record_event(
+        "moderation.user_blocked", review_id=review_id,
+        actor=update.effective_user.id,
+        detail={"subject": subject, "reason": "review card"},
+    )
+    await _answer(query, "已封禁该投稿人：后续投稿将被自动拒绝")
+    try:
+        await query.edit_message_text(
+            f"{query.message.text}\n\n🚫 投稿人封禁已由管理员 {update.effective_user.id} 记录"
+        )
+    except Exception as exc:
+        logger.debug("封禁后更新审核卡失败: %s", exc)
+
+
+async def block_review_api(update, context):
+    """🔑 禁用API — insert a moderation block for the review's API token actor."""
+    query = update.callback_query
+    if update.effective_user.id not in ADMIN_IDS:
+        await _answer(query, "你没有审核权限", show_alert=True)
+        return
+    try:
+        review_id = int(query.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await _answer(query, "无效的审核记录", show_alert=True)
+        return
+    row = await _load_review_for_action(query, review_id)
+    if row is None:
+        await _answer(query, "审核记录不存在", show_alert=True)
+        return
+    actor_subject = str(_row_value(row, "actor_subject") or "")
+    from telepost.storage.sqlite.moderation import ModerationRepository
+    from telepost.storage.sqlite.moderation import canonical_actor_subject
+    subject = canonical_actor_subject(actor_subject)
+    if not subject or not subject.startswith("api:"):
+        await _answer(query, "该投稿来自私聊/MiniApp，不是API来源", show_alert=True)
+        return
+    from telepost.observability import audit
+    await ModerationRepository().add_block(
+        subject, reason="admin block from review card", created_by=update.effective_user.id
+    )
+    await audit.record_event(
+        "moderation.api_blocked", review_id=review_id,
+        actor=update.effective_user.id,
+        detail={"subject": subject, "reason": "review card"},
+    )
+    await _answer(query, "已禁用该API token：后续将停止接受其自动投稿")
+    try:
+        await query.edit_message_text(
+            f"{query.message.text}\n\n🔑 API token 禁用已由管理员 {update.effective_user.id} 记录"
+        )
+    except Exception as exc:
+        logger.debug("禁用API后更新审核卡失败: %s", exc)

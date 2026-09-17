@@ -316,6 +316,18 @@ def _terminal_reason_line(target: dict) -> str:
     return f"原因：{safe[:80]}"
 
 
+def _operational_guidance_lines(target: dict) -> list[str]:
+    """Render safe recovery guidance supplied by PixivFlow's result contract."""
+    lines = []
+    retryable = target.get("retryable")
+    if isinstance(retryable, bool):
+        lines.append("后续处理：可重试" if retryable else "后续处理：需先人工处理")
+    hint = target.get("operator_hint")
+    if isinstance(hint, str) and hint.strip():
+        lines.append(f"建议：{hint.strip().replace(chr(10), ' ')[:120]}")
+    return lines
+
+
 def build_schedule_outcome_text(schedule_id: str, status: str,
                                 targets: list, duration_ms=None,
                                 recovery: dict = None) -> str:
@@ -359,6 +371,7 @@ def build_schedule_outcome_text(schedule_id: str, status: str,
             reason_line = _terminal_reason_line(item)
             if reason_line:
                 lines.append(reason_line)
+            lines.extend(_operational_guidance_lines(item))
         return "\n".join(lines)
 
     emoji, verb = _OVERALL.get(status, ("ℹ️", "结束"))
@@ -375,6 +388,7 @@ def build_schedule_outcome_text(schedule_id: str, status: str,
             reason_line = _terminal_reason_line(item)
             if reason_line:
                 lines.append(reason_line)
+            lines.extend(_operational_guidance_lines(item))
     return "\n".join(lines)
 
 
@@ -628,17 +642,18 @@ def detect_kind(filename: str, content_type: str) -> str:
 async def _maybe_notify_direct_human(result: dict, submitter_user_id,
                                      submitter_username: str,
                                      submitter_display_name: str,
-                                     anonymous: bool, source: str) -> None:
+                                     anonymous: bool, source: str,
+                                     actor_kind: str = "service",
+                                     actor_subject: str = "") -> None:
     """UNIFIED publication-success hook for DIRECT_PUBLISH API submissions
     (§notify-submitter). Only after a CONFIRMED channel publish; service rows
-    (submitter NULL) skip; replays never re-notify."""
+    (submitter NULL) still produce an OPERATOR DM keyed by API identity;
+    replays never re-notify."""
     from telepost.application.submitter_notify import (
         ManagerAcceptanceContext, ManagerNotifyService,
         PublicationContext, SubmitterNotifyService,
     )
 
-    if not submitter_user_id:
-        return
     if result.get("reused") or str(result.get("status") or "") != "published":
         return
     message_id = result.get("message_id") or result.get("published_message_id")
@@ -651,23 +666,28 @@ async def _maybe_notify_direct_human(result: dict, submitter_user_id,
             link = _legacy_link(int(message_id))
         except Exception:
             pass
-        context = PublicationContext(
-            source=source,
-            publication_id=int(message_id),
-            submitter_user_id=int(submitter_user_id),
-            anonymous=bool(anonymous),
-            link=link,
-        )
-        await SubmitterNotifyService().notify_published(context)
+        if submitter_user_id:
+            context = PublicationContext(
+                source=source,
+                publication_id=int(message_id),
+                submitter_user_id=int(submitter_user_id),
+                anonymous=bool(anonymous),
+                link=link,
+            )
+            await SubmitterNotifyService().notify_published(context)
         await ManagerNotifyService().notify_accepted(
             ManagerAcceptanceContext(
                 logical_submission_id=f"publication:{int(message_id)}",
                 publication_id=int(message_id),
-                submitter_user_id=int(submitter_user_id),
+                submitter_user_id=int(submitter_user_id or 0),
                 submitter_username=submitter_username,
                 submitter_display_name=submitter_display_name,
                 anonymous=bool(anonymous),
                 link=link,
+                source=source,
+                status="published",
+                actor_kind=actor_kind,
+                actor_subject=actor_subject,
             )
         )
     except Exception as exc:
@@ -1155,6 +1175,27 @@ def add_api_routes(web_app, application) -> None:
             )
         actor_kind = principal_kind
 
+        # §moderation: an operator deny-list may stop a user or an API token
+        # from creating NEW submissions. History stays intact; only entry is
+        # rejected up front (before rate limiting / staging), with a clear code
+        # so the client can distinguish policy from transport failures.
+        try:
+            from telepost.storage.sqlite.moderation import (
+                ModerationRepository, canonical_actor_subject, user_subject,
+            )
+            repo = ModerationRepository()
+            actor_block = actor_subject and await repo.is_blocked(actor_subject)
+            submitter_block = (submitter_user_id
+                               and await repo.is_blocked(user_subject(submitter_user_id)))
+            if actor_block or submitter_block:
+                await _audit_submission(
+                    "submission.blocked", user_id=user_id,
+                    actor_kind=actor_kind, actor_subject=actor_subject,
+                )
+                return _error(403, "blocked", "你的投稿权限已被限制，如有疑问请联系管理员")
+        except Exception as exc:
+            logger.debug("查阅封禁列表失败，按未封禁放行: %s", exc)
+
         # 限频
         used = _rate_cache.get(f"api:{user_id}") or 0
         if SUBMIT_LIMIT_PER_HOUR > 0 and used >= SUBMIT_LIMIT_PER_HOUR:
@@ -1273,6 +1314,7 @@ def add_api_routes(web_app, application) -> None:
                     common.get("submitter_username", ""),
                     common.get("submitter_display_name", ""),
                     bool(common.get("anonymous")), "api_direct",
+                    actor_kind=actor_kind, actor_subject=actor_subject,
                 )
             return _business_ack(result)
 
@@ -1431,6 +1473,7 @@ def add_api_routes(web_app, application) -> None:
                 common.get("submitter_username", ""),
                 common.get("submitter_display_name", ""),
                 bool(common.get("anonymous")), "api_direct",
+                actor_kind=actor_kind, actor_subject=actor_subject,
             )
         return _business_ack(result)
 
