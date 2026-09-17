@@ -1,8 +1,9 @@
+import React from 'react';
 import { useBotNavigate } from '../../lib/useBotNavigate';
 import { Button, Cell, Section } from '@telegram-apps/telegram-ui';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
-import { fetchMySubmission, LogicalSubmissionDetail } from '../../api/me';
+import { fetchMySubmission, LogicalSubmissionDetail, resubmitSubmission } from '../../api/me';
 import { fetchEditorialHistory } from '../../api/reviews';
 import { SubmissionMedia } from '../../components/SubmissionMedia';
 import { useBackButton } from '../../lib/useBackButton';
@@ -26,9 +27,21 @@ export function SubmissionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useBotNavigate();
   useBackButton('/mine');
+  const qc = useQueryClient();
+  const [resubmitResult, setResubmitResult] = React.useState<string | null>(null);
   const submission = useQuery({
     queryKey: ['my-submission', id],
     queryFn: () => fetchMySubmission(id!),
+  });
+  const resubmit = useMutation({
+    mutationFn: () => resubmitSubmission(id!),
+    onSuccess: (result) => {
+      setResubmitResult(result.message);
+      void qc.invalidateQueries({ queryKey: ['my-submission', id] });
+    },
+    onError: (error: unknown) => {
+      setResubmitResult((error as Error).message || '重新提交失败，请稍后重试。');
+    },
   });
   // Publication + editorial context for the owner (§47): the SERVER decides
   // whether publication was preceded by an edit; the UI only renders it.
@@ -95,6 +108,23 @@ export function SubmissionDetailPage() {
           </Cell>
         )}
       </Section>
+      {item.resubmit_available && (
+        <div style={{ padding: '0 16px 12px' }}>
+          <Button
+            stretched
+            disabled={resubmit.isPending}
+            data-testid="resubmit-button"
+            onClick={() => resubmit.mutate()}
+          >
+            {resubmit.isPending ? '重投中…' : '重投'}
+          </Button>
+          {resubmitResult && (
+            <Cell subtitle={resubmitResult} data-testid="resubmit-result">
+              重投结果
+            </Cell>
+          )}
+        </div>
+      )}
       {history.data && history.data.revisions.length > 0 && (
         <div style={{ padding: '0 16px 12px' }}>
           <Button

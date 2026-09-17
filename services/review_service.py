@@ -737,9 +737,13 @@ class ReviewService:
                 target_id = _row_value(row, "submitter_user_id")
             if target_id:
                 try:
+                    resubmitted = bool(_row_value(row, "generation") or 0) and                         bool(_row_value(row, "supersedes_review_id"))
+                    text = ("❌ 重新提交的作品审核未通过。如需了解原因，请联系频道管理员。"
+                            if resubmitted
+                            else "❌ 你的投稿未通过审核。如需了解原因，请联系频道管理员。")
                     await bot.send_message(
                         chat_id=target_id,
-                        text="❌ 你的投稿未通过审核。如需了解原因，请联系频道管理员。",
+                        text=text,
                     )
                 except Exception:
                     logger.warning("通知投稿人拒绝结果失败: review_id=%s",
