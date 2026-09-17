@@ -135,7 +135,7 @@ curl -X POST 'https://example.com/api/bot1/v1/notifications' \
 
 ## 响应
 
-### 直发模式（`API_REVIEW_REQUIRED=false`）
+### 直发模式（仅 Mini App 在 `MINIAPP_REVIEW_REQUIRED=false` 时；API token 固定进入审核）
 
 首次发布成功（HTTP 200）：
 
@@ -176,7 +176,7 @@ curl -X POST 'https://example.com/api/bot1/v1/notifications' \
 | `idempotent_replay` | 同一个 `idempotency_key` 的重试（典型：ACK 丢失）。返回的 `message_id` 就是第一次发布的那条，频道里只有一条消息。 |
 | `duplicate_existing` | `idempotency_key` 不同（新的 slot/触发），但同一作品（target+type+pixiv_id）在去重窗口内已由**另一次意图**发布过。不创建新消息，`matched_idempotency_key` 指向先发布的那条。 |
 
-### 审核模式（`API_REVIEW_REQUIRED=true`）
+### 审核模式（API token 固定；Mini App 在 `MINIAPP_REVIEW_REQUIRED=true`）
 
 成功响应为 `201`，`status` 是 `pending_review`，并包含 `review_id` 和 `reused`。
 `reused=true` 时同样带 `reuse_reason`（`idempotent_replay` / `duplicate_existing`）

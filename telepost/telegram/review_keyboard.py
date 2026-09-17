@@ -51,6 +51,8 @@ def review_keyboard(review_id: int, link: str = "", *,
 
 
 def source_label(source: str) -> str:
+    if source == "miniapp":
+        return "Mini App"
     return "Telegram 聊天" if source == "chat" else "HTTP API"
 
 
