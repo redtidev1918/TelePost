@@ -73,16 +73,16 @@
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `API_REVIEW_REQUIRED` | `true` | HTTP API / Mini App 投稿默认进入审核群；仅明确需要服务直发时设为 `false` |
+| `API_REVIEW_REQUIRED` | `true`（保留兼容） | 自动化 API（service token）投稿：**固定进入审核**，该开关不再关闭 API 的审核 |
+| `MINIAPP_REVIEW_REQUIRED` | `true` | Mini App 真人投稿是否进入审核群（独立于 API 开关） |
 | `CHAT_REVIEW_REQUIRED` | `false` | Telegram 聊天投稿进入审核群 |
 | `REVIEW_CHAT_ID` | 空 | 任一审核开关启用时必填，且不能等于频道 |
 
-**默认处置不变量（`SubmissionDisposition`）**：原生 Telegram Chat 投稿默认直接发布到频道
-（`CHAT_REVIEW_REQUIRED=false`）；进入审核是可配置策略，不是默认。HTTP API 的内置默认值同样为
-`true`；只有明确需要 HTTP/API 直发时才设置 `API_REVIEW_REQUIRED=false`。
-两个入口配置相互独立，但共享同一 domain/service（`QueueCommand → ReviewQueueService`）；重构任一入口
-不得静默改变另一入口的处置。预览/确认按钮与文案必须反映实际处置（“提交审核” / “确认发布”），
-不得统一为“投稿成功”。
+**默认处置不变量（`SubmissionDisposition`）**：按**来源可信度**决定，而非入口形式：
+API（自动化）固定进入审核；Mini App 由 `MINIAPP_REVIEW_REQUIRED` 独立控制（默认 true）；
+原生 Telegram Chat 默认直接发布到频道（`CHAT_REVIEW_REQUIRED=false`）。
+三者共享同一 domain/service（`QueueCommand → ReviewQueueService`）；每次路由都必须基于该来源
+的处置，不得把 Mini App 与 API 绑定到同一开关。
 | `REVIEW_ALBUM_SIZE` | `5` | 审核预览每组 1–10 个 |
 | `REVIEW_PREVIEW_INTERVAL_SECONDS` | `0.75` | 预览组之间的节流间隔 |
 | `REVIEW_PREVIEW_TIMEOUT_SECONDS` | `120` | 单次审核预览 Telegram I/O 超时 |

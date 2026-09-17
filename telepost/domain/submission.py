@@ -22,17 +22,39 @@ class SubmissionSource(str, Enum):
 class SubmissionDisposition(str, Enum):
     """How a submission is routed to its final target (§submission-disposition).
 
-    Chat submissions default to DIRECT_PUBLISH: native Telegram chat flow is
-    "发布到频道". Review routing is an explicit, configurable policy
-    (CHAT_REVIEW_REQUIRED). Mini App / API submissions default to
-    REVIEW_REQUIRED in production (API_REVIEW_REQUIRED=true). The two entry
-    points share one domain/service but MAY have different defaults — they are
-    not bound to each other, and refactoring one must never silently change the
-    other's default.
+    Admission is decided by SOURCE TRUST, not by the entry form:
+    * ``api``     — automated/third-party entry: ALWAYS REVIEW_REQUIRED.
+    * ``miniapp`` — verified human Mini App session: configured via
+      MINIAPP_REVIEW_REQUIRED (default true, preserving current production
+      behavior); never shares a switch with the API path.
+    * ``chat`` / ``chat_direct`` — native Telegram chat: DIRECT_PUBLISH unless
+      CHAT_REVIEW_REQUIRED=true.
     """
 
     DIRECT_PUBLISH = "direct_publish"
     REVIEW_REQUIRED = "review_required"
+
+
+def entry_disposition(source: str) -> SubmissionDisposition:
+    """Admission policy → decision. Source trust decides the flow.
+
+    The API entry point may pass the concrete entry source (``api`` for service
+    API tokens, ``miniapp`` for verified Mini App sessions); anything else falls
+    back to the native chat disposition.
+    """
+    source = (source or "").strip().lower()
+    if source in ("api", "api_direct"):
+        # Automated/third-party: always gated by human review.
+        return SubmissionDisposition.REVIEW_REQUIRED
+    if source == "miniapp":
+        from config.settings import MINIAPP_REVIEW_REQUIRED
+
+        return (
+            SubmissionDisposition.REVIEW_REQUIRED
+            if MINIAPP_REVIEW_REQUIRED
+            else SubmissionDisposition.DIRECT_PUBLISH
+        )
+    return chat_disposition()
 
 
 def chat_disposition() -> SubmissionDisposition:
@@ -47,19 +69,14 @@ def chat_disposition() -> SubmissionDisposition:
     )
 
 
+def miniapp_disposition() -> SubmissionDisposition:
+    """Verified-human Mini App routing (independent of the API path)."""
+    return entry_disposition("miniapp")
+
+
 def api_disposition() -> SubmissionDisposition:
-    """HTTP API (Mini App / service) routing, driven by API_REVIEW_REQUIRED.
-
-    Production sets API_REVIEW_REQUIRED=true so Mini App and automatic
-    submissions always pass the review queue before reaching the channel.
-    """
-    from config.settings import API_REVIEW_REQUIRED
-
-    return (
-        SubmissionDisposition.REVIEW_REQUIRED
-        if API_REVIEW_REQUIRED
-        else SubmissionDisposition.DIRECT_PUBLISH
-    )
+    """HTTP service/API-token routing: automated sources always go to review."""
+    return SubmissionDisposition.REVIEW_REQUIRED
 
 
 class SubmissionStatus(str, Enum):

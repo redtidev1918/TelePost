@@ -220,7 +220,7 @@ def format_publication_message(payload: Dict[str, Any], include_changes: bool,
     source = str(payload.get("source") or "publication")
     anonymous = bool(payload.get("anonymous"))
 
-    if source in ("chat_direct", "api_direct"):
+    if source in ("chat_direct", "api_direct", "miniapp_direct"):
         head = "✅ 你的投稿已发布"
     elif source == "editorial":
         head = "✅ 你的投稿已发布"

@@ -645,7 +645,6 @@ async def test_submission_api_passes_refetch_request_id(refetch_db, monkeypatch)
         return {"id": 1, "telegram_user_id": 7, "name": "pixivflow"} if bearer else None
 
     monkeypatch.setattr(api_server, "authenticate", _authenticate)
-    monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
     queue_mock = AsyncMock(return_value={"status": "pending_review", "review_id": 42})
     monkeypatch.setattr("handlers.review.queue_review_from_file_ids", queue_mock)
     application = MagicMock()
@@ -696,7 +695,6 @@ async def test_submission_rejects_unresolved_refetch_provenance(refetch_db, monk
         return {"id": 1, "telegram_user_id": 7, "name": "pixivflow"} if bearer else None
 
     monkeypatch.setattr(api_server, "authenticate", _authenticate)
-    monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
     monkeypatch.chdir(tmp_path)
     queue_mock = AsyncMock()
     monkeypatch.setattr("handlers.review.queue_review_from_file_ids", queue_mock)
@@ -987,7 +985,6 @@ async def test_submission_receipt_notifies_group_on_replacement(refetch_db, monk
         return {"id": 1, "telegram_user_id": 7, "name": "pixivflow"} if bearer else None
 
     monkeypatch.setattr(api_server, "authenticate", _authenticate)
-    monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
     monkeypatch.setattr(api_server, "REVIEW_CHAT_ID", -100123)
     source_id = await _insert_review(pixiv_id="111", target_id="target-a")
     attempt, _ = await _attempt(
@@ -1035,7 +1032,6 @@ async def test_submission_receipt_silent_for_active_or_reused(refetch_db, monkey
         return {"id": 1, "telegram_user_id": 7, "name": "pixivflow"} if bearer else None
 
     monkeypatch.setattr(api_server, "authenticate", _authenticate)
-    monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
     monkeypatch.setattr(api_server, "REVIEW_CHAT_ID", -100123)
     source_id = await _insert_review(pixiv_id="111", target_id="target-a")
     attempt, _ = await _attempt(
