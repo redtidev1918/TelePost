@@ -205,6 +205,11 @@ _api_review_required = get_env_or_config(
 )
 API_REVIEW_REQUIRED = str(_api_review_required).lower() in ('true', '1', 'yes')
 
+_miniapp_review_required = get_env_or_config(
+    'MINIAPP_REVIEW_REQUIRED', 'BOT', 'MINIAPP_REVIEW_REQUIRED', fallback='true'
+)
+MINIAPP_REVIEW_REQUIRED = str(_miniapp_review_required).lower() in ('true', '1', 'yes')
+
 _chat_review_required = get_env_or_config(
     'CHAT_REVIEW_REQUIRED', 'BOT', 'CHAT_REVIEW_REQUIRED', fallback='false'
 )
@@ -224,10 +229,10 @@ if not TOKEN:
     raise ValueError("❌ TOKEN 未设置！请在环境变量或 config.ini 中设置")
 if not CHANNEL_ID:
     raise ValueError("❌ CHANNEL_ID 未设置！请在环境变量或 config.ini 中设置")
-if (API_REVIEW_REQUIRED or CHAT_REVIEW_REQUIRED) and not REVIEW_CHAT_ID:
+if (API_REVIEW_REQUIRED or MINIAPP_REVIEW_REQUIRED or CHAT_REVIEW_REQUIRED) and not REVIEW_CHAT_ID:
     raise ValueError(
-        "❌ 已开启 API_REVIEW_REQUIRED 或 CHAT_REVIEW_REQUIRED，"
-        "但 REVIEW_CHAT_ID 未设置"
+        "❌ 已开启 MINIAPP_REVIEW_REQUIRED / API_REVIEW_REQUIRED / "
+        "CHAT_REVIEW_REQUIRED，但 REVIEW_CHAT_ID 未设置"
     )
 
 # 审核群绝不能与投稿频道是同一个会话：否则审核预览相册、控制消息和
@@ -327,6 +332,7 @@ logger.info(f"  - TIMEOUT: {TIMEOUT}")
 logger.info(f"  - OWNER_ID: {OWNER_ID if OWNER_ID else '未设置'}")
 logger.info(f"  - ADMIN_IDS: {ADMIN_IDS if ADMIN_IDS else '未设置'}")
 logger.info(f"  - API_REVIEW_REQUIRED: {API_REVIEW_REQUIRED}")
+logger.info(f"  - MINIAPP_REVIEW_REQUIRED: {MINIAPP_REVIEW_REQUIRED}")
 logger.info(f"  - CHAT_REVIEW_REQUIRED: {CHAT_REVIEW_REQUIRED}")
 logger.info(f"  - REVIEW_CHAT_ID: {REVIEW_CHAT_ID if REVIEW_CHAT_ID else '未设置'}")
 logger.info(f"  - CHANNEL_FOOTER_LINK: {CHANNEL_FOOTER_LINK if CHANNEL_FOOTER_LINK else '未设置（不追加 footer）'}")

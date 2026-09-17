@@ -246,7 +246,6 @@ async def test_service_body_cannot_spoof_submitter(tmp_path, monkeypatch):
                 "media_count": 1, "document_count": 0, "reused": False}
 
     monkeypatch.setattr("handlers.review.queue_review_from_file_ids", fake_queue)
-    monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
 
     principal = {
         "kind": "service", "telegram_user_id": 5073758941,

@@ -19,10 +19,10 @@ import signal
 from typing import Any, Dict, List, Optional
 
 from config.settings import (
-    API_REVIEW_REQUIRED,
     CHANNEL_ID,
     CHAT_REVIEW_REQUIRED,
     DB_PATH,
+    MINIAPP_REVIEW_REQUIRED,
     REVIEW_CHAT_ID,
     SHOW_SUBMITTER,
 )
@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 # a Bot-side operation because they need Telegram membership verification.
 TOGGLE_KEYS = {
     "api_review": "API_REVIEW_REQUIRED",
+    "miniapp_review": "MINIAPP_REVIEW_REQUIRED",
     "chat_review": "CHAT_REVIEW_REQUIRED",
     "show_submitter": "SHOW_SUBMITTER",
 }
@@ -83,7 +84,8 @@ def current_policy() -> Dict[str, Any]:
     """Effective policy (deployment defaults + durable runtime overrides)."""
     overrides = load_runtime_policy(_policy_path())
     return {
-        "api_review_required": API_REVIEW_REQUIRED,
+        "api_review_required": True,
+        "miniapp_review_required": MINIAPP_REVIEW_REQUIRED,
         "chat_review_required": CHAT_REVIEW_REQUIRED,
         "show_submitter": SHOW_SUBMITTER,
         "overrides": sorted(overrides.keys()),
@@ -115,7 +117,7 @@ async def update_policy(changes: Dict[str, str], *, actor: str,
     effective_chat = REVIEW_CHAT_ID
     if not effective_chat and any(
         rendered.get(key) == "true"
-        for key in ("API_REVIEW_REQUIRED", "CHAT_REVIEW_REQUIRED")
+        for key in ("API_REVIEW_REQUIRED", "MINIAPP_REVIEW_REQUIRED", "CHAT_REVIEW_REQUIRED")
     ):
         raise AdminError("请先在 Bot 侧设置审核群", code="review_chat_required",
                          http_status=409)

@@ -12,15 +12,35 @@ from aiohttp.test_utils import TestClient, TestServer
 from utils import api_server
 from utils.cache import TTLCache
 _TOKEN_ROW = {"id": 1, "telegram_user_id": 5073758941, "name": "script", "created_at": 1.0}
+_SERVICE_PRINCIPAL = {
+    "kind": "service", "telegram_user_id": 5073758941, "name": "script",
+    "username": "", "display_name": "", "roles": None, "surface": "api",
+    "token_id": 1, "token_name": "script", "actor_subject": "api_token:1",
+}
+_MINIAPP_PRINCIPAL = {
+    "kind": "user", "telegram_user_id": 5073758941, "name": "human",
+    "username": "human", "display_name": "Human", "roles": None,
+    "surface": "mini_app", "actor_subject": "telegram:5073758941",
+}
 
 
-def _make_app(monkeypatch, authenticate_return):
-    """构建挂载 API 路由的应用；authenticate 按测试需要打桩"""
+def _make_app(monkeypatch, authenticate_return, principal=None):
+    """构建挂载 API 路由的应用；authenticate 按测试需要打桩。
+
+    When ``principal`` is given (a Mini App / service principal dict) the whole
+    identity resolver is stubbed so the admission decision can be tested
+    explicitly by source trust.
+    """
     token_row = {"id": 1, "telegram_user_id": 5073758941, "name": "script", "created_at": 1.0}
     monkeypatch.setattr(
         api_server, "authenticate",
         AsyncMock(return_value=authenticate_return),
     )
+    if principal is not None:
+        monkeypatch.setattr(
+            api_server, "_resolve_principal",
+            AsyncMock(return_value=principal),
+        )
     publish_mock = AsyncMock(return_value={
         "status": "published", "message_id": 123,
         "link": "https://t.me/c/1/123", "media_count": 1, "document_count": 0,
@@ -88,7 +108,7 @@ class TestSubmission:
     @pytest.mark.asyncio
     async def test_happy_path(self, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)
-        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW)
+        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW, principal=_MINIAPP_PRINCIPAL)
         client = await _client(app)
         try:
             form = __import__("aiohttp").FormData()
@@ -141,7 +161,7 @@ class TestSubmission:
     @pytest.mark.asyncio
     async def test_rate_limit(self, monkeypatch):
         monkeypatch.setattr(api_server, "SUBMIT_LIMIT_PER_HOUR", 1)
-        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW)
+        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW, principal=_MINIAPP_PRINCIPAL)
         client = await _client(app)
         try:
             headers = {"Authorization": "Bearer tp_ok"}
@@ -176,7 +196,7 @@ class TestSubmission:
     @pytest.mark.asyncio
     async def test_failed_publish_cleans_upload_directory(self, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)
-        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW)
+        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW, principal=_MINIAPP_PRINCIPAL)
         publish_mock.side_effect = RuntimeError("telegram unavailable")
         client = await _client(app)
         try:
@@ -234,7 +254,8 @@ class TestSubmission:
 
     @pytest.mark.asyncio
     async def test_review_mode_queues_without_publishing(self, monkeypatch):
-        monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
+        monkeypatch.setattr(api_server, "_resolve_principal",
+                            AsyncMock(return_value=_SERVICE_PRINCIPAL))
         queue_mock = AsyncMock(return_value={
             "status": "pending_review", "review_id": 42,
             "media_count": 1, "document_count": 0,
@@ -264,7 +285,8 @@ class TestSubmission:
             await client.close()
 
     async def test_generic_provenance_fields_are_passed_and_bounded(self, monkeypatch):
-        monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
+        monkeypatch.setattr(api_server, "_resolve_principal",
+                            AsyncMock(return_value=_SERVICE_PRINCIPAL))
         queue_mock = AsyncMock(return_value={"status": "pending_review", "review_id": 7})
         monkeypatch.setattr("handlers.review.queue_review_from_files", queue_mock)
         app, _publish = _make_app(monkeypatch, _TOKEN_ROW)
@@ -290,7 +312,8 @@ class TestSubmission:
             await client.close()
 
     async def test_provenance_defaults_to_empty_when_absent(self, monkeypatch):
-        monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
+        monkeypatch.setattr(api_server, "_resolve_principal",
+                            AsyncMock(return_value=_SERVICE_PRINCIPAL))
         queue_mock = AsyncMock(return_value={"status": "pending_review", "review_id": 8})
         monkeypatch.setattr("handlers.review.queue_review_from_files", queue_mock)
         app, _publish = _make_app(monkeypatch, _TOKEN_ROW)
@@ -380,7 +403,7 @@ class TestFileIdDirect:
             "link": "https://t.me/c/1/777", "media_count": 2, "document_count": 0,
         })
         monkeypatch.setattr("handlers.publish.publish_from_file_ids", file_id_mock)
-        app, _ = _make_app(monkeypatch, _TOKEN_ROW)
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW, principal=_MINIAPP_PRINCIPAL)
         client = await _client(app)
         try:
             resp = await client.post(
@@ -416,7 +439,7 @@ class TestFileIdDirect:
     async def test_idempotency_fields_passed_through(self, monkeypatch):
         file_id_mock = AsyncMock(return_value={"status": "published", "message_id": 1})
         monkeypatch.setattr("handlers.publish.publish_from_file_ids", file_id_mock)
-        app, _ = _make_app(monkeypatch, _TOKEN_ROW)
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW, principal=_MINIAPP_PRINCIPAL)
         client = await _client(app)
         try:
             resp = await client.post(
@@ -477,7 +500,7 @@ class TestFileIdDirect:
             "link": "https://t.me/c/1/55", "media_count": 0, "document_count": 1,
         })
         monkeypatch.setattr("handlers.publish.publish_from_file_ids", file_id_mock)
-        app, _ = _make_app(monkeypatch, _TOKEN_ROW)
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW, principal=_MINIAPP_PRINCIPAL)
         client = await _client(app)
         try:
             resp = await client.post(
@@ -493,7 +516,6 @@ class TestFileIdDirect:
 
     @pytest.mark.asyncio
     async def test_review_mode_queues_file_ids(self, monkeypatch):
-        monkeypatch.setattr(api_server, "API_REVIEW_REQUIRED", True)
         queue_mock = AsyncMock(return_value={
             "status": "pending_review", "review_id": 7,
             "media_count": 1, "document_count": 0,
@@ -581,3 +603,72 @@ class TestRouterApiRelay:
         finally:
             await router_runner.cleanup()
             await bot_runner.cleanup()
+
+
+class TestAdmissionPolicyBySource:
+    """§submission-disposition — decision is by source trust, not entry form."""
+
+    @pytest.mark.asyncio
+    async def test_miniapp_direct_publishes_and_tags_source(self, monkeypatch):
+        file_id_mock = AsyncMock(return_value={
+            "status": "published", "message_id": 5,
+            "link": "https://t.me/c/1/5", "media_count": 1, "document_count": 0,
+        })
+        monkeypatch.setattr("handlers.publish.publish_from_file_ids", file_id_mock)
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW, principal=_MINIAPP_PRINCIPAL)
+        client = await _client(app)
+        try:
+            resp = await client.post(
+                "/api/v1/submissions",
+                headers={"Authorization": "Bearer ma_v1.x"},
+                json={"media": [{"type": "photo", "file_id": "M1"}], "tags": "t"},
+            )
+            assert resp.status == 201
+            assert file_id_mock.call_args.kwargs["source"] == "miniapp"
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_miniapp_queues_when_flag_on(self, monkeypatch):
+        monkeypatch.setattr("config.settings.MINIAPP_REVIEW_REQUIRED", True)
+        queue_mock = AsyncMock(return_value={
+            "status": "pending_review", "review_id": 77,
+            "media_count": 1, "document_count": 0,
+        })
+        monkeypatch.setattr("handlers.review.queue_review_from_file_ids", queue_mock)
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW, principal=_MINIAPP_PRINCIPAL)
+        client = await _client(app)
+        try:
+            resp = await client.post(
+                "/api/v1/submissions",
+                headers={"Authorization": "Bearer ma_v1.x"},
+                json={"media": [{"type": "photo", "file_id": "M2"}], "tags": "t"},
+            )
+            assert resp.status == 201
+            assert (await resp.json())["data"]["status"] == "pending_review"
+            assert queue_mock.call_args.kwargs["source"] == "miniapp"
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_api_service_always_reviews_independent_of_flag(self, monkeypatch):
+        monkeypatch.setattr("config.settings.MINIAPP_REVIEW_REQUIRED", False)
+        queue_mock = AsyncMock(return_value={
+            "status": "pending_review", "review_id": 88,
+            "media_count": 1, "document_count": 0,
+        })
+        monkeypatch.setattr("handlers.review.queue_review_from_file_ids", queue_mock)
+        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW, principal=_SERVICE_PRINCIPAL)
+        client = await _client(app)
+        try:
+            resp = await client.post(
+                "/api/v1/submissions",
+                headers={"Authorization": "Bearer tp_ok"},
+                json={"media": [{"type": "photo", "file_id": "A1"}], "tags": "t"},
+            )
+            assert resp.status == 201
+            assert (await resp.json())["data"]["status"] == "pending_review"
+            assert queue_mock.call_args.kwargs["source"] == "api"
+            publish_mock.assert_not_called()
+        finally:
+            await client.close()

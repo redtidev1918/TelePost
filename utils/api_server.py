@@ -20,8 +20,8 @@ from typing import Optional
 from aiohttp import web
 
 from config.settings import (
-    API_REVIEW_REQUIRED,
     CHAT_REVIEW_REQUIRED,
+    MINIAPP_REVIEW_REQUIRED,
     OWNER_ID,
     REVIEW_CHAT_ID,
     SUBMIT_LIMIT_PER_HOUR,
@@ -396,12 +396,14 @@ def _result_reused_id(result: dict):
     return result.get("review_id") or result.get("message_id")
 
 
-def _audit_key(raw_key: str, result: dict, *, user_id: int) -> str:
+def _audit_key(raw_key: str, result: dict, *, user_id: int,
+                source: str = "api") -> str:
     """Mirror the review queue's key normalization so events link to the row."""
-    if not (raw_key and API_REVIEW_REQUIRED and result.get("review_id")):
+    source = (source or "api").strip().lower()
+    if not (raw_key and result.get("review_id")):
         return raw_key
     from telepost.application.review_queue import normalize_idempotency_key
-    return normalize_idempotency_key(user_id, raw_key, "api")
+    return normalize_idempotency_key(user_id, raw_key, source)
 
 
 async def _audit_submission_outcome(result: dict, **kwargs) -> None:
@@ -694,20 +696,15 @@ async def _maybe_notify_direct_human(result: dict, submitter_user_id,
         logger.warning("API 直发投稿者通知失败: message=%s error=%s", message_id, exc)
 
 
-def _api_review() -> bool:
-    """API (Mini App / service) submissions route to the review queue when the
-    operator policy says so (API_REVIEW_REQUIRED=true). Domain-owned disposition
-    (§submission-disposition): the HTTP entry point shares the ReviewQueueService
-    but its default may differ from the native chat default.
+def _entry_review_required(source: str) -> bool:
+    """Admission decision for one HTTP entry source (§submission-disposition).
 
-    The domain model is the SSOT; the module-level import is ALSO honoured so
-    established tests that monkeypatch ``api_server.API_REVIEW_REQUIRED`` keep
-    working (both derive from the same environment at import time)."""
-    from telepost.domain.submission import SubmissionDisposition, api_disposition
+    ``api`` (service/API token) is ALWAYS reviewed; ``miniapp`` is gated by
+    MINIAPP_REVIEW_REQUIRED and is never bound to the API switch.
+    """
+    from telepost.domain.submission import SubmissionDisposition, entry_disposition
 
-    if api_disposition() == SubmissionDisposition.REVIEW_REQUIRED:
-        return True
-    return bool(API_REVIEW_REQUIRED)
+    return entry_disposition(source) == SubmissionDisposition.REVIEW_REQUIRED
 
 
 def _display_name_of(user: dict) -> str:
@@ -896,8 +893,9 @@ def add_api_routes(web_app, application) -> None:
         import utils.helper_functions as hf
         return _ok({"service": "telepost-api", "api_version": API_VERSION,
                     "bot_version": hf.CONFIG.get("VERSION", ""),
-                    "review_required": API_REVIEW_REQUIRED,
-                    "api_review_required": API_REVIEW_REQUIRED,
+                    "review_required": True,
+                    "api_review_required": True,
+                    "miniapp_review_required": MINIAPP_REVIEW_REQUIRED,
                     "chat_review_required": CHAT_REVIEW_REQUIRED})
 
     async def me(request):
@@ -1174,6 +1172,12 @@ def add_api_routes(web_app, application) -> None:
                 f"api_token:{principal.get('token_id') or 0}"
             )
         actor_kind = principal_kind
+        # Admission Policy (§submission-disposition): the DECISION is based on
+        # source trust (automated API vs verified human Mini App), never on the
+        # HTTP entry path. API service tokens always route to review; Mini App
+        # is gated by its own independent MINIAPP_REVIEW_REQUIRED switch.
+        source = "miniapp" if principal_kind == "user" else "api"
+        api_review = _entry_review_required(source)
 
         # §moderation: an operator deny-list may stop a user or an API token
         # from creating NEW submissions. History stays intact; only entry is
@@ -1252,6 +1256,7 @@ def add_api_routes(web_app, application) -> None:
                     "spoiler": _fields_bool(payload, "spoiler"),
                     "user_id": user_id,
                     "username": username,
+                    "source": source,
                     "submitter_user_id": submitter_user_id,
                     "submitter_username": submitter_username,
                     "submitter_display_name": submitter_display_name,
@@ -1266,7 +1271,7 @@ def add_api_routes(web_app, application) -> None:
                     "work_type": _fields_work_type(payload),
                     "pixiv_id": _fields_pixiv_id(payload),
                 }
-                if _api_review():
+                if api_review:
                     from handlers.review import queue_review_from_file_ids
                     queue_kwargs = dict(
                         source_label=_fields_source_label(payload),
@@ -1286,9 +1291,9 @@ def add_api_routes(web_app, application) -> None:
             except ValueError as e:
                 return _failure_ack(e)
             except Exception as e:
-                action = "进入审核队列" if _api_review() else "发布到频道"
+                action = "进入审核队列" if api_review else "发布到频道"
                 logger.error(f"API file_id 投稿失败: {e}", exc_info=True)
-                code = "review_queue_failed" if _api_review() else "publish_failed"
+                code = "review_queue_failed" if api_review else "publish_failed"
                 return _error(502, code, f"{action}失败: {str(e)[:200]}")
             logger.info(
                 "API file_id 投稿已处理: user=%s status=%s",
@@ -1297,7 +1302,8 @@ def add_api_routes(web_app, application) -> None:
             await _audit_submission_outcome(
                 result, user_id=user_id,
                 idempotency_key=_audit_key(
-                    provenance.get("idempotency_key", ""), result, user_id=user_id),
+                    provenance.get("idempotency_key", ""), result, user_id=user_id,
+                    source=source),
                 target_id=provenance.get("target_id", ""),
                 work_type=provenance.get("work_type", ""),
                 pixiv_id=provenance.get("pixiv_id", ""),
@@ -1308,12 +1314,12 @@ def add_api_routes(web_app, application) -> None:
                 await _notify_refetch_replacement(
                     _fields_refetch_request_id(payload), result.get("review_id")
                 )
-            if not _api_review():
+            if not api_review:
                 await _maybe_notify_direct_human(
                     result, common.get("submitter_user_id"),
                     common.get("submitter_username", ""),
                     common.get("submitter_display_name", ""),
-                    bool(common.get("anonymous")), "api_direct",
+                    bool(common.get("anonymous")), f"{source}_direct",
                     actor_kind=actor_kind, actor_subject=actor_subject,
                 )
             return _business_ack(result)
@@ -1414,6 +1420,7 @@ def add_api_routes(web_app, application) -> None:
                 "spoiler": spoiler,
                 "user_id": user_id,
                 "username": username,
+                "source": source,
                 "submitter_user_id": submitter_user_id,
                 "submitter_username": submitter_username,
                 "submitter_display_name": submitter_display_name,
@@ -1429,7 +1436,7 @@ def add_api_routes(web_app, application) -> None:
             ):
                 if _value:
                     provenance[_name] = _value
-            if _api_review():
+            if api_review:
                 from handlers.review import queue_review_from_files
                 queue_kwargs = dict(
                     source_label=_fields_source_label(fields),
@@ -1456,7 +1463,8 @@ def add_api_routes(web_app, application) -> None:
         await _audit_submission_outcome(
             result, user_id=user_id,
             idempotency_key=_audit_key(
-                provenance.get("idempotency_key", ""), result, user_id=user_id),
+                provenance.get("idempotency_key", ""), result, user_id=user_id,
+                source=source),
             target_id=provenance.get("target_id", ""),
             work_type=provenance.get("work_type", ""),
             pixiv_id=provenance.get("pixiv_id", ""),
@@ -1467,12 +1475,12 @@ def add_api_routes(web_app, application) -> None:
             await _notify_refetch_replacement(
                 _fields_refetch_request_id(fields), result.get("review_id")
             )
-        if not _api_review():
+        if not api_review:
             await _maybe_notify_direct_human(
                 result, common.get("submitter_user_id"),
                 common.get("submitter_username", ""),
                 common.get("submitter_display_name", ""),
-                bool(common.get("anonymous")), "api_direct",
+                bool(common.get("anonymous")), f"{source}_direct",
                 actor_kind=actor_kind, actor_subject=actor_subject,
             )
         return _business_ack(result)

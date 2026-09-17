@@ -13,6 +13,7 @@ from config.settings import (
     CHANNEL_ID,
     CHAT_REVIEW_REQUIRED,
     DB_PATH,
+    MINIAPP_REVIEW_REQUIRED,
     REVIEW_CHAT_ID,
     SHOW_SUBMITTER,
 )
@@ -37,7 +38,8 @@ def _panel_text() -> str:
         f"⚙️ <b>Bot {html.escape(bot_index)} 运行配置</b>\n\n"
         f"📺 投稿频道：<code>{html.escape(str(CHANNEL_ID))}</code>\n"
         f"👥 审核群：<code>{html.escape(str(REVIEW_CHAT_ID or '未设置'))}</code>\n"
-        f"🔌 API 投稿审核：{_on(API_REVIEW_REQUIRED)}\n"
+        f"🔌 API 投稿审核：{_on(True)}\n"
+        f"📱 Mini App 投稿审核：{_on(MINIAPP_REVIEW_REQUIRED)}\n"
         f"💬 聊天投稿审核：{_on(CHAT_REVIEW_REQUIRED)}\n"
         f"👤 频道显示投稿人：{_on(SHOW_SUBMITTER)}\n\n"
         "设置频道：<code>/botconfig channel @频道或-100ID</code>\n"
@@ -49,8 +51,12 @@ def _panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                f"API 审核：{_on(API_REVIEW_REQUIRED)}",
+                f"API 审核：{_on(True)}",
                 callback_data="botconfig:api_review",
+            ),
+            InlineKeyboardButton(
+                f"Mini App 审核：{_on(MINIAPP_REVIEW_REQUIRED)}",
+                callback_data="botconfig:miniapp_review",
             ),
             InlineKeyboardButton(
                 f"聊天审核：{_on(CHAT_REVIEW_REQUIRED)}",
@@ -182,16 +188,17 @@ async def botconfig(update: Update, context: CallbackContext) -> None:
             raw = str(update.effective_chat.id) if args[1].lower() == "here" else args[1]
             chat_id = await _validated_chat_id(context, raw, "review")
             await _apply(update, {"REVIEW_CHAT_ID": chat_id}, f"审核群已设为 {chat_id}")
-        elif action in {"api_review", "chat_review", "show_submitter"} and len(args) == 2:
+        elif action in {"api_review", "miniapp_review", "chat_review", "show_submitter"} and len(args) == 2:
             if args[1].lower() not in {"on", "off"}:
                 raise ValueError("开关值必须是 on 或 off")
             key = {
                 "api_review": "API_REVIEW_REQUIRED",
+                "miniapp_review": "MINIAPP_REVIEW_REQUIRED",
                 "chat_review": "CHAT_REVIEW_REQUIRED",
                 "show_submitter": "SHOW_SUBMITTER",
             }[action]
             enabled = args[1].lower() == "on"
-            if key in {"API_REVIEW_REQUIRED", "CHAT_REVIEW_REQUIRED"} and enabled and not REVIEW_CHAT_ID:
+            if key in {"API_REVIEW_REQUIRED", "MINIAPP_REVIEW_REQUIRED", "CHAT_REVIEW_REQUIRED"} and enabled and not REVIEW_CHAT_ID:
                 raise ValueError("请先设置审核群")
             await _apply(update, {key: enabled}, f"{action} 已设为 {args[1].lower()}")
         elif action == "reset" and len(args) == 1:
@@ -203,7 +210,7 @@ async def botconfig(update: Update, context: CallbackContext) -> None:
             if managed:
                 _schedule_restart()
         else:
-            raise ValueError("用法：/botconfig [channel|review|api_review|chat_review|show_submitter|reset] …")
+            raise ValueError("用法：/botconfig [channel|review|api_review|miniapp_review|chat_review|show_submitter|reset] …")
     except ValueError as exc:
         await update.effective_message.reply_text(f"❌ {exc}")
     except Exception as exc:
@@ -227,11 +234,12 @@ async def botconfig_callback(update: Update, context: CallbackContext) -> None:
             changes, message = None, "已恢复部署配置"
         else:
             key, current = {
-                "api_review": ("API_REVIEW_REQUIRED", API_REVIEW_REQUIRED),
+                "api_review": ("API_REVIEW_REQUIRED", True),
+                "miniapp_review": ("MINIAPP_REVIEW_REQUIRED", MINIAPP_REVIEW_REQUIRED),
                 "chat_review": ("CHAT_REVIEW_REQUIRED", CHAT_REVIEW_REQUIRED),
                 "show_submitter": ("SHOW_SUBMITTER", SHOW_SUBMITTER),
             }[action]
-            if key in {"API_REVIEW_REQUIRED", "CHAT_REVIEW_REQUIRED"} and not current and not REVIEW_CHAT_ID:
+            if key in {"API_REVIEW_REQUIRED", "MINIAPP_REVIEW_REQUIRED", "CHAT_REVIEW_REQUIRED"} and not current and not REVIEW_CHAT_ID:
                 raise ValueError("请先设置审核群")
             changes, message = {key: not current}, "配置已切换"
         if changes:

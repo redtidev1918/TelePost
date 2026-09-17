@@ -1,16 +1,12 @@
 """
 Submission disposition contract (§submission-disposition).
 
-Native chat submissions default to DIRECT_PUBLISH — the classic "投稿发布到频道"
-flow. Review routing for chat is an explicit, configurable policy
-(CHAT_REVIEW_REQUIRED). The HTTP API (Mini App / service) defaults to the review
-queue in production (API_REVIEW_REQUIRED=true). The two entry points share the
-same domain/service but their defaults are independent: refactoring one must
-never silently change the other.
+Admission is decided by SOURCE TRUST, not entry form:
+* API (service token) submissions are ALWAYS review-required.
+* Mini App human submissions follow the independent MINIAPP_REVIEW_REQUIRED.
+* Native Telegram chat defaults to DIRECT_PUBLISH (CHAT_REVIEW_REQUIRED=false).
 
-Preview copy (button + confirm text) must reflect the ACTUAL disposition, so a
-user in review mode is never told "确认发布" and a direct-publish user is never
-told their content will be reviewed.
+Preview copy must reflect the ACTUAL disposition.
 """
 import pytest
 
@@ -18,6 +14,8 @@ from telepost.domain.submission import (
     SubmissionDisposition,
     api_disposition,
     chat_disposition,
+    entry_disposition,
+    miniapp_disposition,
 )
 import config.settings as settings
 
@@ -30,9 +28,9 @@ def chat_flag(monkeypatch):
 
 
 @pytest.fixture
-def api_flag(monkeypatch):
+def miniapp_flag(monkeypatch):
     def set_flag(value: bool):
-        monkeypatch.setattr(settings, "API_REVIEW_REQUIRED", value)
+        monkeypatch.setattr(settings, "MINIAPP_REVIEW_REQUIRED", value)
     return set_flag
 
 
@@ -46,11 +44,26 @@ def test_chat_review_is_an_explicit_policy(chat_flag):
     assert chat_disposition() == SubmissionDisposition.REVIEW_REQUIRED
 
 
-def test_api_disposition_tracks_api_review_required(api_flag):
-    api_flag(True)
+def test_api_disposition_is_always_review():
+    # API is an automated source: review cannot be disabled by a flag.
     assert api_disposition() == SubmissionDisposition.REVIEW_REQUIRED
-    api_flag(False)
-    assert api_disposition() == SubmissionDisposition.DIRECT_PUBLISH
+
+
+def test_miniapp_disposition_tracks_independent_flag(miniapp_flag):
+    miniapp_flag(True)
+    assert miniapp_disposition() == SubmissionDisposition.REVIEW_REQUIRED
+    miniapp_flag(False)
+    assert miniapp_disposition() == SubmissionDisposition.DIRECT_PUBLISH
+
+
+def test_entry_disposition_decides_by_source(chat_flag, miniapp_flag):
+    miniapp_flag(True)
+    assert entry_disposition("api") == SubmissionDisposition.REVIEW_REQUIRED
+    assert entry_disposition("miniapp") == SubmissionDisposition.REVIEW_REQUIRED
+    chat_flag(False)
+    assert entry_disposition("chat_direct") == SubmissionDisposition.DIRECT_PUBLISH
+    miniapp_flag(False)
+    assert entry_disposition("miniapp") == SubmissionDisposition.DIRECT_PUBLISH
 
 
 class TestPreviewCopyReflectsChatDisposition:
@@ -83,10 +96,10 @@ class TestPreviewCopyReflectsChatDisposition:
         assert keyboard.inline_keyboard[0][0].text == "✅ 提交审核"
 
 
-def test_api_review_routing_uses_domain_disposition(api_flag):
-    """The HTTP submission branch is the domain disposition, not a stray flag."""
+def test_entry_review_helper_decides_by_source(miniapp_flag):
     import utils.api_server as api_server
-    api_flag(True)
-    assert api_server._api_review() is True
-    api_flag(False)
-    assert api_server._api_review() is False
+    assert api_server._entry_review_required("api") is True
+    miniapp_flag(True)
+    assert api_server._entry_review_required("miniapp") is True
+    miniapp_flag(False)
+    assert api_server._entry_review_required("miniapp") is False
