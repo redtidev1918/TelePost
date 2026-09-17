@@ -10,6 +10,13 @@
 
 ---
 
+## [2.35.1](https://github.com/redtidev1918/TelePost/compare/v2.35.0...v2.35.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* **recovery:** PixivFlow UUID format + real error surfacing ([#151](https://github.com/redtidev1918/TelePost/issues/151)) ([219c9a7](https://github.com/redtidev1918/TelePost/commit/219c9a7f025db561c59fa0d5188f8ae069f69c3d))
+
 ## [2.35.0](https://github.com/redtidev1918/TelePost/compare/v2.34.0...v2.35.0) (2026-09-18)
 
 
