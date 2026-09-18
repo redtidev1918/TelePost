@@ -358,3 +358,58 @@ class TestBlacklistHandlers:
         result = add_to_blacklist(123456, '测试原因')
         
         assert result is True or mock_add.called
+
+class TestAboutStatsCommand:
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_about_command(self, mock_telegram_update, mock_telegram_context):
+        from handlers.command_handlers import about_command
+        mock_telegram_update.message.reply_text = AsyncMock()
+        await about_command(mock_telegram_update, mock_telegram_context)
+        mock_telegram_update.message.reply_text.assert_called_once()
+        text = mock_telegram_update.message.reply_text.call_args[0][0]
+        assert "关于" in text
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    @patch('utils.blacklist.get_blacklist', new_callable=AsyncMock)
+    @patch('handlers.stats_handlers.get_db')
+    async def test_stats_command(self, mock_get_db, mock_get_blacklist, mock_telegram_update, mock_telegram_context):
+        from handlers.stats_handlers import stats_command
+
+        class FakeCursor:
+            def __init__(self):
+                self.results = {
+                    "SELECT COUNT(*)": {"c": 3},
+                    "SELECT COUNT(DISTINCT": {"c": 2},
+                    "SELECT COALESCE(SUM(views)": {"s": 120},
+                    "SELECT COALESCE(SUM(forwards)": {"s": 30},
+                }
+                self.fetched = False
+            async def execute(self, sql, *args, **kwargs):
+                self.sql = sql
+                return self
+            async def fetchone(self):
+                for key in ("SELECT COALESCE(SUM(views)", "SELECT COALESCE(SUM(forwards)", "SELECT COUNT(DISTINCT", "SELECT COUNT(*)"):
+                    if self.sql.startswith(key):
+                        return self.results.get(key, {"c": 0})
+                return {"c": 1}
+
+        class FakeConn:
+            def __init__(self):
+                self.cur = FakeCursor()
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *exc):
+                return False
+            async def cursor(self):
+                return self.cur
+
+        mock_get_db.return_value.__aenter__.return_value = FakeConn()
+        mock_get_blacklist.return_value = []
+        mock_telegram_update.message.reply_text = AsyncMock()
+
+        await stats_command(mock_telegram_update, mock_telegram_context)
+        mock_telegram_update.message.reply_text.assert_called_once()
+        text = mock_telegram_update.message.reply_text.call_args[0][0]
+        assert "全局统计数据" in text

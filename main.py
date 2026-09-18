@@ -51,7 +51,7 @@ from handlers import (
 
 # 黑名单管理
 from utils.blacklist import manage_blacklist, init_blacklist
-from handlers.command_handlers import blacklist_add, blacklist_remove, blacklist_list, catch_all, debug, handle_menu_shortcuts
+from handlers.command_handlers import blacklist_add, blacklist_remove, blacklist_list, catch_all, debug, handle_menu_shortcuts, about_command
 from handlers.botconfig import botconfig, botconfig_callback
 
 # 投稿处理（状态机由 handlers.conversation 构建）
@@ -70,7 +70,7 @@ from handlers.api_commands import gen_token, tokens as api_tokens_command, revok
 from handlers.schedule_status import status_command, pin_status_command
 
 # 统计和搜索功能
-from handlers.stats_handlers import get_hot_posts, get_user_stats
+from handlers.stats_handlers import get_hot_posts, get_user_stats, stats_command
 from handlers.search_handlers import (
     search_posts, 
     get_tag_cloud, 
@@ -251,6 +251,7 @@ async def setup_bot_commands(application):
         BotCommand("mystats", "📊 查看个人统计"),
         BotCommand("hot", "🔥 查看热门投稿"),
         BotCommand("help", "❓ 查看帮助信息"),
+        BotCommand("about", "ℹ️ 关于机器人"),
         BotCommand("cancel", "❌ 取消当前操作"),
         BotCommand("settings", "⚙️ 机器人设置"),
         BotCommand("status", "📌 查看最近计划状态"),
@@ -602,6 +603,8 @@ def setup_application(application):
     
     # 注册基本命令处理器
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("about", about_command))
+    application.add_handler(CommandHandler("stats", stats_command))
     # /cancel 不在此处注册：会话内由 ConversationHandler fallback 处理，
     # 会话外由 catch_all 兜底回复——否则会双重处理，导致两条回复
     application.add_handler(CommandHandler("settings", settings))
