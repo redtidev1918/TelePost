@@ -10,6 +10,13 @@
 
 ---
 
+## [2.40.1](https://github.com/redtidev1918/TelePost/compare/v2.40.0...v2.40.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* **recovery:** use UUID format PixivFlow accepts and surface real failure reason ([ae25cd0](https://github.com/redtidev1918/TelePost/commit/ae25cd033e0e780f7fcb8dd9e625a5b89fae454a))
+
 ## [2.40.0](https://github.com/redtidev1918/TelePost/compare/v2.39.1...v2.40.0) (2026-09-18)
 
 
