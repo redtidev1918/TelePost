@@ -10,6 +10,14 @@
 
 ---
 
+## [2.42.0](https://github.com/redtidev1918/TelePost/compare/v2.41.0...v2.42.0) (2026-09-18)
+
+
+### Features
+
+* **chat:** send real media preview in private chat (distinct from Mini App local preview) ([ba65182](https://github.com/redtidev1918/TelePost/commit/ba65182e0564472f8ae4ba1f397d98b22993c740))
+* **chat:** send real media preview in private chat (distinct from Mini App) ([0b96ca3](https://github.com/redtidev1918/TelePost/commit/0b96ca3661f67de27e469703747c832a63115eff))
+
 ## [2.41.0](https://github.com/redtidev1918/TelePost/compare/v2.40.1...v2.41.0) (2026-09-18)
 
 
