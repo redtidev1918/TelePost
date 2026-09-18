@@ -293,3 +293,42 @@ class TestPreviewUX:
         text = _build_preview_text(row)
         assert "report.pdf" in text
         assert "专辑.zip" in text
+
+
+class TestRealChatMediaPreview:
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_first_preview_sends_real_media_once(self):
+        from unittest.mock import AsyncMock
+        from handlers.preview_handlers import show_submission_preview
+        from telegram.ext import ConversationHandler
+
+        update = _make_update()
+        row = _submission_row() | {
+            "image_id": '["photo:p1","photo:p2","photo:p3","video:v1"]',
+            "document_id": '["document:d1:report.pdf"]',
+        }
+        ctx = MagicMock()
+        ctx.user_data = {}
+        bot = AsyncMock()
+        ctx.bot = bot
+
+        with patch("handlers.preview_handlers.get_session", _FakeSession(row)):
+            result = await show_submission_preview(update, ctx)
+
+        assert result == STATE["PREVIEW"]
+        assert ctx.user_data["preview_media_sent"] is True
+        assert bot.send_media_group.await_count == 1
+        assert bot.send_video.await_count == 1
+        assert bot.send_document.await_count == 1
+        # 第二次（编辑刷新等）不再重复发送真实媒体
+        cb = MagicMock()
+        cb.answer = AsyncMock()
+        cb.edit_message_text = AsyncMock()
+        cb.data = ""
+        update2 = _make_update(is_callback=True)
+        update2.callback_query = cb
+        with patch("handlers.preview_handlers.get_session", _FakeSession(row)):
+            result2 = await show_submission_preview(update2, ctx)
+        assert result2 == STATE["PREVIEW"]
+        assert bot.send_media_group.await_count == 1
