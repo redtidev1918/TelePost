@@ -351,6 +351,11 @@ def _candidate_report_lines(item: dict) -> list[str]:
             lines.append(f"待发池：{pending} 条{until}")
         elif pending <= 0 and reserve > 0:
             lines.append(f"待发池：0 条")
+            # Pre-announcement for the NEXT timed slot: empty reserve means the
+            # next 10:00/22:00 will again be at risk if no fresh work appears.
+            status = str(item.get("status") or "")
+            if status in ("no_candidate", "duplicate") and selected == 0:
+                lines.append("前瞻：待发池为空，下一发布时点若仍无新作则无法按时更新")
     projection = _supply_projection(item, fetched, rejected, selected, dup)
     if projection:
         lines.append(f"判断：{projection}")
@@ -974,6 +979,44 @@ def add_api_routes(web_app, application) -> None:
                     "api_review_required": True,
                     "miniapp_review_required": MINIAPP_REVIEW_REQUIRED,
                     "chat_review_required": CHAT_REVIEW_REQUIRED})
+
+    async def schedule_status(request):
+        """Read-only status: last terminal schedule outcome per schedule.
+
+        Deliberately public and lightweight (schedule id + time + status only):
+        the operator should be able to answer "has anything updated recently?"
+        without shipping credentials to a status page.
+        """
+        try:
+            from database import db_manager
+            async with db_manager.get_db() as conn:
+                cur = await conn.execute(
+                    """
+                    SELECT substr(slot_id, 1, instr(slot_id, '@') - 1) AS schedule_id,
+                           MAX(sent_at) AS last_sent_at,
+                           MAX(status) AS last_status
+                    FROM schedule_outcome_notifications
+                    GROUP BY schedule_id
+                    ORDER BY last_sent_at DESC
+                    """
+                )
+                rows = await cur.fetchall()
+        except Exception:
+            logger.warning("schedule/status query failed", exc_info=True)
+            return _error(500, "status_unavailable", "无法读取最近计划状态")
+        schedules = []
+        import datetime
+        for row in rows:
+            sent = float(row["last_sent_at"] or 0)
+            schedules.append({
+                "schedule_id": row["schedule_id"],
+                "last_sent_at": sent,
+                "last_sent_at_iso": datetime.datetime.fromtimestamp(
+                    sent, datetime.timezone.utc
+                ).isoformat() if sent else None,
+                "last_status": row["last_status"] or "",
+            })
+        return _ok({"schedules": schedules})
 
     async def me(request):
         principal = await _resolve_principal(request)
@@ -2138,6 +2181,7 @@ def add_api_routes(web_app, application) -> None:
     web_app.router.add_post("/api/v1/reviews/{review_id}/refetch", refetch_review_api)
     web_app.router.add_get("/api/v1/reviews/{review_id}/refetch", refetch_review_state)
     web_app.router.add_get("/api/v1/health", health)
+    web_app.router.add_get("/api/v1/schedule/status", schedule_status)
     web_app.router.add_get("/api/v1/admin/status", admin_status)
     web_app.router.add_get("/api/v1/admin/policy", admin_policy_get)
     web_app.router.add_patch("/api/v1/admin/policy", admin_policy_patch)
@@ -2245,6 +2289,19 @@ def add_api_routes(web_app, application) -> None:
             logger.warning("发送 schedule 终态通知失败: slot=%s", slot_id)
             return _error(502, "notification_failed", "审核群通知失败，请重试")
         await mark_api_notification_sent(0, key, message.message_id)
+        # Persist the terminal receipt so /schedule/status and watchdog can
+        # answer "has anything updated recently?". Dedup is still keyed by
+        # api_notifications; this table is the read-only history view.
+        try:
+            import datetime as _dt
+            async with _db_manager.get_db() as conn:
+                await conn.execute(
+                    "INSERT OR IGNORE INTO schedule_outcome_notifications "
+                    "(slot_id, sent_at, status) VALUES (?, ?, ?)",
+                    (slot_id, _dt.datetime.now(_dt.timezone.utc).timestamp(), status),
+                )
+        except Exception:
+            logger.debug("schedule_outcome history write failed", exc_info=True)
         delivered = True
         try:
             from telepost.observability import audit as audit_mod

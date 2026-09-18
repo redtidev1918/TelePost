@@ -336,3 +336,62 @@ async def test_candidate_report_renders_inventory_reserve(monkeypatch, tmp_path)
     finally:
         await client.close()
 
+
+@pytest.mark.asyncio
+async def test_empty_inventory_renders_preannouncement_and_status(monkeypatch, tmp_path):
+    """Phase 5 continuation: empty 待发池 warns about next slot; /status exposes it."""
+    import copy
+    await _db(monkeypatch, tmp_path)
+    app, application = _make_app(monkeypatch)
+    client = await _client(app)
+    headers = {"Authorization": "Bearer tp_service"}
+    payload = copy.deepcopy(PAYLOAD)
+    payload["targets"][0]["status"] = "no_candidate"
+    payload["targets"][0]["candidate_report"] = {
+        "fetched": 5,
+        "selected": 0,
+        "rejected": 5,
+        "reasons": [{"code": "duplicate", "count": 5}],
+        "inventory": {"pendingCount": 0, "reserveSize": 20, "maxAgeDays": 30, "oldestSeenDate": None},
+    }
+    try:
+        resp = await client.post("/api/v1/schedule/outcomes", json=payload, headers=headers)
+        assert resp.status == 200
+        text = application.bot.send_message.await_args.kwargs["text"]
+        assert "待发池：0 条" in text
+        assert "前瞻：待发池为空，下一发布时点若仍无新作则无法按时更新" in text
+
+        resp = await client.get("/api/v1/schedule/status")
+        assert resp.status == 200
+        body = await resp.json()
+        assert body["data"]["schedules"][0]["schedule_id"] == "bot1-daily"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_watchdog_alerts_once_per_stale_day(monkeypatch, tmp_path):
+    """Watchdog: stale schedule gets one independent alert, idempotent per day."""
+    import datetime
+    await _db(monkeypatch, tmp_path)
+    monkeypatch.setattr(api_server, "REVIEW_CHAT_ID", -100123)
+    from utils import schedule_watchdog
+    monkeypatch.setattr(schedule_watchdog, "WATCHDOG_MAX_HOURS", 26)
+    async with db_manager.get_db() as conn:
+        stale = datetime.datetime.now(datetime.timezone.utc).timestamp() - 30 * 3600
+        await conn.execute(
+            "INSERT INTO schedule_outcome_notifications(slot_id, sent_at, status) "
+            "VALUES (?, ?, ?)",
+            ("bot1-daily@2026-09-17T2200", stale, "partial"),
+        )
+    context = MagicMock()
+    context.bot = AsyncMock()
+    context.bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
+    await schedule_watchdog.schedule_watchdog_job(context)
+    assert context.bot.send_message.await_count == 1
+    text = context.bot.send_message.await_args.kwargs["text"]
+    assert "计划静默告警" in text
+    assert "bot1-daily" in text
+    # Second pass same UTC day is idempotent: no duplicate alert.
+    await schedule_watchdog.schedule_watchdog_job(context)
+    assert context.bot.send_message.await_count == 1
