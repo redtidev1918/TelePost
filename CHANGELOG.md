@@ -10,6 +10,14 @@
 
 ---
 
+## [2.37.0](https://github.com/redtidev1918/TelePost/compare/v2.36.0...v2.37.0) (2026-09-18)
+
+
+### Features
+
+* **schedule-ux:** render candidate inventory 待发池 line ([627c195](https://github.com/redtidev1918/TelePost/commit/627c1955609345aaac7906b0ba1f848217e18e47))
+* **schedule-ux:** render 待发池 inventory line ([6d1954b](https://github.com/redtidev1918/TelePost/commit/6d1954b66ffbc0a70de9667bf2355ae85e42243a))
+
 ## [2.36.0](https://github.com/redtidev1918/TelePost/compare/v2.35.1...v2.36.0) (2026-09-18)
 
 
