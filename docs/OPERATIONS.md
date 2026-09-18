@@ -17,6 +17,25 @@ API 临时上传、审核队列、PixivFlow cache 和 delivery outbox。单 Bot 
 `/health` 只表示进程可用。`/version` 与 `/health` 都带 `version`/`commit`，
 可以直接确认线上跑的是哪个发行版和哪次提交（Docker 镜像由发布流水线注入）。
 
+多 Bot 父路由还提供人类可读状态页 `GET /status`（纯文本，无鉴权），汇总各 Bot
+子服务的最近终态通知：`bot1-daily  last 2026-09-14 19:49 UTC · partial`。适合频道
+置顶/收藏，用户不用等时点才知道那次更新是否发了。单 Bot 子服务继续用
+`GET /api/v1/schedule/status` 返回同样的 JSON。
+
+## 计划观察（schedule observability）
+
+每天 10:00/22:00 等发布时点由 PixivFlow 执行，TelePost 收到的每条终态
+（success/partial/failed）都通过 schedule outbox 投递到审核群。为避免「没等到作品
+也没收到通知」的静默故障，TelePost 2.38.0 起增加：
+
+- **前置告知**：空待发池时终态消息增加「前瞻：待发池为空，下一发布时点若仍无新作则
+  无法按时更新」，运营提前知晓下一时点仍可能空。
+- **Watchdog**：独立周期任务每 30 分钟检查一次，任何 schedule 超过
+  `SCHEDULE_WATCHDOG_MAX_HOURS`（默认 `26`）没有新的终态通知，就直接向审核群发一条
+  静默告警（按 UTC 日期幂等，每天最多一条），不依赖正常通知链路。
+- **状态查询**：`GET /api/botN/v1/schedule/status` 与公共 `/status` 页可随时确认
+  「最近一次更新是什么时候、什么状态」。
+
 ## 审计与可观测性
 
 每条投稿的完整流水都落进本机 SQLite 表 `audit_events`（每个 Bot 一个库），
