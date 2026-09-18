@@ -256,3 +256,49 @@ async def test_failed_send_retries_and_pending_claim_is_not_ack(monkeypatch, tmp
         assert application.bot.send_message.await_count == 2
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_candidate_report_and_target_buttons(monkeypatch, tmp_path):
+    """Phase 1/3: operator sees the supply funnel and per-target buttons."""
+    await _db(monkeypatch, tmp_path)
+    app, application = _make_app(monkeypatch)
+    client = await _client(app)
+    headers = {"Authorization": "Bearer tp_service"}
+    payload = {
+        **PAYLOAD,
+        "targets": [
+            {
+                **PAYLOAD["targets"][0],
+                "candidate_report": {
+                    "fetched": 59,
+                    "selected": 0,
+                    "rejected": 59,
+                    "reasons": [
+                        {"code": "duplicate", "count": 30},
+                        {"code": "ai_filtered", "count": 20},
+                        {"code": "language_filter", "count": 9},
+                    ],
+                },
+            },
+            PAYLOAD["targets"][1],
+        ],
+    }
+    try:
+        resp = await client.post("/api/v1/schedule/outcomes", json=payload,
+                                 headers=headers)
+        assert resp.status == 200
+        text = application.bot.send_message.await_args.kwargs["text"]
+        assert "候选扫描：59" in text
+        assert "重复：30" in text
+        assert "最终候选：0" in text
+        assert "判断：candidate_supply_low" in text
+
+        reply_markup = application.bot.send_message.await_args.kwargs["reply_markup"]
+        first_row = list(reply_markup.inline_keyboard[0])
+        assert first_row[0].text == "重试·插画"
+        assert first_row[1].text == "放宽·插画"
+        assert first_row[0].callback_data == "sched_recover|bot1-illust-botefuku|normal"
+        assert first_row[1].callback_data == "sched_recover|bot1-illust-botefuku|relaxed"
+    finally:
+        await client.close()
