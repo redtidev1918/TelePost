@@ -197,7 +197,7 @@ async def handle_edit_input(update: Update, context: CallbackContext) -> int:
     if field == "edit_media":
         entry = classify_message(message)
         if entry is None or entry_kind(entry) == "document":
-            await message.reply_text("⚠️ 请发送支持的媒体（图片/视频/GIF/音频），或发送 <code>/cancel</code> 取消。", parse_mode="HTML")
+            await message.reply_text("⚠️ 请发送支持的媒体（图片/视频/GIF/音频），或发送 /cancel 取消。", parse_mode="HTML")
             return STATE["EDIT"]
         count = await append_entry(user_id, entry)
         from telepost.domain.submission import (
@@ -206,7 +206,7 @@ async def handle_edit_input(update: Update, context: CallbackContext) -> int:
         )
         action = "提交审核" if _cd() == SubmissionDisposition.REVIEW_REQUIRED else "确认发布"
         await message.reply_text(
-            f"✅ 已添加，当前共 {count} 个媒体。可继续发送，或发送 <code>/done_media</code> 返回预览并{action}。",
+            f"✅ 已添加，当前共 {count} 个媒体。可继续发送，或发送 /done_media 返回预览并{action}。",
             parse_mode="HTML",
         )
         return await show_submission_preview(update, context)

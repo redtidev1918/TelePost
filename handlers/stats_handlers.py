@@ -241,7 +241,7 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
                 break
         
         message += f"━━━━━━━━━━━━━━━\n"
-        message += f"💡 使用 <code>/hot &lt;数量&gt; &lt;时间&gt;</code> 自定义查询\n"
+        message += f"💡 使用 /hot &lt;数量&gt; &lt;时间&gt; 自定义查询\n"
         message += f"⏰ 时间范围：day(今日)、week(本周)、month(本月)"
         
         # 分页导航：多页时附加 ⬅️/➡️ 按钮，并记录翻页上下文

@@ -394,3 +394,24 @@ class TestSubmissionFlowCopy:
         assert "发布预览" in text and "发布到频道" in text
         assert "提交审核" in MessageFormatter.preview_text(row, review_first=True)
         assert "用逗号分隔" in MessageFormatter.edit_prompt("edit_tag")
+
+
+class TestCommandClickability:
+    """Telegram 会把 `/<command>` 自动渲染为可点击指令；
+    一旦包进 <code> 便不再可点击，这里做回归保护。"""
+
+    @pytest.mark.unit
+    def test_message_copy_never_wraps_commands_in_code(self):
+        from ui.messages import MessageFormatter
+        samples = [
+            MessageFormatter.welcome_message("User"),
+            MessageFormatter.help_message(),
+            MessageFormatter.help_message(is_admin=True),
+            MessageFormatter.submission_guide(),
+            MessageFormatter.submit_hint("MIXED", 10),
+            MessageFormatter.prompt_upload_text(),
+            MessageFormatter.session_expired(),
+        ]
+        for text in samples:
+            assert "<code>/" not in text, f"命令被包在 <code> 里不可点击: {text[:120]}"
+            assert "/submit" in text or "/help" in text or "/cancel" in text or "/done_media" in text
