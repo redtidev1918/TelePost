@@ -481,6 +481,56 @@ def build_router_app(indices: list):
         from telepost.build_info import release_info
         return web.json_response(release_info())
 
+    async def status_page(request):
+        """Public human-readable schedule status page.
+
+        Reads each bot child's /api/v1/schedule/status (read-only, no auth) and
+        renders "what updated recently" for operators/subscribers to pin or
+        bookmark. Deliberately plain text and public: it contains last-update
+        timestamps/status only, no private submission data.
+        """
+        import datetime
+        session = request.app[session_key]
+        lines = ["TelePost Schedule Status", "Last terminal notification per schedule:"]
+        ok_any = False
+        for index in indices:
+            port = bot_webhook_port(index)
+            try:
+                async with session.get(
+                    f"http://127.0.0.1:{port}/api/v1/schedule/status",
+                    timeout=ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status != 200:
+                        lines.append(f"bot{index}: unavailable (HTTP {resp.status})")
+                        continue
+                    data = await resp.json()
+                    schedules = data.get("data", {}).get("schedules") or []
+                    if not schedules:
+                        lines.append(f"bot{index}: no schedule outcome yet")
+                        continue
+                    ok_any = True
+                    for item in schedules:
+                        sent = float(item.get("last_sent_at") or 0)
+                        iso = (
+                            datetime.datetime.fromtimestamp(
+                                sent, datetime.timezone.utc
+                            ).strftime("%Y-%m-%d %H:%M UTC")
+                            if sent else "never"
+                        )
+                        lines.append(
+                            f"  {item.get('schedule_id') or '?'}  last {iso} · "
+                            f"{item.get('last_status') or 'unknown'}"
+                        )
+            except Exception:
+                lines.append(f"bot{index}: unavailable")
+        if not ok_any and indices:
+            lines.append("")
+            lines.append("No schedule has reported a terminal outcome yet.")
+        return web.Response(
+            text="\n".join(lines) + "\n",
+            content_type="text/plain", charset="utf-8",
+        )
+
     # The router never buffers submission bodies. The explicit size ceiling is
     # still useful for malformed clients and matches TelePost's 500 MiB API cap
     # (up to 50 files, 50 MiB each).
@@ -511,6 +561,7 @@ def build_router_app(indices: list):
     app.router.add_get("/live", live)
     app.router.add_get("/ready", ready)
     app.router.add_get("/version", version)
+    app.router.add_get("/status", status_page)
 
     def make_relay(
         index: int,
