@@ -60,42 +60,14 @@ async def submit(update: Update, context: CallbackContext) -> int:
     # 否则再次投稿时真实媒体预览不会重新发送。
     context.user_data.pop("preview_media_sent", None)
 
-    await update.message.reply_text(_upload_hint(BOT_MODE), reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text(_upload_hint(BOT_MODE), parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
     return STATE["UPLOAD"]
 
 
 def _upload_hint(mode: str) -> str:
-    common = (
-        "\n\n📋 后续步骤：\n"
-        "1️⃣ 继续发送内容，或发送 /done_media 打开预览\n"
-        "2️⃣ 在预览页填写标签（必填）、标题、简介、链接、匿名/剧透\n"
-        "3️⃣ 确认无误后点击按钮发布\n\n"
-        "💡 小提示：\n"
-        "• 匿名和剧透默认关闭，可在预览页开启\n"
-        "• 随时发送 /cancel 取消投稿，当前进度会保留"
-    )
-    if mode == MODE_MEDIA:
-        return (
-            "📮 请直接上传媒体（相册图片、视频、GIF、音频）\n"
-            f"• 最多 {MAX_SUBMISSION_FILES} 个\n"
-            "• 每收到一条会显示当前数量\n"
-            "• 上传完发送 /done_media 打开预览，或 /cancel 取消" + common
-        )
-    if mode == MODE_DOCUMENT:
-        return (
-            "📮 请上传文档（以附件发送的图片、压缩包、PDF 等）\n"
-            f"• 最多 {MAX_SUBMISSION_FILES} 个\n"
-            "• 每收到一条会显示当前数量\n"
-            "• 上传完发送 /done_media 打开预览，或 /cancel 取消" + common
-        )
-    return (
-        "📮 请直接上传内容：\n"
-        "• 相册图片、视频、GIF、音频会归为媒体\n"
-        "• 以附件发送的图片、压缩包、PDF 等会归为文件\n"
-        f"• 合计最多 {MAX_SUBMISSION_FILES} 个，媒体/文档可混合\n"
-        "• 每收到一条会显示当前数量\n"
-        "• 上传完发送 /done_media 打开预览，或 /cancel 取消" + common
-    )
+    """投稿上传阶段提示（兼容旧调用，内容收敛到 ui.messages）。"""
+    from ui.messages import MessageFormatter
+    return MessageFormatter.submit_hint(mode, MAX_SUBMISSION_FILES)
 
 
 async def start(update: Update, context: CallbackContext) -> int:
@@ -109,17 +81,21 @@ async def start(update: Update, context: CallbackContext) -> int:
         return ConversationHandler.END
 
     welcome = (
-        f"👋 你好 {username}！欢迎使用投稿机器人！\n\n"
-        "📮 投稿：发送 /submit 开始（图片/视频/压缩包/PDF 等）\n"
-        "📊 查询：/search 搜索 · /mystats 统计 · /myposts 我的投稿\n"
-        "🔥 热门：/hot 排行 · /tags 标签云\n"
-        "❓ /help 完整帮助 · /cancel 取消投稿\n\n"
-        "💡 想要投稿？直接发送 /submit 即可开始！"
+        f"👋 <b>你好，{username}！</b>\n\n"
+        "我是投稿机器人，帮你把图文内容发布到频道。\n"
+        "想投稿？发送 <code>/submit</code> 就开始。\n\n"
+        "📚 <b>常用功能</b>\n"
+        "<code>/submit</code> 开始投稿\n"
+        "<code>/search</code> 搜索内容\n"
+        "<code>/mystats</code> 我的统计 · <code>/myposts</code> 我的投稿\n"
+        "<code>/hot</code> 热门排行 · <code>/tags</code> 标签云\n"
+        "<code>/help</code> 完整帮助 · <code>/cancel</code> 取消投稿\n\n"
+        "💡 <i>也可以点击下方菜单按钮快速操作。</i>"
     )
     try:
         from ui.keyboards import Keyboards
         reply_markup = Keyboards.main_menu()
     except Exception:
         reply_markup = ReplyKeyboardRemove()
-    await update.message.reply_text(welcome, reply_markup=reply_markup)
+    await update.message.reply_text(welcome, parse_mode="HTML", reply_markup=reply_markup)
     return ConversationHandler.END

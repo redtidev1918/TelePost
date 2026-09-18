@@ -351,3 +351,46 @@ class TestMessageFormatterEdgeCases:
         # 应该被截断且不会太长
         assert len(preview) < len(long_content)
         assert "..." in preview
+
+
+class TestSubmissionFlowCopy:
+    """私聊投稿流程文案集中化：test_* 覆盖各阶段与集成测试依赖的子串。"""
+
+    @pytest.mark.unit
+    def test_submit_hint_has_flow_and_done_media(self):
+        from ui.messages import MessageFormatter
+        for mode in ("MEDIA", "DOCUMENT", "MIXED"):
+            text = MessageFormatter.submit_hint(mode, max_files=100)
+            assert "直接上传" in text
+            assert "最多 100 个" in text or "合计最多 100 个" in text
+            assert "/done_media" in text
+            assert "<code>/submit</code>" in text or "下一步" in text
+
+    @pytest.mark.unit
+    def test_upload_received_keeps_stable_substring(self):
+        from ui.messages import MessageFormatter
+        assert "已接收媒体" in MessageFormatter.upload_received("media", 3, 10)
+        assert "已接收文件" in MessageFormatter.upload_received("document", 2, 10)
+
+    @pytest.mark.unit
+    def test_prompt_upload_explains_preview_fields(self):
+        from ui.messages import MessageFormatter
+        text = MessageFormatter.prompt_upload_text()
+        assert "标签、标题、简介和链接" in text
+        assert "/done_media" in text
+
+    @pytest.mark.unit
+    def test_session_expired_gives_recovery(self):
+        from ui.messages import MessageFormatter
+        assert "/submit" in MessageFormatter.session_expired()
+
+    @pytest.mark.unit
+    def test_preview_text_and_edit_prompt(self):
+        from ui.messages import MessageFormatter
+        row = {"tags": "#a", "title": "x", "note": "", "link": "",
+               "anonymous": "false", "spoiler": "false",
+               "image_id": "[]", "document_id": "[]"}
+        text = MessageFormatter.preview_text(row, review_first=False)
+        assert "发布预览" in text and "发布到频道" in text
+        assert "提交审核" in MessageFormatter.preview_text(row, review_first=True)
+        assert "用逗号分隔" in MessageFormatter.edit_prompt("edit_tag")
