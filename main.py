@@ -67,6 +67,7 @@ from handlers.error_handler import error_handler
 
 # API 令牌管理
 from handlers.api_commands import gen_token, tokens as api_tokens_command, revoke_token as revoke_token_command
+from handlers.schedule_status import status_command, pin_status_command
 
 # 统计和搜索功能
 from handlers.stats_handlers import get_hot_posts, get_user_stats
@@ -252,6 +253,7 @@ async def setup_bot_commands(application):
         BotCommand("help", "❓ 查看帮助信息"),
         BotCommand("cancel", "❌ 取消当前操作"),
         BotCommand("settings", "⚙️ 机器人设置"),
+        BotCommand("status", "📌 查看最近计划状态"),
     ]
     
     try:
@@ -616,6 +618,8 @@ def setup_application(application):
     application.add_handler(CommandHandler("gen_token", gen_token))
     application.add_handler(CommandHandler("tokens", api_tokens_command))
     application.add_handler(CommandHandler("revoke_token", revoke_token_command))
+    application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("pin_status", pin_status_command))
     
     # 注册索引管理命令处理器（仅管理员）
     application.add_handler(CommandHandler("rebuild_index", rebuild_index_command))

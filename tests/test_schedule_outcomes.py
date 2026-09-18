@@ -395,3 +395,20 @@ async def test_watchdog_alerts_once_per_stale_day(monkeypatch, tmp_path):
     # Second pass same UTC day is idempotent: no duplicate alert.
     await schedule_watchdog.schedule_watchdog_job(context)
     assert context.bot.send_message.await_count == 1
+@pytest.mark.asyncio
+async def test_status_command_text_shows_latest(monkeypatch, tmp_path):
+    """/status 文案取每个 schedule 最新终态（不以 MAX(status) 字符串排序为准）。"""
+    await _db(monkeypatch, tmp_path)
+    from handlers.schedule_status import schedule_status_text
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "INSERT INTO schedule_outcome_notifications(slot_id, sent_at, status) VALUES (?,?,?)",
+            ("bot1-daily@2026-09-14T2200", 1789415370.0, "success"),
+        )
+        await conn.execute(
+            "INSERT INTO schedule_outcome_notifications(slot_id, sent_at, status) VALUES (?,?,?)",
+            ("bot1-daily@2026-09-15T2200", 1789501770.0, "failed"),
+        )
+    text = await schedule_status_text()
+    assert "bot1-daily  last 2026-09-15 19:49 UTC · failed" in text
+    assert "· success" not in text
