@@ -45,9 +45,9 @@ async def cancel(update: Update, context: CallbackContext) -> int:
         logger.error(f"取消时删除数据错误: {e}")
     # 根据是否存在会话给出不同提示
     message_text = (
-        "🗑️ 投稿已取消，所有临时进度已清除。\n\n想继续？发送 <code>/submit</code> 重新开始。"
+        "🗑️ 投稿已取消，所有临时进度已清除。\n\n想继续？发送 /submit 重新开始。"
         if session_exists
-        else "ℹ️ 当前没有进行中的投稿。\n\n想投稿？发送 <code>/submit</code> 即可开始。"
+        else "ℹ️ 当前没有进行中的投稿。\n\n想投稿？发送 /submit 即可开始。"
     )
     try:
         await update.message.reply_text(message_text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())

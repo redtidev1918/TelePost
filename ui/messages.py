@@ -19,15 +19,15 @@ class MessageFormatter:
             f"我是投稿机器人，欢迎你，帮你把图文内容发布到频道。\n"
             f"🎭 身份：{role}\n\n"
             "📌 <b>快速开始</b>\n"
-            "点击下方「开始投稿」，或发送 <code>/submit</code>\n\n"
+            "点击下方「开始投稿」，或发送 /submit\n\n"
             "📚 <b>常用功能</b>\n"
-            "<code>/submit</code> 开始投稿\n"
-            "<code>/search</code> 搜索内容\n"
-            "<code>/mystats</code> 我的统计\n"
-            "<code>/myposts</code> 我的投稿\n"
-            "<code>/hot</code> 热门排行\n"
-            "<code>/help</code> 完整帮助\n\n"
-            "💡 <i>想直接投稿？发送 <code>/submit</code> 就开始。</i>"
+            "/submit 开始投稿\n"
+            "/search 搜索内容\n"
+            "/mystats 我的统计\n"
+            "/myposts 我的投稿\n"
+            "/hot 热门排行\n"
+            "/help 完整帮助\n\n"
+            "💡 <i>想直接投稿？发送 /submit 就开始。</i>"
         )
     
     @staticmethod
@@ -37,33 +37,33 @@ class MessageFormatter:
 📚 <b>使用指南</b>
 
 <b>📝 投稿</b>
-<code>/submit</code> 开始新投稿
-<code>/done_media</code> 上传完成后打开预览
-<code>/cancel</code> 取消当前投稿
+/submit 开始新投稿
+/done_media 上传完成后打开预览
+/cancel 取消当前投稿
 
 <b>📊 统计查询</b>
-<code>/hot [数量] [时间]</code> 热门排行 · 如 /hot 20 week
-<code>/mystats</code> 我的投稿统计
-<code>/myposts [数量]</code> 我的投稿列表
+/hot [数量] [时间] 热门排行 · 如 /hot 20 week
+/mystats 我的投稿统计
+/myposts [数量] 我的投稿列表
 
 <b>🔍 搜索</b>
-<code>/search 关键词</code> 搜索内容 · 如 /search Python
-<code>/tags [数量]</code> 热门标签
+/search 关键词 搜索内容 · 如 /search Python
+/tags [数量] 热门标签
 
 <b>ℹ️ 其它</b>
-<code>/help</code> 完整帮助
-<code>/settings</code> 查看机器人设置
-<code>/about</code> 关于机器人
+/help 完整帮助
+/settings 查看机器人设置
+/about 关于机器人
 """
         
         admin_help = """
 👑 <b>管理员命令</b>
-<code>/addblacklist &lt;ID&gt; [原因]</code> 添加黑名单
-<code>/removeblacklist &lt;ID&gt;</code> 移除黑名单
-<code>/blacklist</code> 查看黑名单
-<code>/searchuser &lt;ID&gt;</code> 查询用户投稿
-<code>/broadcast &lt;消息&gt;</code> 广播消息
-<code>/stats</code> 全局统计信息
+/addblacklist &lt;ID&gt; [原因] 添加黑名单
+/removeblacklist &lt;ID&gt; 移除黑名单
+/blacklist 查看黑名单
+/searchuser &lt;ID&gt; 查询用户投稿
+/broadcast &lt;消息&gt; 广播消息
+/stats 全局统计信息
 
 """
         
@@ -294,9 +294,9 @@ class MessageFormatter:
         """错误消息"""
         errors = {
             "general": "❌ 操作失败，请稍后重试。\n\n如果反复出现，请私聊管理员。",
-            "permission": "⛔ 权限不足，仅管理员可用。\n\n请输入 <code>/help</code> 查看可用命令。",
+            "permission": "⛔ 权限不足，仅管理员可用。\n\n请输入 /help 查看可用命令。",
             "blacklist": "🚫 你已被加入黑名单，无法投稿。\n\n如有疑问请联系管理员。",
-            "session": "❌ 投稿会话已过期，请发送 <code>/submit</code> 重新开始。",
+            "session": "❌ 投稿会话已过期，请发送 /submit 重新开始。",
             "invalid_format": "❌ 格式错误，请检查输入后重试。",
             "not_found": "❌ 未找到相关内容，换个关键词试试吧。",
             "rate_limit": "⏰ 操作太频繁，请稍等片刻再试。"
@@ -325,16 +325,16 @@ class MessageFormatter:
 • 📁 压缩包 / PDF 等文档附件
 
 <b>投稿流程</b>
-1️⃣ 发送 <code>/submit</code> 开始
+1️⃣ 发送 /submit 开始
 2️⃣ 上传内容（选填标签、标题、简介、链接）
-3️⃣ 发送 <code>/done_media</code> 打开预览
+3️⃣ 发送 /done_media 打开预览
 4️⃣ 修改确认后发布 / 提交审核
 
 <b>小提示</b>
 • 内容里加 #标签 更容易被发现
-• 随时发送 <code>/cancel</code> 取消投稿
+• 随时发送 /cancel 取消投稿
 
-<i>准备好了吗？发送 <code>/submit</code> 开始！</i>
+<i>准备好了吗？发送 /submit 开始！</i>
 """
     
     # ── 投稿流程文案（UPLOAD → PREVIEW → EDIT 各阶段集中在此） ──────────────
@@ -344,12 +344,12 @@ class MessageFormatter:
         """/submit 进入上传阶段时的引导提示。mode: MEDIA / DOCUMENT / MIXED。"""
         common = (
             "\n\n📋 <b>下一步</b>\n"
-            "1️⃣ 继续上传内容，或发送 <code>/done_media</code> 打开预览\n"
+            "1️⃣ 继续上传内容，或发送 /done_media 打开预览\n"
             "2️⃣ 在预览页填写标签（必填）、标题、简介、链接\n"
             "3️⃣ 确认无误后点击按钮发布 / 提交审核\n\n"
             "💡 <b>小提示</b>\n"
             "• 匿名、剧透默认关闭，可在预览页开启\n"
-            "• 任一环节发送 <code>/cancel</code> 可取消投稿"
+            "• 任一环节发送 /cancel 可取消投稿"
         )
         if mode == "MEDIA":
             return (
@@ -357,7 +357,7 @@ class MessageFormatter:
                 "请直接上传图片、视频、GIF 或音频\n"
                 f"• 最多 {max_files} 个\n"
                 "• 每收到一条会显示当前数量\n"
-                "• 上传完成发送 <code>/done_media</code> 打开预览，或 <code>/cancel</code> 取消"
+                "• 上传完成发送 /done_media 打开预览，或 /cancel 取消"
             ) + common
         if mode == "DOCUMENT":
             return (
@@ -365,7 +365,7 @@ class MessageFormatter:
                 "请直接上传（以附件发送图片、压缩包、PDF 等文件）\n"
                 f"• 最多 {max_files} 个\n"
                 "• 每收到一条会显示当前数量\n"
-                "• 上传完成发送 <code>/done_media</code> 打开预览，或 <code>/cancel</code> 取消"
+                "• 上传完成发送 /done_media 打开预览，或 /cancel 取消"
             ) + common
         return (
             "📮 <b>开始投稿</b>\n"
@@ -373,7 +373,7 @@ class MessageFormatter:
             "• 相册图片、视频、GIF、音频 → 媒体\n"
             "• 以附件发送的图片、压缩包、PDF → 文件\n"
             f"• 合计最多 {max_files} 个，媒体/文件可混合\n"
-            "• 上传完成发送 <code>/done_media</code> 打开预览，或 <code>/cancel</code> 取消"
+            "• 上传完成发送 /done_media 打开预览，或 /cancel 取消"
         ) + common
 
     @staticmethod
@@ -382,7 +382,7 @@ class MessageFormatter:
         label = "文件" if kind == "document" else "媒体"
         return (
             f"✅ 已接收{label}，当前 {total}/{max_files} 个。\n"
-            "💡 可继续上传，或发送 <code>/done_media</code> 打开预览、<code>/cancel</code> 取消。"
+            "💡 可继续上传，或发送 /done_media 打开预览、/cancel 取消。"
         )
 
     @staticmethod
@@ -391,7 +391,7 @@ class MessageFormatter:
             "⚠️ 这里只接收媒体或文件。\n\n"
             "• 🖼️ 图片 / 📹 视频 / GIF / 音频：直接发送\n"
             "• 📦 压缩包 / PDF 等：以附件发送\n\n"
-            "🏷️ 标签、标题、简介和链接请在 <code>/done_media</code> 打开预览后填写。"
+            "🏷️ 标签、标题、简介和链接请在 /done_media 打开预览后填写。"
         )
 
     @staticmethod
@@ -404,20 +404,20 @@ class MessageFormatter:
     def upload_max_files(max_files: int) -> str:
         return (
             f"⚠️ 单条投稿最多 {max_files} 个文件。\n\n"
-            "请发送 <code>/done_media</code> 进入预览，或 <code>/cancel</code> 后重新投稿。"
+            "请发送 /done_media 进入预览，或 /cancel 后重新投稿。"
         )
 
     @staticmethod
     def session_expired() -> str:
-        return "❌ 投稿会话已过期，请发送 <code>/submit</code> 重新开始。"
+        return "❌ 投稿会话已过期，请发送 /submit 重新开始。"
 
     @staticmethod
     def upload_requires_content(kind: str) -> str:
         if kind == "media":
-            return "⚠️ 请至少发送一个媒体文件。\n\n发送 <code>/cancel</code> 可放弃本次投稿。"
+            return "⚠️ 请至少发送一个媒体文件。\n\n发送 /cancel 可放弃本次投稿。"
         if kind == "document":
-            return "⚠️ 请至少发送一个文件。\n\n发送 <code>/cancel</code> 可放弃本次投稿。"
-        return "⚠️ 请至少上传一个媒体或文件。\n\n发送 <code>/cancel</code> 可放弃本次投稿。"
+            return "⚠️ 请至少发送一个文件。\n\n发送 /cancel 可放弃本次投稿。"
+        return "⚠️ 请至少上传一个媒体或文件。\n\n发送 /cancel 可放弃本次投稿。"
 
     @staticmethod
     def prompt_upload_text() -> str:
@@ -425,8 +425,8 @@ class MessageFormatter:
             "📮 这里只接收媒体或文件。\n\n"
             "• 🖼️ 图片 / 📹 视频 / GIF / 音频：直接发送\n"
             "• 📦 压缩包 / PDF 等：以附件发送\n\n"
-            "🏷️ 标签、标题、简介和链接请在 <code>/done_media</code> 打开预览后填写；\n"
-            "完成上传后发送 <code>/done_media</code> 打开预览，或 <code>/cancel</code> 取消。"
+            "🏷️ 标签、标题、简介和链接请在 /done_media 打开预览后填写；\n"
+            "完成上传后发送 /done_media 打开预览，或 /cancel 取消。"
         )
 
     @staticmethod
@@ -504,7 +504,7 @@ class MessageFormatter:
                 "⌛ 请留意私信：审核通过或未通过时机器人都会通知你。\n"
                 "💡 审核期间请不要重复提交同一内容。"
             )
-        return "✅ 发布成功！你的内容已发布到频道。\n\n💡 可通过 <code>/myposts</code> 查看自己的投稿。"
+        return "✅ 发布成功！你的内容已发布到频道。\n\n💡 可通过 /myposts 查看自己的投稿。"
 
     @staticmethod
     def pagination_info(current: int, total: int) -> str:

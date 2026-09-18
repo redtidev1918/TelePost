@@ -42,8 +42,8 @@ def _panel_text() -> str:
         f"📱 Mini App 投稿审核：{_on(MINIAPP_REVIEW_REQUIRED)}\n"
         f"💬 聊天投稿审核：{_on(CHAT_REVIEW_REQUIRED)}\n"
         f"👤 频道显示投稿人：{_on(SHOW_SUBMITTER)}\n\n"
-        "设置频道：<code>/botconfig channel @频道或-100ID</code>\n"
-        "设置审核群：在目标群发送 <code>/botconfig review here</code>"
+        "设置频道：/botconfig channel @频道或-100ID\n"
+        "设置审核群：在目标群发送 /botconfig review here"
     )
 
 

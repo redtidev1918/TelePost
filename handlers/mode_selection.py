@@ -83,13 +83,13 @@ async def start(update: Update, context: CallbackContext) -> int:
     welcome = (
         f"👋 <b>你好，{username}！</b>\n\n"
         "我是投稿机器人，帮你把图文内容发布到频道。\n"
-        "想投稿？发送 <code>/submit</code> 就开始。\n\n"
+        "想投稿？发送 /submit 就开始。\n\n"
         "📚 <b>常用功能</b>\n"
-        "<code>/submit</code> 开始投稿\n"
-        "<code>/search</code> 搜索内容\n"
-        "<code>/mystats</code> 我的统计 · <code>/myposts</code> 我的投稿\n"
-        "<code>/hot</code> 热门排行 · <code>/tags</code> 标签云\n"
-        "<code>/help</code> 完整帮助 · <code>/cancel</code> 取消投稿\n\n"
+        "/submit 开始投稿\n"
+        "/search 搜索内容\n"
+        "/mystats 我的统计 · /myposts 我的投稿\n"
+        "/hot 热门排行 · /tags 标签云\n"
+        "/help 完整帮助 · /cancel 取消投稿\n\n"
         "💡 <i>也可以点击下方菜单按钮快速操作。</i>"
     )
     try:
