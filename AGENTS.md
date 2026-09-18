@@ -179,6 +179,13 @@ rejection notification.
 - **上传**：Uppy 拥有通用附件状态（选择/限制/去重/移除/进度/错误）；TelePost 禁止再维护
   一套并行文件管理器。提交传输是 TelePost 业务 adapter（一次 multipart + 稳定幂等键），
   Uppy 的 XHRUpload/Tus 只在业务契约需要时引入。
+- **用户空间/管理空间拆分**：`navigationForSpace(isReviewer)` 是底部导航与路由的
+  唯一来源；reviewer/admin 只进管理空间（审核队列 + 编辑历史），其余用户只进用户空间
+  （首页/投稿/我的投稿）。空间只是展示层隐藏，服务端 RBAC 仍是唯一权威；新路由必须
+  走这套导航函数，禁止各页面自拼底部导航。
+- **预览两态**：Mini App 用户空间「预览投稿」只做本端预览（可返回修改或提交审核，
+  无侧写）；私聊预览是真实 Telegram 渠道预览（首次 `/done_media` 发送一次，刷新不重复）。
+  两个入口独立实现、业务管道共用，禁止互相搬运状态。
 - **「我的投稿」**：指人类属主的 logical submission（一个 review chain = 一条）；actor /
   token 持有者 / transport / submitter 是四个概念；服务自动化没有人类 submitter；
   refetch 代际折叠为一条投稿；状态映射在服务端完成，内部数据库态不外泄。

@@ -26,6 +26,28 @@ Telegram
 6. Mini App deep link（`startapp=review_123`）只表达导航意图，不构成授权。
 7. TelePost 仍是后端 SSOT；Mini App 不是第二个 backend。
 
+## 用户空间 / 管理空间拆分（§mine-admin-split）
+
+Mini App 按服务器验证后的**角色**进入两个互相独立的空间，路由与底部导航单一来源是
+`webapp/src/app/App.tsx` 的 `navigationForSpace(isReviewer)`：
+
+- **管理空间**（reviewer / admin）：Tabbar 只有「审核队列」，路由只有审核队列、
+  审核详情、审核编辑、编辑历史；任何其它路径重定向到 `/review`。普通用户不持有这些路由。
+- **用户空间**（submitter）：Tabbar 为「首页 / 投稿 / 我的投稿」，路由只有投稿三件套与
+  各自的详情/编辑历史；不注册审核路径。服务端 RBAC 仍是唯一权威，路由/按钮只是把非授权表面
+  藏起来，不能替代服务端校验。
+
+### 预览与发送边界（§preview-ux）
+
+- **Mini App 用户空间**：附件与文字先在本端构建投稿预览（Uppy 本地媒体预览 + 服务端
+  同款 caption formatter），预览页提供「返回修改」与「提交审核」两个出口——用户确认前可
+  任意增删/改动附件与文案，不产生任何侧写（不上传、不发 Telegram 消息）。
+- **私聊预览**：是 TelePost 机器人的真实渠道预览，`/done_media` 首次进入时把已选素材
+  以真实 Telegram 媒体发送一次，随后附控制消息（直发显示「确认发布」、需审核显示
+  「提交审核」）；再次 `/done_media` 刷新不重复发送。
+- 两个入口是两个独立实现，业务/审核走同一条 `submissions` / `pending_reviews` 管道；
+  禁止在聊天预览里搬运 Mini App 状态，也禁止在 Mini App 伪装成聊天真实预览。
+
 ## 配置
 
 | 变量 | 说明 | 示例 |
