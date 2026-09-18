@@ -61,24 +61,36 @@ async def submit(update: Update, context: CallbackContext) -> int:
 
 
 def _upload_hint(mode: str) -> str:
-    common = "\n\n预览页仅标签必填；匿名和剧透默认关闭。\n随时发送 /cancel 取消投稿。"
+    common = (
+        "\n\n📋 后续步骤：\n"
+        "1️⃣ 继续发送内容，或发送 /done_media 打开预览\n"
+        "2️⃣ 在预览页填写标签（必填）、标题、简介、链接、匿名/剧透\n"
+        "3️⃣ 确认无误后点击按钮发布\n\n"
+        "💡 小提示：\n"
+        "• 匿名和剧透默认关闭，可在预览页开启\n"
+        "• 随时发送 /cancel 取消投稿，当前进度会保留"
+    )
     if mode == MODE_MEDIA:
         return (
-            "📮 请直接上传媒体：\n"
-            "• 相册图片、视频、GIF、音频会归为媒体\n"
-            f"• 最多 {MAX_SUBMISSION_FILES} 个；上传完成后发送 /done_media 打开预览" + common
+            "📮 请直接上传媒体（相册图片、视频、GIF、音频）\n"
+            f"• 最多 {MAX_SUBMISSION_FILES} 个\n"
+            "• 每收到一条会显示当前数量\n"
+            "• 上传完发送 /done_media 打开预览，或 /cancel 取消" + common
         )
     if mode == MODE_DOCUMENT:
         return (
-            "📮 请上传文档：\n"
-            "• 以附件发送的图片、压缩包、PDF 等会归为文件\n"
-            f"• 最多 {MAX_SUBMISSION_FILES} 个；上传完成后发送 /done_media 打开预览" + common
+            "📮 请上传文档（以附件发送的图片、压缩包、PDF 等）\n"
+            f"• 最多 {MAX_SUBMISSION_FILES} 个\n"
+            "• 每收到一条会显示当前数量\n"
+            "• 上传完发送 /done_media 打开预览，或 /cancel 取消" + common
         )
     return (
         "📮 请直接上传内容：\n"
         "• 相册图片、视频、GIF、音频会归为媒体\n"
         "• 以附件发送的图片、压缩包、PDF 等会归为文件\n"
-        f"• 合计最多 {MAX_SUBMISSION_FILES} 个，可以混合上传，完成后发送 /done_media 打开预览" + common
+        f"• 合计最多 {MAX_SUBMISSION_FILES} 个，媒体/文档可混合\n"
+        "• 每收到一条会显示当前数量\n"
+        "• 上传完发送 /done_media 打开预览，或 /cancel 取消" + common
     )
 
 
