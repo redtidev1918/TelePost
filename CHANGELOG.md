@@ -10,6 +10,14 @@
 
 ---
 
+## [2.43.0](https://github.com/redtidev1918/TelePost/compare/v2.42.0...v2.43.0) (2026-09-18)
+
+
+### Features
+
+* **miniapp:** split user space and admin space (distinct preview/send UX) ([dafaa0a](https://github.com/redtidev1918/TelePost/commit/dafaa0a304c5e09abc366a51f1ad25e5c2d4f9df))
+* **miniapp:** split user space and admin space, distinct preview/send UX ([c3641e1](https://github.com/redtidev1918/TelePost/commit/c3641e1f7250c0b69360156974a84a5380a044b3))
+
 ## [2.42.0](https://github.com/redtidev1918/TelePost/compare/v2.41.0...v2.42.0) (2026-09-18)
 
 
