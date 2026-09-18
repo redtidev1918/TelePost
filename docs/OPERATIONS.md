@@ -35,6 +35,9 @@ API 临时上传、审核队列、PixivFlow cache 和 delivery outbox。单 Bot 
   静默告警（按 UTC 日期幂等，每天最多一条），不依赖正常通知链路。
 - **状态查询**：`GET /api/botN/v1/schedule/status` 与公共 `/status` 页可随时确认
   「最近一次更新是什么时候、什么状态」。
+- **Telegram 命令**：`/status`（公开）在任意对话里查看最近计划终态；
+  `/pin_status`（仅 OWNER）把状态消息发送并置顶到当前群/频道，作为「频道置顶区」
+  的落地方式。
 
 ## 审计与可观测性
 
