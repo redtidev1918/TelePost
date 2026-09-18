@@ -80,3 +80,20 @@ pending ──点「发布」──▶ publishing ──成功──▶ publishe
 ./.venv/bin/python -m pytest -q --no-cov -o log_cli=false \
   tests/test_conversation_flow.py tests/test_run_mode.py tests/test_shutdown.py
 ```
+
+## 私聊投稿 UX 约定
+
+以下文案/交互约定有测试锚定（`tests/test_upload.py`、
+`tests/test_preview_pagination.py`），改动时同步更新：
+
+- `/submit`（或「📝 开始投稿」）发出的上传提示必须给出**分步指引**：
+  先上传内容 → `/done_media` 打开预览 → 预览页填写标签/标题/简介/链接并确认。
+- 收到媒体/文件后必须回显**进度**（`当前 N/上限 个`）并提示下一步
+  （继续上传 / `/done_media` 打开预览 / `/cancel` 取消），不能只报一个总数。
+- 上传阶段收到非媒体文字时，提示应说明「标签、标题、简介和链接在预览页填写」，
+  避免用户误以为需要现在用文字补充。
+- 预览消息展示已选内容：媒体计数 + 文档文件名列表；操作按钮与
+  `chat_disposition()`（直发 vs 先审核）一致，直发显示「确认发布」，
+  需审核显示「提交审核」。
+- 提交后的回执分别进入「审核队列」或「发布成功」，并在私聊中提示
+  「请留意私信通知 / 欢迎再次光临」。

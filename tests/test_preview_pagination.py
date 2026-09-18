@@ -279,3 +279,17 @@ class TestPagination:
 
         await handle_pagination(update, context)
         query.answer.assert_called()  # 无翻页上下文时安全应答，不抛异常
+
+
+class TestPreviewUX:
+    @pytest.mark.unit
+    def test_preview_lists_document_filenames(self):
+        from handlers.preview_handlers import _build_preview_text
+
+        row = _submission_row() | {
+            "document_id": '["document:fileid:report.pdf", "document:fileid2:专辑.zip"]',
+            "image_id": "[]",
+        }
+        text = _build_preview_text(row)
+        assert "report.pdf" in text
+        assert "专辑.zip" in text
