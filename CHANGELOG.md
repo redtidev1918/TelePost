@@ -10,6 +10,13 @@
 
 ---
 
+## [2.39.1](https://github.com/redtidev1918/TelePost/compare/v2.39.0...v2.39.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* **ops:** schedule/status + watchdog use latest-notification status ([#161](https://github.com/redtidev1918/TelePost/issues/161)) ([8d8c30b](https://github.com/redtidev1918/TelePost/commit/8d8c30bf37243a478ef928ab0b6239b2e7b535ac))
+
 ## [2.39.0](https://github.com/redtidev1918/TelePost/compare/v2.38.0...v2.39.0) (2026-09-18)
 
 
