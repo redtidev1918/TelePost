@@ -302,3 +302,37 @@ async def test_candidate_report_and_target_buttons(monkeypatch, tmp_path):
         assert first_row[1].callback_data == "sched_recover|bot1-illust-botefuku|relaxed"
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_candidate_report_renders_inventory_reserve(monkeypatch, tmp_path):
+    """Phase 5: empty result shows the durable 待发池 reserve."""
+    import copy
+    await _db(monkeypatch, tmp_path)
+    app, application = _make_app(monkeypatch)
+    client = await _client(app)
+    headers = {"Authorization": "Bearer tp_service"}
+    payload = copy.deepcopy(PAYLOAD)
+    payload["targets"][0]["candidate_report"] = {
+        "fetched": 120,
+        "selected": 0,
+        "rejected": 118,
+        "reasons": [{"code": "duplicate", "count": 118}],
+        "inventory": {
+            "pendingCount": 6,
+            "reserveSize": 20,
+            "maxAgeDays": 30,
+            "oldestSeenDate": "2026-09-03",
+        },
+    }
+    try:
+        resp = await client.post("/api/v1/schedule/outcomes", json=payload,
+                                 headers=headers)
+        assert resp.status == 200
+        text = application.bot.send_message.await_args.kwargs["text"]
+        assert "候选扫描：120" in text
+        assert "重复：118" in text
+        assert "待发池：6 条（预计可用到 2026-10-03）" in text
+    finally:
+        await client.close()
+
