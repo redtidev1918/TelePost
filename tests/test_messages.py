@@ -33,6 +33,7 @@ class TestMessageFormatter:
         message = MessageFormatter.help_message(is_admin=False)
         
         assert "/submit" in message
+        assert "/cancel" in message
         assert "/help" in message
         assert "/hot" in message
         assert "/mystats" in message
@@ -47,6 +48,7 @@ class TestMessageFormatter:
         
         # 应该包含基础命令
         assert "/submit" in message
+        assert "/cancel" in message
         assert "/help" in message
         # 应该包含管理员命令
         assert "/broadcast" in message
@@ -59,6 +61,7 @@ class TestMessageFormatter:
         
         assert "关于投稿机器人" in message
         assert "/submit" in message
+        assert "/cancel" in message
         assert "/help" in message
         assert "github.com/redtidev1918/TelePost" in message
     
