@@ -394,3 +394,55 @@ async def get_user_stats(update: Update, context: CallbackContext):
     except Exception as e:
         logger.error(f"获取用户统计失败: {e}")
         await update.message.reply_text("❌ 获取统计失败，请稍后重试")
+
+
+
+async def stats_command(update: Update, context: CallbackContext):
+    """仅 Owner：查看全局统计（/stats）。"""
+    from utils.blacklist import is_owner, get_blacklist
+    from ui.messages import MessageFormatter
+    user_id = update.effective_user.id
+    if not is_owner(user_id):
+        await update.message.reply_text(MessageFormatter.error_message("permission"), parse_mode="HTML")
+        return
+    total_posts = total_views = total_forwards = 0
+    total_users = active_users = 0
+    try:
+        async with get_db() as conn:
+            c = await conn.cursor()
+            await c.execute("SELECT COUNT(*) AS c FROM published_posts WHERE is_deleted = 0")
+            row = await c.fetchone()
+            total_posts = int(row["c"] or 0) if row else 0
+            await c.execute("SELECT COUNT(DISTINCT user_id) AS c FROM published_posts WHERE is_deleted = 0 AND user_id IS NOT NULL")
+            row = await c.fetchone()
+            total_users = int(row["c"] or 0) if row else 0
+            await c.execute("SELECT COALESCE(SUM(views),0) AS s FROM published_posts WHERE is_deleted = 0")
+            row = await c.fetchone()
+            total_views = int(row["s"] or 0) if row else 0
+            await c.execute("SELECT COALESCE(SUM(forwards),0) AS s FROM published_posts WHERE is_deleted = 0")
+            row = await c.fetchone()
+            total_forwards = int(row["s"] or 0) if row else 0
+            cutoff = (datetime.now() - timedelta(days=7)).timestamp()
+            await c.execute(
+                "SELECT COUNT(DISTINCT user_id) AS c FROM published_posts "
+                "WHERE is_deleted = 0 AND user_id IS NOT NULL AND publish_time > ?",
+                (cutoff,),
+            )
+            row = await c.fetchone()
+            active_users = int(row["c"] or 0) if row else 0
+        blacklist = await get_blacklist()
+        blacklist_count = len(blacklist) if blacklist else 0
+        stats = {
+            "total_users": total_users,
+            "active_users_7d": active_users,
+            "blacklist_count": blacklist_count,
+            "total_posts": total_posts,
+            "total_views": total_views,
+            "total_forwards": total_forwards,
+        }
+        text = MessageFormatter.admin_stats(stats)
+        await update.message.reply_text(text, parse_mode="HTML")
+    except Exception as exc:
+        logger.error("全局统计失败: %s", exc, exc_info=True)
+        await update.message.reply_text("❌ 获取全局统计失败，请稍后重试。")
+

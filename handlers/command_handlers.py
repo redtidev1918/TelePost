@@ -74,6 +74,17 @@ async def help_command(update: Update, context: CallbackContext):
         await update.message.reply_text("❌ 发送帮助信息失败，请稍后重试")
 
 
+
+async def about_command(update: Update, context: CallbackContext):
+    """关于机器人（/about）。"""
+    logger.info(f"关于命令被调用: 用户ID={update.effective_user.id}")
+    try:
+        await update.message.reply_text(MessageFormatter.about_message(), parse_mode="HTML")
+    except Exception as exc:
+        logger.error("发送关于信息失败: %s", exc)
+        await update.message.reply_text("❌ 发送关于信息失败，请稍后重试")
+
+
 # 管理面板相关功能已移除
 
 
