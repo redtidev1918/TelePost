@@ -304,6 +304,61 @@ _OVERALL = {
 _RECOVERY_MODE_LABEL = {"normal": "再试一次", "relaxed": "放宽条件重试"}
 
 
+
+def _candidate_report_lines(item: dict) -> list[str]:
+    """Phase 1/2 Candidate Supply Report lines for the operator message."""
+    report = item.get("candidate_report")
+    if not isinstance(report, dict):
+        return []
+    try:
+        fetched = int(report.get("fetched") or 0)
+        rejected = int(report.get("rejected") or 0)
+        selected = int(report.get("selected") or 0)
+    except (TypeError, ValueError):
+        return []
+    reasons = report.get("reasons") or []
+    dup = 0
+    for r in reasons:
+        if isinstance(r, dict) and str(r.get("code") or "") == "duplicate":
+            try:
+                dup += int(r.get("count") or 0)
+            except (TypeError, ValueError):
+                pass
+    lines = [
+        f"候选扫描：{fetched}",
+        f"重复：{dup}",
+        f"过滤：{rejected - dup if rejected >= dup else rejected}",
+        f"最终候选：{selected}",
+    ]
+    projection = _supply_projection(item, fetched, rejected, selected, dup)
+    if projection:
+        lines.append(f"判断：{projection}")
+    return lines
+
+
+def _supply_projection(item: dict, fetched: int, rejected: int, selected: int, duplicate: int) -> str | None:
+    """Phase 2 projection (not a new terminal code). Only for empty results."""
+    status = str(item.get("status") or "")
+    if status not in ("no_candidate", "duplicate"):
+        return None
+    terminal = str(item.get("terminal_reason_code") or "")
+    if terminal in ("duplicate_exhausted", "duplicate_only") or (duplicate > 0 and duplicate >= fetched * 0.5):
+        return "candidate_supply_low"
+    if selected == 0 and fetched <= 5:
+        return "no_content_today"
+    if selected == 0:
+        return "policy_too_narrow"
+    return None
+
+
+def _short_target_label(target: dict) -> str:
+    tid = str(target.get("target_id") or "")
+    if "illust" in tid:
+        return "插画"
+    if "novel" in tid:
+        return "小说"
+    return tid.split("-")[-1][:6] or "目标"
+
 def _terminal_reason_line(target: dict) -> str:
     """One business-language reason line for a failed terminal target."""
     reason = target.get("reason")
@@ -388,6 +443,7 @@ def build_schedule_outcome_text(schedule_id: str, status: str,
             reason_line = _terminal_reason_line(item)
             if reason_line:
                 lines.append(reason_line)
+            lines.extend(_candidate_report_lines(item))
             lines.extend(_operational_guidance_lines(item))
     return "\n".join(lines)
 
@@ -2151,9 +2207,10 @@ def add_api_routes(web_app, application) -> None:
                 rows = []
                 for target in failed[:4]:
                     target_id = str(target["target_id"]).strip()[:64]
+                    label = _short_target_label(target)
                     rows.append([
-                        InlineKeyboardButton("再试一次", callback_data=f"sched_recover|{target_id}|normal"),
-                        InlineKeyboardButton("放宽条件重试", callback_data=f"sched_recover|{target_id}|relaxed"),
+                        InlineKeyboardButton(f"重试·{label}", callback_data=f"sched_recover|{target_id}|normal"),
+                        InlineKeyboardButton(f"放宽·{label}", callback_data=f"sched_recover|{target_id}|relaxed"),
                     ])
                 if rows:
                     reply_markup = InlineKeyboardMarkup(rows)
