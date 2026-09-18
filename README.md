@@ -21,13 +21,12 @@ TelePost 可以独立运行，不要求 PixivFlow、Fly.io、Mini App 或多 Bot
 | 自动内容频道 | PixivFlow 等工具 → HTTP API → 审核 → 频道 | 自动收集内容并保留人工把关 |
 | 自定义自动化 | RSS / 爬虫 / CI / 自有脚本 → HTTP API → 频道 | 把 Telegram 作为现有工作流的发布端 |
 
-```text
-用户 ──┬── Telegram Chat ──┐
-       └── Mini App ───────┤
-                           ▼
-                        TelePost ──→ Telegram Channel
-                           ▲
-外部自动化 ── HTTP API ────┘
+```mermaid
+flowchart LR
+    Chat["用户 Telegram Chat"] --> TP["TelePost"]
+    Mini["Mini App"] --> TP
+    Auto["外部自动化（HTTP API）"] --> TP
+    TP --> Ch["Telegram Channel"]
 ```
 
 Chat、Mini App 和 API 不是三套系统：它们最终进入同一个 TelePost 业务流程。Mini App 是可选的增强界面，
@@ -90,10 +89,12 @@ curl -X POST 'https://example.com/api/v1/submissions' \
 
 TelePost 可以完全独立运行，也可以接收任何能调用 HTTP API 的上游：
 
-```text
-PixivFlow ─────┐
-RSS / 爬虫 ────┼──→ TelePost → 审核 / 发布 → Telegram
-自有脚本 / CI ┘
+```mermaid
+flowchart LR
+    PixivFlow["PixivFlow"] --> TelePost["TelePost"]
+    RSS["RSS / 爬虫"] --> TelePost
+    CI["自有脚本 / CI"] --> TelePost
+    TelePost --> TG["Telegram"]
 ```
 
 [PixivFlow](https://github.com/redtidev1918/PixivFlow) 是一个独立的 Pixiv 下载、筛选与自动收集工具；
