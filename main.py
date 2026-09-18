@@ -41,6 +41,7 @@ from utils.database import (
 from utils.logging_config import setup_logging
 from utils.helper_functions import CONFIG
 from utils.maintenance_jobs import clean_logs_job, pixivflow_maintain_job, scheduled_time
+from utils.schedule_watchdog import schedule_watchdog_job
 
 # 处理程序导入 - 按功能分组
 # 基础命令
@@ -692,7 +693,10 @@ def setup_application(application):
             await flush_manager_notifications(context.bot)
 
         job_queue.run_repeating(cleanup_runtime_data, interval=300, first=10)
-        
+        # Independent supply watchdog: alert when a recognized schedule goes
+        # silent for too long instead of waiting for the user to report a miss.
+        job_queue.run_repeating(schedule_watchdog_job, interval=1800, first=120)
+
         is_primary_bot = os.getenv("TELEPOST_PRIMARY_BOT", "true").strip().lower() in {
             "1", "true", "yes", "on"
         }
