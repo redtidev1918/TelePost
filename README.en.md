@@ -22,13 +22,12 @@ TelePost runs on its own; PixivFlow, Fly.io, the Mini App, and multi-bot mode ar
 | Automated content channel | PixivFlow or another tool → HTTP API → review → channel | Automated collection with human oversight |
 | Custom automation | RSS / scraper / CI / your script → HTTP API → channel | Using Telegram as the publishing end of an existing workflow |
 
-```text
-People ──┬── Telegram Chat ──┐
-         └── Mini App ───────┤
-                             ▼
-                          TelePost ──→ Telegram Channel
-                             ▲
-Automation ── HTTP API ──────┘
+```mermaid
+flowchart LR
+    Chat["People / Telegram Chat"] --> TP["TelePost"]
+    Mini["Mini App"] --> TP
+    Auto["Automation / HTTP API"] --> TP
+    TP --> Ch["Telegram Channel"]
 ```
 
 Chat, Mini App, and API are not separate systems: they all enter the same TelePost workflow. The Mini App
@@ -94,10 +93,12 @@ See the [HTTP API guide](docs/API.md) for multi-bot paths, moderation policy, re
 
 TelePost runs on its own and can accept submissions from any upstream system that can call an HTTP API:
 
-```text
-PixivFlow ───────┐
-RSS / scrapers ──┼──→ TelePost → review / publish → Telegram
-Scripts / CI ────┘
+```mermaid
+flowchart LR
+    PixivFlow["PixivFlow"] --> TelePost["TelePost"]
+    RSS["RSS / scrapers"] --> TelePost
+    CI["Scripts / CI"] --> TelePost
+    TelePost --> TG["Telegram"]
 ```
 
 [PixivFlow](https://github.com/redtidev1918/PixivFlow) is an independent Pixiv downloading, filtering, and
