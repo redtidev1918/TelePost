@@ -1097,10 +1097,11 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                 actor_kind="user",
                 actor_subject=f"telegram:{user_id}",
             )
+            from ui.messages import MessageFormatter
             await _reply_to_user(
-                f"✅ 投稿已进入审核队列（#{review_result['review_id']}）。\n\n"
-                "⌛ 请留意私信：审核通过或未通过时机器人都会通知你。\n"
-                "💡 审核期间请不要重复提交同一内容。"
+                MessageFormatter.publication_result(
+                    review=True, review_id=review_result['review_id']
+                )
             )
             publish_success = True
             return ConversationHandler.END

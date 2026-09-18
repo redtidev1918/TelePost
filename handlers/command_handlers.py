@@ -44,13 +44,17 @@ async def cancel(update: Update, context: CallbackContext) -> int:
     except Exception as e:
         logger.error(f"取消时删除数据错误: {e}")
     # 根据是否存在会话给出不同提示
-    message_text = "❌ 投稿已取消" if session_exists else "ℹ️ 当前没有进行中的投稿"
+    message_text = (
+        "🗑️ 投稿已取消，所有临时进度已清除。\n\n想继续？发送 <code>/submit</code> 重新开始。"
+        if session_exists
+        else "ℹ️ 当前没有进行中的投稿。\n\n想投稿？发送 <code>/submit</code> 即可开始。"
+    )
     try:
-        await update.message.reply_text(message_text, reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text(message_text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
     except Exception:
         # 在极少数情况下 message 可能不存在
         try:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=message_text)
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=message_text, parse_mode="HTML")
         except Exception:
             pass
     return ConversationHandler.END
@@ -58,64 +62,11 @@ async def cancel(update: Update, context: CallbackContext) -> int:
 
 
 async def help_command(update: Update, context: CallbackContext):
-    """
-    帮助命令，显示机器人使用说明
-    
-    Args:
-        update: Telegram 更新对象
-        context: 回调上下文
-    """
+    """帮助命令，显示机器人使用说明。文案收敛到 ui.messages.MessageFormatter。"""
     logger.info(f"帮助命令被调用: 用户ID={update.effective_user.id}")
-    
     user_id = update.effective_user.id
     is_admin = is_owner(user_id)
-    
-    # 基础帮助信息（所有用户可见）
-    basic_help = """
-📚 <b>使用指南</b>
-
-<b>📝 投稿相关：</b>
-/submit - 开始新投稿
-/cancel - 取消当前投稿
-
-<b>📊 统计查询：</b>
-/hot - 查看热门内容
-/mystats - 我的投稿统计
-/myposts - 我的投稿列表
-
-<b>🔍 搜索功能：</b>
-/search &lt;关键词&gt; - 搜索内容
-/tags - 查看热门标签云
-
-<b>ℹ️ 其他：</b>
-/help - 显示此帮助
-/settings - 查看机器人设置
-"""
-    
-    # 管理员专属帮助（仅管理员可见）
-    admin_help = """
-<b>👑 管理员专属命令：</b>
-/debug - 查看系统调试信息
-/blacklist_add &lt;ID&gt; [原因] - 添加黑名单
-/blacklist_remove &lt;ID&gt; - 移除黑名单
-/blacklist_list - 查看黑名单列表
-/searchuser &lt;ID&gt; - 查询用户投稿
-/botconfig - 热更新当前 Bot 的频道、审核群和署名策略
-"""
-    
-    footer = """
-💡 <b>小贴士：</b>
-• 使用下方菜单按钮快速访问功能
-• 投稿支持文字、图片、视频等多种格式
-• 添加 #标签 让内容更易被发现
-"""
-    
-    # 根据用户身份组合消息
-    if is_admin:
-        help_text = basic_help + admin_help + footer
-    else:
-        help_text = basic_help + footer
-    
+    help_text = MessageFormatter.help_message(is_admin=is_admin)
     try:
         await update.message.reply_text(help_text, parse_mode="HTML")
     except Exception as e:

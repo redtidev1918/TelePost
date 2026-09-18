@@ -32,10 +32,10 @@ async def handle_upload(update: Update, context: CallbackContext) -> int:
 
     entry = classify_message(message)
     if entry is None:
+        from ui.messages import MessageFormatter
         await message.reply_text(
-            "⚠️ 请发送支持的媒体或文件：\n"
-            "• 图片/视频/GIF/音频：直接发送\n"
-            "• 压缩包/PDF/其它：以附件发送"
+            MessageFormatter.upload_supported_types(),
+            parse_mode="HTML",
         )
         return STATE["UPLOAD"]
 
@@ -44,41 +44,42 @@ async def handle_upload(update: Update, context: CallbackContext) -> int:
     # 模式限制（BOT_MODE 为部署级配置）
     if kind == "document":
         if BOT_MODE == MODE_MEDIA:
-            await message.reply_text("⚠️ 当前为媒体投稿模式，不支持文件附件。")
+            from ui.messages import MessageFormatter
+            await message.reply_text(MessageFormatter.upload_mode_limited("document"), parse_mode="HTML")
             return STATE["UPLOAD"]
         if not _file_validator.validate(message.document.file_name, message.document.mime_type)[0]:
             await message.reply_text(
-                "⚠️ 不支持的文件类型。允许：" + _file_validator.get_allowed_types_description()
+                "⚠️ 不支持的文件类型。\n\n允许：" + _file_validator.get_allowed_types_description()
             )
             return STATE["UPLOAD"]
     elif BOT_MODE == MODE_DOCUMENT:
-        await message.reply_text("⚠️ 当前为文档投稿模式，请以附件发送文件。")
+        from ui.messages import MessageFormatter
+        await message.reply_text(MessageFormatter.upload_mode_limited("media"), parse_mode="HTML")
         return STATE["UPLOAD"]
 
     session = await get_session(user_id)
+    from ui.messages import MessageFormatter
     if session is None:
-        await message.reply_text("❌ 会话已过期，请重新发送 /submit")
+        await message.reply_text(MessageFormatter.session_expired(), parse_mode="HTML")
         return ConversationHandler.END
     current_count = len(_parse(session["image_id"])) + len(_parse(session["document_id"]))
     if current_count >= MAX_SUBMISSION_FILES:
         await message.reply_text(
-            f"⚠️ 单条投稿最多 {MAX_SUBMISSION_FILES} 个文件。\n"
-            "请发送 /done_media 进入预览，或 /cancel 后重新投稿。"
+            MessageFormatter.upload_max_files(MAX_SUBMISSION_FILES),
+            parse_mode="HTML",
         )
         return STATE["UPLOAD"]
 
     count = await append_entry(user_id, entry)
     if count == 0:
-        await message.reply_text("❌ 会话已过期，请重新发送 /submit")
+        await message.reply_text(MessageFormatter.session_expired(), parse_mode="HTML")
         return ConversationHandler.END
 
     total = current_count + (1 if entry else 0)
-    label = "文件" if kind == "document" else "媒体"
-    next_line = (
-        f"✅ 已接收{label}，当前 {total}/{MAX_SUBMISSION_FILES} 个。\n"
-        "💡 可以继续上传，也可以发送 /done_media 打开预览，或 /cancel 取消。"
+    await message.reply_text(
+        MessageFormatter.upload_received(kind, total, MAX_SUBMISSION_FILES),
+        parse_mode="HTML",
     )
-    await message.reply_text(next_line)
     return STATE["UPLOAD"]
 
 
@@ -86,21 +87,22 @@ async def done_upload(update: Update, context: CallbackContext) -> int:
     """完成上传：校验至少有内容后进入预览。"""
     user_id = update.effective_user.id
     session = await get_session(user_id)
+    from ui.messages import MessageFormatter
     if session is None:
-        await update.message.reply_text("❌ 会话已过期，请重新发送 /submit")
+        await update.message.reply_text(MessageFormatter.session_expired(), parse_mode="HTML")
         return ConversationHandler.END
 
     media_count = len(_parse(session["image_id"]))
     doc_count = len(_parse(session["document_id"]))
 
     if BOT_MODE == MODE_MEDIA and not media_count:
-        await update.message.reply_text("⚠️ 请至少发送一个媒体文件")
+        await update.message.reply_text(MessageFormatter.upload_requires_content("media"), parse_mode="HTML")
         return STATE["UPLOAD"]
     if BOT_MODE == MODE_DOCUMENT and not doc_count:
-        await update.message.reply_text("⚠️ 请至少发送一个文件")
+        await update.message.reply_text(MessageFormatter.upload_requires_content("document"), parse_mode="HTML")
         return STATE["UPLOAD"]
     if not media_count and not doc_count:
-        await update.message.reply_text("⚠️ 请至少上传一个媒体或文件")
+        await update.message.reply_text(MessageFormatter.upload_requires_content("any"), parse_mode="HTML")
         return STATE["UPLOAD"]
 
     from handlers.preview_handlers import show_submission_preview
@@ -111,7 +113,8 @@ async def skip_upload(update: Update, context: CallbackContext) -> int:
     """跳过上传阶段（可选内容都没传时直接预览）。"""
     user_id = update.effective_user.id
     if await get_session(user_id) is None:
-        await update.message.reply_text("❌ 会话已过期，请重新发送 /submit")
+        from ui.messages import MessageFormatter
+        await update.message.reply_text(MessageFormatter.session_expired(), parse_mode="HTML")
         return ConversationHandler.END
     from handlers.preview_handlers import show_submission_preview
     return await show_submission_preview(update, context)
@@ -119,13 +122,8 @@ async def skip_upload(update: Update, context: CallbackContext) -> int:
 
 async def prompt_upload(update: Update, context: CallbackContext) -> int:
     """上传阶段收到文字时的提示。"""
-    await update.message.reply_text(
-        "📮 这里只接收媒体或文件。\n\n"
-        "• 相册图片、视频、GIF、音频直接发送即可\n"
-        "• 压缩包/PDF 等以附件发送\n\n"
-        "🏷️ 标签、标题、简介和链接请在 /done_media 打开预览后填写；\n"
-        "完成上传后发送 /done_media 打开预览，或 /cancel 取消。"
-    )
+    from ui.messages import MessageFormatter
+    await update.message.reply_text(MessageFormatter.prompt_upload_text(), parse_mode="HTML")
     return STATE["UPLOAD"]
 
 

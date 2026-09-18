@@ -22,65 +22,24 @@ from utils.submission import get_session, update_fields, append_entry, classify_
 
 logger = logging.getLogger(__name__)
 
+from ui.messages import MessageFormatter
+
 _EDIT_PROMPTS = {
-    "edit_tag": "🏷️ 请发送新的标签（用逗号分隔，直接覆盖原标签）：",
-    "edit_title": "🔖 请发送新的标题（回复“无”清空，上限 100 字）：",
-    "edit_note": "📝 请发送新的简介（回复“无”清空，上限 600 字）：",
-    "edit_link": "🔗 请发送新的链接（回复“无”清空，须以 http:// 或 https:// 开头）：",
-    "edit_media": "📎 请直接发送要补充的媒体（图片/视频/GIF/音频），完成后点下方按钮返回预览：",
+    "edit_tag": MessageFormatter.edit_prompt("edit_tag"),
+    "edit_title": MessageFormatter.edit_prompt("edit_title"),
+    "edit_note": MessageFormatter.edit_prompt("edit_note"),
+    "edit_link": MessageFormatter.edit_prompt("edit_link"),
+    "edit_media": MessageFormatter.edit_prompt("edit_media"),
 }
 
 
 def _build_preview_text(row) -> str:
-    media_list = parse_json_list(row["image_id"])
-    doc_list = parse_json_list(row["document_id"])
-    media_count = len(media_list)
-    doc_count = len(doc_list)
-
-    lines = ["📋 发布预览", ""]
-
-    if media_count or doc_count:
-        if media_count:
-            lines.append(f"📎 媒体：{media_count} 个")
-        if doc_count:
-            lines.append(f"📄 文档：{doc_count} 个")
-            for entry in doc_list:
-                parts = entry.split(":", 2)
-                name = parts[2] if len(parts) > 2 and parts[2] else "未命名文件"
-                lines.append(f"   • {name[:60]}{'…' if len(name) > 60 else ''}")
-        lines.append("")
-
-    lines.append(f"🏷 标签：{row['tags'] or '（未设置）'}")
-    if row["link"]:
-        lines.append(f"🔗 链接：{row['link']}")
-    if row["title"]:
-        lines.append(f"🔖 标题：{row['title']}")
-    if row["note"]:
-        note = row["note"]
-        suffix = " …" if len(note) > 80 else ""
-        lines.append(f"📝 简介：{note[:80]}{suffix}")
-    is_anon = (row["anonymous"] if "anonymous" in row.keys() else "false") == "true"
-    lines.append(f"🔞 剧透：{'是' if (row['spoiler'] or '') == 'true' else '否'}")
-    lines.append(f"🕵️ 匿名：{'是（频道内不显示投稿人）' if is_anon else '否（显示投稿人）'}")
-    lines.append("")
     from telepost.domain.submission import (
         SubmissionDisposition,
         chat_disposition as _chat_disposition,
     )
     review_first = _chat_disposition() == SubmissionDisposition.REVIEW_REQUIRED
-    if row["tags"]:
-        lines.append(
-            "✅ 确认无误请点击下方按钮提交审核，审核通过后发布到频道；\n"
-            "💡 也可以先修改标签/标题/简介/链接，或开启匿名、剧透。" if review_first
-            else "✅ 确认无误请点击下方按钮发布到频道；\n"
-                 "💡 也可以先修改标签/标题/简介/链接，或开启匿名、剧透。"
-        )
-    else:
-        lines.append(
-            "⚠️ 提交审核前必须填写标签；其余字段均可留空。" if review_first
-            else "⚠️ 发布前必须填写标签；其余字段均可留空。"
-        )
-    return "\n".join(lines)
+    return MessageFormatter.preview_text(row, review_first=review_first)
 
 
 def _build_preview_keyboard(row=None) -> InlineKeyboardMarkup:
@@ -217,9 +176,12 @@ async def handle_edit_field_callback(update: Update, context: CallbackContext) -
     except Exception:
         pass
     try:
-        await update.callback_query.edit_message_text(prompt)
+        await update.callback_query.edit_message_text(prompt, parse_mode="HTML")
     except Exception:
-        await update.effective_message.reply_text(prompt)
+        try:
+            await update.effective_message.reply_text(prompt, parse_mode="HTML")
+        except Exception:
+            await update.effective_message.reply_text(prompt)
     return STATE["EDIT"]
 
 
@@ -235,7 +197,7 @@ async def handle_edit_input(update: Update, context: CallbackContext) -> int:
     if field == "edit_media":
         entry = classify_message(message)
         if entry is None or entry_kind(entry) == "document":
-            await message.reply_text("⚠️ 请发送支持的媒体（图片/视频/GIF/音频）")
+            await message.reply_text("⚠️ 请发送支持的媒体（图片/视频/GIF/音频），或发送 <code>/cancel</code> 取消。", parse_mode="HTML")
             return STATE["EDIT"]
         count = await append_entry(user_id, entry)
         from telepost.domain.submission import (
@@ -244,7 +206,8 @@ async def handle_edit_input(update: Update, context: CallbackContext) -> int:
         )
         action = "提交审核" if _cd() == SubmissionDisposition.REVIEW_REQUIRED else "确认发布"
         await message.reply_text(
-            f"✅ 已添加，当前共 {count} 个媒体。可继续发送，或发送 /done_media 返回预览并{action}。"
+            f"✅ 已添加，当前共 {count} 个媒体。可继续发送，或发送 <code>/done_media</code> 返回预览并{action}。",
+            parse_mode="HTML",
         )
         return await show_submission_preview(update, context)
 
@@ -252,7 +215,7 @@ async def handle_edit_input(update: Update, context: CallbackContext) -> int:
     if field == "edit_tag":
         success, processed = process_tags(text)
         if not success or not processed:
-            await message.reply_text("❌ 标签格式错误，请重新输入（最多30个，用逗号分隔）")
+            await message.reply_text("❌ 标签格式错误，请重新输入（最多 30 个，用逗号分隔）")
             return STATE["EDIT"]
         await update_fields(user_id, tags=processed)
         await message.reply_text("✅ 标签已更新")
@@ -266,7 +229,7 @@ async def handle_edit_input(update: Update, context: CallbackContext) -> int:
         if text.lower() == "无":
             link = ""
         elif not text.startswith(("http://", "https://")):
-            await message.reply_text("⚠️ 链接须以 http:// 或 https:// 开头，或回复“无”清空")
+            await message.reply_text("⚠️ 链接须以 http:// 或 https:// 开头，或回复「无」清空")
             return STATE["EDIT"]
         else:
             link = text
