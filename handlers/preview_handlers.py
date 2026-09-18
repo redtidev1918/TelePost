@@ -7,7 +7,13 @@
 import logging
 from datetime import datetime
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+    InputMediaVideo,
+)
 from telegram.ext import ConversationHandler, CallbackContext
 
 from models.state import STATE
@@ -103,6 +109,74 @@ def _build_preview_keyboard(row=None) -> InlineKeyboardMarkup:
     ])
 
 
+async def _send_preview_media(update: Update, context: CallbackContext,
+                               media_list, doc_list) -> None:
+    """私聊里发真实媒体预览（与 Mini App 本地预览区分：chat 走真实 Telegram 媒体）。
+
+    只在首次进入预览时发送一次（上下文标记 preview_media_sent），后续编辑刷新只改
+    文字控制消息，不重复叠加媒体。发送失败逐条捕获并记日志，绝不让预览流程断裂。
+    """
+    if context is None or getattr(context, "user_data", None) is None:
+        return
+    if context.user_data.get("preview_media_sent"):
+        return
+    context.user_data["preview_media_sent"] = True
+
+    try:
+        chat_id = update.effective_chat.id
+    except Exception:
+        chat_id = update.effective_message.chat_id
+
+    bot = getattr(context, "bot", None)
+    if bot is None:
+        return
+    photos = []
+    singles = []
+
+    for entry in media_list:
+        parts = entry.split(":", 2)
+        kind = parts[0].lower()
+        file_id = parts[1] if len(parts) > 1 else ""
+        if not file_id:
+            continue
+        if kind == "video":
+            singles.append(("video", file_id, None))
+        elif kind == "animation":
+            singles.append(("animation", file_id, None))
+        elif kind == "audio":
+            singles.append(("audio", file_id, None))
+        else:
+            photos.append(file_id)
+
+    for entry in doc_list:
+        parts = entry.split(":", 2)
+        file_id = parts[1] if len(parts) > 1 else ""
+        name = parts[2] if len(parts) > 2 and parts[2] else "未命名文件"
+        if file_id:
+            singles.append(("document", file_id, name))
+
+    # 照片合并成相册（每批最多 10 张），其它媒体单独发送。
+    for i in range(0, len(photos), 10):
+        batch = photos[i:i + 10]
+        try:
+            await bot.send_media_group(chat_id=chat_id, media=[InputMediaPhoto(media=fid) for fid in batch])
+        except Exception as exc:
+            logger.warning("预览相册发送失败（忽略）: %s", exc)
+
+    for kind, file_id, name in singles:
+        try:
+            if kind == "video":
+                await bot.send_video(chat_id=chat_id, video=file_id)
+            elif kind == "animation":
+                await bot.send_animation(chat_id=chat_id, animation=file_id)
+            elif kind == "audio":
+                await bot.send_audio(chat_id=chat_id, audio=file_id)
+            elif kind == "document":
+                await bot.send_document(chat_id=chat_id, document=file_id, filename=name)
+        except Exception as exc:
+            logger.warning("预览媒体发送失败（忽略） kind=%s: %s", kind, exc)
+
+
 async def show_submission_preview(update: Update, context: CallbackContext) -> int:
     """展示/刷新预览；回调编辑原消息，文本来源发送新消息。"""
     user_id = update.effective_user.id
@@ -123,6 +197,10 @@ async def show_submission_preview(update: Update, context: CallbackContext) -> i
         except Exception as e:
             logger.debug(f"刷新预览失败（内容未变化时属正常）: {e}")
     else:
+        from utils.helper_functions import parse_json_list as _pl
+        media_list = _pl(row["image_id"])
+        doc_list = _pl(row["document_id"])
+        await _send_preview_media(update, context, media_list, doc_list)
         await update.effective_message.reply_text(text, reply_markup=keyboard)
     return STATE["PREVIEW"]
 

@@ -56,6 +56,10 @@ async def submit(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("❌ 初始化失败，请稍后再试")
         return ConversationHandler.END
 
+    # 每次 /submit 是一次新投稿：清除上一个会话的“已发媒体预览”标记，
+    # 否则再次投稿时真实媒体预览不会重新发送。
+    context.user_data.pop("preview_media_sent", None)
+
     await update.message.reply_text(_upload_hint(BOT_MODE), reply_markup=ReplyKeyboardRemove())
     return STATE["UPLOAD"]
 
