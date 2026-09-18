@@ -333,3 +333,39 @@ class TestMiniAppStaticRelay:
         finally:
             await bot_runner.cleanup()
             await router_runner.cleanup()
+@pytest.mark.asyncio
+async def test_status_page_renders_schedule_updates(monkeypatch):
+    from aiohttp import web
+    import aiohttp
+
+    async def schedule_status(_request):
+        return web.json_response({"ok": True, "data": {
+            "schedules": [
+                {"schedule_id": "bot1-daily", "last_sent_at": 1600000000.0,
+                 "last_sent_at_iso": "2020-09-13T12:26:40+00:00",
+                 "last_status": "partial"},
+            ],
+        }})
+
+    child = web.Application()
+    child.router.add_get("/api/v1/schedule/status", schedule_status)
+
+    monkeypatch.setattr(run_mod, "bot_webhook_port", lambda i: 18110 + i)
+    child_runner = web.AppRunner(child)
+    await child_runner.setup()
+    await web.TCPSite(child_runner, "127.0.0.1", 18111).start()
+    router_app = run_mod.build_router_app([1])
+    router_runner = web.AppRunner(router_app)
+    await router_runner.setup()
+    await web.TCPSite(router_runner, "127.0.0.1", 18112).start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("http://127.0.0.1:18112/status") as resp:
+                assert resp.status == 200
+                text = await resp.text()
+                assert "bot1-daily" in text
+                assert "last 2020-09-13 12:26 UTC" in text
+                assert "partial" in text
+    finally:
+        await router_runner.cleanup()
+        await child_runner.cleanup()
