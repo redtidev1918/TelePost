@@ -38,6 +38,31 @@ GET /api/v1/health
 
 无需认证，返回 API 版本、Bot 版本和两类审核开关。
 
+## 计划状态（只读，无需认证）
+
+```http
+GET /api/v1/schedule/status          # 单 Bot
+GET /api/bot1/v1/schedule/status     # 多 Bot 父路由
+```
+
+返回每个 schedule 最近一次终态通知的时间和 status，供状态页/频道置顶随时查询，
+不用等下一个发布时点才知道「有没有更新过」：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "schedules": [
+      {"schedule_id": "bot1-daily", "last_sent_at": 1789415370.33,
+       "last_sent_at_iso": "2026-09-14T19:49:30+00:00", "last_status": "partial"}
+    ]
+  }
+}
+```
+
+多 Bot 部署下公共可读的纯文本状态页在 `<host>/status`（由父路由汇总各 Bot
+子服务），适合运营置顶/收藏。
+
 ## 身份与限额
 
 ```http
