@@ -330,6 +330,27 @@ def _candidate_report_lines(item: dict) -> list[str]:
         f"过滤：{rejected - dup if rejected >= dup else rejected}",
         f"最终候选：{selected}",
     ]
+    inventory = report.get("inventory")
+    if isinstance(inventory, dict):
+        try:
+            pending = int(inventory.get("pendingCount") or 0)
+            reserve = int(inventory.get("reserveSize") or 0)
+            max_age = int(inventory.get("maxAgeDays") or 0)
+        except (TypeError, ValueError):
+            pending = reserve = max_age = 0
+        oldest = str(inventory.get("oldestSeenDate") or "").strip()
+        if pending > 0:
+            until = ""
+            if oldest and max_age > 0:
+                try:
+                    from datetime import date, timedelta
+                    base = date.fromisoformat(oldest)
+                    until = f"（预计可用到 {base + timedelta(days=max_age)}）"
+                except (ValueError, TypeError):
+                    until = ""
+            lines.append(f"待发池：{pending} 条{until}")
+        elif pending <= 0 and reserve > 0:
+            lines.append(f"待发池：0 条")
     projection = _supply_projection(item, fetched, rejected, selected, dup)
     if projection:
         lines.append(f"判断：{projection}")
