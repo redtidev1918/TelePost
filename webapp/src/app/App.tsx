@@ -14,7 +14,7 @@ import { useBotNavigate } from '../lib/useBotNavigate';
  * authority — the router only hides what the verified roles say (§45).
  */
 import { useCallback, useEffect, useRef } from 'react';
-import { Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { initDataStartParam } from '@telegram-apps/sdk';
 import { submissionIntent } from '../lib/submissionEntry';
 import { Tabbar } from '@telegram-apps/telegram-ui';
@@ -31,15 +31,18 @@ import { ReviewDetailPage } from '../pages/ReviewDetail/ReviewDetailPage';
 interface NavItem {
   path: string;
   label: string;
-  show: (isReviewer: boolean) => boolean;
 }
 
-const NAV: NavItem[] = [
-  { path: '/', label: '首页', show: () => true },
-  { path: '/submit', label: '投稿', show: () => true },
-  { path: '/mine', label: '我的投稿', show: () => true },
-  { path: '/review', label: '审核队列', show: (r) => r },
-];
+/** 用户空间 / 管理空间导航：reviewer 只看到审核队列，普通用户只看到投稿三件套。 */
+export function navigationForSpace(isReviewer: boolean): NavItem[] {
+  return isReviewer
+    ? [{ path: '/review', label: '审核队列' }]
+    : [
+        { path: '/', label: '首页' },
+        { path: '/submit', label: '投稿' },
+        { path: '/mine', label: '我的投稿' },
+      ];
+}
 
 const ERROR_TEXT: Partial<Record<ReturnType<typeof useAuth>['status'], { title: string; hint?: string }>> = {
   outside_telegram: {
@@ -137,7 +140,40 @@ function Shell() {
     );
   }
 
-  const visibleNav = NAV.filter((item) => item.show(isReviewer));
+  // 用户空间 vs 管理空间（§mine-admin-split）：reviewer 只进管理空间（审核队列/
+  // 编辑历史），其它用户只进用户空间（首页/投稿/我的投稿）。两个 space 的入口、
+  // Tabbar 与路由彼此独立，服务端 RBAC 仍是唯一权威。
+  if (isReviewer) {
+    const adminNav = navigationForSpace(true);
+    return (
+      <div className="app-safe">
+        <main className="page">
+          <Routes>
+            <Route path="/" element={<ReviewQueuePage />} />
+            <Route path="/review" element={<ReviewQueuePage />} />
+            <Route path="/review/:id" element={<ReviewDetailPage />} />
+            <Route path="/review/:id/edit" element={<ReviewEditPage />} />
+            <Route path="/mine/:id/editorial" element={<EditorialHistoryPage />} />
+            <Route path="*" element={<Navigate to="/review" replace />} />
+          </Routes>
+        </main>
+        <div ref={navRef} className="bottom-nav">
+          <Tabbar data-testid="bottom-nav">
+            {adminNav.map((item) => (
+              <Tabbar.Item
+                key={item.path}
+                text={item.label}
+                selected={location.pathname.startsWith(item.path)}
+                onClick={() => navigate(item.path)}
+              />
+            ))}
+          </Tabbar>
+        </div>
+      </div>
+    );
+  }
+
+  const userNav = navigationForSpace(false);
 
   return (
     <div className="app-safe">
@@ -148,18 +184,12 @@ function Shell() {
           <Route path="/mine" element={<MySubmissionsPage />} />
           <Route path="/mine/:id" element={<SubmissionDetailPage />} />
           <Route path="/mine/:id/editorial" element={<EditorialHistoryPage />} />
-          {isReviewer && <Route path="/review" element={<ReviewQueuePage />} />}
-          {isReviewer && (
-            <>
-              <Route path="/review/:id" element={<ReviewDetailPage />} />
-              <Route path="/review/:id/edit" element={<ReviewEditPage />} />
-            </>
-          )}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
       <div ref={navRef} className="bottom-nav">
         <Tabbar data-testid="bottom-nav">
-          {visibleNav.map((item) => (
+          {userNav.map((item) => (
             <Tabbar.Item
               key={item.path}
               text={item.label}
