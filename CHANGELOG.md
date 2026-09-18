@@ -10,6 +10,14 @@
 
 ---
 
+## [2.41.0](https://github.com/redtidev1918/TelePost/compare/v2.40.1...v2.41.0) (2026-09-18)
+
+
+### Features
+
+* **chat:** polished private-chat submission UX (prompts, formatting, progress, preview) ([263e98d](https://github.com/redtidev1918/TelePost/commit/263e98dbbd3e5f552e32a21e6fe670d3576768cb))
+* **chat:** polished private-chat submission UX (prompts, formatting, progress, preview) ([e93d7a5](https://github.com/redtidev1918/TelePost/commit/e93d7a598929cfad181a7fb0b28809ec4376b2be))
+
 ## [2.40.1](https://github.com/redtidev1918/TelePost/compare/v2.40.0...v2.40.1) (2026-09-18)
 
 
