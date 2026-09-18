@@ -10,6 +10,13 @@
 
 ---
 
+## [2.36.0](https://github.com/redtidev1918/TelePost/compare/v2.35.1...v2.36.0) (2026-09-18)
+
+
+### Features
+
+* **observability:** candidate supply funnel + target-labeled recovery buttons ([#153](https://github.com/redtidev1918/TelePost/issues/153)) ([8810f73](https://github.com/redtidev1918/TelePost/commit/8810f73008ec07492093bf86b14df375cc177ac7))
+
 ## [2.35.1](https://github.com/redtidev1918/TelePost/compare/v2.35.0...v2.35.1) (2026-09-17)
 
 
