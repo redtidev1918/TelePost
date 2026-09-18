@@ -10,6 +10,18 @@
 
 ---
 
+## [2.45.0](https://github.com/redtidev1918/TelePost/compare/v2.44.0...v2.45.0) (2026-09-18)
+
+
+### Features
+
+* **chat:** register /about and /stats commands ([c1dcbc8](https://github.com/redtidev1918/TelePost/commit/c1dcbc8056aad8583b7cd4b61dcd9da16bd0c513))
+
+
+### Bug Fixes
+
+* **chat:** keep /commands clickable by removing &lt;code&gt; wrappers ([654d983](https://github.com/redtidev1918/TelePost/commit/654d9839c99b450aef38e20b6e04dee24f7f5db8))
+
 ## [2.44.0](https://github.com/redtidev1918/TelePost/compare/v2.43.0...v2.44.0) (2026-09-18)
 
 
