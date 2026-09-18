@@ -10,6 +10,13 @@
 
 ---
 
+## [2.44.0](https://github.com/redtidev1918/TelePost/compare/v2.43.0...v2.44.0) (2026-09-18)
+
+
+### Features
+
+* **chat:** redesign private-chat submission copy and flow guidance ([114ed64](https://github.com/redtidev1918/TelePost/commit/114ed641d264914533ac9705283d21e1f73bbfbd))
+
 ## [2.43.0](https://github.com/redtidev1918/TelePost/compare/v2.42.0...v2.43.0) (2026-09-18)
 
 
