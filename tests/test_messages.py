@@ -57,9 +57,9 @@ class TestMessageFormatter:
         """测试关于消息"""
         message = MessageFormatter.about_message()
         
-        assert "v2.0" in message
-        assert "python-telegram-bot" in message
-        assert "redtidev1918" in message
+        assert "关于投稿机器人" in message
+        assert "/submit" in message
+        assert "/help" in message
         assert "github.com/redtidev1918/TelePost" in message
     
     @pytest.mark.unit
