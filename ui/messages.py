@@ -84,17 +84,16 @@ class MessageFormatter:
         return """
 ℹ️ <b>关于投稿机器人</b>
 
-<b>🤖 版本：</b> v2.0
-<b>⚡ 框架：</b> python-telegram-bot
+这是一个投稿机器人，支持图文 / 文件投稿，提交前可预览确认。
 
-<b>✨ 亮点</b>
-• 图文 / 文件投稿
-• 预览后发布 / 审核
-• 匿名与剧透开关
+<b>常用命令</b>
+/submit 发起投稿
+/mystats 查看我的投稿统计
+/help 查看完整帮助
 
 <b>🔗 开源：</b> https://github.com/redtidev1918/TelePost
 
-<i>感谢使用！有问题可私聊管理员。</i>
+<i>有问题可以私聊管理员。</i>
 """
     
     @staticmethod
