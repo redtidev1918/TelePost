@@ -30,34 +30,42 @@ async def schedule_watchdog_job(context) -> None:
         async with db_manager.get_db() as conn:
             cur = await conn.execute(
                 """
-                SELECT substr(slot_id, 1, instr(slot_id, '@') - 1) AS schedule_id,
-                       MAX(sent_at) AS last_sent,
-                       MAX(status) AS last_status
+                SELECT slot_id, sent_at, status
                 FROM schedule_outcome_notifications
-                GROUP BY schedule_id
                 """
             )
             rows = await cur.fetchall()
+        last_by_schedule = {}
+        for r in rows:
+            slot = r["slot_id"] or ""
+            schedule_id = slot.split("@", 1)[0] if "@" in slot else ""
+            if not schedule_id:
+                continue
+            sent = float(r["sent_at"] or 0)
+            prev = last_by_schedule.get(schedule_id)
+            if prev is None or sent > prev[1]:
+                last_by_schedule[schedule_id] = (sent, r["status"] or "")
         stale = [
-            r for r in rows
-            if r["schedule_id"] and (float(r["last_sent"] or 0) < cutoff)
+            (sid, sent, status)
+            for sid, (sent, status) in last_by_schedule.items()
+            if sent < cutoff
         ]
-        for row in stale:
-            schedule_id = str(row["schedule_id"])[:80]
+        for schedule_id, last_sent, last_status in stale:
             utc_date = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
             key = f"schedule-watchdog:{schedule_id}:{utc_date}"
             if not await claim_api_notification(0, key):
                 continue
             try:
                 last_iso = datetime.datetime.fromtimestamp(
-                    float(row["last_sent"]), datetime.timezone.utc
+                    float(last_sent), datetime.timezone.utc
                 ).isoformat()
                 text = (
                     f"⚠️ 计划静默告警：{schedule_id}\n"
-                    f"最近一次终态通知：{last_iso}（{row['last_status'] or '未知'}）\n"
+                    f"最近一次终态通知：{last_iso}（{last_status or '未知'}）\n"
                     f"已超过 {WATCHDOG_MAX_HOURS:.0f} 小时没有新的 Slot 终态，"
                     "用户可能仍在等待作品，请检查 PixivFlow / 时钟 / Webhook。"
                 )
+                logger.warning("schedule watchdog alert: schedule=%s last_sent=%s", schedule_id, last_iso)
                 message = await context.bot.send_message(chat_id=REVIEW_CHAT_ID, text=text)
                 await mark_api_notification_sent(0, key, message.message_id)
             except Exception:
