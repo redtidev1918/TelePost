@@ -10,6 +10,13 @@
 
 ---
 
+## [2.45.1](https://github.com/redtidev1918/TelePost/compare/v2.45.0...v2.45.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* **chat:** add /cancel to /about quick commands ([350d370](https://github.com/redtidev1918/TelePost/commit/350d370c6538db8d8ec7b35d8debc185d0410740))
+
 ## [2.45.0](https://github.com/redtidev1918/TelePost/compare/v2.44.0...v2.45.0) (2026-09-18)
 
 
