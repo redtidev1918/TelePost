@@ -10,6 +10,13 @@
 
 ---
 
+## [2.39.0](https://github.com/redtidev1918/TelePost/compare/v2.38.0...v2.39.0) (2026-09-18)
+
+
+### Features
+
+* **ops:** public /status page + schedule observability docs ([#159](https://github.com/redtidev1918/TelePost/issues/159)) ([3ed5faf](https://github.com/redtidev1918/TelePost/commit/3ed5fafcf2cb701b3bee914f8b036c8a02053411))
+
 ## [2.38.0](https://github.com/redtidev1918/TelePost/compare/v2.37.0...v2.38.0) (2026-09-18)
 
 
