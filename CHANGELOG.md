@@ -10,6 +10,13 @@
 
 ---
 
+## [2.38.0](https://github.com/redtidev1918/TelePost/compare/v2.37.0...v2.38.0) (2026-09-18)
+
+
+### Features
+
+* **ops:** schedule watchdog + preannouncement + status ([#157](https://github.com/redtidev1918/TelePost/issues/157)) ([452dc0b](https://github.com/redtidev1918/TelePost/commit/452dc0b319b8da1a80dcd123136ad61773960be7))
+
 ## [2.37.0](https://github.com/redtidev1918/TelePost/compare/v2.36.0...v2.37.0) (2026-09-18)
 
 
