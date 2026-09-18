@@ -89,6 +89,7 @@ class MessageFormatter:
 <b>常用命令</b>
 /submit 发起投稿
 /mystats 查看我的投稿统计
+/cancel 取消当前投稿
 /help 查看完整帮助
 
 <b>🔗 开源：</b> https://github.com/redtidev1918/TelePost
