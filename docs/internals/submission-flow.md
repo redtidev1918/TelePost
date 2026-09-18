@@ -97,3 +97,17 @@ pending ──点「发布」──▶ publishing ──成功──▶ publishe
   需审核显示「提交审核」。
 - 提交后的回执分别进入「审核队列」或「发布成功」，并在私聊中提示
   「请留意私信通知 / 欢迎再次光临」。
+
+## 聊天 vs Mini App 预览的边界
+
+- **聊天（私聊）预览是本机器人的真实渠道预览**：首次进入预览（`/done_media`）时，
+  机器人会把已传的媒体/文件**以真实 Telegram 媒体**再次发进私聊（照片合并成相册、
+  video/animation/audio/document 单独发送），随后附一条文字+按钮的控制消息。
+  每次投稿只发一次（`preview_media_sent` 标记），后续编辑刷新只改文字控制消息，
+  不会重复叠加媒体。
+- **Mini App 预览是浏览器端本地预览**（`webapp/src/pages/Submit/SubmitPage.tsx`：
+  `URL.createObjectURL` + `SubmissionMedia`），不产生任何 Telegram 消息，caption 走
+  服务端 `/submissions/preview` 以保证展示与真实发布一致。
+- 两者是**两个独立入口、两种预览实现**，业务/审核走同一条
+  `submissions`/`pending_reviews` 管道；不要在聊天预览里搬运 Mini App 状态，也不要在
+  Mini App 里伪装成聊天预览。
