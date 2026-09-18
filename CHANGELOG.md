@@ -10,6 +10,13 @@
 
 ---
 
+## [2.40.0](https://github.com/redtidev1918/TelePost/compare/v2.39.1...v2.40.0) (2026-09-18)
+
+
+### Features
+
+* **ops:** /status and /pin_status Telegram commands ([#163](https://github.com/redtidev1918/TelePost/issues/163)) ([fa4ca7b](https://github.com/redtidev1918/TelePost/commit/fa4ca7b465f824f7b130b815c4fb67a1a98a9b5c))
+
 ## [2.39.1](https://github.com/redtidev1918/TelePost/compare/v2.39.0...v2.39.1) (2026-09-18)
 
 
