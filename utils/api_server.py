@@ -992,12 +992,8 @@ def add_api_routes(web_app, application) -> None:
             async with db_manager.get_db() as conn:
                 cur = await conn.execute(
                     """
-                    SELECT substr(slot_id, 1, instr(slot_id, '@') - 1) AS schedule_id,
-                           MAX(sent_at) AS last_sent_at,
-                           MAX(status) AS last_status
+                    SELECT slot_id, sent_at, status
                     FROM schedule_outcome_notifications
-                    GROUP BY schedule_id
-                    ORDER BY last_sent_at DESC
                     """
                 )
                 rows = await cur.fetchall()
@@ -1006,15 +1002,25 @@ def add_api_routes(web_app, application) -> None:
             return _error(500, "status_unavailable", "无法读取最近计划状态")
         schedules = []
         import datetime
+        last_by_schedule = {}
         for row in rows:
-            sent = float(row["last_sent_at"] or 0)
+            slot = row["slot_id"] or ""
+            schedule_id = slot.split("@", 1)[0] if "@" in slot else ""
+            if not schedule_id:
+                continue
+            sent = float(row["sent_at"] or 0)
+            prev = last_by_schedule.get(schedule_id)
+            if prev is None or sent > prev["last_sent_at"]:
+                last_by_schedule[schedule_id] = {"last_sent_at": sent, "last_status": row["status"] or ""}
+        for schedule_id, info in sorted(last_by_schedule.items(), key=lambda kv: kv[1]["last_sent_at"], reverse=True):
+            sent = info["last_sent_at"]
             schedules.append({
-                "schedule_id": row["schedule_id"],
+                "schedule_id": schedule_id,
                 "last_sent_at": sent,
                 "last_sent_at_iso": datetime.datetime.fromtimestamp(
                     sent, datetime.timezone.utc
                 ).isoformat() if sent else None,
-                "last_status": row["last_status"] or "",
+                "last_status": info["last_status"],
             })
         return _ok({"schedules": schedules})
 
