@@ -20,4 +20,5 @@ This page is **generated automatically** by GitHub Actions on every release and 
 | Windows · x64 | `telepost-windows-x64.exe` | 21.7 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.49.0/telepost-windows-x64.exe) |
 | macOS · arm64 | `telepost-2.49.0-macos-arm64.tar.gz` | 18.1 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.49.0/telepost-2.49.0-macos-arm64.tar.gz) |
 | macOS · arm64 | `telepost-macos-arm64` | 18.3 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.49.0/telepost-macos-arm64) |
+| 通用 | `RELEASE-METADATA.json` | 3 KB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.49.0/RELEASE-METADATA.json) |
 | 通用 | `SHA256SUMS` | 1 KB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.49.0/SHA256SUMS) |
