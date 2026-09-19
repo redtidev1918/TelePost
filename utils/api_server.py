@@ -970,6 +970,58 @@ async def _run_review_action(handler):
         return _error(500, "internal_error", "Review action failed")
 
 
+def _validate_media_assets(payload_assets):
+    """Minimal Delivery Asset Contract (Step 10) validator.
+
+    Accepts a list of:
+        { asset_id, kind: 'image', source_url, mime_type? }
+
+    Rejects unknown kinds / non-http(s) source / empty asset_id so TelePost never
+    swallows arbitrary PixivFlow domain fields.
+    """
+    if payload_assets is None:
+        return None
+    if not isinstance(payload_assets, list):
+        raise ValueError("media_assets 必须是数组")
+    from telepost.storage.sqlite.media_assets import VALID_KINDS
+    seen: set = set()
+    cleaned = []
+    for item in payload_assets:
+        if not isinstance(item, dict):
+            raise ValueError("media_assets 每项必须是对象")
+        asset_id = str(item.get("asset_id") or "").strip()
+        kind = str(item.get("kind") or "image").strip()
+        source_url = str(item.get("source_url") or "").strip()
+        if not asset_id:
+            raise ValueError("media_assets 每项必须包含 asset_id")
+        if kind not in VALID_KINDS:
+            raise ValueError(f"media_assets kind 只支持 {'/'.join(sorted(VALID_KINDS))}")
+        if not source_url.startswith(("http://", "https://")):
+            raise ValueError("media_assets source_url 必须是 http(s) URL")
+        if asset_id in seen:
+            raise ValueError(f"重复的 asset_id: {asset_id}")
+        seen.add(asset_id)
+        cleaned.append({
+            "asset_id": asset_id[:200],
+            "kind": kind,
+            "source_url": source_url[:2048],
+            "mime_type": str(item.get("mime_type") or "")[:100],
+        })
+    return cleaned
+
+
+async def _persist_media_assets(result: dict):
+    """Persist delivery asset refs for a review result (only review rows)."""
+    review_id = result.get("review_id")
+    if not review_id:
+        return 0
+    from telepost.storage.sqlite import media_assets as ma
+    chain_id = await ma.chain_id_for_review(int(review_id))
+    if not chain_id:
+        return 0
+    return await ma.replace_for_chain(chain_id, result.get("media_assets") or [])
+
+
 def add_api_routes(web_app, application) -> None:
     """把 /api/v1 路由挂到既有 aiohttp 应用上（每个 bot 子进程独立一套）"""
     bot = application.bot
@@ -1386,6 +1438,10 @@ def add_api_routes(web_app, application) -> None:
                                         actor_kind=actor_kind, actor_subject=actor_subject)
                 return _error(400, "invalid_refetch_provenance", "refetch_request_id 必须是 UUID")
 
+            try:
+                media_assets = _validate_media_assets(payload.get("media_assets"))
+            except ValueError as exc:
+                return _error(400, "invalid_media_asset", str(exc)[:200])
             media = payload.get("media") or []
             documents = payload.get("documents") or []
             if not isinstance(media, list) or not isinstance(documents, list):
@@ -1447,6 +1503,12 @@ def add_api_routes(web_app, application) -> None:
                     result = await queue_review_from_file_ids(
                         bot, media, documents, **queue_kwargs, **common,
                     )
+                    if media_assets:
+                        result["media_assets"] = media_assets
+                        try:
+                            await _persist_media_assets(result)
+                        except Exception:
+                            logger.exception("持久化 media_assets 失败")
                 else:
                     from handlers.publish import publish_from_file_ids
                     result = await publish_from_file_ids(

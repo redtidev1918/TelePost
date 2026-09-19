@@ -632,6 +632,27 @@ async def init_db():
                 )
             """)
 
+            # Delivery Asset Contract (Step 10): canonical media references on a
+            # review chain so TelePost never has to swallow every PixivFlow domain
+            # field. asset_id/source_url is the minimal contract; local artifacts
+            # stay the file_id/media_json path unchanged.
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS media_asset_refs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    review_chain_id TEXT NOT NULL,
+                    asset_id TEXT NOT NULL,
+                    kind TEXT NOT NULL DEFAULT 'image',
+                    source_url TEXT NOT NULL,
+                    mime_type TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL,
+                    UNIQUE(review_chain_id, asset_id)
+                )
+            """)
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_media_asset_refs_chain '
+                'ON media_asset_refs(review_chain_id)'
+            )
+
             # published_posts 是频道现状，pending_reviews 是审核审计。频道消息被软删除时
             # 同步把对应审核记录从“曾发布”推进到“已删除”，避免把历史终态误当成
             # 当前仍在线的发布。触发器覆盖项目内所有软删除入口。
