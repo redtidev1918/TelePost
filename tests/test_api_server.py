@@ -648,9 +648,11 @@ class TestDeliveryAssetContract:
             payload = (await view.json())["data"]
             assert payload["media_assets"] == [
                 {"asset_id": "pixiv-001", "kind": "image",
-                 "source_url": "https://i.pximg.net/a.jpg", "mime_type": "image/jpeg"},
+                 "source_url": "https://i.pximg.net/a.jpg", "mime_type": "image/jpeg",
+                 "file_id": "", "file_unique_id": ""},
                 {"asset_id": "pixiv-002", "kind": "image",
-                 "source_url": "https://i.pximg.net/b.png", "mime_type": ""},
+                 "source_url": "https://i.pximg.net/b.png", "mime_type": "",
+                 "file_id": "", "file_unique_id": ""},
             ]
         finally:
             await client.close()

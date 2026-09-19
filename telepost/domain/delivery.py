@@ -140,6 +140,7 @@ class DeliveredMessage:
     kind: MediaKind
     file_id: Optional[str] = None
     thumbnail_file_id: Optional[str] = None
+    file_unique_id: Optional[str] = None
     raw: object = None
 
 

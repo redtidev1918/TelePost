@@ -5,7 +5,8 @@ upstream (PixivFlow) domain object wholesale. For each canonical media asset
 reference we pick the cheapest *available* Telegram source:
 
 * ``telegram_file_id`` – the review already holds a Telegram file_id (zero
-  re-upload); this stays the default fast path.
+  re-upload), either in the local media JSON or in the Step 12 TelegramMediaCache
+  (``media_asset_refs.file_id``); this stays the default fast path.
 * ``remote_url``       – only the canonical source URL exists (e.g. the
   on-demand preview path where PixivFlow stopped downloading cover images);
   the Telegram sender fetches the URL itself.
@@ -142,15 +143,19 @@ def plan_review_media(media: List[Dict[str, Any]],
         local = local_items[index] if index < len(local_items) else None
         local_file_id = (str(local.get("file_id") or "").strip()
                          if isinstance(local, dict) else "")
-        if local_file_id:
+        cached_file_id = (str(asset.get("file_id") or "").strip()
+                          or str(asset.get("fileId") or "").strip())
+        chosen_file_id = local_file_id or cached_file_id
+        if chosen_file_id:
             entries.append(MediaPlanEntry(
                 index=index,
                 kind=MediaKind.PHOTO.value,
                 strategy=STRATEGY_FILE_ID,
                 asset_id=asset_id,
-                file_id=local_file_id,
+                file_id=chosen_file_id,
                 mime_type=mime_type,
-                filename=(str(local.get("filename") or "") or None),
+                filename=(str(local.get("filename") or "") or None)
+                if isinstance(local, dict) else None,
             ))
         else:
             entries.append(MediaPlanEntry(
