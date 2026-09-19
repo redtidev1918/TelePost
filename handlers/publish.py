@@ -45,6 +45,7 @@ from telepost.domain.delivery import (
     ReplyMode,
     TelegramFileId,
     LocalFile,
+    RemoteUrl,
 )
 from telepost.domain.packing import MEDIA_GROUP_CAPACITY
 from telepost.telegram.delivery.preparation import (
@@ -56,6 +57,7 @@ from telepost.telegram.delivery.preparation import (
 from telepost.telegram.delivery.sender import (
     PTBSender,
     file_id_of as _file_id_of,
+    file_unique_id_of as _file_unique_id_of,
     thumbnail_file_id_of as _thumbnail_file_id,
     timeout_kwargs as _timeout_kwargs,
 )
@@ -244,6 +246,8 @@ def _items_from_dicts(items):
                 original_path=it.get("original_path"),
                 temporary=bool(it.get("temporary", False)),
             )
+        elif it.get("url"):
+            source = RemoteUrl(it["url"], it.get("filename"))
         elif it.get("file_id") is not None:
             source = TelegramFileId(it["file_id"], it.get("filename"))
         else:
@@ -270,6 +274,10 @@ def _item_to_dict(item: MediaItem) -> dict:
             out["original_path"] = item.source.original_path
         if item.source.temporary:
             out["temporary"] = True
+    elif isinstance(item.source, RemoteUrl):
+        out["url"] = item.source.url
+        if item.source.filename:
+            out["filename"] = item.source.filename
     else:
         out["file_id"] = item.source.file_id
         if item.source.filename:
@@ -673,23 +681,37 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
                                 user_id, username="", idempotency_key="",
                                 target_id="", work_type="", pixiv_id="",
                                 submitter_user_id=None, submitter_username="",
-                                submitter_display_name="", source="") -> dict:
-    """API file_id 直投核心：素材已在 Telegram 服务器，零媒体重传。"""
+                                submitter_display_name="", source="",
+                                media_assets=None, review_chain_id="") -> dict:
+    """API file_id 直投核心：素材已在 Telegram 服务器，零媒体重传。
+
+    When ``media_assets`` is supplied, the Step 11 DeliveryPlanner decides the
+    per-asset source (existing file_id caches / local file_id win, otherwise
+    canonical remote_url). A confirmed publication records the resulting
+    Telegram file_id / file_unique_id back into ``media_asset_refs``
+    (Step 12/13 cache).
+    """
     from telepost.application.publication import (
         PublicationService, PublishCommand,
     )
+    from telepost.application.delivery_planner import plan_review_media
+    from telepost.storage.sqlite.media_assets import mark_delivered_for_chain
 
     key = idempotency_key.strip()[:240]
     pid = (pixiv_id or _pixiv_id_from_link(link or "")).strip()
 
-    items = _items_from_dicts([
-        {"kind": m["type"], "file_id": m["file_id"], "spoiler": spoiler}
-        for m in media
-    ] + [
-        {"kind": "document", "file_id": d["file_id"],
-         "filename": d.get("filename") or "file"}
-        for d in documents
-    ])
+    if media_assets:
+        plan = plan_review_media(media, media_assets, documents=documents)
+        items = plan.to_media_items(spoiler=spoiler)
+    else:
+        items = _items_from_dicts([
+            {"kind": m["type"], "file_id": m["file_id"], "spoiler": spoiler}
+            for m in media
+        ] + [
+            {"kind": "document", "file_id": d["file_id"],
+             "filename": d.get("filename") or "file"}
+            for d in documents
+        ])
     data = _caption_identity_data(
         tags=tags, title=title, note=note, link=link, spoiler=spoiler,
         anonymous=anonymous, user_id=user_id, username=username,
@@ -729,7 +751,28 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
         album_size=CHANNEL_ALBUM_SIZE,
     )
     outcome = await service.publish(command)
-    return _outcome_to_legacy(outcome, raise_on_failure=True)
+    result = _outcome_to_legacy(outcome, raise_on_failure=True)
+    # Step 12/13: record the confirmed Telegram media facts per canonical asset.
+    if media_assets and review_chain_id and not result.get("reused"):
+        known_messages = result.get("known_messages") or []
+        delivered_refs: list = []
+        for index, asset in enumerate(media_assets):
+            if index >= len(known_messages):
+                break
+            msg = known_messages[index]
+            if not msg.get("file_id"):
+                continue
+            delivered_refs.append({
+                "asset_id": str(asset.get("asset_id") or ""),
+                "file_id": msg.get("file_id"),
+                "file_unique_id": msg.get("file_unique_id") or "",
+            })
+        if delivered_refs:
+            try:
+                await mark_delivered_for_chain(review_chain_id, delivered_refs)
+            except Exception:
+                logger.exception("记录 TelegramMediaCache 投递结果失败")
+    return result
 
 
 def _build_novel_preview(bot=None):
@@ -810,6 +853,15 @@ def _outcome_to_legacy(outcome, *, raise_on_failure):
         result["reused"] = True
         result["reuse_reason"] = outcome.reuse_reason
         result["matched_idempotency_key"] = outcome.matched_idempotency_key
+    # Step 13 cache capture: expose the confirmed per-message media facts so
+    # the delivery adapter can record file_id/file_unique_id per asset.
+    if getattr(outcome, "known_messages", None):
+        result["known_messages"] = [{
+            "message_id": m.message_id,
+            "kind": m.kind.value,
+            "file_id": m.file_id,
+            "file_unique_id": getattr(m, "file_unique_id", None),
+        } for m in outcome.known_messages if m.file_id]
     return result
 
 
@@ -874,6 +926,7 @@ class _LegacyDeliveryPort:
                 kind=MediaKind.coerce(_kind_of_raw_message(m)),
                 file_id=_file_id_of(m),
                 thumbnail_file_id=_thumbnail_file_id(m),
+                file_unique_id=_file_unique_id_of(m),
                 raw=m,
             )
             for m in raw_messages
