@@ -221,10 +221,6 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
             
             # 统计数据
             stats_parts = []
-            if post['views'] > 0:
-                stats_parts.append(f"👁 {_format_number(post['views'])}")
-            if post['forwards'] > 0:
-                stats_parts.append(f"📤 {post['forwards']}")
             if post['reactions'] > 0:
                 stats_parts.append(f"❤️ {post['reactions']}")
             
@@ -362,8 +358,6 @@ async def get_user_stats(update: Update, context: CallbackContext):
         
         # 统计数据
         total_posts = len(user_posts)
-        total_views = sum(post['views'] for post in user_posts)
-        total_forwards = sum(post['forwards'] for post in user_posts)
         total_reactions = sum(post['reactions'] for post in user_posts)
         
         # 最热的帖子
@@ -379,8 +373,6 @@ async def get_user_stats(update: Update, context: CallbackContext):
         message = (
             f"📊 您的投稿统计\n\n"
             f"📝 总投稿数：{total_posts}\n"
-            f"👀 总浏览数：{total_views}\n"
-            f"📤 总转发数：{total_forwards}\n"
             f"❤️ 总反应数：{total_reactions}\n\n"
             f"🔥 最热帖子：\n"
             f"   标题：{hottest_post['title'] or '无标题'}\n"
@@ -416,12 +408,9 @@ async def stats_command(update: Update, context: CallbackContext):
             await c.execute("SELECT COUNT(DISTINCT user_id) AS c FROM published_posts WHERE is_deleted = 0 AND user_id IS NOT NULL")
             row = await c.fetchone()
             total_users = int(row["c"] or 0) if row else 0
-            await c.execute("SELECT COALESCE(SUM(views),0) AS s FROM published_posts WHERE is_deleted = 0")
+            await c.execute("SELECT COALESCE(SUM(reactions),0) AS s FROM published_posts WHERE is_deleted = 0")
             row = await c.fetchone()
-            total_views = int(row["s"] or 0) if row else 0
-            await c.execute("SELECT COALESCE(SUM(forwards),0) AS s FROM published_posts WHERE is_deleted = 0")
-            row = await c.fetchone()
-            total_forwards = int(row["s"] or 0) if row else 0
+            total_reactions = int(row["s"] or 0) if row else 0
             cutoff = (datetime.now() - timedelta(days=7)).timestamp()
             await c.execute(
                 "SELECT COUNT(DISTINCT user_id) AS c FROM published_posts "
@@ -437,8 +426,7 @@ async def stats_command(update: Update, context: CallbackContext):
             "active_users_7d": active_users,
             "blacklist_count": blacklist_count,
             "total_posts": total_posts,
-            "total_views": total_views,
-            "total_forwards": total_forwards,
+            "total_reactions": total_reactions,
         }
         text = MessageFormatter.admin_stats(stats)
         await update.message.reply_text(text, parse_mode="HTML")

@@ -382,15 +382,14 @@ class TestAboutStatsCommand:
                 self.results = {
                     "SELECT COUNT(*)": {"c": 3},
                     "SELECT COUNT(DISTINCT": {"c": 2},
-                    "SELECT COALESCE(SUM(views)": {"s": 120},
-                    "SELECT COALESCE(SUM(forwards)": {"s": 30},
+                    "SELECT COALESCE(SUM(reactions)": {"s": 120},
                 }
                 self.fetched = False
             async def execute(self, sql, *args, **kwargs):
                 self.sql = sql
                 return self
             async def fetchone(self):
-                for key in ("SELECT COALESCE(SUM(views)", "SELECT COALESCE(SUM(forwards)", "SELECT COUNT(DISTINCT", "SELECT COUNT(*)"):
+                for key in ("SELECT COALESCE(SUM(reactions)", "SELECT COUNT(DISTINCT", "SELECT COUNT(*)"):
                     if self.sql.startswith(key):
                         return self.results.get(key, {"c": 0})
                 return {"c": 1}

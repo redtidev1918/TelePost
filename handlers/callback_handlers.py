@@ -303,7 +303,7 @@ async def handle_stats_post(update: Update, context: CallbackContext):
             c = await conn.cursor()
             await c.execute(
                 """
-                SELECT views, forwards, heat_score, publish_time 
+                SELECT reactions, heat_score, publish_time 
                 FROM published_posts 
                 WHERE rowid=? AND is_deleted = 0
                 """,
@@ -320,9 +320,10 @@ async def handle_stats_post(update: Update, context: CallbackContext):
                 stats_text = f"""
 📊 <b>帖子统计</b>
 
-👁️ 浏览量: {row['views']:,}
-📤 转发量: {row['forwards']}
+❤️ 反应数: {row['reactions']:,}
 🔥 热度分: {row['heat_score']:.2f}
+
+<i>👁 浏览量 / 转发数：Telegram Bot API 不开放该数据</i>
 📅 发布时间: {publish_time_str}
 """
                 await query.edit_message_text(

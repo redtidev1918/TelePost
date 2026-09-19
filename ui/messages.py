@@ -223,27 +223,21 @@ class MessageFormatter:
     def user_stats(stats: Dict[str, Any]) -> str:
         """用户统计信息"""
         total_posts = stats.get('total_posts', 0)
-        total_views = stats.get('total_views', 0)
-        total_forwards = stats.get('total_forwards', 0)
+        total_reactions = stats.get('total_reactions', 0)
         avg_heat = stats.get('avg_heat', 0)
         top_tags = stats.get('top_tags', [])
-        
-        # 计算平均数据
-        avg_views = total_views / total_posts if total_posts > 0 else 0
-        avg_forwards = total_forwards / total_posts if total_posts > 0 else 0
         
         msg = f"""
 📊 <b>我的统计数据</b>
 
 <b>📝 投稿概况：</b>
 • 总投稿数：{total_posts} 篇
-• 总浏览量：{total_views:,} 次
-• 总转发量：{total_forwards} 次
+• ❤️ 总反应数：{total_reactions:,} 次
 
 <b>📈 平均表现：</b>
-• 平均浏览：{avg_views:.1f} 次/篇
-• 平均转发：{avg_forwards:.1f} 次/篇
 • 平均热度：{avg_heat:.1f}
+
+<i>👁 浏览量 / 转发数：Telegram Bot API 不开放该数据</i>
 
 """
         
@@ -262,8 +256,7 @@ class MessageFormatter:
         """管理员统计信息"""
         total_users = stats.get('total_users', 0)
         total_posts = stats.get('total_posts', 0)
-        total_views = stats.get('total_views', 0)
-        total_forwards = stats.get('total_forwards', 0)
+        total_reactions = stats.get('total_reactions', 0)
         active_users = stats.get('active_users_7d', 0)
         blacklist_count = stats.get('blacklist_count', 0)
         
@@ -277,13 +270,13 @@ class MessageFormatter:
 
 <b>📝 内容统计：</b>
 • 总投稿数：{total_posts}
-• 总浏览量：{total_views:,}
-• 总转发量：{total_forwards}
+• ❤️ 总反应数：{total_reactions:,}
 
 <b>📈 平均数据：</b>
 • 人均投稿：{total_posts/total_users if total_users > 0 else 0:.1f}
-• 篇均浏览：{total_views/total_posts if total_posts > 0 else 0:.1f}
-• 篇均转发：{total_forwards/total_posts if total_posts > 0 else 0:.1f}
+• 篇均反应：{total_reactions/total_posts if total_posts > 0 else 0:.1f}
+
+<i>👁 浏览量 / 转发数：Telegram Bot API 不开放该数据</i>
 
 <i>最后更新：{datetime.now().strftime("%Y-%m-%d %H:%M")}</i>
 """
