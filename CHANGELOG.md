@@ -10,6 +10,13 @@
 
 ---
 
+## [2.54.0](https://github.com/redtidev1918/TelePost/compare/v2.53.0...v2.54.0) (2026-09-19)
+
+
+### Features
+
+* **stats:** hide views/forwards entirely; Step 14 reuse test ([#194](https://github.com/redtidev1918/TelePost/issues/194)) ([32e89c8](https://github.com/redtidev1918/TelePost/commit/32e89c85ccb6ac11388cbc3cb782c9740776c23a))
+
 ## [2.53.0](https://github.com/redtidev1918/TelePost/compare/v2.52.0...v2.53.0) (2026-09-19)
 
 
