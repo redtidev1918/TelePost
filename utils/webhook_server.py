@@ -249,6 +249,7 @@ async def setup_webhook(application, webhook_url: str, webhook_path: str, secret
             "edited_channel_post",  # 编辑的频道消息
             "callback_query",   # 回调查询
             "inline_query",      # 内联查询
+            "message_reaction_count",  # 频道反应数（真实互动热度）
         ]
         success = await application.bot.set_webhook(
             url=full_webhook_url,

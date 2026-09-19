@@ -520,6 +520,19 @@ async def init_db():
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_publish_time ON published_posts(is_deleted, publish_time DESC)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_deleted ON published_posts(user_id, is_deleted)')
 
+            # Per-message Telegram reaction counts (Bot API message_reaction_count).
+            # published_posts.reactions / heat_score are aggregates recomputed from
+            # this table, so reactions on any album member are counted exactly once.
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS message_reaction_counts (
+                    message_id INTEGER PRIMARY KEY,
+                    total_count INTEGER DEFAULT 0,
+                    updated_at REAL
+                )
+            ''')
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_message_reaction_updated '
+                               'ON message_reaction_counts(updated_at)')
+
             # Direct-publish delivery ledger (API_REVIEW_REQUIRED=false). The review
             # path already dedupes on pending_reviews.idempotency_key; direct publish had
             # NO idempotency, so an ACK loss / client retry re-posted to the channel.

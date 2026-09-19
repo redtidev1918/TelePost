@@ -181,8 +181,7 @@ class TestMessageFormatter:
         """测试用户统计信息"""
         stats = {
             'total_posts': 100,
-            'total_views': 10000,
-            'total_forwards': 500,
+            'total_reactions': 500,
             'avg_heat': 75.5,
             'top_tags': [('#Python', 30), ('#编程', 25), ('#学习', 20)]
         }
@@ -190,8 +189,7 @@ class TestMessageFormatter:
         message = MessageFormatter.user_stats(stats)
         
         assert "100" in message  # 总投稿数
-        assert "10,000" in message or "10000" in message  # 总浏览量
-        assert "500" in message  # 总转发量
+        assert "500" in message  # 总反应数
         assert "75.5" in message  # 平均热度
         assert "#Python" in message
         assert "30" in message
@@ -219,8 +217,7 @@ class TestMessageFormatter:
         stats = {
             'total_users': 1000,
             'total_posts': 5000,
-            'total_views': 100000,
-            'total_forwards': 2000,
+            'total_reactions': 100000,
             'active_users_7d': 200,
             'blacklist_count': 5
         }
@@ -229,7 +226,7 @@ class TestMessageFormatter:
         
         assert "1000" in message  # 总用户数
         assert "5000" in message  # 总投稿数
-        assert "100,000" in message or "100000" in message  # 总浏览量
+        assert "100,000" in message or "100000" in message  # 总反应数
         assert "200" in message  # 7日活跃
         assert "5" in message  # 黑名单
     

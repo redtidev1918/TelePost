@@ -81,6 +81,8 @@ from handlers.search_handlers import (
 )
 # 频道消息监听器
 from handlers.channel_listener import handle_channel_message
+# 频道反应热度（message_reaction_count）
+from handlers.reaction_stats import handle_message_reaction_count
 from handlers.index_handlers import (
     rebuild_index_command,
     sync_index_command,
@@ -452,6 +454,7 @@ async def main():
                 "edited_channel_post",
                 "callback_query",
                 "inline_query",
+                "message_reaction_count",
             ])
             logger.info("✅ Polling 回退模式已启动")
         elif not success:
@@ -482,6 +485,7 @@ async def main():
             "edited_channel_post",  # 编辑的频道消息
             "callback_query",   # 回调查询
             "inline_query",      # 内联查询
+            "message_reaction_count",  # 频道反应数（真实互动热度）
         ]
         await application.updater.start_polling(allowed_updates=allowed_updates)
         logger.info("✅ Polling 模式已启动")
@@ -650,6 +654,17 @@ def setup_application(application):
         
         application.add_handler(ChannelPostHandler(handle_channel_message), group=2)
         logger.info("频道消息监听器注册完成")
+
+        class MessageReactionCountHandler(BaseHandler):
+            """自定义处理器：仅处理 message_reaction_count 更新。"""
+
+            def check_update(self, update):
+                return getattr(update, "message_reaction_count", None) is not None
+
+        application.add_handler(
+            MessageReactionCountHandler(handle_message_reaction_count), group=2
+        )
+        logger.info("频道反应热度监听器注册完成")
     except Exception as e:
         logger.error(f"注册频道消息监听器失败: {e}", exc_info=True)
     

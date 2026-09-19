@@ -252,7 +252,7 @@ async def _search_and_render(update, context, *, keyword, tag_filter, is_tag_sea
             f"{idx}. {title}\n"
             f"   {tags_preview_display}\n"
             f"{matched_info}"
-            f"   📅 {publish_date} | 👀 {hit.views} | 🔥 {hit.heat_score:.0f}\n"
+            f"   📅 {publish_date} | 🔥 热度 {hit.heat_score:.0f}\n"
             f"   🔗 {post_link}\n\n"
         )
 
@@ -432,7 +432,7 @@ async def search_posts_by_tag(update: Update, context: CallbackContext, tag: str
             
             message += (
                 f"{idx}. {title}\n"
-                f"   📅 {publish_date} | 👀 {hit.views} | 🔥 {hit.heat_score:.0f}\n"
+                f"   📅 {publish_date} | 🔥 热度 {hit.heat_score:.0f}\n"
                 f"   🔗 {post_link}\n\n"
             )
             
@@ -634,7 +634,7 @@ async def get_my_posts(update: Update, context: CallbackContext):
                 f"📄 {idx}. {title}\n"
                 f"{tags_preview}\n"
                 f"📅 {publish_date}\n"
-                f"📊 浏览 {post['views']} | 转发 {post['forwards']} | 热度 {post['heat_score']:.0f}\n"
+                f"📊 ❤️ 反应 {post['reactions']} | 热度 {post['heat_score']:.0f}\n"
                 f"🔗 {post_link}"
             )
             
@@ -723,15 +723,13 @@ async def search_by_user(update: Update, context: CallbackContext):
         
         # 统计数据
         total_posts = len(user_posts)
-        total_views = sum(post['views'] for post in user_posts)
-        total_forwards = sum(post['forwards'] for post in user_posts)
+        total_reactions = sum(post['reactions'] for post in user_posts)
         
         message = (
             f"👤 用户 {target_user_id} 的投稿\n\n"
             f"📊 统计：\n"
             f"• 总投稿：{total_posts}\n"
-            f"• 总浏览：{total_views}\n"
-            f"• 总转发：{total_forwards}\n\n"
+            f"• ❤️ 总反应：{total_reactions}\n\n"
             f"最近投稿：\n\n"
         )
         
@@ -751,7 +749,7 @@ async def search_by_user(update: Update, context: CallbackContext):
             
             message += (
                 f"{idx}. {title}\n"
-                f"   📅 {publish_date} | 👀 {post['views']}\n"
+                f"   📅 {publish_date} | ❤️ {post['reactions']}\n"
                 f"   🔗 {post_link}\n\n"
             )
         

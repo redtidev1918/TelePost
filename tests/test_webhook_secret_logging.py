@@ -65,6 +65,7 @@ async def test_setup_webhook_does_not_log_secret(caplog):
             "edited_channel_post",
             "callback_query",
             "inline_query",
+            "message_reaction_count",
         ],
         drop_pending_updates=False,
     )
