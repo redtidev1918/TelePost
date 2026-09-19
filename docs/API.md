@@ -171,6 +171,34 @@ curl -X POST 'https://example.com/api/bot1/v1/submissions' \
 - 该字段向后兼容：不传时行为与之前完全一致，本地 `file_id` 仍走原有
   `media_json`/`documents_json` 路径。
 
+### 投递计划（只读，Step 11）
+
+`GET /api/v1/reviews/{id}/delivery-plan` 返回本次审核稿的「怎么把媒体送到
+Telegram」计划，TelePost 自己决定策略，不把上游 domain 判断透传给客户端。
+
+```json
+{
+  "ok": true,
+  "data": {
+    "review_id": 7,
+    "strategy": "mixed",
+    "media_assets": [],
+    "entries": [
+      {"index": 0, "kind": "photo", "strategy": "telegram_file_id",
+       "asset_id": "pixiv-001", "file_id": "AAA", "mime_type": "image/jpeg"},
+      {"index": 1, "kind": "photo", "strategy": "remote_url",
+       "asset_id": "pixiv-002", "source_url": "https://proxy.example/pixiv/2.jpg"}
+    ]
+  }
+}
+```
+
+- `strategy`：`telegram_file_id`（全部有本地 file_id）、`remote_url`（全部走 URL）、
+  `mixed`、`empty`。
+- 有本地 `file_id` 时始终优先 `telegram_file_id`（零重传）；只有 canonical
+  `source_url` 时回退 `remote_url`。
+- 该端点只读，不改变投递行为；实际发布仍由既有 PublicationService 决定。
+
 ## 审核群通知
 
 ```bash
@@ -284,6 +312,7 @@ MCP sidecar 推荐设置 `TELEPOST_MCP_REVIEW_TOKEN`，并可通过
 - `GET /api/v1/reviews`：待审核摘要列表，支持 `limit`、`cursor`
 - `GET /api/v1/reviews/{id}`：完整文本元数据和媒体索引
 - `GET /api/v1/reviews/{id}/media/{index}?variant=preview`：受限图片预览
+- `GET /api/v1/reviews/{id}/delivery-plan`：只读投递计划（Step 11：TelePost 自定媒体源策略）
 - `GET /api/v1/reviews/policy`：管理员维护的 Markdown 审核规则
 - `POST /api/v1/reviews/{id}/approve`：审核通过并发布（需人工明确确认）
 - `POST /api/v1/reviews/{id}/reject`：拒绝，可附带有界 `reason`
