@@ -143,6 +143,34 @@ curl -X POST 'https://example.com/api/bot1/v1/submissions' \
 `file_id`。两组至少一项，总数最多 100。当前 JSON 路径允许空标签，但调用方仍应提供
 标签，保持与聊天投稿和 multipart 行为一致。`file_id` 与 Bot 绑定，不能跨 Bot 使用。
 
+
+### 交付资产契约（可选 `media_assets`，Step 10）
+
+`file_id` 投稿还支持可选的 `media_assets` 数组：TelePost 只保存「最小交付契约」
+（`asset_id` + `kind` + `source_url` + 可选 `mime_type`），不解析或保存上游 domain
+对象的其他字段。
+
+```bash
+curl -X POST 'https://example.com/api/bot1/v1/submissions' \
+  -H 'Authorization: Bearer tp_xxxx' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "media": [{"type": "photo", "file_id": "AAA"}],
+    "media_assets": [
+      {"asset_id": "pixiv-001", "kind": "image",
+       "source_url": "https://i.pximg.net/001.jpg", "mime_type": "image/jpeg"}
+    ],
+    "tags": "Pixiv"
+  }'
+```
+
+- 每项必须为对象，`asset_id` 非空、`kind` 只支持 `image`、`source_url` 必须
+  `http(s)`；重复 `asset_id` 会被拒绝。
+- `media_assets` 按 `review_chain_id` 落库到 `media_asset_refs`，可通过
+  `GET /api/v1/reviews/{id}` 读回；空数组等价于不传。
+- 该字段向后兼容：不传时行为与之前完全一致，本地 `file_id` 仍走原有
+  `media_json`/`documents_json` 路径。
+
 ## 审核群通知
 
 ```bash
@@ -221,7 +249,7 @@ curl -X POST 'https://example.com/api/bot1/v1/notifications' \
 
 | HTTP | 常见 code |
 |---|---|
-| 400 | `invalid_content_type`、`invalid_multipart`、`invalid_json`、`invalid_media`、`missing_files`、`missing_media`、`too_many_files`、`invalid_tags`、`invalid_link` |
+| 400 | `invalid_content_type`、`invalid_multipart`、`invalid_json`、`invalid_media`、`invalid_media_asset`、`missing_files`、`missing_media`、`too_many_files`、`invalid_tags`、`invalid_link` |
 | 401 | `invalid_token` |
 | 409 | `review_chat_not_configured` |
 | 413 | `file_too_large`、`request_too_large` |
