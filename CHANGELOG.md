@@ -10,6 +10,13 @@
 
 ---
 
+## [2.52.0](https://github.com/redtidev1918/TelePost/compare/v2.51.0...v2.52.0) (2026-09-19)
+
+
+### Features
+
+* **delivery:** Step 12/13 planner adoption + TelegramMediaCache capture ([#190](https://github.com/redtidev1918/TelePost/issues/190)) ([c071e1a](https://github.com/redtidev1918/TelePost/commit/c071e1aee7bfae8b402d27c1a1f7ed74cd94ff08))
+
 ## [2.51.0](https://github.com/redtidev1918/TelePost/compare/v2.50.0...v2.51.0) (2026-09-19)
 
 
