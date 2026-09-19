@@ -544,6 +544,116 @@ class TestFileIdDirect:
             await client.close()
 
 
+class TestDeliveryAssetContract:
+    """Step 10 — TelePost 只吃最小 media_assets 契约，不再吞 PixivFlow 全部字段。
+
+    JSON /api/v1/submissions 现在可附带 media_assets（asset_id/source_url），
+    落库到 media_asset_refs（按 review_chain_id），并按审核记录可读回。
+    """
+
+    @staticmethod
+    async def _seed_review_row(review_id: int, chain_id: str) -> None:
+        from database import db_manager
+        async with db_manager.get_db() as conn:
+            await conn.execute(
+                "INSERT INTO pending_reviews "
+                "(id, idempotency_key, status, user_id, media_json, documents_json, "
+                " review_chat_id, created_at, updated_at, review_chain_id) "
+                "VALUES (?, ?, 'pending', 5073758941, '[]', '[]', '-100123', ?, ?, ?)",
+                (review_id, f"chain-{review_id}", __import__("time").time(), __import__("time").time(), chain_id),
+            )
+            await conn.commit()
+
+    @pytest.mark.asyncio
+    async def test_media_assets_invalid_returns_400(self, monkeypatch, tmp_path):
+        from database import db_manager
+        monkeypatch.setattr(db_manager, "DB_PATH", str(tmp_path / "assets.db"))
+        await db_manager.init_db()
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW, principal=_SERVICE_PRINCIPAL)
+        client = await _client(app)
+        try:
+            bad_payloads = [
+                {"media": [{"type": "photo", "file_id": "AAA"}],
+                 "media_assets": [{"asset_id": "a1", "kind": "video", "source_url": "https://x/a"}]},
+                {"media": [{"type": "photo", "file_id": "AAA"}],
+                 "media_assets": [{"asset_id": "", "source_url": "https://x/a"}]},
+                {"media": [{"type": "photo", "file_id": "AAA"}],
+                 "media_assets": [{"asset_id": "a1", "source_url": "ftp://x/a"}]},
+                {"media": [{"type": "photo", "file_id": "AAA"}],
+                 "media_assets": [{"asset_id": "a1", "source_url": "https://x/a"},
+                                  {"asset_id": "a1", "source_url": "https://x/b"}]},
+            ]
+            for payload in bad_payloads:
+                resp = await client.post(
+                    "/api/v1/submissions",
+                    headers={"Authorization": "Bearer tp_ok"},
+                    json=payload,
+                )
+                assert resp.status == 400, payload
+                body = await resp.json()
+                assert body["error"]["code"] == "invalid_media_asset"
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_media_assets_persist_and_read_back(self, monkeypatch, tmp_path):
+        from database import db_manager
+        monkeypatch.setattr(db_manager, "DB_PATH", str(tmp_path / "assets.db"))
+        await db_manager.init_db()
+        await self._seed_review_row(7, "chain-x")
+        queue_mock = AsyncMock(return_value={
+            "status": "pending_review", "review_id": 7,
+            "media_count": 1, "document_count": 0,
+        })
+        monkeypatch.setattr("handlers.review.queue_review_from_file_ids", queue_mock)
+        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW, principal=_SERVICE_PRINCIPAL)
+        client = await _client(app)
+        try:
+            resp = await client.post(
+                "/api/v1/submissions",
+                headers={"Authorization": "Bearer tp_ok"},
+                json={
+                    "media": [{"type": "photo", "file_id": "AAA"}],
+                    "media_assets": [
+                        {"asset_id": "pixiv-001", "kind": "image",
+                         "source_url": "https://i.pximg.net/a.jpg", "mime_type": "image/jpeg"},
+                        {"asset_id": "pixiv-002", "kind": "image",
+                         "source_url": "https://i.pximg.net/b.png"},
+                    ],
+                    "tags": "Pixiv",
+                },
+            )
+            assert resp.status == 201
+            data = (await resp.json())["data"]
+            assert data["status"] == "pending_review"
+            queue_mock.assert_awaited_once()
+            publish_mock.assert_not_called()
+
+            # DB landed
+            from telepost.storage.sqlite import media_assets as ma
+            refs = await ma.list_for_chain("chain-x")
+            assert [r["asset_id"] for r in refs] == ["pixiv-001", "pixiv-002"]
+            assert all(r["kind"] == "image" for r in refs)
+            assert refs[0]["mime_type"] == "image/jpeg"
+
+            # Read back through the review API
+            monkeypatch.setattr(
+                api_server, "_review_auth",
+                AsyncMock(return_value=({"telegram_user_id": 1, "name": "x", "scope": "review"}, None)),
+            )
+            view = await client.get("/api/v1/reviews/7", headers={"Authorization": "Bearer rt"})
+            assert view.status == 200
+            payload = (await view.json())["data"]
+            assert payload["media_assets"] == [
+                {"asset_id": "pixiv-001", "kind": "image",
+                 "source_url": "https://i.pximg.net/a.jpg", "mime_type": "image/jpeg"},
+                {"asset_id": "pixiv-002", "kind": "image",
+                 "source_url": "https://i.pximg.net/b.png", "mime_type": ""},
+            ]
+        finally:
+            await client.close()
+
+
 class TestKindDetection:
     def test_photo(self):
         assert api_server.detect_kind("a.jpg", "image/jpeg") == "photo"

@@ -21,7 +21,7 @@ import logging
 import os
 import re
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -141,9 +141,16 @@ class ReviewItem:
     created_at: str
     updated_at: str
     error: str
+    # Minimal delivery asset contract (Step 10): canonical references that do
+    # not carry local Telegram file_ids. Empty unless a PixivFlow manifest
+    # was submitted.
+    media_assets: List[Dict[str, Any]] = None  # type: ignore[assignment]
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        if payload.get("media_assets") is None:
+            payload["media_assets"] = []
+        return payload
 
 
 @dataclass(frozen=True)
@@ -667,7 +674,11 @@ class ReviewService:
         row = await self.get_row(int(review_id))
         if row is None:
             raise ReviewNotFoundError("审核记录不存在")
-        return _to_item(row)
+        item = _to_item(row)
+        from telepost.storage.sqlite import media_assets as ma
+        chain_id = str(row["review_chain_id"] or "") if row else ""
+        refs = await ma.list_for_chain(chain_id) if chain_id else []
+        return replace(item, media_assets=refs)
 
     async def set_spoiler(self, review_id: int, spoiler: bool, *,
                           actor: Any = None, source: str = "service") -> ActionResult:
