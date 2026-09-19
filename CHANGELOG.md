@@ -10,6 +10,13 @@
 
 ---
 
+## [2.46.0](https://github.com/redtidev1918/TelePost/compare/v2.45.2...v2.46.0) (2026-09-19)
+
+
+### Features
+
+* **rbac:** SQLite role bindings for Admin Control Plane ([#179](https://github.com/redtidev1918/TelePost/issues/179)) ([d62ab71](https://github.com/redtidev1918/TelePost/commit/d62ab715e0c5d258c04348d54540d80d0bd8a50d))
+
 ## [2.45.2](https://github.com/redtidev1918/TelePost/compare/v2.45.1...v2.45.2) (2026-09-19)
 
 
