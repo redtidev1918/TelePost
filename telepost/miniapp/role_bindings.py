@@ -43,19 +43,27 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
 
 
 def bound_roles(telegram_user_id: int) -> List[str]:
-    """Roles granted through bindings for a Telegram user (sync, tiny query)."""
+    """Roles granted through bindings for a Telegram user (sync, tiny query).
+
+    DB/table unavailability is swallowed here: bindings are additive on top of
+    the env OWNER_ID/ADMIN_IDS baseline, so a read failure degrades to the env
+    roles instead of 500-ing every auth check.
+    """
     with _lock:
-        conn = _connect()
         try:
-            _ensure_table(conn)
-            rows = conn.execute(
-                "SELECT role FROM role_bindings "
-                "WHERE principal_kind=? AND principal_id=?",
-                (PRINCIPAL_TELEGRAM, int(telegram_user_id)),
-            ).fetchall()
-            return sorted(r[0] for r in rows if r[0] in VALID_ROLES)
-        finally:
-            conn.close()
+            conn = _connect()
+            try:
+                _ensure_table(conn)
+                rows = conn.execute(
+                    "SELECT role FROM role_bindings "
+                    "WHERE principal_kind=? AND principal_id=?",
+                    (PRINCIPAL_TELEGRAM, int(telegram_user_id)),
+                ).fetchall()
+                return sorted(r[0] for r in rows if r[0] in VALID_ROLES)
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            return []
 
 
 def list_bindings() -> List[Dict]:
