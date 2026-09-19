@@ -10,6 +10,14 @@
 
 ---
 
+## [2.49.0](https://github.com/redtidev1918/TelePost/compare/v2.48.0...v2.49.0) (2026-09-19)
+
+
+### Features
+
+* **api:** delivery asset contract (Step 10) ([ce4087b](https://github.com/redtidev1918/TelePost/commit/ce4087b02d5264563ca0e44ac26c39aaff2ce487))
+* **api:** introduce delivery asset contract (Step 10) ([7a5b56e](https://github.com/redtidev1918/TelePost/commit/7a5b56e16e098a72fefe8671a219357c502e2985))
+
 ## [2.48.0](https://github.com/redtidev1918/TelePost/compare/v2.47.0...v2.48.0) (2026-09-19)
 
 
