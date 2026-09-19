@@ -10,6 +10,13 @@
 
 ---
 
+## [2.47.0](https://github.com/redtidev1918/TelePost/compare/v2.46.0...v2.47.0) (2026-09-19)
+
+
+### Features
+
+* **miniapp:** Admin Control Plane panel (status/policy/roles/blacklist) ([5adaa85](https://github.com/redtidev1918/TelePost/commit/5adaa85a7266bca24f5e1eab28b814b662f15ff3))
+
 ## [2.46.0](https://github.com/redtidev1918/TelePost/compare/v2.45.2...v2.46.0) (2026-09-19)
 
 
