@@ -1,4 +1,5 @@
 """Step 12 TelegramMediaCache: same-asset file_id cache on media_asset_refs."""
+from unittest.mock import AsyncMock
 import pytest
 
 from database import db_manager
@@ -90,3 +91,68 @@ class TestSenderUniqueId:
         message = SimpleNamespace(photo=None, video=None, animation=None,
                                   audio=None, document=None)
         assert file_unique_id_of(message) is None
+
+
+class TestPublisherAdoptsPlanner:
+    @staticmethod
+    def _photo_message(message_id=10, file_id="STAGED_PHOTO", unique_id="U_PHOTO"):
+        from unittest.mock import MagicMock
+        message = MagicMock()
+        message.message_id = message_id
+        message.photo = [MagicMock(file_id=file_id, file_unique_id=unique_id)]
+        message.video = None
+        message.animation = None
+        message.audio = None
+        message.document = None
+        return message
+
+    @pytest.mark.asyncio
+    async def test_remote_asset_uses_remote_url(self, monkeypatch):
+        from handlers import publish
+
+        bot = AsyncMock()
+        bot.send_photo.return_value = self._photo_message(
+            message_id=56, file_id="RID", unique_id="RU"
+        )
+        monkeypatch.setattr(publish, "save_published_post", AsyncMock())
+        result = await publish.publish_from_file_ids(
+            bot,
+            [],
+            [],
+            media_assets=[
+                {"asset_id": "a1", "kind": "image",
+                 "source_url": "https://proxy.example/pixiv/1.jpg"}
+            ],
+            user_id=7,
+            username="x",
+        )
+        assert result["message_id"] == 56
+        assert result["known_messages"][0]["file_id"] == "RID"
+        bkwargs = bot.send_photo.await_args.kwargs
+        assert bkwargs["photo"] == "https://proxy.example/pixiv/1.jpg"
+        bot.send_media_group.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cached_file_id_uses_zero_reupload(self, monkeypatch):
+        from handlers import publish
+
+        bot = AsyncMock()
+        bot.send_photo.return_value = self._photo_message(
+            message_id=57, file_id="CACHED", unique_id="CU"
+        )
+        monkeypatch.setattr(publish, "save_published_post", AsyncMock())
+        result = await publish.publish_from_file_ids(
+            bot,
+            [],
+            [],
+            media_assets=[
+                {"asset_id": "a1", "kind": "image",
+                 "source_url": "https://proxy.example/pixiv/1.jpg",
+                 "file_id": "CACHED", "file_unique_id": "CU"}
+            ],
+            user_id=7,
+            username="x",
+        )
+        assert result["message_id"] == 57
+        bkwargs = bot.send_photo.await_args.kwargs
+        assert bkwargs["photo"] == "CACHED"
