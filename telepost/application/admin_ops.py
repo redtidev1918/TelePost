@@ -28,6 +28,7 @@ from config.settings import (
 )
 from database.db_manager import get_db
 from telepost.observability import audit
+from telepost.miniapp import role_bindings
 from utils import blacklist as blacklist_store
 from utils.runtime_policy import (
     clear_runtime_policy,
@@ -275,3 +276,58 @@ async def status_snapshot() -> Dict[str, Any]:
         "restart_managed": os.getenv("TELEPOST_MANAGED_RESTART", "").lower()
         in {"1", "true", "yes"},
     }
+
+# ---- role bindings (Admin Control Plane RBAC) -------------------------------
+
+ROLE_BINDING_ROLES = ("reviewer", "admin")
+
+
+def list_role_bindings() -> List[Dict[str, Any]]:
+    """All durable non-root role bindings (env OWNER_ID/ADMIN_IDS excluded)."""
+    return role_bindings.list_bindings()
+
+
+async def add_role_binding(telegram_user_id: int, role: str, *, actor: str) -> Dict[str, Any]:
+    try:
+        uid = int(telegram_user_id)
+    except (TypeError, ValueError):
+        raise AdminError("telegram_user_id 必须是整数", code="invalid_user_id")
+    if uid <= 0:
+        raise AdminError("telegram_user_id 必须是正整数", code="invalid_user_id")
+    if role not in ROLE_BINDING_ROLES:
+        raise AdminError(f"role 只支持 {'/'.join(ROLE_BINDING_ROLES)}",
+                         code="invalid_role")
+    try:
+        changed = role_bindings.add_binding(uid, role, created_by=actor)
+    except ValueError as exc:
+        raise AdminError(str(exc), code="invalid_role_binding")
+    try:
+        await audit.record_event(
+            "admin.role_bound", actor=actor,
+            detail={"telegram_user_id": uid, "role": role, "changed": changed},
+        )
+    except Exception:
+        logger.debug("审计 admin.role_bound 失败", exc_info=True)
+    return {"telegram_user_id": uid, "role": role, "changed": changed}
+
+
+async def remove_role_binding(telegram_user_id: int, role: str, *, actor: str) -> Dict[str, Any]:
+    try:
+        uid = int(telegram_user_id)
+    except (TypeError, ValueError):
+        raise AdminError("telegram_user_id 必须是整数", code="invalid_user_id")
+    if role not in ROLE_BINDING_ROLES:
+        raise AdminError(f"role 只支持 {'/'.join(ROLE_BINDING_ROLES)}",
+                         code="invalid_role")
+    try:
+        changed = role_bindings.remove_binding(uid, role)
+    except ValueError as exc:
+        raise AdminError(str(exc), code="invalid_role_binding")
+    try:
+        await audit.record_event(
+            "admin.role_unbound", actor=actor,
+            detail={"telegram_user_id": uid, "role": role, "changed": changed},
+        )
+    except Exception:
+        logger.debug("审计 admin.role_unbound 失败", exc_info=True)
+    return {"telegram_user_id": uid, "role": role, "changed": changed}

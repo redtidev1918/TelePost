@@ -25,6 +25,11 @@ def _make_app(monkeypatch, roles_uid=None):
     monkeypatch.setenv("OWNER_ID", str(ADMIN_UID))
     monkeypatch.setenv("ADMIN_IDS", str(REVIEWER_UID))
     monkeypatch.setenv("MINIAPP_SESSION_SECRET", "s" * 40)
+    # rbac reads these module constants at import time; keep them in sync with
+    # the env so live role derivation (`_principal_roles`) sees the test IDs.
+    from telepost.miniapp import rbac as _rbac
+    monkeypatch.setattr(_rbac, "OWNER_ID", ADMIN_UID)
+    monkeypatch.setattr(_rbac, "ADMIN_IDS", [REVIEWER_UID])
     application = MagicMock()
     application.bot = AsyncMock()
     app = web.Application()
@@ -142,5 +147,102 @@ async def test_admin_mutation_rejects_service_principal(monkeypatch):
         assert resp.status == 403
         body = await resp.json()
         assert body["error"]["code"] == "permission_denied"
+    finally:
+        await client.close()
+
+@pytest.fixture
+async def isolated_role_db(monkeypatch, tmp_path):
+    """Isolated role_bindings DB (shared db_manager.DB_PATH patch)."""
+    from database import db_manager
+    db_path = str(tmp_path / "roles.db")
+    monkeypatch.setattr(db_manager, "DB_PATH", db_path)
+    await db_manager.init_db()
+    return db_path
+
+
+@pytest.mark.asyncio
+async def test_admin_roles_requires_admin(monkeypatch, isolated_role_db):
+    app = _make_app(monkeypatch)
+    for uid, roles, expected in (
+        (SUBMITTER_UID, ["submitter"], 403),
+        (REVIEWER_UID, ["submitter", "reviewer"], 403),
+        (ADMIN_UID, ["submitter", "reviewer", "admin"], 200),
+    ):
+        client = await _client(app)
+        try:
+            token = _session_token(uid, roles)
+            resp = await client.get(
+                "/api/v1/admin/roles",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert resp.status == expected, f"uid={uid} roles={roles}"
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_role_binding_grant_takes_effect_immediately(monkeypatch, isolated_role_db):
+    app = _make_app(monkeypatch)
+    token = _session_token(ADMIN_UID, ["submitter", "reviewer", "admin"])
+    client = await _client(app)
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        added = await client.post(
+            "/api/v1/admin/roles",
+            json={"telegram_user_id": REVIEWER_UID, "role": "admin"},
+            headers=headers,
+        )
+        assert added.status == 201
+        assert (await added.json())["data"]["changed"] is True
+        # Re-grant is idempotent (no duplicate row, changed=False).
+        again = await client.post(
+            "/api/v1/admin/roles",
+            json={"telegram_user_id": REVIEWER_UID, "role": "admin"},
+            headers=headers,
+        )
+        assert again.status == 200
+        assert (await again.json())["data"]["changed"] is False
+
+        listed = await client.get("/api/v1/admin/roles", headers=headers)
+        items = (await listed.json())["data"]["items"]
+        assert {"telegram_user_id": REVIEWER_UID, "role": "admin"}             in [{"telegram_user_id": i["telegram_user_id"], "role": i["role"]} for i in items]
+
+        # DB binding is live: reviewer now has the admin role immediately.
+        from telepost.miniapp import rbac
+        assert rbac.can_administer(rbac.roles_for(REVIEWER_UID))
+
+        removed = await client.delete(
+            f"/api/v1/admin/roles/{REVIEWER_UID}/admin", headers=headers,
+        )
+        assert removed.status == 200
+        assert (await removed.json())["data"]["changed"] is True
+        assert not rbac.can_administer(rbac.roles_for(REVIEWER_UID))
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_admin_roles_validates_input(monkeypatch, isolated_role_db):
+    app = _make_app(monkeypatch)
+    token = _session_token(ADMIN_UID, ["submitter", "reviewer", "admin"])
+    client = await _client(app)
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        bad_role = await client.post(
+            "/api/v1/admin/roles",
+            json={"telegram_user_id": REVIEWER_UID, "role": "root"},
+            headers=headers,
+        )
+        assert bad_role.status == 400
+        bad_uid = await client.post(
+            "/api/v1/admin/roles",
+            json={"telegram_user_id": -5, "role": "reviewer"},
+            headers=headers,
+        )
+        assert bad_uid.status == 400
+        missing = await client.delete(
+            "/api/v1/admin/roles/999987/root", headers=headers,
+        )
+        assert missing.status == 400
     finally:
         await client.close()

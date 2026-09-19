@@ -82,3 +82,16 @@ def test_no_identity_has_no_roles():
     assert rbac.roles_for(None) == []
     assert rbac.roles_for(0) == []
     assert rbac.roles_for(-1) == []
+
+def test_role_binding_read_failure_degrades_to_env(monkeypatch):
+    """A broken role_bindings DB must not fail role derivation (503/500)."""
+    from telepost.miniapp import rbac, role_bindings
+    import sqlite3
+
+    def _boom():
+        raise sqlite3.OperationalError("readonly database")
+
+    monkeypatch.setattr(role_bindings, "_connect", _boom)
+    assert rbac.roles_for(1) == ["submitter"]
+    assert rbac.roles_for(200) == ["submitter", "reviewer"]  # env baseline kept
+    assert rbac.roles_for(100) == ["submitter", "reviewer", "admin"]

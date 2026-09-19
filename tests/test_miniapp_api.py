@@ -39,6 +39,9 @@ def _make_app(monkeypatch, authenticate_return=None, *, reviewer=False):
     # Reviewer-identity source of truth (ADMIN_IDS/OWNER_ID from settings).
     monkeypatch.setenv("OWNER_ID", "100" if reviewer else "99999")
     monkeypatch.setenv("ADMIN_IDS", "100,200" if reviewer else "99999")
+    from telepost.miniapp import rbac as _rbac
+    monkeypatch.setattr(_rbac, "OWNER_ID", 100 if reviewer else 99999)
+    monkeypatch.setattr(_rbac, "ADMIN_IDS", [100, 200] if reviewer else [99999])
 
     application = MagicMock()
     application.bot = AsyncMock()
