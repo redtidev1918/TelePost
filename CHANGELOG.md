@@ -10,6 +10,13 @@
 
 ---
 
+## [2.53.0](https://github.com/redtidev1918/TelePost/compare/v2.52.0...v2.53.0) (2026-09-19)
+
+
+### Features
+
+* **stats:** reaction-based heat from message_reaction_count ([#192](https://github.com/redtidev1918/TelePost/issues/192)) ([84f6aa1](https://github.com/redtidev1918/TelePost/commit/84f6aa1ff7cabffc38defe39a7e625f88a3e6102))
+
 ## [2.52.0](https://github.com/redtidev1918/TelePost/compare/v2.51.0...v2.52.0) (2026-09-19)
 
 
