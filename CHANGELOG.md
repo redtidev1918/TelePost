@@ -10,6 +10,13 @@
 
 ---
 
+## [2.48.0](https://github.com/redtidev1918/TelePost/compare/v2.47.0...v2.48.0) (2026-09-19)
+
+
+### Features
+
+* **miniapp:** soft-delete own submission history ([2c286d3](https://github.com/redtidev1918/TelePost/commit/2c286d3eccb3da5243a213af0e4d4ce50e662a16))
+
 ## [2.47.0](https://github.com/redtidev1918/TelePost/compare/v2.46.0...v2.47.0) (2026-09-19)
 
 
