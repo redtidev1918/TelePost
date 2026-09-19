@@ -1098,8 +1098,9 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                 actor_subject=f"telegram:{user_id}",
             )
             await _reply_to_user(
-                f"✅ 投稿已进入审核队列（#{review_result['review_id']}）。\n"
-                "审核完成后机器人会通知你。"
+                f"✅ 投稿已进入审核队列（#{review_result['review_id']}）。\n\n"
+                "⌛ 请留意私信：审核通过或未通过时机器人都会通知你。\n"
+                "💡 审核期间请不要重复提交同一内容。"
             )
             publish_success = True
             return ConversationHandler.END
@@ -1159,7 +1160,8 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
             submission_link = "频道无公开链接"
 
         await _reply_to_user(
-            f"🎉 投稿已成功发布到频道！\n点击以下链接查看投稿：\n{submission_link}"
+            f"🎉 投稿已成功发布到频道！\n\n🔗 查看发布内容：\n{submission_link}\n\n"
+            "感谢你的投稿，欢迎再次光临～"
         )
         publish_success = True
 

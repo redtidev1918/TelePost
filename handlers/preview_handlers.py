@@ -21,18 +21,29 @@ _EDIT_PROMPTS = {
     "edit_title": "🔖 请发送新的标题（回复“无”清空，上限 100 字）：",
     "edit_note": "📝 请发送新的简介（回复“无”清空，上限 600 字）：",
     "edit_link": "🔗 请发送新的链接（回复“无”清空，须以 http:// 或 https:// 开头）：",
-    "edit_media": "📎 请直接发送要补充的媒体（图片/视频/GIF/音频），完成后点“✅ 确认发布”：",
+    "edit_media": "📎 请直接发送要补充的媒体（图片/视频/GIF/音频），完成后点下方按钮返回预览：",
 }
 
 
 def _build_preview_text(row) -> str:
     media_list = parse_json_list(row["image_id"])
     doc_list = parse_json_list(row["document_id"])
+    media_count = len(media_list)
+    doc_count = len(doc_list)
+
     lines = ["📋 发布预览", ""]
-    if media_list:
-        lines.append(f"📎 媒体：{len(media_list)} 个")
-    if doc_list:
-        lines.append(f"📄 文档：{len(doc_list)} 个")
+
+    if media_count or doc_count:
+        if media_count:
+            lines.append(f"📎 媒体：{media_count} 个")
+        if doc_count:
+            lines.append(f"📄 文档：{doc_count} 个")
+            for entry in doc_list:
+                parts = entry.split(":", 2)
+                name = parts[2] if len(parts) > 2 and parts[2] else "未命名文件"
+                lines.append(f"   • {name[:60]}{'…' if len(name) > 60 else ''}")
+        lines.append("")
+
     lines.append(f"🏷 标签：{row['tags'] or '（未设置）'}")
     if row["link"]:
         lines.append(f"🔗 链接：{row['link']}")
@@ -53,8 +64,10 @@ def _build_preview_text(row) -> str:
     review_first = _chat_disposition() == SubmissionDisposition.REVIEW_REQUIRED
     if row["tags"]:
         lines.append(
-            "确认无误请点击下方按钮提交审核，审核通过后发布到频道。" if review_first
-            else "确认无误请点击下方按钮发布到频道，或先快速修改。"
+            "✅ 确认无误请点击下方按钮提交审核，审核通过后发布到频道；\n"
+            "💡 也可以先修改标签/标题/简介/链接，或开启匿名、剧透。" if review_first
+            else "✅ 确认无误请点击下方按钮发布到频道；\n"
+                 "💡 也可以先修改标签/标题/简介/链接，或开启匿名、剧透。"
         )
     else:
         lines.append(
@@ -147,7 +160,14 @@ async def handle_edit_input(update: Update, context: CallbackContext) -> int:
             await message.reply_text("⚠️ 请发送支持的媒体（图片/视频/GIF/音频）")
             return STATE["EDIT"]
         count = await append_entry(user_id, entry)
-        await message.reply_text(f"✅ 已添加，当前共 {count} 个媒体。可继续发送，或点“✅ 确认发布”")
+        from telepost.domain.submission import (
+            SubmissionDisposition,
+            chat_disposition as _cd,
+        )
+        action = "提交审核" if _cd() == SubmissionDisposition.REVIEW_REQUIRED else "确认发布"
+        await message.reply_text(
+            f"✅ 已添加，当前共 {count} 个媒体。可继续发送，或发送 /done_media 返回预览并{action}。"
+        )
         return await show_submission_preview(update, context)
 
     text = (message.text or "").strip()

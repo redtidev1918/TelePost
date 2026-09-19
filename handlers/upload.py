@@ -72,14 +72,13 @@ async def handle_upload(update: Update, context: CallbackContext) -> int:
         await message.reply_text("❌ 会话已过期，请重新发送 /submit")
         return ConversationHandler.END
 
-    if kind == "document":
-        await message.reply_text(
-            f"✅ 已接收文件，共计 {count} 个。\n继续上传，完成后发送 /done_media。"
-        )
-    else:
-        await message.reply_text(
-            f"✅ 已接收媒体，共计 {count} 个。\n继续上传，完成后发送 /done_media。"
-        )
+    total = current_count + (1 if entry else 0)
+    label = "文件" if kind == "document" else "媒体"
+    next_line = (
+        f"✅ 已接收{label}，当前 {total}/{MAX_SUBMISSION_FILES} 个。\n"
+        "💡 可以继续上传，也可以发送 /done_media 打开预览，或 /cancel 取消。"
+    )
+    await message.reply_text(next_line)
     return STATE["UPLOAD"]
 
 
@@ -121,7 +120,11 @@ async def skip_upload(update: Update, context: CallbackContext) -> int:
 async def prompt_upload(update: Update, context: CallbackContext) -> int:
     """上传阶段收到文字时的提示。"""
     await update.message.reply_text(
-        "请直接发送媒体或文件，或发送 /done_media 打开预览、/cancel 取消。"
+        "📮 这里只接收媒体或文件。\n\n"
+        "• 相册图片、视频、GIF、音频直接发送即可\n"
+        "• 压缩包/PDF 等以附件发送\n\n"
+        "🏷️ 标签、标题、简介和链接请在 /done_media 打开预览后填写；\n"
+        "完成上传后发送 /done_media 打开预览，或 /cancel 取消。"
     )
     return STATE["UPLOAD"]
 
