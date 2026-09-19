@@ -644,6 +644,8 @@ async def init_db():
                     kind TEXT NOT NULL DEFAULT 'image',
                     source_url TEXT NOT NULL,
                     mime_type TEXT NOT NULL DEFAULT '',
+                    file_id TEXT NOT NULL DEFAULT '',
+                    file_unique_id TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL,
                     UNIQUE(review_chain_id, asset_id)
                 )
@@ -652,6 +654,17 @@ async def init_db():
                 'CREATE INDEX IF NOT EXISTS idx_media_asset_refs_chain '
                 'ON media_asset_refs(review_chain_id)'
             )
+            # Step 12 TelegramMediaCache: canonical Telegram delivery facts are
+            # carried on the SAME asset row instead of a separate cache table.
+            # Existing deployments get the columns via idempotent ADD COLUMN.
+            for _column, _ddl in (
+                ("file_id", "ALTER TABLE media_asset_refs ADD COLUMN file_id TEXT NOT NULL DEFAULT ''"),
+                ("file_unique_id", "ALTER TABLE media_asset_refs ADD COLUMN file_unique_id TEXT NOT NULL DEFAULT ''"),
+            ):
+                try:
+                    await conn.execute(_ddl)
+                except Exception:
+                    pass  # column already exists
 
             # published_posts 是频道现状，pending_reviews 是审核审计。频道消息被软删除时
             # 同步把对应审核记录从“曾发布”推进到“已删除”，避免把历史终态误当成

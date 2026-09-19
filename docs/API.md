@@ -199,6 +199,17 @@ Telegram」计划，TelePost 自己决定策略，不把上游 domain 判断透�
   `source_url` 时回退 `remote_url`。
 - 该端点只读，不改变投递行为；实际发布仍由既有 PublicationService 决定。
 
+### TelegramMediaCache（Step 12，复用同一行）
+
+投递缓存不新增独立表：`media_asset_refs` 同一行承载确认送达后的
+`file_id` / `file_unique_id`（bot 作用域，各 bot 独立 SQLite 数据库）。
+
+- `GET /api/v1/reviews/{id}` 的 `media_assets[]` 会多返回 `file_id` / `file_unique_id`
+  （未送达为空字符串）。
+- `GET /api/v1/reviews/{id}/delivery-plan` 在缓存已有 `file_id` 时直接采用
+  `telegram_file_id`，即使 `media_json` 为空（复用 Telegram 零重传素材）。
+- 记录动作由确认送达后的投递链路调用；API 调用方无需手动填写这两个字段。
+
 ## 审核群通知
 
 ```bash

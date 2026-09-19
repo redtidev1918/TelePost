@@ -47,6 +47,17 @@ def file_id_of(message) -> Optional[str]:
     return None
 
 
+def file_unique_id_of(message) -> Optional[str]:
+    """Extract the canonical Telegram unique id for a delivered media object."""
+    for attr in ("photo", "video", "animation", "audio", "document"):
+        value = getattr(message, attr, None)
+        if value:
+            if isinstance(value, (list, tuple)):
+                return getattr(value[-1], "file_unique_id", None) or None
+            return getattr(value, "file_unique_id", None) or None
+    return None
+
+
 def thumbnail_file_id_of(message) -> Optional[str]:
     for attr in ("video", "animation", "document", "audio"):
         value = getattr(message, attr, None)
@@ -67,6 +78,7 @@ def _to_delivered(message, kind: MediaKind, *, fallback_chat_id=None) -> Deliver
         kind=kind,
         file_id=file_id_of(message),
         thumbnail_file_id=thumbnail_file_id_of(message),
+        file_unique_id=file_unique_id_of(message),
         raw=message,
     )
 
