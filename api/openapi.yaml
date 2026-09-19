@@ -732,6 +732,33 @@ paths:
                   resubmit_available: {type: boolean, description: Owner may re-submit this terminal non-published submission}
         '401': {$ref: '#/components/responses/unauthorized'}
         '404': {description: Not found or not owned by the caller}
+    delete:
+      summary: Hide one of the caller's own terminal submissions from history
+      description: |
+        Soft-delete: the review chain disappears from the owner's /me list and
+        detail, but the review queue, published channel messages and the audit
+        trail are untouched. Only owned TERMINAL rows (rejected/failed/expired/
+        superseded/published) are allowed; a mutable submission
+        (preparing/pending/publishing) returns 409.
+      parameters:
+        - {name: review_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          description: Hidden from the owner's history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  data:
+                    type: object
+                    properties:
+                      hidden: {type: boolean}
+                      review_id: {type: integer}
+        '401': {$ref: '#/components/responses/unauthorized'}
+        '404': {description: Not found, not owned, or already hidden}
+        '409': {description: Submission is still in flight (preparing/pending/publishing)}
   /me/submissions/{review_id}/resubmit:
     post:
       summary: Owner-scoped resubmit of a terminal non-published submission (§resubmit)

@@ -77,6 +77,16 @@ export function fetchMe(): Promise<MePayload> {
   return apiFetch<MePayload>('/me');
 }
 
+/** History soft-delete: hide an owned TERMINAL review chain from /me. */
+export function deleteMySubmission(reviewId: number | string): Promise<{ hidden: boolean }> {
+  return apiFetch<{ hidden: boolean }>(`/me/submissions/${reviewId}`, { method: 'DELETE' });
+}
+
+/** Only terminal states may be hidden from the owner's history (§my-submissions-delete). */
+export function canDeleteHistory(status: string): boolean {
+  return !['preparing', 'pending', 'publishing'].includes(status);
+}
+
 export function fetchMySubmissions(
   cursor?: string | null,
 ): Promise<OwnSubmissionPage> {

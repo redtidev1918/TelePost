@@ -1,8 +1,10 @@
 import { useBotNavigate } from '../../lib/useBotNavigate';
 import { useState } from 'react';
-import { Badge, Cell, Section, Spinner } from '@telegram-apps/telegram-ui';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { Badge, Button, Cell, Section, Spinner } from '@telegram-apps/telegram-ui';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  canDeleteHistory,
+  deleteMySubmission,
   fetchMySubmissions,
   LogicalSubmission,
   matchesFilter,
@@ -55,7 +57,12 @@ function StatusBadge({ status }: { status: string }) {
  */
 export function MySubmissionsPage() {
   const navigate = useBotNavigate();
+  const qc = useQueryClient();
   const [filter, setFilter] = useState<MineFilter>('all');
+  const delHistory = useMutation({
+    mutationFn: (reviewId: number | string) => deleteMySubmission(reviewId),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['my-submissions'] }),
+  });
   const query = useInfiniteQuery({
     queryKey: ['my-submissions'],
     queryFn: ({ pageParam }) => fetchMySubmissions(pageParam),
@@ -107,7 +114,25 @@ export function MySubmissionsPage() {
             key={item.review_chain_id || item.submission_id}
             data-testid="mine-item"
             onClick={() => navigate(`/mine/${item.current_review_id}`)}
-            after={<StatusBadge status={item.status} />}
+            after={
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <StatusBadge status={item.status} />
+                {canDeleteHistory(item.status) && (
+                  <Button
+                    size="s"
+                    mode="outline"
+                    loading={delHistory.isPending && delHistory.variables === item.current_review_id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void delHistory.mutate(item.current_review_id);
+                    }}
+                    data-testid={`mine-delete-${item.current_review_id}`}
+                  >
+                    删除
+                  </Button>
+                )}
+              </div>
+            }
             subtitle={
               <div className="mine-meta">
                 {item.media_count + item.document_count > 0 &&

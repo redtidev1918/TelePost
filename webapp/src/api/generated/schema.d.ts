@@ -787,7 +787,57 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Hide one of the caller's own terminal submissions from history
+         * @description Soft-delete: the review chain disappears from the owner's /me list and
+         *     detail, but the review queue, published channel messages and the audit
+         *     trail are untouched. Only owned TERMINAL rows (rejected/failed/expired/
+         *     superseded/published) are allowed; a mutable submission
+         *     (preparing/pending/publishing) returns 409.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    review_id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Hidden from the owner's history */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            data?: {
+                                hidden?: boolean;
+                                review_id?: number;
+                            };
+                        };
+                    };
+                };
+                401: components["responses"]["unauthorized"];
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Submission is still in flight (preparing/pending/publishing) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;

@@ -144,3 +144,6 @@ connect-src 'self';
   （`--app-tabbar-reserve`）+ SDK safe area；不硬编码设备偏移。
 - `我的投稿` = human-owned logical submission：一个 review chain 一条（refetch
   代际折叠）、`/me/submissions/{id}` 为用户安全详情；服务/自动化稿永不出现。
+- 软删除历史（`DELETE /me/submissions/{id}`）：仅删除自己的已终态投稿历史，
+  从列表/详情隐藏，不触碰审核队列、已发布频道消息与审计；
+  `preparing / pending / publishing` 不允许删除。
