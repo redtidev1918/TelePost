@@ -123,6 +123,7 @@ class DeliveryLedgerRepository:
             "kind": m.kind.value,
             "file_id": m.file_id,
             "thumbnail_file_id": m.thumbnail_file_id,
+            "file_unique_id": getattr(m, "file_unique_id", None),
         } for m in messages]
         message_ids = [m.message_id for m in messages]
         status = "uncertain" if uncertain else "partial"
