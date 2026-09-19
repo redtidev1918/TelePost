@@ -26,16 +26,19 @@ Telegram
 6. Mini App deep link（`startapp=review_123`）只表达导航意图，不构成授权。
 7. TelePost 仍是后端 SSOT；Mini App 不是第二个 backend。
 
-## 用户空间 / 管理空间拆分（§mine-admin-split）
+## 空间与导航（§mine-admin-split）
 
-Mini App 按服务器验证后的**角色**进入两个互相独立的空间，路由与底部导航单一来源是
+Mini App 只有**一个**工作空间：所有人都拥有用户三件套（首页 / 投稿 / 我的投稿），
+reviewer / admin 额外持有审核队列。路由与底部导航单一来源是
 `webapp/src/app/App.tsx` 的 `navigationForSpace(isReviewer)`：
 
-- **管理空间**（reviewer / admin）：Tabbar 只有「审核队列」，路由只有审核队列、
-  审核详情、审核编辑、编辑历史；任何其它路径重定向到 `/review`。普通用户不持有这些路由。
-- **用户空间**（submitter）：Tabbar 为「首页 / 投稿 / 我的投稿」，路由只有投稿三件套与
-  各自的详情/编辑历史；不注册审核路径。服务端 RBAC 仍是唯一权威，路由/按钮只是把非授权表面
-  藏起来，不能替代服务端校验。
+- **普通用户**（submitter）：Tabbar 为「首页 / 投稿 / 我的投稿」，路由只有投稿三件套与
+  各自的详情/编辑历史；不注册审核路径。
+- **reviewer / admin**：在用户三件套之上额外显示「审核队列」，并注册
+  `/review`、`/review/:id`、`/review/:id/edit`；同时保留了投稿与「我的投稿」全部能力，
+  与后端 RBAC 一致（`roles` 始终包含 `submitter`）。
+- 服务端 RBAC 仍是唯一权威；Tabbar/路由只是把非授权表面藏起来，不能替代服务端校验。
+  新路由必须走 `navigationForSpace`，禁止各页面自拼底部导航。
 
 ### 预览与发送边界（§preview-ux）
 
