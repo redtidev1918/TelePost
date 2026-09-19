@@ -27,20 +27,22 @@ import { ReviewEditPage } from '../pages/ReviewEdit/ReviewEditPage';
 import { EditorialHistoryPage } from '../pages/EditorialHistory/EditorialHistoryPage';
 import { ReviewQueuePage } from '../pages/ReviewQueue/ReviewQueuePage';
 import { ReviewDetailPage } from '../pages/ReviewDetail/ReviewDetailPage';
+import { AdminPage } from '../pages/Admin/AdminPage';
 
 interface NavItem {
   path: string;
   label: string;
 }
 
-/** 统一导航：所有人都有用户三件套，审核角色额外看到审核队列。 */
-export function navigationForSpace(isReviewer: boolean): NavItem[] {
+/** 统一导航：所有人都有用户三件套，审核角色额外看到审核队列，管理员再看到管理面板。 */
+export function navigationForSpace(isReviewer: boolean, isAdmin = false): NavItem[] {
   const userNav: NavItem[] = [
     { path: '/', label: '首页' },
     { path: '/submit', label: '投稿' },
     { path: '/mine', label: '我的投稿' },
   ];
-  return isReviewer ? [...userNav, { path: '/review', label: '审核队列' }] : userNav;
+  const reviewerNav = isReviewer ? [...userNav, { path: '/review', label: '审核队列' }] : userNav;
+  return isAdmin ? [...reviewerNav, { path: '/admin', label: '管理' }] : reviewerNav;
 }
 
 const ERROR_TEXT: Partial<Record<ReturnType<typeof useAuth>['status'], { title: string; hint?: string }>> = {
@@ -98,7 +100,7 @@ export function App() {
 }
 
 function Shell() {
-  const { status, isReviewer } = useAuth();
+  const { status, isReviewer, isAdmin } = useAuth();
   const location = useLocation();
   const navigate = useBotNavigate();
   const navRef = useBottomNavReserve();
@@ -140,8 +142,9 @@ function Shell() {
   }
 
   // 统一空间：所有人都有用户三件套（首页/投稿/我的投稿），审核角色额外拿到
-  // 审核队列。服务端 RBAC 仍是唯一权威，前端只隐藏验证过的角色不能用的入口。
-  const nav = navigationForSpace(isReviewer);
+  // 审核队列，管理员再拿到管理面板。服务端 RBAC 仍是唯一权威，前端只隐藏
+  // 验证过的角色不能用的入口（§45）。
+  const nav = navigationForSpace(isReviewer, isAdmin);
 
   return (
     <div className="app-safe">
@@ -159,6 +162,7 @@ function Shell() {
               <Route path="/review/:id/edit" element={<ReviewEditPage />} />
             </>
           )}
+          {isAdmin && <Route path="/admin" element={<AdminPage />} />}
           <Route path="*" element={<Navigate to={isReviewer ? '/review' : '/'} replace />} />
         </Routes>
       </main>
