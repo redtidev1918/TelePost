@@ -323,7 +323,6 @@ async def handle_stats_post(update: Update, context: CallbackContext):
 ❤️ 反应数: {row['reactions']:,}
 🔥 热度分: {row['heat_score']:.2f}
 
-<i>👁 浏览量 / 转发数：Telegram Bot API 不开放该数据</i>
 📅 发布时间: {publish_time_str}
 """
                 await query.edit_message_text(

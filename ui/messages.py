@@ -237,7 +237,6 @@ class MessageFormatter:
 <b>📈 平均表现：</b>
 • 平均热度：{avg_heat:.1f}
 
-<i>👁 浏览量 / 转发数：Telegram Bot API 不开放该数据</i>
 
 """
         
@@ -276,7 +275,6 @@ class MessageFormatter:
 • 人均投稿：{total_posts/total_users if total_users > 0 else 0:.1f}
 • 篇均反应：{total_reactions/total_posts if total_posts > 0 else 0:.1f}
 
-<i>👁 浏览量 / 转发数：Telegram Bot API 不开放该数据</i>
 
 <i>最后更新：{datetime.now().strftime("%Y-%m-%d %H:%M")}</i>
 """

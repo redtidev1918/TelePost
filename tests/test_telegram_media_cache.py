@@ -156,3 +156,57 @@ class TestPublisherAdoptsPlanner:
         assert result["message_id"] == 57
         bkwargs = bot.send_photo.await_args.kwargs
         assert bkwargs["photo"] == "CACHED"
+
+
+class TestSecondDeliveryReusesCachedFileId:
+    """Step 14: after first delivery caches file_id, the next delivery of the
+    same canonical asset reuses the Telegram file_id (zero re-upload)."""
+
+    @pytest.mark.asyncio
+    async def test_second_delivery_uses_cached_file_id(self, isolated_db, monkeypatch):
+        from handlers import publish
+        from telepost.storage.sqlite.media_assets import (
+            list_for_chain,
+            replace_for_chain,
+        )
+
+        chain_id = "chain-step14"
+        await replace_for_chain(chain_id, [
+            {"asset_id": "a1", "kind": "image",
+             "source_url": "https://proxy.example/pixiv/1.jpg"}
+        ])
+
+        bot1 = AsyncMock()
+        bot1.send_photo.return_value = TestPublisherAdoptsPlanner._photo_message(
+            message_id=101, file_id="FIRST", unique_id="U1"
+        )
+        monkeypatch.setattr(publish, "save_published_post", AsyncMock())
+        first = await publish.publish_from_file_ids(
+            bot1, [], [],
+            media_assets=await list_for_chain(chain_id),
+            review_chain_id=chain_id,
+            idempotency_key="step14-1",
+            user_id=7, username="x",
+        )
+        assert first["status"] == "published"
+        assert first["known_messages"][0]["file_id"] == "FIRST"
+
+        refs = await list_for_chain(chain_id)
+        assert refs[0]["file_id"] == "FIRST"
+        assert refs[0]["file_unique_id"] == "U1"
+
+        bot2 = AsyncMock()
+        bot2.send_photo.return_value = TestPublisherAdoptsPlanner._photo_message(
+            message_id=102, file_id="SECOND", unique_id="U2"
+        )
+        second = await publish.publish_from_file_ids(
+            bot2, [], [],
+            media_assets=refs,
+            review_chain_id=chain_id,
+            idempotency_key="step14-2",
+            user_id=7, username="x",
+        )
+        assert second["status"] == "published"
+        captured = bot2.send_photo.await_args.kwargs
+        assert captured["photo"] == "FIRST"
+        bot2.send_media_group.assert_not_called()
