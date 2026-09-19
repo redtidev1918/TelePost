@@ -33,15 +33,14 @@ interface NavItem {
   label: string;
 }
 
-/** 用户空间 / 管理空间导航：reviewer 只看到审核队列，普通用户只看到投稿三件套。 */
+/** 统一导航：所有人都有用户三件套，审核角色额外看到审核队列。 */
 export function navigationForSpace(isReviewer: boolean): NavItem[] {
-  return isReviewer
-    ? [{ path: '/review', label: '审核队列' }]
-    : [
-        { path: '/', label: '首页' },
-        { path: '/submit', label: '投稿' },
-        { path: '/mine', label: '我的投稿' },
-      ];
+  const userNav: NavItem[] = [
+    { path: '/', label: '首页' },
+    { path: '/submit', label: '投稿' },
+    { path: '/mine', label: '我的投稿' },
+  ];
+  return isReviewer ? [...userNav, { path: '/review', label: '审核队列' }] : userNav;
 }
 
 const ERROR_TEXT: Partial<Record<ReturnType<typeof useAuth>['status'], { title: string; hint?: string }>> = {
@@ -140,40 +139,9 @@ function Shell() {
     );
   }
 
-  // 用户空间 vs 管理空间（§mine-admin-split）：reviewer 只进管理空间（审核队列/
-  // 编辑历史），其它用户只进用户空间（首页/投稿/我的投稿）。两个 space 的入口、
-  // Tabbar 与路由彼此独立，服务端 RBAC 仍是唯一权威。
-  if (isReviewer) {
-    const adminNav = navigationForSpace(true);
-    return (
-      <div className="app-safe">
-        <main className="page">
-          <Routes>
-            <Route path="/" element={<ReviewQueuePage />} />
-            <Route path="/review" element={<ReviewQueuePage />} />
-            <Route path="/review/:id" element={<ReviewDetailPage />} />
-            <Route path="/review/:id/edit" element={<ReviewEditPage />} />
-            <Route path="/mine/:id/editorial" element={<EditorialHistoryPage />} />
-            <Route path="*" element={<Navigate to="/review" replace />} />
-          </Routes>
-        </main>
-        <div ref={navRef} className="bottom-nav">
-          <Tabbar data-testid="bottom-nav">
-            {adminNav.map((item) => (
-              <Tabbar.Item
-                key={item.path}
-                text={item.label}
-                selected={location.pathname.startsWith(item.path)}
-                onClick={() => navigate(item.path)}
-              />
-            ))}
-          </Tabbar>
-        </div>
-      </div>
-    );
-  }
-
-  const userNav = navigationForSpace(false);
+  // 统一空间：所有人都有用户三件套（首页/投稿/我的投稿），审核角色额外拿到
+  // 审核队列。服务端 RBAC 仍是唯一权威，前端只隐藏验证过的角色不能用的入口。
+  const nav = navigationForSpace(isReviewer);
 
   return (
     <div className="app-safe">
@@ -184,12 +152,19 @@ function Shell() {
           <Route path="/mine" element={<MySubmissionsPage />} />
           <Route path="/mine/:id" element={<SubmissionDetailPage />} />
           <Route path="/mine/:id/editorial" element={<EditorialHistoryPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {isReviewer && (
+            <>
+              <Route path="/review" element={<ReviewQueuePage />} />
+              <Route path="/review/:id" element={<ReviewDetailPage />} />
+              <Route path="/review/:id/edit" element={<ReviewEditPage />} />
+            </>
+          )}
+          <Route path="*" element={<Navigate to={isReviewer ? '/review' : '/'} replace />} />
         </Routes>
       </main>
       <div ref={navRef} className="bottom-nav">
         <Tabbar data-testid="bottom-nav">
-          {userNav.map((item) => (
+          {nav.map((item) => (
             <Tabbar.Item
               key={item.path}
               text={item.label}
