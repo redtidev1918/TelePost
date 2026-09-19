@@ -109,3 +109,34 @@ def test_classify_message():
 
     m = SimpleNamespace(photo=None, video=None, animation=None, audio=None, document=None)
     assert classify_message(m) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_upload_confirmation_shows_progress(mock_telegram_update, mock_telegram_context):
+    photo = MagicMock(file_id="f1")
+    mock_telegram_update.message.photo = [photo]
+    mock_telegram_update.message.reply_text = AsyncMock()
+
+    with patch("handlers.upload.get_session", new=AsyncMock(return_value={"image_id": '["photo:f0"]', "document_id": "[]"})), \
+         patch("handlers.upload.append_entry", new=AsyncMock(return_value=2)):
+        from handlers.upload import handle_upload
+        result = await handle_upload(mock_telegram_update, mock_telegram_context)
+
+    assert result == STATE["UPLOAD"]
+    text = mock_telegram_update.message.reply_text.await_args.args[0]
+    assert "已接收媒体" in text
+    assert "当前 2/100 个" in text
+    assert "/done_media" in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_prompt_upload_explains_preview_fields(mock_telegram_update, mock_telegram_context):
+    from handlers.upload import prompt_upload
+    mock_telegram_update.message.reply_text = AsyncMock()
+    result = await prompt_upload(mock_telegram_update, mock_telegram_context)
+    assert result == STATE["UPLOAD"]
+    text = mock_telegram_update.message.reply_text.await_args.args[0]
+    assert "标签、标题、简介和链接" in text
+    assert "/done_media" in text
