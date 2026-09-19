@@ -10,6 +10,14 @@
 
 ---
 
+## [2.50.0](https://github.com/redtidev1918/TelePost/compare/v2.49.0...v2.50.0) (2026-09-19)
+
+
+### Features
+
+* **delivery:** Step 11 DeliveryPlanner ([878c75d](https://github.com/redtidev1918/TelePost/commit/878c75d82ccce7c5bcdd52464a489e28c7ed78e7))
+* **delivery:** Step 11 DeliveryPlanner foundation ([fab63b6](https://github.com/redtidev1918/TelePost/commit/fab63b6400cc3c46d662c81d4a451b6dca4aafbd))
+
 ## [2.49.0](https://github.com/redtidev1918/TelePost/compare/v2.48.0...v2.49.0) (2026-09-19)
 
 
