@@ -118,6 +118,13 @@ async def _resolve_principal(request) -> Optional[dict]:
 
 
 def _principal_roles(principal: dict):
+    # User principals are re-derived live so role bindings take effect
+    # immediately (session-stored roles go stale after an admin grants a role).
+    # Service principals stay env-derived (OWNER_ID/ADMIN_IDS rule).
+    if principal.get("kind") == "user":
+        from telepost.miniapp import rbac as miniapp_rbac
+        uid = principal.get("telegram_user_id")
+        return miniapp_rbac.roles_for(uid if uid else None)
     roles = principal.get("roles")
     if roles:
         return list(roles)
@@ -1839,6 +1846,48 @@ def add_api_routes(web_app, application) -> None:
             return _error(exc.http_status, exc.code, exc.message)
         return _ok(result)
 
+    async def admin_roles_list(request):
+        principal, error = await _admin_check(request)
+        if error:
+            return error
+        from telepost.application import admin_ops
+        return _ok({"items": admin_ops.list_role_bindings()})
+
+    async def admin_roles_add(request):
+        principal, error = await _admin_check(request)
+        if error:
+            return error
+        payload, err = await _json_body(request)
+        if err:
+            return err
+        from telepost.application.admin_ops import AdminError, add_role_binding
+        try:
+            result = await add_role_binding(
+                payload.get("telegram_user_id"), str(payload.get("role", "")).strip(),
+                actor=_admin_actor(principal),
+            )
+        except AdminError as exc:
+            return _error(exc.http_status, exc.code, exc.message)
+        return _ok(result, status=201 if result.get("changed") else 200)
+
+    async def admin_roles_remove(request):
+        principal, error = await _admin_check(request)
+        if error:
+            return error
+        from telepost.application.admin_ops import AdminError, remove_role_binding
+        try:
+            user_id = int(request.match_info["user_id"])
+            role = request.match_info["role"]
+        except (TypeError, ValueError):
+            return _error(400, "invalid_user_id", "user_id 必须是整数")
+        try:
+            result = await remove_role_binding(
+                user_id, role, actor=_admin_actor(principal),
+            )
+        except AdminError as exc:
+            return _error(exc.http_status, exc.code, exc.message)
+        return _ok(result)
+
     async def _json_body(request):
         try:
             payload = await request.json()
@@ -2195,6 +2244,11 @@ def add_api_routes(web_app, application) -> None:
     web_app.router.add_post("/api/v1/admin/blacklist", admin_blacklist_add)
     web_app.router.add_delete(
         "/api/v1/admin/blacklist/{user_id}", admin_blacklist_remove
+    )
+    web_app.router.add_get("/api/v1/admin/roles", admin_roles_list)
+    web_app.router.add_post("/api/v1/admin/roles", admin_roles_add)
+    web_app.router.add_delete(
+        "/api/v1/admin/roles/{user_id}/{role}", admin_roles_remove
     )
     web_app.router.add_get("/api/v1/me", me)
     web_app.router.add_post("/api/v1/submissions", create_submission)
