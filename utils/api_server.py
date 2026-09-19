@@ -1022,6 +1022,31 @@ async def _persist_media_assets(result: dict):
     return await ma.replace_for_chain(chain_id, result.get("media_assets") or [])
 
 
+def _delivery_plan_payload(item):
+    """Serializable read-only Step 11 media delivery plan for a review item."""
+    from dataclasses import asdict
+    from telepost.application.delivery_planner import plan_review_media
+
+    media: list = []
+    documents: list = []
+    for m in item.media:
+        d = {"file_id": m.file_id}
+        if m.kind == "document":
+            d["type"] = "document"
+            d["filename"] = m.filename or ""
+            documents.append(d)
+        else:
+            d["type"] = m.kind
+            media.append(d)
+    plan = plan_review_media(media, item.media_assets or [], documents=documents)
+    return {
+        "review_id": item.id,
+        "strategy": plan.strategy,
+        "media_assets": item.media_assets or [],
+        "entries": [asdict(entry) for entry in plan.entries],
+    }
+
+
 def add_api_routes(web_app, application) -> None:
     """把 /api/v1 路由挂到既有 aiohttp 应用上（每个 bot 子进程独立一套）"""
     bot = application.bot
@@ -1806,6 +1831,29 @@ def add_api_routes(web_app, application) -> None:
             return _ok(item.to_dict())
         return await _run_review_action(action)
 
+    async def get_review_delivery_plan(request):
+        async def action():
+            _, error = await _review_auth(request, write=False)
+            if error:
+                owner_uid = _review_owner_principal(request)
+                if owner_uid is None:
+                    return error
+                try:
+                    review_id = int(request.match_info["review_id"])
+                except (TypeError, ValueError):
+                    return _error(400, "invalid_review_id", "review_id 必须是整数")
+                row = await review_service.get_review(review_id)
+                if int(getattr(row, "submitter_user_id", None) or 0) != owner_uid:
+                    return error
+                return _ok(_delivery_plan_payload(row))
+            try:
+                review_id = int(request.match_info["review_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_review_id", "review_id 必须是整数")
+            item = await review_service.get_review(review_id)
+            return _ok(_delivery_plan_payload(item))
+        return await _run_review_action(action)
+
     async def get_review_media(request):
         async def action():
             _, error = await _review_auth(request, write=False)
@@ -2321,6 +2369,7 @@ def add_api_routes(web_app, application) -> None:
     web_app.router.add_get("/api/v1/reviews/policy", review_policy)
     web_app.router.add_get("/api/v1/reviews", list_reviews)
     web_app.router.add_get("/api/v1/reviews/{review_id}", get_review)
+    web_app.router.add_get("/api/v1/reviews/{review_id}/delivery-plan", get_review_delivery_plan)
     web_app.router.add_get(
         "/api/v1/reviews/{review_id}/media/{index}", get_review_media
     )
