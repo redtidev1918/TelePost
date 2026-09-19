@@ -10,6 +10,13 @@
 
 ---
 
+## [2.45.2](https://github.com/redtidev1918/TelePost/compare/v2.45.1...v2.45.2) (2026-09-19)
+
+
+### Bug Fixes
+
+* **miniapp:** let reviewers/admins submit alongside review queue ([#177](https://github.com/redtidev1918/TelePost/issues/177)) ([855de4c](https://github.com/redtidev1918/TelePost/commit/855de4c9bcc3df9c4c2cd48a100ef19cb0f3cfec))
+
 ## [2.45.1](https://github.com/redtidev1918/TelePost/compare/v2.45.0...v2.45.1) (2026-09-18)
 
 
