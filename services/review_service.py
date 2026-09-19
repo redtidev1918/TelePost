@@ -409,6 +409,19 @@ class ReviewService:
                     kwargs[column] = row[column]
             except (IndexError, KeyError):
                 pass
+        # Step 11/12/13 adoption: pass canonical media refs so the publisher can
+        # plan the per-asset source and record Telegram cache facts on confirm.
+        chain_id = ""
+        try:
+            chain_id = str(row["review_chain_id"] or "")
+        except (KeyError, IndexError):
+            chain_id = ""
+        refs = []
+        if chain_id:
+            from telepost.storage.sqlite import media_assets as _ma
+            refs = await _ma.list_for_chain(chain_id)
+        kwargs["media_assets"] = refs
+        kwargs["review_chain_id"] = chain_id
         return await publisher(
             bot,
             json.loads(row["media_json"] or "[]"),

@@ -42,10 +42,13 @@ def _close_item_handle(media) -> None:
 
 def _media_kwargs(item: dict, caption) -> dict:
     kind = item["kind"]
-    media = (
-        _local_input_file(item["path"], item["filename"])
-        if _is_local_item(item) else item["file_id"]
-    )
+    if item.get("url"):
+        media = item["url"]
+    else:
+        media = (
+            _local_input_file(item["path"], item["filename"])
+            if _is_local_item(item) else item["file_id"]
+        )
     kw = {"caption": caption, "parse_mode": "HTML" if caption else None}
     if kind == "photo":
         return {"method": "send_photo", "photo": media, **kw,
@@ -64,10 +67,13 @@ def _media_kwargs(item: dict, caption) -> dict:
 
 def _album_input_media(item: dict, caption):
     kind = item["kind"]
-    media = (
-        _local_input_file(item["path"], item["filename"])
-        if _is_local_item(item) else item["file_id"]
-    )
+    if item.get("url"):
+        media = item["url"]
+    else:
+        media = (
+            _local_input_file(item["path"], item["filename"])
+            if _is_local_item(item) else item["file_id"]
+        )
     parse = "HTML" if caption else None
     if kind == "photo":
         return InputMediaPhoto(media=media, caption=caption, parse_mode=parse,

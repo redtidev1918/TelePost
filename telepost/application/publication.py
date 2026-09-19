@@ -377,6 +377,7 @@ class PublicationService:
             link=self._link(main.message_id, command.chat_id),
             media_count=media_count,
             document_count=document_count,
+            known_messages=messages,
         )
 
     @staticmethod
@@ -392,6 +393,7 @@ class PublicationService:
                     kind=MediaKind.coerce(item["kind"]),
                     file_id=item.get("file_id"),
                     thumbnail_file_id=item.get("thumbnail_file_id"),
+                    file_unique_id=item.get("file_unique_id"),
                 ))
         except (KeyError, TypeError, ValueError):
             return []
