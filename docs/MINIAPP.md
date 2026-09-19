@@ -29,14 +29,20 @@ Telegram
 ## 空间与导航（§mine-admin-split）
 
 Mini App 只有**一个**工作空间：所有人都拥有用户三件套（首页 / 投稿 / 我的投稿），
-reviewer / admin 额外持有审核队列。路由与底部导航单一来源是
-`webapp/src/app/App.tsx` 的 `navigationForSpace(isReviewer)`：
+reviewer / admin 额外持有审核队列，admin 再额外持有管理面板。路由与底部导航单一来源是
+`webapp/src/app/App.tsx` 的 `navigationForSpace(isReviewer, isAdmin)`：
 
 - **普通用户**（submitter）：Tabbar 为「首页 / 投稿 / 我的投稿」，路由只有投稿三件套与
   各自的详情/编辑历史；不注册审核路径。
 - **reviewer / admin**：在用户三件套之上额外显示「审核队列」，并注册
   `/review`、`/review/:id`、`/review/:id/edit`；同时保留了投稿与「我的投稿」全部能力，
   与后端 RBAC 一致（`roles` 始终包含 `submitter`）。
+- **admin**：再额外显示「管理」面板（`/admin`），四个分区对应 `/api/v1/admin/*`：
+  运行状态（`GET /admin/status`，30 秒轮询）、运行策略（`PATCH /admin/policy`，仅
+  `chat_review` / `show_submitter` 两个开关——`miniapp_review` 刻意只留 Bot 侧，避免面板
+  把自己锁在外面）、角色管理（`/admin/roles` 持久化绑定增删，env 引导的管理员不在此列）、
+  黑名单（`/admin/blacklist` 增删）。所有变更均由服务端审计；移除操作可逆（重新授予 /
+  解除拉黑），故无二次确认弹窗。
 - 服务端 RBAC 仍是唯一权威；Tabbar/路由只是把非授权表面藏起来，不能替代服务端校验。
   新路由必须走 `navigationForSpace`，禁止各页面自拼底部导航。
 
