@@ -10,6 +10,14 @@
 
 ---
 
+## [2.51.0](https://github.com/redtidev1918/TelePost/compare/v2.50.0...v2.51.0) (2026-09-19)
+
+
+### Features
+
+* **delivery:** Step 12 TelegramMediaCache ([ffbc20f](https://github.com/redtidev1918/TelePost/commit/ffbc20fe1b593a9ca2c6eb7c65f083887134a501))
+* **delivery:** Step 12 TelegramMediaCache foundation ([21a1122](https://github.com/redtidev1918/TelePost/commit/21a1122c82ef4a08327ca118078f2c32ce183494))
+
 ## [2.50.0](https://github.com/redtidev1918/TelePost/compare/v2.49.0...v2.50.0) (2026-09-19)
 
 
