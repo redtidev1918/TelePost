@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import List, Optional, Set
 
 from config.settings import ADMIN_IDS, OWNER_ID
+from telepost.miniapp import role_bindings
 
 ROLE_SUBMITTER = "submitter"
 ROLE_REVIEWER = "reviewer"
@@ -49,6 +50,12 @@ def roles_for(telegram_user_id: Optional[int]) -> List[str]:
         roles.append(ROLE_REVIEWER)
     if uid in _owner_ids():
         roles.append(ROLE_ADMIN)
+    # Durable Role Bindings (Admin Control Plane) add roles on top of the env
+    # baseline. This lets an operator grant reviewer/admin without editing Fly
+    # secrets; OWNER_ID break-glass stays always-admin regardless.
+    for bound_role in role_bindings.bound_roles(uid):
+        if bound_role not in roles:
+            roles.append(bound_role)
     return roles
 
 

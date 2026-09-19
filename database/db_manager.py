@@ -603,6 +603,20 @@ async def init_db():
                 'ON moderation_blocks(subject)'
             )
 
+            # Durable Role Bindings (Admin Control Plane RBAC). Grants reviewer
+            # / admin to a Telegram user on top of the OWNER_ID/ADMIN_IDS env
+            # baseline; OWNER_ID stays break-glass root regardless of bindings.
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS role_bindings (
+                    principal_kind TEXT NOT NULL,
+                    principal_id INTEGER NOT NULL,
+                    role TEXT NOT NULL,
+                    created_by TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY (principal_kind, principal_id, role)
+                )
+            """)
+
             # published_posts 是频道现状，pending_reviews 是审核审计。频道消息被软删除时
             # 同步把对应审核记录从“曾发布”推进到“已删除”，避免把历史终态误当成
             # 当前仍在线的发布。触发器覆盖项目内所有软删除入口。
