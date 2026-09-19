@@ -328,6 +328,37 @@ class ReviewRepository:
             await conn.execute("DELETE FROM pending_reviews WHERE id=?",
                                (int(review_id),))
 
+    async def hide_from_own_history(self, review_id: int,
+                                    submitter_user_id: int) -> bool:
+        """Soft-delete an owned TERMINAL review chain from /me history.
+
+        Returns False when the row is not owned, already hidden, or still
+        mutable (preparing/pending/publishing). Hides the whole chain so the
+        detail page (which resolves by any review_id) also 404s. Published
+        channel messages and the review queue are never touched.
+        """
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT review_chain_id, status, submitter_user_id "
+                "FROM pending_reviews WHERE id=?",
+                (int(review_id),),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                return False
+            if int(row["submitter_user_id"] or 0) != int(submitter_user_id):
+                return False
+            if row["status"] in ("preparing", "pending", "publishing"):
+                return False
+            cur = await conn.execute(
+                "UPDATE pending_reviews SET hidden_from_submitter=1, updated_at=? "
+                "WHERE review_chain_id=? AND submitter_user_id=? "
+                "AND status NOT IN ('preparing', 'pending', 'publishing')",
+                (time.time(), row["review_chain_id"], int(submitter_user_id)),
+            )
+            await conn.commit()
+            return cur.rowcount > 0
+
     async def set_control_message(self, review_id: int, message_id: int) -> None:
         async with db_manager.get_db() as conn:
             await conn.execute(
@@ -559,6 +590,7 @@ class ReviewRepository:
                        AS chain_created_at
               FROM pending_reviews h
              WHERE h.submitter_user_id = ?
+               AND h.hidden_from_submitter = 0
                AND h.id = (SELECT MAX(c2.id) FROM pending_reviews c2
                             WHERE c2.review_chain_id = h.review_chain_id)
         """

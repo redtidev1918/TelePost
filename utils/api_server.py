@@ -252,6 +252,9 @@ async def _own_submission_detail(user_id: int, review_id: int) -> dict:
     if int(row["submitter_user_id"] or 0) != int(user_id):
         # Never reveal that someone else's submission exists.
         raise ReviewNotFoundError("review not found", details={"review_id": review_id})
+    if int(row["hidden_from_submitter"] or 0):
+        # Soft-deleted from the owner's own history; treat as gone.
+        raise ReviewNotFoundError("review not found", details={"review_id": review_id})
     chain_id = row["review_chain_id"] or f"review-{row['id']}"
     head = await repo.head_of_chain(chain_id)
     source = head if head is not None else row
@@ -1217,6 +1220,34 @@ def add_api_routes(web_app, application) -> None:
             logger.error("重投失败: review=%s", review_id, exc_info=True)
             return _error(502, "resubmit_failed", "重新提交失败，请稍后重试。")
         return _ok(result)
+
+    async def delete_my_submission(request):
+        """DELETE /api/v1/me/submissions/{review_id} — hide own history.
+
+        Soft-delete: the owner's list/detail no longer show this review chain,
+        but the review queue, published channel messages and the audit trail
+        are untouched. Only owned TERMINAL rows may be hidden; a still-mutable
+        (preparing/pending/publishing) submission returns 409.
+        """
+        principal = await _resolve_principal(request)
+        if principal is None:
+            return _error(401, "invalid_token", "token 无效或已吊销")
+        uid = principal["telegram_user_id"]
+        if not uid or principal.get("kind") != "user":
+            return _error(403, "permission_denied", "需要用户会话")
+        try:
+            review_id = int(request.match_info["review_id"])
+        except (TypeError, ValueError):
+            return _error(400, "invalid_review_id", "review_id 必须是整数")
+        from telepost.storage.sqlite.reviews import ReviewRepository
+        hidden = await ReviewRepository().hide_from_own_history(review_id, uid)
+        if not hidden:
+            row = await ReviewRepository().get(review_id)
+            if row is not None and int(row["submitter_user_id"] or 0) == uid                     and row["status"] in ("preparing", "pending", "publishing"):
+                return _error(409, "submission_in_flight",
+                              "进行中的投稿不能删除历史，请等待审核/发布完成后再删除。")
+            return _error(404, "review_not_found", "投稿不存在")
+        return _ok({"hidden": True, "review_id": review_id})
 
     async def submission_preview(request):
         principal = await _resolve_principal(request)
@@ -2223,6 +2254,7 @@ def add_api_routes(web_app, application) -> None:
 
     web_app.router.add_get("/api/v1/me/submissions/{review_id}/media/{index}", my_submission_media)
     web_app.router.add_post("/api/v1/me/submissions/{review_id}/resubmit", resubmit_submission)
+    web_app.router.add_delete("/api/v1/me/submissions/{review_id}", delete_my_submission)
     web_app.router.add_post("/api/v1/submissions/preview", submission_preview)
     web_app.router.add_get("/api/v1/reviews/policy", review_policy)
     web_app.router.add_get("/api/v1/reviews", list_reviews)

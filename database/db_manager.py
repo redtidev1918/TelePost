@@ -233,6 +233,21 @@ async def init_db():
                 'ON pending_reviews(submitter_user_id, created_at DESC, id DESC) '
                 'WHERE submitter_user_id IS NOT NULL'
             )
+            # User-facing history soft-delete (§my-submissions-delete): 1 hides
+            # the whole review chain from the owner's /me history without
+            # touching the review queue, published channel messages, or the
+            # audit trail. Only terminal rows may be hidden (enforced in repo).
+            try:
+                await conn.execute(
+                    "ALTER TABLE pending_reviews "
+                    "ADD COLUMN hidden_from_submitter INTEGER NOT NULL DEFAULT 0"
+                )
+            except Exception:
+                pass  # column already exists
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_pending_reviews_chain_hidden '
+                'ON pending_reviews(review_chain_id, hidden_from_submitter)'
+            )
 
             # Bootstrap lineage for EVERY existing review: a chain is anchored at
             # the first review we know about ("chain-<id>"), so old pending rows

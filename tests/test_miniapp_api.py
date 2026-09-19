@@ -252,6 +252,84 @@ class TestMySubmissions:
             await client.close()
 
 
+class TestDeleteMySubmission:
+    @pytest.mark.asyncio
+    async def test_requires_auth(self, monkeypatch):
+        app, _ = _make_app(monkeypatch, None)
+        client = await _client(app)
+        try:
+            resp = await client.delete("/api/v1/me/submissions/13")
+            assert resp.status == 401
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_hides_terminal_owned_chain(self, monkeypatch):
+        from telepost.storage.sqlite import reviews as reviews_mod
+        repo = MagicMock()
+        repo.hide_from_own_history = AsyncMock(return_value=True)
+        monkeypatch.setattr(reviews_mod.ReviewRepository,
+                            "hide_from_own_history", repo.hide_from_own_history)
+        app, _ = _make_app(monkeypatch, _SUBMITTER)
+        monkeypatch.setenv("MINIAPP_SESSION_SECRET", "s" * 40)
+        token = _session_token(5073758941, ["submitter"])
+        client = await _client(app)
+        try:
+            resp = await client.delete(
+                "/api/v1/me/submissions/13",
+                headers={"Authorization": f"Bearer {token}"})
+            assert resp.status == 200
+            assert (await resp.json())["data"]["hidden"] is True
+            repo.hide_from_own_history.assert_awaited_once_with(13, 5073758941)
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_in_flight_returns_409(self, monkeypatch):
+        from telepost.storage.sqlite import reviews as reviews_mod
+        repo = MagicMock()
+        repo.hide_from_own_history = AsyncMock(return_value=False)
+        repo.get = AsyncMock(return_value={
+            "id": 13, "status": "pending", "submitter_user_id": 5073758941})
+        monkeypatch.setattr(reviews_mod.ReviewRepository,
+                            "hide_from_own_history", repo.hide_from_own_history)
+        monkeypatch.setattr(reviews_mod.ReviewRepository, "get", repo.get)
+        app, _ = _make_app(monkeypatch, _SUBMITTER)
+        monkeypatch.setenv("MINIAPP_SESSION_SECRET", "s" * 40)
+        token = _session_token(5073758941, ["submitter"])
+        client = await _client(app)
+        try:
+            resp = await client.delete(
+                "/api/v1/me/submissions/13",
+                headers={"Authorization": f"Bearer {token}"})
+            assert resp.status == 409
+            body = await resp.json()
+            assert body["error"]["code"] == "submission_in_flight"
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_foreign_or_missing_returns_404(self, monkeypatch):
+        from telepost.storage.sqlite import reviews as reviews_mod
+        repo = MagicMock()
+        repo.hide_from_own_history = AsyncMock(return_value=False)
+        repo.get = AsyncMock(return_value=None)
+        monkeypatch.setattr(reviews_mod.ReviewRepository,
+                            "hide_from_own_history", repo.hide_from_own_history)
+        monkeypatch.setattr(reviews_mod.ReviewRepository, "get", repo.get)
+        app, _ = _make_app(monkeypatch, _SUBMITTER)
+        monkeypatch.setenv("MINIAPP_SESSION_SECRET", "s" * 40)
+        token = _session_token(5073758941, ["submitter"])
+        client = await _client(app)
+        try:
+            resp = await client.delete(
+                "/api/v1/me/submissions/13",
+                headers={"Authorization": f"Bearer {token}"})
+            assert resp.status == 404
+        finally:
+            await client.close()
+
+
 class TestReviewRBAC:
     @pytest.mark.asyncio
     async def test_submitter_cannot_list_queue(self, monkeypatch):
