@@ -28,6 +28,7 @@
 | `/debug` | 当前 Bot 与运行配置诊断 |
 | `/searchuser <用户ID>` | 查询指定用户投稿 |
 | `/delete_posts <ID或范围...>` | 批量软删除，单次最多 50 个 |
+| `/stats` | 全局统计：用户数、帖子数、反应总数（仅 Owner） |
 | `/blacklist` | 黑名单面板 |
 | `/blacklist_add <用户ID> [原因]` | 加入黑名单 |
 | `/blacklist_remove <用户ID>` | 移出黑名单 |

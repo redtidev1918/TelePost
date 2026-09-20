@@ -259,7 +259,8 @@ if REVIEW_CHAT_ID is not None:
 # 频道发布 footer（§submission-entrypoint）：正式发布到频道的帖子会在 caption
 # 最下方追加文本导航 footer：
 #   ✉️ TG 投稿  → https://t.me/<bot>?start=submit
-#   📱 Mini App → https://t.me/<bot>?startapp=submit（MINIAPP_SUBMIT_CTA=true 时）
+#   📱 Mini App → https://t.me/<bot>?start=miniapp（MINIAPP_SUBMIT_CTA=true 时；
+#               配置 Direct Mini App short name 后才直接 ?startapp=submit）
 # 标签是固定展示契约，不读取 CHANNEL_FOOTER_TEXT（保留仅为兼容旧部署）。
 CHANNEL_FOOTER_LINK = (
     get_env_or_config('CHANNEL_FOOTER_LINK', 'BOT', 'CHANNEL_FOOTER_LINK',
@@ -280,6 +281,30 @@ MINIAPP_SUBMIT_CTA = str(
                       fallback='false')
     or 'false'
 ).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+# Mini App surface gate. Mirrors the deployment switch; false disables the
+# private-chat Web App buttons but never affects chat/API publishing.
+MINIAPP_ENABLED = str(
+    get_env_or_config('MINIAPP_ENABLED', 'BOT', 'MINIAPP_ENABLED', fallback='false')
+    or 'false'
+).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+# Optional BotFather Direct Mini App short name. When set, channel footers can
+# open the attached app directly. Without it, navigation falls back to
+# ?start=miniapp, which sends a private-chat Web App button.
+MINIAPP_SHORT_NAME = (
+    get_env_or_config('MINIAPP_SHORT_NAME', 'BOT', 'MINIAPP_SHORT_NAME',
+                      fallback='')
+    or ''
+).strip().lstrip('/')
+
+# Public Web App URL used by keyboard buttons. Deployment normally serves the
+# app at the same domain as the webhook; the fallback avoids repeating the URL.
+MINIAPP_PUBLIC_URL = (
+    get_env_or_config('MINIAPP_PUBLIC_URL', 'BOT', 'MINIAPP_PUBLIC_URL',
+                      fallback='')
+    or (os.getenv('WEBHOOK_URL', '').rstrip('/') + '/app/' if os.getenv('WEBHOOK_URL') else '')
+).strip() or ''
 # 可选发布增强：TXT 小说通过 TelePress 发布到 Telegraph 提供「在线阅读」
 # （§telepress-preview）。它是可选 enrichment：默认关闭；开启后仍由 Telegram
 # TXT document 决定 Publication 成功与否，Telegraph 失败/超时绝不回滚或失败发布。

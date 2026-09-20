@@ -19,8 +19,10 @@
 | `ALLOWED_FILE_TYPES` | `*` | 文档扩展名或 MIME，逗号分隔 |
 | `SHOW_SUBMITTER` | `true` | 频道是否显示投稿人 |
 | `NOTIFY_OWNER` | `true` | 是否 durable 私聊 Owner：审核稿入队成功或直发成功后各按 logical submission 通知一次；refetch/editorial 不重复 |
-| `CHANNEL_FOOTER_LINK` | 空 | **正式发布到频道**时，在 caption 最下方追加文本导航 footer（`✉️ TG 投稿` → `https://t.me/<bot>?start=submit`；Mini App 开启时再加 `📱 Mini App` → `?startapp=submit`）。空 = 关闭。审核预览/排队**不**带 footer |
-| `MINIAPP_SUBMIT_CTA` | `false` | 频道 footer 额外追加 Mini App 导航项：`https://t.me/<bot>?startapp=submit`（startapp 只是导航意图，身份仍由服务器校验 initData 决定）。未启用/链接缺失时该导航项省略，绝不生成坏链接 |
+| `CHANNEL_FOOTER_LINK` | 空 | **正式发布到频道**时，在 caption 最下方追加文本导航 footer（`✉️ TG 投稿` → `https://t.me/<bot>?start=submit`；Mini App 开启时再加 `📱 Mini App` → `?start=miniapp`；配置 `MINIAPP_SHORT_NAME` 后为 Direct Mini App `?startapp=submit`）。空 = 关闭。审核预览/排队**不**带 footer |
+| `MINIAPP_SUBMIT_CTA` | `false` | 频道 footer 额外追加 Mini App 导航项；默认回退到 `?start=miniapp`，由 Bot 在私聊发送 Web App 按钮。未启用/链接缺失时省略，绝不生成坏链接 |
+| `MINIAPP_SHORT_NAME` | 空 | BotFather Direct Mini App short name；配置后频道 footer 使用 `https://t.me/<bot>/<short_name>?startapp=submit` 直接打开应用 |
+| `MINIAPP_PUBLIC_URL` | 空 | 私聊键盘 Web App URL；留空时从 `WEBHOOK_URL` 推导 `<公网根地址>/app/` |
 | `SUBMIT_LIMIT_PER_HOUR` | `10` | 每用户每小时投稿次数；`0` 关闭 |
 | `ALLOWED_TAGS` | `30` | 单次最大标签数 |
 | `TIMEOUT` | `300` | 数据库中过期上传数据的清理阈值（秒） |

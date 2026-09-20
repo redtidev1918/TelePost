@@ -237,3 +237,14 @@ docker buildx imagetools inspect ghcr.io/redtidev1918/telepost:X.Y.Z
 
 Tag 只触发流程，不等于发布完成。Release 缺资产时，从对应 run 下载 bundle 后用
 `gh release upload vX.Y.Z <files> --clobber` 补传；不要仅因上传竞态重复发布版本。
+
+## 热度统计
+
+Telegram Bot API 不提供频道帖子的浏览量 / 转发量；这些字段显示为 0 是 API 边界，
+不是故障。真实可用信号是频道 `message_reaction_count` 更新：用户对帖子增加或改变
+reaction 后，Bot 把 `(message_id, total_count)` 写入 `message_reaction_counts`，
+再聚合更新 `published_posts.reactions` 与 `heat_score`。
+
+- Bot 必须是频道管理员，webhook `allowed_updates` 必须包含 `message_reaction_count`。
+- 没有用户 reaction 时，计数表为空、热度为 0 是预期状态。
+- 验证不要查看公开频道的浏览量，而是看 `message_reaction_counts` 是否出现真实更新。
