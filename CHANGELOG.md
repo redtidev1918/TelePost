@@ -10,6 +10,14 @@
 
 ---
 
+## [2.56.1](https://github.com/redtidev1918/TelePost/compare/v2.56.0...v2.56.1) (2026-09-20)
+
+
+### Bug Fixes
+
+* **health:** aggregate reaction ingestion from bot workers ([53b336f](https://github.com/redtidev1918/TelePost/commit/53b336f3732b356524b2f0e721f2633509847fda))
+* **health:** aggregate reaction ingestion from bot workers ([ae5e155](https://github.com/redtidev1918/TelePost/commit/ae5e155bcc81acb7180f03c954744b45f5510bed))
+
 ## [2.56.0](https://github.com/redtidev1918/TelePost/compare/v2.55.4...v2.56.0) (2026-09-20)
 
 
