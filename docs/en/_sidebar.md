@@ -3,3 +3,4 @@
   - [📥 Download](/en/download.md)
   - [Install & Deploy](/en/INSTALL.md)
   - [Commands](/en/COMMANDS.md)
+  - [中文](/)
