@@ -10,6 +10,14 @@
 
 ---
 
+## [2.55.4](https://github.com/redtidev1918/TelePost/compare/v2.55.3...v2.55.4) (2026-09-20)
+
+
+### Bug Fixes
+
+* **bot:** improve submission UX ([224e197](https://github.com/redtidev1918/TelePost/commit/224e1975ad6b8f350c1cf6838be250cbf74ad37f))
+* **ux:** suppress preview links and restore menu after cancel ([69e7bd0](https://github.com/redtidev1918/TelePost/commit/69e7bd099dad2f1e3ae790243b4f6d6cfb12e52b))
+
 ## [2.55.3](https://github.com/redtidev1918/TelePost/compare/v2.55.2...v2.55.3) (2026-09-20)
 
 
