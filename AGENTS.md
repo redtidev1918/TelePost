@@ -392,8 +392,10 @@ Channel publication navigation footer CTAs open the owning bot's
 submission surfaces:
   READ_ONLINE     → Telegraph preview (novel_preview_url), when present
   BOT_SUBMIT      → https://t.me/<bot>?start=submit
-  MINI_APP_SUBMIT → https://t.me/<bot>?startapp=submit (or Direct Mini App)
-                    when MINIAPP_SUBMIT_CTA is enabled
+  MINI_APP_SUBMIT → Direct Mini App when MINIAPP_SHORT_NAME is configured;
+                    otherwise ?start=miniapp fallback (bot then opens a
+                    private-chat Web App button). MINIAPP_SUBMIT_CTA must
+                    also be enabled.
 
 Each action appears EXACTLY ONCE in the footer.
 ```
@@ -416,6 +418,11 @@ Each action appears EXACTLY ONCE in the footer.
   `https://t.me/None...` 或坏链接。
 - CTA 进入既有 caption 预算（`channel_caption` 预留 footer 宽度），不得让
   Publication 因加 footer 超出 Telegram 上限。
+- Telegram 主菜单契约：Mini App 配置可用时主菜单是 `MenuButtonWebApp`；
+  `/commands` 仍全量可用但不再抢主菜单按钮。未配置 Mini App 时回退默认命令菜单。
+- 热度契约：views/forwards 是 Telegram Bot API 不提供的字段，禁止在用户界面
+  展示恒为 0 的假指标；当前唯一真实互动信号是 `message_reaction_count`，
+  ingestion 必须可观测。
 
 ## Review 卡不携带公共投稿 CTA（§review-cta）
 
