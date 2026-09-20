@@ -10,6 +10,13 @@
 
 ---
 
+## [2.54.1](https://github.com/redtidev1918/TelePost/compare/v2.54.0...v2.54.1) (2026-09-20)
+
+
+### Bug Fixes
+
+* **reviews:** strip HTML from note at insert (Pixiv &lt;br&gt; leak) ([#196](https://github.com/redtidev1918/TelePost/issues/196)) ([5371689](https://github.com/redtidev1918/TelePost/commit/5371689483c4a505bb207d72d79681991aba417b))
+
 ## [2.54.0](https://github.com/redtidev1918/TelePost/compare/v2.53.0...v2.54.0) (2026-09-19)
 
 
