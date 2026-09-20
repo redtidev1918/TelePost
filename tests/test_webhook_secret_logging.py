@@ -123,3 +123,27 @@ async def test_webhook_accepts_correct_secret():
     assert resp.status == 200
     # The accepted update was enqueued for processing.
     assert server.application.update_queue.qsize() == 1
+
+
+@pytest.mark.asyncio
+async def test_webhook_records_reaction_ingest_health():
+    secret = "the-real-secret"
+    server = _make_server(secret)
+    body = {
+        "update_id": 2,
+        "message_reaction_count": {
+            "chat": {"id": -100123, "type": "channel"},
+            "message_id": 3060,
+            "date": 1,
+            "reactions": [{"type": {"type": "emoji", "emoji": "🔥"}, "total_count": 3}],
+        },
+    }
+    request = SimpleNamespace(
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+        json=AsyncMock(return_value=body),
+    )
+    response = await server.webhook_handler(request)
+    assert response.status == 200
+    assert server.application.update_queue.qsize() == 1
+    assert server.reaction_updates == 1
+    assert server.last_reaction_update_at is not None

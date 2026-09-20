@@ -91,12 +91,12 @@ npm run build        # → webapp/dist/
 1. 构建 `webapp/dist`。
 2. 确认镜像包含 dist，`/app/` 与 `/api/botN/v1/health` 可访问。
 3. 配置 `MINIAPP_ENABLED=true` + `MINIAPP_SESSION_SECRET` + `MINIAPP_SESSION_TTL`。
-4. 私聊入口使用两条互补路径：左侧菜单按钮保留 Telegram 命令菜单；
-   `/start` 的 Reply Keyboard 追加 `📱 Mini App` Web App 按钮。频道 footer
-   默认走 `?start=miniapp`，Bot 会在私聊发送一个 inline Web App 按钮。若已在
-   BotFather 配置 Direct Mini App short name，设置 `MINIAPP_SHORT_NAME` 后，
-   频道 footer 可以直接打开应用。
-5. 健康检查 `/api/v1/health`（或新增字段）确认 `miniapp_enabled`。
+4. 私聊主入口：配置可用时左侧 Telegram 菜单按钮直接打开 Mini App；
+   `/start` 的 Reply Keyboard 仍保留 Web App 按钮。命令通过输入 `/` 使用。
+5. 频道 footer：默认 `?start=miniapp` 会先进入 Bot 私聊，再给出 Web App
+   按钮。要一次点击直达，必须在 BotFather 配置 Direct Mini App short name，
+   并设置 `MINIAPP_SHORT_NAME`；这是 Telegram 配置边界，不是代码可替代。
+6. 健康检查 `/api/v1/health`（或新增字段）确认 `miniapp_enabled`。
 
 静态资源 HTTP 200 只是传输检查；上线验收需从真实 Telegram 菜单打开，
 确认 session、`/me`、首页、审核队列和一次审核操作。
