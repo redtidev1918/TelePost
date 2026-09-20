@@ -294,7 +294,7 @@ def _footer_caption(data=None):
 @pytest.mark.asyncio
 async def test_channel_footer_appended_on_real_publish(ledger_db, monkeypatch):
     """配置 CHANNEL_FOOTER_LINK + MINIAPP_SUBMIT_CTA 后，正式发布 caption 末尾含
-    语义正确的导航 footer（BOT_SUBMIT ?start=submit / MINI_APP ?start=miniapp）。"""
+    语义正确的导航 footer（BOT_SUBMIT ?start=submit / MINI_APP ?startapp=miniapp）。"""
     monkeypatch.setattr(
         "config.settings.CHANNEL_FOOTER_LINK", "https://t.me/xgdPost_bot"
     )
@@ -308,7 +308,7 @@ async def test_channel_footer_appended_on_real_publish(ledger_db, monkeypatch):
         '<a href="https://t.me/xgdPost_bot?start=submit">✉️ TG 投稿</a>' in caption
     )
     assert (
-        '<a href="https://t.me/xgdPost_bot?start=miniapp">📱 Mini App</a>'
+        '<a href="https://t.me/xgdPost_bot?startapp=miniapp">📱 Mini App</a>'
         in caption
     )
     assert caption.count("✉️ TG 投稿") == 1
@@ -326,7 +326,7 @@ async def test_channel_footer_absent_when_not_configured(ledger_db, monkeypatch)
     assert delivery.captions
     assert "TG 投稿" not in delivery.captions[0]
     assert "start=submit" not in delivery.captions[0]
-    assert "start=miniapp" not in delivery.captions[0]
+    assert "startapp=miniapp" not in delivery.captions[0]
 
 
 @pytest.mark.asyncio
