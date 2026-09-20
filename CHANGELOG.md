@@ -10,6 +10,13 @@
 
 ---
 
+## [2.56.2](https://github.com/redtidev1918/TelePost/compare/v2.56.1...v2.56.2) (2026-09-20)
+
+
+### Bug Fixes
+
+* **footer:** open Main Mini App directly without BotFather short name ([#217](https://github.com/redtidev1918/TelePost/issues/217)) ([551c047](https://github.com/redtidev1918/TelePost/commit/551c047110f9e516e9db02943a394995d3045038))
+
 ## [2.56.1](https://github.com/redtidev1918/TelePost/compare/v2.56.0...v2.56.1) (2026-09-20)
 
 
