@@ -369,3 +369,35 @@ async def test_status_page_renders_schedule_updates(monkeypatch):
     finally:
         await router_runner.cleanup()
         await child_runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_router_health_aggregates_child_reaction_ingest(monkeypatch):
+    from aiohttp import web
+    from aiohttp.test_utils import TestClient, TestServer
+
+    child_app = web.Application()
+
+    async def child_health(_request):
+        return web.json_response(
+            {"reaction_ingest": {"received_since_start": 3}}
+        )
+
+    child_app.router.add_get("/health", child_health)
+    runner = web.AppRunner(child_app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 18081)
+    await site.start()
+
+    monkeypatch.setattr(run_mod, "bot_webhook_port", lambda i: 18081)
+    router_app = run_mod.build_router_app([1])
+    client = TestClient(TestServer(router_app))
+    await client.start_server()
+    try:
+        health = await (await client.get("/health")).json()
+        assert health["reaction_ingest_by_bot"]["1"] == {
+            "received_since_start": 3
+        }
+    finally:
+        await client.close()
+        await runner.cleanup()
