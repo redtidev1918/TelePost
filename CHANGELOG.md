@@ -10,6 +10,13 @@
 
 ---
 
+## [2.55.2](https://github.com/redtidev1918/TelePost/compare/v2.55.1...v2.55.2) (2026-09-20)
+
+
+### Bug Fixes
+
+* **bot:** pass menu button by keyword ([#206](https://github.com/redtidev1918/TelePost/issues/206)) ([6b961be](https://github.com/redtidev1918/TelePost/commit/6b961bedee7be5eab182e460cb6eb3c0c984d543))
+
 ## [2.55.1](https://github.com/redtidev1918/TelePost/compare/v2.55.0...v2.55.1) (2026-09-20)
 
 
