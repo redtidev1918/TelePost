@@ -10,6 +10,13 @@
 
 ---
 
+## [2.55.0](https://github.com/redtidev1918/TelePost/compare/v2.54.2...v2.55.0) (2026-09-20)
+
+
+### Features
+
+* **api:** accept media assets via multipart ([#202](https://github.com/redtidev1918/TelePost/issues/202)) ([850e298](https://github.com/redtidev1918/TelePost/commit/850e29868368bd548ea7e71e9cd6aa11982cd0da))
+
 ## [2.54.2](https://github.com/redtidev1918/TelePost/compare/v2.54.1...v2.54.2) (2026-09-20)
 
 
