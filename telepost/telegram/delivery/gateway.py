@@ -23,7 +23,7 @@ from ...domain.delivery import (
 )
 from . import discussion as discussion_mod
 from .executor import execute_plan
-from .planner import PlanningOrder, plan_delivery
+from .planner import plan_delivery
 from .preparation import cleanup_prepared, reclassify_oversized
 from .sender import PTBSender, timeout_kwargs
 
@@ -60,7 +60,6 @@ class PTBTelegramDeliveryGateway:
                 album_size=request.album_size or self._album_size,
                 reply_mode=request.reply_mode,
                 anchor_message_id=request.reply_to_message_id,
-                ordering=PlanningOrder.FAMILY,
             )
             sender = PTBSender(self._bot, request.chat_id, timeouts=self._timeouts())
             return await execute_plan(plan, sender, caption=request.caption)

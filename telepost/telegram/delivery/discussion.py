@@ -28,7 +28,7 @@ from ...domain.delivery import (
     ReplyMode,
 )
 from .executor import execute_plan
-from .planner import PlanningOrder, plan_delivery
+from .planner import plan_delivery
 from .preparation import cleanup_prepared, reclassify_oversized
 from .registry import ForwardRegistry, default_registry
 from .sender import PTBSender
@@ -132,7 +132,6 @@ class DiscussionStrategy:
             items,
             album_size=request.album_size,
             reply_mode=ReplyMode.POST,
-            ordering=PlanningOrder.FAMILY,
         )
         root_items = list(plan.batches[0].items)
         rest_items = [item for batch in plan.batches[1:] for item in batch.items]
@@ -233,7 +232,6 @@ class DiscussionStrategy:
                 album_size=request.album_size,
                 reply_mode=ReplyMode.POST,
                 anchor_message_id=dmsg,
-                ordering=PlanningOrder.FAMILY,
             )
             # Caption is owned by the channel cover; the discussion rest has none.
             sender = PTBSender(

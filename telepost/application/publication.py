@@ -154,7 +154,7 @@ class PublicationService:
 
     async def _publish(self, command: PublishCommand, key: str) -> PublicationOutcome:
         from ..domain.delivery import ReplyMode
-        from ..telegram.delivery.planner import PlanningOrder, plan_delivery
+        from ..telegram.delivery.planner import plan_delivery
 
         pid = (command.pixiv_id or "").strip()
         event_fields = self._event_fields(command, key)
@@ -187,7 +187,6 @@ class PublicationService:
             command.items,
             album_size=command.album_size,
             reply_mode=mode,
-            ordering=PlanningOrder.FAMILY,
         )
         ordered_items = [item for batch in plan.batches for item in batch.items]
         prior = self._progress_messages(replay) if replay is not None else []

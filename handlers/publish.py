@@ -436,14 +436,13 @@ async def _execute_with_on_sent(gateway, request, on_sent):
     # Chain path: on_sent belongs to the low-level executor; inject via the
     # gateway's chain delivery using the shared executor.
     from telepost.telegram.delivery.executor import execute_plan
-    from telepost.telegram.delivery.planner import PlanningOrder, plan_delivery
+    from telepost.telegram.delivery.planner import plan_delivery
 
     plan = plan_delivery(
         request.items,
         album_size=request.album_size,
         reply_mode=request.reply_mode,
         anchor_message_id=request.reply_to_message_id,
-        ordering=PlanningOrder.FAMILY,
     )
     sender = PTBSender(gateway._bot, request.chat_id,
                        timeouts=gateway._timeouts())
@@ -457,7 +456,7 @@ async def _deliver_discussion(bot, channel, items, *, caption, spoiler,
     # Re-implement via the old two-phase flow to preserve exact semantics and
     # the monkeypatched _wait_for_discussion_forward/_scan_recent_forward seams.
     from telegram.error import NetworkError
-    from telepost.telegram.delivery.planner import PlanningOrder, plan_delivery
+    from telepost.telegram.delivery.planner import plan_delivery
 
     linked = channel.linked_chat_id
     plan = plan_delivery(
@@ -466,7 +465,6 @@ async def _deliver_discussion(bot, channel, items, *, caption, spoiler,
         ),
         album_size=album_size,
         reply_mode=ReplyMode.POST,
-        ordering=PlanningOrder.FAMILY,
     )
     root_items = _dicts_from_items(plan.batches[0].items)
     overflow_items = _dicts_from_items([
@@ -949,10 +947,7 @@ def _make_post_recorder(data, *, local, files=None, media_compact=None,
     async def _record(command, result, media_count, document_count):
         if local:
             media_list, doc_list = [], []
-            ordered_items = sorted(
-                command.items,
-                key=lambda it: 0 if it.kind is not MediaKind.DOCUMENT else 1,
-            )
+            ordered_items = list(command.items)
             for delivered, item in zip(result.messages, ordered_items):
                 fid = delivered.file_id
                 if item.kind is MediaKind.DOCUMENT:
