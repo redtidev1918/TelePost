@@ -23,7 +23,7 @@ from database.db_manager import get_db
 logger = logging.getLogger(__name__)
 
 
-async def handle_message_reaction_count(update: Update) -> int:
+async def handle_message_reaction_count(update: Update, _context: object) -> int:
     """Handle one Telegram ``message_reaction_count`` update.
 
     Returns the number of ``published_posts`` rows refreshed. A reaction on an

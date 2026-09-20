@@ -81,12 +81,10 @@ async def error_handler(update: Update, context: CallbackContext) -> None:
             logger.debug("错误发生在频道消息处理中，不发送错误通知")
             return
         
-        # 检查是否是频道或群组
-        if update.message and update.message.chat:
-            chat_type = getattr(update.message.chat, 'type', None)
-            if chat_type == 'channel':
-                logger.debug("错误发生在频道中，不发送错误通知")
-                return
+        # 检查是否是频道；Reaction 更新可能只有 effective_chat，不携带 message
+        if getattr(update.effective_chat, "type", None) == "channel":
+            logger.debug("错误发生在频道中，不发送错误通知")
+            return
         
         try:
             await update.effective_chat.send_message(
