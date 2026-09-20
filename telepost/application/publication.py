@@ -522,6 +522,7 @@ def _publication_navigation(caption_data: dict):
     try:
         from config.settings import (
             CHANNEL_FOOTER_LINK,
+            MINIAPP_SHORT_NAME,
             MINIAPP_SUBMIT_CTA,
         )
     except Exception:
@@ -539,7 +540,7 @@ def _publication_navigation(caption_data: dict):
     if bot_url:
         items.append(NavigationItem(BOT_SUBMIT_ACTION, BOT_SUBMIT_LABEL, bot_url))
     if MINIAPP_SUBMIT_CTA:
-        mini_url = miniapp_submission_url(link)
+        mini_url = miniapp_submission_url(link, short_name=MINIAPP_SHORT_NAME)
         if mini_url:
             items.append(NavigationItem(MINI_APP_SUBMIT_ACTION, MINI_APP_SUBMIT_LABEL, mini_url))
     return items
