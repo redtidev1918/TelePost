@@ -4,7 +4,7 @@ Contract:
 * the footer is derived from the OWNING bot's context (never a global
   hardcoded bot);
 * BOT_SUBMIT always uses ``?start=submit``; MINI_APP_SUBMIT uses
-  ``?startapp=submit`` — the two intents must never be mixed;
+  ``?start=miniapp`` — the two intents must never be mixed;
 * each navigation action appears exactly once in the caption footer;
 * READ_ONLINE appears only when a real http(s) Telegraph preview URL exists,
   and never duplicates the legacy body ``🔗 在线阅读`` line;
@@ -59,11 +59,11 @@ def test_bot_submission_url_is_per_bot_and_uses_start():
         assert "id=" not in url
 
 
-def test_miniapp_submission_url_is_per_bot_and_uses_startapp():
+def test_miniapp_submission_url_falls_back_to_bot_start():
     assert miniapp_submission_url("https://t.me/xgdPost_bot") == \
-        "https://t.me/xgdPost_bot?startapp=submit"
+        "https://t.me/xgdPost_bot?start=miniapp"
     assert miniapp_submission_url("https://t.me/vorePost_bot") == \
-        "https://t.me/vorePost_bot?startapp=submit"
+        "https://t.me/vorePost_bot?start=miniapp"
     assert miniapp_submission_url("") is None
     assert miniapp_submission_url("https://example.org/x") is None
     for url in miniapp_submission_url("https://t.me/xgdPost_bot"), \
@@ -76,9 +76,9 @@ def test_miniapp_submission_url_is_per_bot_and_uses_startapp():
 def test_miniapp_direct_short_name_form_when_provided():
     url = miniapp_submission_url("https://t.me/xgdPost_bot", short_name="submitapp")
     assert url == "https://t.me/xgdPost_bot/submitapp?startapp=submit"
-    # Invalid short name → clean Main Mini App form, never a malformed URL.
+    # Invalid short name → private-chat Web App launch fallback.
     assert miniapp_submission_url("https://t.me/xgdPost_bot", short_name="not allowed!") == \
-        "https://t.me/xgdPost_bot?startapp=submit"
+        "https://t.me/xgdPost_bot?start=miniapp"
 
 
 def _patch(monkeypatch, *, link, cta):
@@ -94,7 +94,7 @@ def test_navigation_is_typed_exactly_once_full_miniapp(monkeypatch):
     assert kinds == [READ_ONLINE_ACTION, BOT_SUBMIT_ACTION, MINI_APP_SUBMIT_ACTION]
     assert items[0].url == "https://telegra.ph/x-1"
     assert items[1].url == "https://t.me/xgdPost_bot?start=submit"
-    assert items[2].url == "https://t.me/xgdPost_bot?startapp=submit"
+    assert items[2].url == "https://t.me/xgdPost_bot?start=miniapp"
 
 
 def test_navigation_unconfigured_or_disabled(monkeypatch):
@@ -127,7 +127,7 @@ def test_caption_footer_opens_owning_bot_semantics(monkeypatch):
     })
     assert 'href="https://telegra.ph/x-1"' in caption
     assert 'href="https://t.me/xgdPost_bot?start=submit"' in caption
-    assert 'href="https://t.me/xgdPost_bot?startapp=submit"' in caption
+    assert 'href="https://t.me/xgdPost_bot?start=miniapp"' in caption
     # Each label appears exactly once; READ_ONLINE only in the footer.
     for label in (READ_ONLINE_LABEL, BOT_SUBMIT_LABEL, MINI_APP_SUBMIT_LABEL):
         assert caption.count(label) == 1
@@ -136,7 +136,7 @@ def test_caption_footer_opens_owning_bot_semantics(monkeypatch):
     # BOT_SUBMIT and MINI_APP directly follow each other when no preview.
     caption2 = channel_caption({"tags": "#test", "title": "标题"})
     assert 'href="https://t.me/xgdPost_bot?start=submit"' in caption2
-    assert 'href="https://t.me/xgdPost_bot?startapp=submit"' in caption2
+    assert 'href="https://t.me/xgdPost_bot?start=miniapp"' in caption2
     assert READ_ONLINE_LABEL not in caption2
 
 
@@ -148,7 +148,7 @@ def test_caption_footer_is_per_bot(monkeypatch):
     assert "xgdPost_bot" in caption1 and "xgdPost_bot" not in caption2
     assert "vorePost_bot" in caption2 and "vorePost_bot" not in caption1
     assert "start=submit" in caption1
-    assert "startapp=submit" in caption1
+    assert "start=miniapp" in caption1
     assert caption1.count(BOT_SUBMIT_LABEL) == 1
     assert caption1.count(MINI_APP_SUBMIT_LABEL) == 1
     assert caption2.count(BOT_SUBMIT_LABEL) == 1
@@ -160,7 +160,7 @@ def test_caption_footer_miniapp_disabled_has_only_bot_submit(monkeypatch):
     caption = channel_caption({"tags": "#test"})
     assert 'href="https://t.me/xgdPost_bot?start=submit"' in caption
     assert BOT_SUBMIT_LABEL in caption
-    assert "startapp=submit" not in caption
+    assert "start=miniapp" not in caption
     assert MINI_APP_SUBMIT_LABEL not in caption
     assert caption.count(BOT_SUBMIT_LABEL) == 1
 
@@ -182,14 +182,14 @@ def test_caption_respects_budget_with_footer(monkeypatch):
     visible = re.sub(r"<[^>]+>", "", caption)
     assert len(visible) <= 1024
     assert 'href="https://t.me/xgdPost_bot?start=submit"' in caption
-    assert 'href="https://t.me/xgdPost_bot?startapp=submit"' in caption
+    assert 'href="https://t.me/xgdPost_bot?start=miniapp"' in caption
 
     _patch(monkeypatch, link="https://t.me/xgdPost_bot", cta=False)
     caption_off = channel_caption({"tags": "#test", "title": "标题", "note": "内容" * 200})
     visible_off = re.sub(r"<[^>]+>", "", caption_off)
     assert len(visible_off) <= 1024
     assert 'href="https://t.me/xgdPost_bot?start=submit"' in caption_off
-    assert "startapp=submit" not in caption_off
+    assert "start=miniapp" not in caption_off
 
 
 def test_labels_are_fixed_and_html_safe():
@@ -216,9 +216,9 @@ def test_review_keyboard_has_no_submission_cta_and_keeps_moderation():
     # Moderation controls unchanged.
     assert rows[0] == [("✅ 发布到频道", "review_approve:55"), ("❌ 拒绝", "review_reject:55")]
     assert any(text == "🔇 遮罩：关" for text, _ in rows[1])
-    # No public submission-acquisition CTA (TG 投稿 / Mini App / startapp).
+    # No public submission-acquisition CTA (TG 投稿 / Mini App / start).
     assert all(BOT_SUBMIT_LABEL not in text for row in rows for text, _ in row)
-    assert all("startapp=submit" not in str(entry) for row in rows for entry in row)
+    assert all("start=miniapp" not in str(entry) for row in rows for entry in row)
 
 
 def test_review_keyboard_omits_cta_when_no_submission_url():
@@ -274,3 +274,16 @@ async def test_superseded_notice_clears_all_buttons_when_no_cta(monkeypatch):
     )
     kwargs = bot.edit_message_text.await_args.kwargs
     assert not kwargs["reply_markup"].inline_keyboard
+
+
+def test_private_keyboard_uses_webapp_when_enabled(monkeypatch):
+    from config import settings
+    from ui.keyboards import Keyboards
+
+    monkeypatch.setenv("TELEPOST_BOT_INDEX", "2")
+    monkeypatch.setattr(settings, "MINIAPP_ENABLED", True)
+    monkeypatch.setattr(settings, "MINIAPP_PUBLIC_URL", "https://telepost.example/app/")
+
+    markup = Keyboards.main_menu()
+    button = markup.keyboard[-1][0]
+    assert button.web_app.url == "https://telepost.example/app?bot=bot2"

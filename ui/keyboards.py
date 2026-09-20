@@ -2,15 +2,34 @@
 现代化的键盘布局模块
 提供各种场景的 InlineKeyboard 和 ReplyKeyboard
 """
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+import os
+
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardRemove,
+    WebAppInfo,
+)
 
 
 class Keyboards:
     """键盘布局管理器"""
     
     @staticmethod
+    def _miniapp_url():
+        """Same-origin Web App URL for the owning Bot, or None when unavailable."""
+        from config.settings import MINIAPP_ENABLED, MINIAPP_PUBLIC_URL
+        if not MINIAPP_ENABLED or not MINIAPP_PUBLIC_URL:
+            return None
+        base = MINIAPP_PUBLIC_URL.rstrip("/")
+        bot = os.getenv("TELEPOST_BOT_INDEX", "1")
+        return f"{base}?bot=bot{bot}"
+
+    @staticmethod
     def main_menu():
-        """主菜单键盘"""
+        """主菜单键盘；有配置时保留一个常驻 Mini App 快捷入口。"""
         keyboard = [
             [
                 KeyboardButton("📝 开始投稿"),
@@ -29,7 +48,24 @@ class Keyboards:
                 KeyboardButton("ℹ️ 关于")
             ]
         ]
+        miniapp_url = Keyboards._miniapp_url()
+        if miniapp_url:
+            keyboard.append([
+                KeyboardButton("📱 Mini App", web_app=WebAppInfo(url=miniapp_url))
+            ])
         return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+    @staticmethod
+    def miniapp_launch():
+        """One-tap private-chat Web App keyboard for ?start=miniapp."""
+        miniapp_url = Keyboards._miniapp_url()
+        if not miniapp_url:
+            return None
+        return InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                "📱 打开投稿", web_app=WebAppInfo(url=miniapp_url)
+            )
+        ]])
     
     @staticmethod
     def admin_menu():

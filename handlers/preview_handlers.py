@@ -164,7 +164,10 @@ async def show_submission_preview(update: Update, context: CallbackContext) -> i
     keyboard = _build_preview_keyboard(row)
     if update.callback_query:
         try:
-            await update.callback_query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
+            await update.callback_query.edit_message_text(
+                text, reply_markup=keyboard, parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
         except Exception as e:
             logger.debug(f"刷新预览失败（内容未变化时属正常）: {e}")
     else:
@@ -172,7 +175,10 @@ async def show_submission_preview(update: Update, context: CallbackContext) -> i
         media_list = _pl(row["image_id"])
         doc_list = _pl(row["document_id"])
         await _send_preview_media(update, context, media_list, doc_list)
-        await update.effective_message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
+        await update.effective_message.reply_text(
+            text, reply_markup=keyboard, parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
     return STATE["PREVIEW"]
 
 

@@ -80,6 +80,20 @@ async def start(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("⚠️ 您已被列入黑名单，无法使用。")
         return ConversationHandler.END
 
+    start_payload = (context.args or [""])[0].strip().lower()
+    if start_payload == "miniapp":
+        try:
+            from ui.keyboards import Keyboards
+            markup = Keyboards.miniapp_launch()
+            if markup is not None:
+                await update.message.reply_text(
+                    "📱 点击下方按钮打开 Mini App 投稿。",
+                    parse_mode="HTML",
+                    reply_markup=markup,
+                )
+                return ConversationHandler.END
+        except Exception:
+            logger.exception("Mini App launch keyboard failed")
     welcome = (
         f"👋 <b>你好，{username}！</b>\n\n"
         "我是投稿机器人，帮你把图文内容发布到频道。\n"
