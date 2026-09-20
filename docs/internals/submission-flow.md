@@ -92,8 +92,8 @@ pending ──点「发布」──▶ publishing ──成功──▶ publishe
   （继续上传 / `/done_media` 打开预览 / `/cancel` 取消），不能只报一个总数。
 - 上传阶段收到非媒体文字时，提示应说明「标签、标题、简介和链接在预览页填写」，
   避免用户误以为需要现在用文字补充。
-- 预览消息展示已选内容：媒体计数 + 文档文件名列表；操作按钮与
-  `chat_disposition()`（直发 vs 先审核）一致，直发显示「确认发布」，
+- 预览文字与真实频道 caption 同源（`channel_caption()`）；文档文件名不再另造列表。
+  操作按钮与 `chat_disposition()`（直发 vs 先审核）一致，直发显示「确认发布」，
   需审核显示「提交审核」。
 - 提交后的回执分别进入「审核队列」或「发布成功」，并在私聊中提示
   「请留意私信通知 / 欢迎再次光临」。
@@ -105,9 +105,9 @@ pending ──点「发布」──▶ publishing ──成功──▶ publishe
   video/animation/audio/document 单独发送），随后附一条文字+按钮的控制消息。
   每次投稿只发一次（`preview_media_sent` 标记），后续编辑刷新只改文字控制消息，
   不会重复叠加媒体。
-- **Mini App 预览是浏览器端本地预览**（`webapp/src/pages/Submit/SubmitPage.tsx`：
-  `URL.createObjectURL` + `SubmissionMedia`），不产生任何 Telegram 消息，caption 走
-  服务端 `/submissions/preview` 以保证展示与真实发布一致。
+- **Mini App 附件预览是浏览器端本地预览**（`URL.createObjectURL` + `SubmissionMedia`），
+  不产生任何 Telegram 消息；caption 由服务端 `/submissions/preview` 用 `channel_caption()`
+  生成，前端原样渲染，不再另拼字段。
 - 两者是**两个独立入口、两种预览实现**，业务/审核走同一条
   `submissions`/`pending_reviews` 管道；不要在聊天预览里搬运 Mini App 状态，也不要在
   Mini App 里伪装成聊天预览。

@@ -48,14 +48,15 @@ reviewer / admin 额外持有审核队列，admin 再额外持有管理面板。
 
 ### 预览与发送边界（§preview-ux）
 
-- **Mini App 用户空间**：附件与文字先在本端构建投稿预览（Uppy 本地媒体预览 + 服务端
-  同款 caption formatter），预览页提供「返回修改」与「提交审核」两个出口——用户确认前可
-  任意增删/改动附件与文案，不产生任何侧写（不上传、不发 Telegram 消息）。
-- **私聊预览**：是 TelePost 机器人的真实渠道预览，`/done_media` 首次进入时把已选素材
-  以真实 Telegram 媒体发送一次，随后附控制消息（直发显示「确认发布」、需审核显示
-  「提交审核」）；再次 `/done_media` 刷新不重复发送。
-- 两个入口是两个独立实现，业务/审核走同一条 `submissions` / `pending_reviews` 管道；
-  禁止在聊天预览里搬运 Mini App 状态，也禁止在 Mini App 伪装成聊天真实预览。
+- **Mini App 用户空间**：附件与文字先在本端构建附件预览（Uppy 本地媒体预览）。caption
+  由服务端真实频道 formatter 生成并原样渲染，预览页提供「返回修改」与「提交审核」两个
+  出口——用户确认前可任意增删/改动附件与文案，不产生任何侧写（不上传、不发 Telegram 消息）。
+- **私聊预览**：`/done_media` 首次进入时把已选素材以真实 Telegram 媒体发送一次，随后用
+  **同一个频道 caption formatter** 发送文字控制消息（直发按钮「确认发布」、需审核按钮
+  「提交审核」）；再次刷新不重复发送媒体。
+- 两个入口是两个独立 Attachment Preview 实现，caption 使用同一真相源；业务/审核走同一条
+  `submissions` / `pending_reviews` 管道。禁止把 Mini App 状态搬进聊天，也禁止在前端另造
+  第二套 caption。
 
 ## 配置
 

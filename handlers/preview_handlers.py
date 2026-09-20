@@ -18,6 +18,7 @@ from telegram.ext import ConversationHandler, CallbackContext
 
 from models.state import STATE
 from utils.helper_functions import process_tags, parse_json_list
+from telepost.application.publication import channel_caption
 from utils.submission import get_session, update_fields, append_entry, classify_message, entry_kind
 
 logger = logging.getLogger(__name__)
@@ -34,12 +35,23 @@ _EDIT_PROMPTS = {
 
 
 def _build_preview_text(row) -> str:
-    from telepost.domain.submission import (
-        SubmissionDisposition,
-        chat_disposition as _chat_disposition,
-    )
-    review_first = _chat_disposition() == SubmissionDisposition.REVIEW_REQUIRED
-    return MessageFormatter.preview_text(row, review_first=review_first)
+    """Private preview renders the same public caption the channel will show."""
+    media_types = []
+    for entry in parse_json_list(row["image_id"]):
+        kind = entry.split(":", 1)[0].lower()
+        media_types.append("photo" if kind == "image" else kind)
+    media_types.extend("document" for _ in parse_json_list(row["document_id"]))
+    return channel_caption({
+        "link": row["link"] or "",
+        "title": row["title"] or "",
+        "note": row["note"] or "",
+        "tags": row["tags"] or "",
+        "spoiler": row["spoiler"] or "false",
+        "anonymous": row["anonymous"] or "false",
+        "media_types": media_types,
+        "submitter_user_id": row["user_id"] if "user_id" in row.keys() else 0,
+        "submitter_username": (row["username"] if "username" in row.keys() else "") or "",
+    })
 
 
 def _build_preview_keyboard(row=None) -> InlineKeyboardMarkup:
@@ -152,7 +164,7 @@ async def show_submission_preview(update: Update, context: CallbackContext) -> i
     keyboard = _build_preview_keyboard(row)
     if update.callback_query:
         try:
-            await update.callback_query.edit_message_text(text, reply_markup=keyboard)
+            await update.callback_query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
         except Exception as e:
             logger.debug(f"刷新预览失败（内容未变化时属正常）: {e}")
     else:
@@ -160,7 +172,7 @@ async def show_submission_preview(update: Update, context: CallbackContext) -> i
         media_list = _pl(row["image_id"])
         doc_list = _pl(row["document_id"])
         await _send_preview_media(update, context, media_list, doc_list)
-        await update.effective_message.reply_text(text, reply_markup=keyboard)
+        await update.effective_message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
     return STATE["PREVIEW"]
 
 

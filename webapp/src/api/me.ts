@@ -78,6 +78,10 @@ export function fetchMe(): Promise<MePayload> {
 }
 
 /** History soft-delete: hide an owned TERMINAL review chain from /me. */
+export function deleteAllMySubmissions(): Promise<{ hidden: number }> {
+  return apiFetch<{ hidden: number }>('/me/submissions', { method: 'DELETE' });
+}
+
 export function deleteMySubmission(reviewId: number | string): Promise<{ hidden: boolean }> {
   return apiFetch<{ hidden: boolean }>(`/me/submissions/${reviewId}`, { method: 'DELETE' });
 }

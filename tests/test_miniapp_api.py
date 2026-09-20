@@ -330,6 +330,38 @@ class TestDeleteMySubmission:
             await client.close()
 
 
+class TestDeleteAllMySubmissions:
+    @pytest.mark.asyncio
+    async def test_requires_auth(self, monkeypatch):
+        app, _ = _make_app(monkeypatch, None)
+        client = await _client(app)
+        try:
+            resp = await client.delete("/api/v1/me/submissions")
+            assert resp.status == 401
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_hides_only_terminal_owned_rows(self, monkeypatch):
+        from telepost.storage.sqlite import reviews as reviews_mod
+        repo = AsyncMock(return_value=4)
+        monkeypatch.setattr(reviews_mod.ReviewRepository,
+                            "hide_all_from_own_history", repo)
+        app, _ = _make_app(monkeypatch, _SUBMITTER)
+        monkeypatch.setenv("MINIAPP_SESSION_SECRET", "s" * 40)
+        token = _session_token(5073758941, ["submitter"])
+        client = await _client(app)
+        try:
+            resp = await client.delete(
+                "/api/v1/me/submissions",
+                headers={"Authorization": f"Bearer {token}"})
+            assert resp.status == 200
+            assert (await resp.json())["data"] == {"hidden": 4}
+            repo.assert_awaited_once_with(5073758941)
+        finally:
+            await client.close()
+
+
 class TestReviewRBAC:
     @pytest.mark.asyncio
     async def test_submitter_cannot_list_queue(self, monkeypatch):

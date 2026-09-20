@@ -4,6 +4,7 @@ import { Badge, Button, Cell, Section, Spinner } from '@telegram-apps/telegram-u
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   canDeleteHistory,
+  deleteAllMySubmissions,
   deleteMySubmission,
   fetchMySubmissions,
   LogicalSubmission,
@@ -59,6 +60,10 @@ export function MySubmissionsPage() {
   const navigate = useBotNavigate();
   const qc = useQueryClient();
   const [filter, setFilter] = useState<MineFilter>('all');
+  const clearHistory = useMutation({
+    mutationFn: () => deleteAllMySubmissions(),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['my-submissions'] }),
+  });
   const delHistory = useMutation({
     mutationFn: (reviewId: number | string) => deleteMySubmission(reviewId),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['my-submissions'] }),
@@ -103,6 +108,23 @@ export function MySubmissionsPage() {
             </button>
           ))}
         </div>
+        {all.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+            <Button
+              size="s"
+              mode="plain"
+              loading={clearHistory.isPending}
+              data-testid="mine-clear-history"
+              onClick={() => {
+                if (window.confirm('隐藏所有已结束的投稿记录？频道内容不受影响。')) {
+                  void clearHistory.mutate();
+                }
+              }}
+            >
+              清空已结束记录
+            </Button>
+          </div>
+        )}
         {all.length === 0 && (
           <div className="page-empty">还没有投稿，去「投稿」页发一条吧。</div>
         )}
@@ -138,7 +160,7 @@ export function MySubmissionsPage() {
                 {item.media_count + item.document_count > 0 &&
                   `${item.media_count + item.document_count} 个文件 · `}
                 {formatDay(item.updated_at)}
-                {item.refetch_count > 0 && ` · 已更换候选 ${item.refetch_count} 次`}
+                {item.refetch_count > 0 && ` · 已重抓/换图 ${item.refetch_count} 次`}
               </div>
             }
           >

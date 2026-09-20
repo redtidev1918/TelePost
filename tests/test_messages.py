@@ -385,14 +385,8 @@ class TestSubmissionFlowCopy:
         assert "/submit" in MessageFormatter.session_expired()
 
     @pytest.mark.unit
-    def test_preview_text_and_edit_prompt(self):
+    def test_edit_prompt(self):
         from ui.messages import MessageFormatter
-        row = {"tags": "#a", "title": "x", "note": "", "link": "",
-               "anonymous": "false", "spoiler": "false",
-               "image_id": "[]", "document_id": "[]"}
-        text = MessageFormatter.preview_text(row, review_first=False)
-        assert "发布预览" in text and "发布到频道" in text
-        assert "提交审核" in MessageFormatter.preview_text(row, review_first=True)
         assert "用逗号分隔" in MessageFormatter.edit_prompt("edit_tag")
 
 
