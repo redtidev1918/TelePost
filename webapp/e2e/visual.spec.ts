@@ -19,6 +19,8 @@ async function stableScreenshot(page: import('@playwright/test').Page, name: str
     fullPage: true,
     animations: 'disabled',
     caret: 'hide',
+    // Headless Linux fonts differ slightly from local macOS rendering.
+    maxDiffPixelRatio: 0.03,
   });
 }
 
