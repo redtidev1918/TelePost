@@ -10,6 +10,13 @@
 
 ---
 
+## [2.55.3](https://github.com/redtidev1918/TelePost/compare/v2.55.2...v2.55.3) (2026-09-20)
+
+
+### Bug Fixes
+
+* **bot:** preserve command menu and miniapp entry ([#208](https://github.com/redtidev1918/TelePost/issues/208)) ([a913e6d](https://github.com/redtidev1918/TelePost/commit/a913e6d96b90fb0c1d3d8b8ae0c2fe5a1fceeb76))
+
 ## [2.55.2](https://github.com/redtidev1918/TelePost/compare/v2.55.1...v2.55.2) (2026-09-20)
 
 
