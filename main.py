@@ -261,7 +261,7 @@ async def setup_bot_commands(application):
     
     try:
         await application.bot.set_my_commands(commands)
-        await application.bot.set_chat_menu_button(MenuButtonDefault())
+        await application.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
         logger.info(f"成功设置 {len(commands)} 个命令菜单项")
     except Exception as e:
         logger.error(f"设置命令菜单失败: {e}", exc_info=True)
