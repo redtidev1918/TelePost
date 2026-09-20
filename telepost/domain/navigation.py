@@ -5,7 +5,7 @@ surfaces, not a generic or hardcoded bot. Everything here is a pure function
 over bot/link context:
 
 * ``bot_submission_url``        → ``https://t.me/<bot>?start=submit``
-* ``miniapp_submission_url``    → ``https://t.me/<bot>?start=miniapp``
+* ``miniapp_submission_url``    → ``https://t.me/<bot>?startapp=miniapp``
   (or the Direct Mini App form ``https://t.me/<bot>/<short_name>?startapp=submit``)
 
 The ``start=`` / ``startapp=`` parameters are NAVIGATION INTENT ONLY: they
@@ -72,10 +72,9 @@ def miniapp_submission_url(
     """Mini App navigation link for the OWNING bot, or None.
 
     A configured Direct Mini App ``short_name`` produces the one-tap
-    ``https://t.me/<bot>/<short_name>?startapp=submit`` form. Without it,
-    Telegram cannot reliably open a Main Mini App from a channel caption while
-    the menu button is commands, so use ``?start=miniapp``; the bot then sends
-    a private-chat inline Web App button. Either form carries only navigation
+    ``https://t.me/<bot>/<short_name>?startapp=submit`` form. Without it, use
+    the Main Mini App deep link ``?startapp=miniapp`` so channel readers do not
+    have to enter the bot chat first. Either form carries only navigation
     intent — never user ids, tokens or secrets.
     """
     username = bot_username_from_link(base_link)
@@ -84,4 +83,4 @@ def miniapp_submission_url(
     if short_name and _SHORT_NAME_RE.fullmatch(short_name):
         # Direct Mini App: https://t.me/<bot>/<short_name>?startapp=submit
         return f"https://t.me/{username}/{short_name}?startapp={_SUBMIT_INTENT}"
-    return f"https://t.me/{username}?start=miniapp"
+    return f"https://t.me/{username}?startapp=miniapp"

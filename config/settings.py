@@ -259,7 +259,7 @@ if REVIEW_CHAT_ID is not None:
 # 频道发布 footer（§submission-entrypoint）：正式发布到频道的帖子会在 caption
 # 最下方追加文本导航 footer：
 #   ✉️ TG 投稿  → https://t.me/<bot>?start=submit
-#   📱 Mini App → https://t.me/<bot>?start=miniapp（MINIAPP_SUBMIT_CTA=true 时；
+#   📱 Mini App → https://t.me/<bot>?startapp=miniapp（MINIAPP_SUBMIT_CTA=true 时；
 #               配置 Direct Mini App short name 后才直接 ?startapp=submit）
 # 标签是固定展示契约，不读取 CHANNEL_FOOTER_TEXT（保留仅为兼容旧部署）。
 CHANNEL_FOOTER_LINK = (
@@ -291,7 +291,7 @@ MINIAPP_ENABLED = str(
 
 # Optional BotFather Direct Mini App short name. When set, channel footers can
 # open the attached app directly. Without it, navigation falls back to
-# ?start=miniapp, which sends a private-chat Web App button.
+# ?startapp=miniapp, which opens the Main Mini App directly.
 MINIAPP_SHORT_NAME = (
     get_env_or_config('MINIAPP_SHORT_NAME', 'BOT', 'MINIAPP_SHORT_NAME',
                       fallback='')
