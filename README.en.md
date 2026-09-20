@@ -151,6 +151,22 @@ Detailed guides are currently written mainly in Chinese; commands, paths, and co
 - [PixivFlow](https://github.com/redtidev1918/PixivFlow): Pixiv downloading, filtering, scheduling, and HTTP delivery.
 - [pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy): deployment and operations toolkit for combining PixivFlow and TelePost across Docker, VPS, and cloud environments.
 
+## Acknowledgements
+
+TelePost builds on:
+
+- [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot): the bot framework behind both Polling and Webhook modes.
+- [aiohttp](https://github.com/aio-libs/aiohttp): the server for Webhook, Polling, and the Mini App API.
+- [aiosqlite](https://github.com/omnilib/aiosqlite) · [Whoosh](https://github.com/mchaput/whoosh) · [jieba](https://github.com/fxsjy/jieba): storage and full-text search (CJK tokenization is optional).
+- [Pillow](https://github.com/python-pillow/Pillow) · [psutil](https://github.com/giampaolo/psutil): compressing oversized originals and runtime memory analysis.
+- [init-data-py](https://github.com/nimaxin/init-data-py): Mini App `initData` validation.
+- Mini App front end: [React](https://react.dev) · [@telegram-apps/sdk](https://github.com/telegram-mini-apps-dev/telegram-apps) · [Telegram UI](https://github.com/telegram-mini-apps-dev/TelegramUI) · [Uppy](https://uppy.io).
+- [tg_searcher](https://github.com/SharzyL/tg_searcher) (MIT): the original implementation our full-text search was integrated from.
+- [TelePress](https://github.com/redtidev1918/TelePress): the optional Telegraph preview for TXT novels; rendering and pagination stay in TelePress.
+- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk): the optional AI review sidecar.
+
+Interfaces and conventions: [Telegram Bot API](https://core.telegram.org/bots/api) · [Telegram Mini Apps](https://core.telegram.org/bots/webapps) · [Telegraph API](https://telegra.ph/api) · [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · [Semantic Versioning](https://semver.org/).
+
 ## Contributing and license
 
 Please report problems in [GitHub Issues](https://github.com/redtidev1918/TelePost/issues) and see

@@ -142,6 +142,22 @@ TelePost 可以运行在本地、VPS、Docker、Fly.io 或其他能够运行 Pyt
 - [PixivFlow](https://github.com/redtidev1918/PixivFlow)：Pixiv 下载、筛选、定时执行与 HTTP 交付工具。
 - [pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy)：组合 PixivFlow 与 TelePost 的部署和运维套件，提供 Docker、VPS 与云平台配置示例。
 
+## 致谢
+
+TelePost 建立在这些项目之上：
+
+- [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)：Bot 框架，Polling 与 Webhook 共用。
+- [aiohttp](https://github.com/aio-libs/aiohttp)：Webhook、Polling 与 Mini App 的服务端。
+- [aiosqlite](https://github.com/omnilib/aiosqlite) · [Whoosh](https://github.com/mchaput/whoosh) · [jieba](https://github.com/fxsjy/jieba)：存储与全文检索（中文分词可选 jieba）。
+- [Pillow](https://github.com/python-pillow/Pillow) · [psutil](https://github.com/giampaolo/psutil)：超大原图压缩与运行时内存分析。
+- [init-data-py](https://github.com/nimaxin/init-data-py)：Mini App `initData` 校验。
+- Mini App 前端：[React](https://react.dev) · [@telegram-apps/sdk](https://github.com/telegram-mini-apps-dev/telegram-apps) · [Telegram UI](https://github.com/telegram-mini-apps-dev/TelegramUI) · [Uppy](https://uppy.io)。
+- [tg_searcher](https://github.com/SharzyL/tg_searcher)（MIT）：全文检索的最初实现整合自它。
+- [TelePress](https://github.com/redtidev1918/TelePress)：可选的小说 Telegraph 预览；渲染与分页归 TelePress，TelePost 不重复实现。
+- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)：可选的 AI 审核 sidecar。
+
+接口与规范参考：[Telegram Bot API](https://core.telegram.org/bots/api) · [Telegram Mini Apps](https://core.telegram.org/bots/webapps) · [Telegraph API](https://telegra.ph/api) · [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) · [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
 ## 贡献与许可
 
 问题请提交到 [GitHub Issues](https://github.com/redtidev1918/TelePost/issues)，代码贡献见
