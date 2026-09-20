@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 
 from telegram import (
+    LinkPreviewOptions,
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -24,6 +25,8 @@ from utils.submission import get_session, update_fields, append_entry, classify_
 logger = logging.getLogger(__name__)
 
 from ui.messages import MessageFormatter
+
+NO_LINK_PREVIEW = LinkPreviewOptions(is_disabled=True)
 
 _EDIT_PROMPTS = {
     "edit_tag": MessageFormatter.edit_prompt("edit_tag"),
@@ -166,7 +169,7 @@ async def show_submission_preview(update: Update, context: CallbackContext) -> i
         try:
             await update.callback_query.edit_message_text(
                 text, reply_markup=keyboard, parse_mode="HTML",
-                disable_web_page_preview=True,
+                link_preview_options=NO_LINK_PREVIEW,
             )
         except Exception as e:
             logger.debug(f"刷新预览失败（内容未变化时属正常）: {e}")
@@ -177,7 +180,7 @@ async def show_submission_preview(update: Update, context: CallbackContext) -> i
         await _send_preview_media(update, context, media_list, doc_list)
         await update.effective_message.reply_text(
             text, reply_markup=keyboard, parse_mode="HTML",
-            disable_web_page_preview=True,
+            link_preview_options=NO_LINK_PREVIEW,
         )
     return STATE["PREVIEW"]
 

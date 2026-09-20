@@ -61,6 +61,7 @@ class TestSubmissionPreview:
         update.effective_message.reply_text.assert_called_once()
         kwargs = update.effective_message.reply_text.call_args.kwargs
         assert kwargs.get("reply_markup") is not None
+        assert kwargs.get("link_preview_options").is_disabled is True
 
     @pytest.mark.unit
     def test_missing_tags_routes_primary_button_to_tag_editor(self):
