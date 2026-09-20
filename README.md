@@ -1,8 +1,10 @@
 # TelePost
 
-**语言 / Language:** 中文 · [English](README.en.md) · [📖 完整文档](https://redtidev1918.github.io/TelePost/)
+**语言 / Language:** 中文 · [English](README.en.md)
 
 **Telegram 频道投稿、审核与自动化发布平台。**
+
+📖 完整文档：<https://redtidev1918.github.io/TelePost/>
 
 [![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
