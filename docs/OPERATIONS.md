@@ -248,3 +248,26 @@ reaction 后，Bot 把 `(message_id, total_count)` 写入 `message_reaction_coun
 - Bot 必须是频道管理员，webhook `allowed_updates` 必须包含 `message_reaction_count`。
 - 没有用户 reaction 时，计数表为空、热度为 0 是预期状态。
 - 验证不要查看公开频道的浏览量，而是看 `message_reaction_counts` 是否出现真实更新。
+- 每收到一次 Telegram reaction 更新，webhook 日志会出现
+  `🔔 收到频道反应更新`；处理完成后出现 `Reaction projected`。
+- `/health` 返回 `reaction_ingest.received_since_start`。该指标从进程启动起算，
+  重启后归零；持久事实仍以数据库和日志为准。
+- 常用排查命令：
+
+```bash
+fly logs -a telesubmit-multi-bot --no-tail | grep "Reaction ingest"
+curl -s https://telesubmit-multi-bot.fly.dev/health | jq '.reaction_ingest'
+```
+
+```bash
+fly ssh console -a telesubmit-multi-bot
+```
+
+```python
+import sqlite3
+c = sqlite3.connect('/app/data/bot1/submissions.db')
+print(c.execute('SELECT COUNT(*) FROM message_reaction_counts').fetchone()[0])
+```
+
+- 若用户已加 reaction 但日志没有任何 `Reaction ingest`，说明 Telegram 没有推送
+  或 webhook 入口失败；若有 ingest 但没有 `Reaction projected`，才查数据库投影。

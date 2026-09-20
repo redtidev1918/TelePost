@@ -8,7 +8,7 @@ import asyncio
 import platform
 import logging
 import os
-from telegram import Update, BotCommand, MenuButtonDefault
+from telegram import MenuButtonWebApp, Update, WebAppInfo, BotCommand, MenuButtonDefault
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -242,7 +242,10 @@ async def log_all_updates(update: Update, context: CallbackContext) -> None:
 
 async def setup_bot_commands(application):
     """
-    设置机器人命令菜单（左侧斜杠按钮）
+    设置 Telegram 主入口。
+
+    Mini App 是用户主入口：配置可用时菜单按钮直接打开 Web App；命令仍然
+    全量可用，但不再占用主菜单按钮。未启用 Mini App 时回退为默认命令菜单。
     """
     commands = [
         BotCommand("start", "🚀 启动机器人"),
@@ -258,11 +261,24 @@ async def setup_bot_commands(application):
         BotCommand("settings", "⚙️ 机器人设置"),
         BotCommand("status", "📌 查看最近计划状态"),
     ]
-    
+
     try:
         await application.bot.set_my_commands(commands)
-        await application.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
-        logger.info(f"成功设置 {len(commands)} 个命令菜单项")
+        menu_button = MenuButtonDefault()
+        try:
+            from config.settings import MINIAPP_ENABLED, MINIAPP_PUBLIC_URL
+            from ui.keyboards import Keyboards
+            if MINIAPP_ENABLED and MINIAPP_PUBLIC_URL:
+                miniapp_url = Keyboards._miniapp_url()
+                if miniapp_url:
+                    menu_button = MenuButtonWebApp(
+                        text="📱 Mini App", web_app=WebAppInfo(url=miniapp_url)
+                    )
+        except Exception:
+            logger.exception("读取 Mini App 菜单配置失败，回退默认命令菜单")
+        await application.bot.set_chat_menu_button(menu_button=menu_button)
+        logger.info("成功设置 %d 个命令；菜单按钮类型=%s",
+                    len(commands), type(menu_button).__name__)
     except Exception as e:
         logger.error(f"设置命令菜单失败: {e}", exc_info=True)
 

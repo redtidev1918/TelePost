@@ -6,6 +6,7 @@ import os
 import hmac
 import logging
 import secrets
+import time
 from aiohttp import web
 from telegram import Update
 
@@ -29,6 +30,8 @@ class WebhookServer:
         self.port = port
         self.path = path
         self.secret_token = secret_token or secrets.token_urlsafe(32)
+        self.reaction_updates = 0
+        self.last_reaction_update_at = None
         self.web_app = None
         self.runner = None
         
@@ -84,11 +87,26 @@ class WebhookServer:
                     update_types.append("callback_query")
                 if update.inline_query:
                     update_types.append("inline_query")
+                if update.message_reaction_count:
+                    update_types.append("message_reaction_count")
                 
                 update_type_str = ", ".join(update_types) if update_types else "unknown"
                 
                 # 如果是频道消息，使用info级别日志
-                if update.channel_post or update.edited_channel_post:
+                if update.message_reaction_count:
+                    self.reaction_updates += 1
+                    self.last_reaction_update_at = time.time()
+                    total = sum(
+                        int(getattr(r, "total_count", 0) or 0)
+                        for r in (update.message_reaction_count.reactions or [])
+                    )
+                    logger.info(
+                        "🔔 收到频道反应更新: update_id=%s, message_id=%s, total=%s",
+                        update.update_id,
+                        update.message_reaction_count.message_id,
+                        total,
+                    )
+                elif update.channel_post or update.edited_channel_post:
                     logger.info(f"📢 收到频道消息更新: update_id={update.update_id}, type={update_type_str}")
                     if update.channel_post:
                         logger.info(f"   频道消息ID: {update.channel_post.message_id}, chat_id: {update.channel_post.chat.id if update.channel_post.chat else 'unknown'}")
@@ -119,6 +137,14 @@ class WebhookServer:
             web.Response: HTTP 响应
         """
         payload = {"status": "ok", "bot_index": self.path.rsplit("bot", 1)[-1] or "?"}
+        payload["reaction_ingest"] = {
+            "received_since_start": self.reaction_updates,
+            "last_update_at": self.last_reaction_update_at,
+            "seconds_since_last": (
+                round(time.time() - self.last_reaction_update_at, 1)
+                if self.last_reaction_update_at else None
+            ),
+        }
         try:
             import psutil
             proc = psutil.Process()
