@@ -10,6 +10,13 @@
 
 ---
 
+## [2.57.0](https://github.com/redtidev1918/TelePost/compare/v2.56.2...v2.57.0) (2026-09-20)
+
+
+### Features
+
+* **delivery:** proxy remote media sources ([#212](https://github.com/redtidev1918/TelePost/issues/212)) ([97f1dbd](https://github.com/redtidev1918/TelePost/commit/97f1dbd3325e7c9ae3191e196319d79dc16d3ef8))
+
 ## [2.56.2](https://github.com/redtidev1918/TelePost/compare/v2.56.1...v2.56.2) (2026-09-20)
 
 
