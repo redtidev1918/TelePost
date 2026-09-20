@@ -138,6 +138,17 @@ fly secrets set -a <app> API_MAX_FILES=100
 - `API_MAX_FILES` 放宽的是 HTTP API 投稿入口（PixivFlow 等）；单个 Telegram 相册仍 ≤10，发布侧自动分批。
 - 设置会触发应用重启；生产现网（telesubmit-multi-bot）已启用 `post` + `100`。
 
+## 编辑后发布（Editorial Revision，§editorial）
+
+审核员在审核群里选「编辑后发布」时，可以先改稿再发：标题、简介、标签、链接、剧透与媒体顺序，或移除附件。
+
+- **原始稿件不可变**：编辑只产生一份 Revision，投稿者原稿（含媒体清单）永远保留可审计；媒体排序或移除只影响这次发布的子集。
+- **发布保存独立快照**：频道里发出去的是 Publication Snapshot，发布后不能再改，也不会反写原稿。
+- **投稿者可以收到通知**：`SUBMITTER_PUBLISH_NOTIFY=with_changes` 时，发布通知会附带修改摘要（见本文末的「投稿者发布通知」）。
+- **职责边界**：Review FSM 决定「能不能发布」，Editorial Revision 决定「发布哪个版本」，两者互不影响；被重抓替换掉的旧版本不能再发布。
+
+实现不变量见 AGENTS.md（§editorial / §notify-submitter）。
+
 ## 多 Bot
 
 存在 `BOT1_TOKEN` 时，`run.py` 进入多 Bot 模式，并连续读取
