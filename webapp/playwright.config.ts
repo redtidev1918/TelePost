@@ -1,6 +1,8 @@
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
+  // Keep visual baselines platform-independent; CI runs the same Chromium build on Linux.
+  snapshotPathTemplate: '{snapshotDir}/{testFileDir}/{testFileName}-snapshots/{arg}{ext}',
   testDir: './e2e',
   timeout: 60_000,
   retries: 0,
