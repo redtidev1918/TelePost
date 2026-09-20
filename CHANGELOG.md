@@ -10,6 +10,13 @@
 
 ---
 
+## [2.55.1](https://github.com/redtidev1918/TelePost/compare/v2.55.0...v2.55.1) (2026-09-20)
+
+
+### Bug Fixes
+
+* **ux:** align previews, restore menu, add bulk history delete ([#204](https://github.com/redtidev1918/TelePost/issues/204)) ([6ce5a4e](https://github.com/redtidev1918/TelePost/commit/6ce5a4ecf94b7c16cda654617a609270404e42dc))
+
 ## [2.55.0](https://github.com/redtidev1918/TelePost/compare/v2.54.2...v2.55.0) (2026-09-20)
 
 
