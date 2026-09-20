@@ -152,10 +152,10 @@ class MessageFormatter:
         if len(post.get('content', '')) > 80:
             content += "..."
         
-        # 统计数据
-        views = post.get('views', 0)
-        forwards = post.get('forwards', 0)
-        
+        # Telegram Bot API 不提供频道帖子的浏览量 / 转发量；不要展示恒为 0
+        # 的假指标。Reaction 是当前唯一真实互动信号。
+        reactions = int(post.get('reactions', 0) or 0)
+
         # 发布时间
         created_at = post.get('created_at', '')
         if created_at:
@@ -170,7 +170,7 @@ class MessageFormatter:
         return f"""
 {rank_emoji} <b>热度：{heat:.1f}</b>
 📝 {content}
-👁️ {views} 浏览 | 📤 {forwards} 转发
+❤️ {reactions} 反应
 🕒 {time_str}
 """
     

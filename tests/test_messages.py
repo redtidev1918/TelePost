@@ -119,8 +119,7 @@ class TestMessageFormatter:
         post = {
             'heat_score': 123.45,
             'content': '测试内容',
-            'views': 1000,
-            'forwards': 50,
+            'reactions': 7,
             'created_at': '2024-01-01 10:00:00'
         }
         
@@ -128,8 +127,9 @@ class TestMessageFormatter:
         
         assert "🥇" in item  # 第一名的奖牌
         assert "123." in item  # 热度分数（1位小数）
-        assert "1000" in item  # 浏览量
-        assert "50" in item  # 转发量
+        assert "❤️ 7 反应" in item
+        assert "浏览" not in item
+        assert "转发" not in item
     
     @pytest.mark.unit
     def test_hot_post_item_ranks(self):

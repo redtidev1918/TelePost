@@ -38,6 +38,12 @@ async def handle_message_reaction_count(update: Update, _context: object) -> int
     total = sum(int(getattr(r, "total_count", 0) or 0)
                 for r in (mrc.reactions or []))
     now = time.time()
+    logger.info(
+        "Reaction ingest: chat_id=%s message_id=%s total_count=%s",
+        getattr(getattr(mrc, "chat", None), "id", "unknown"),
+        message_id,
+        total,
+    )
 
     async with get_db() as conn:
         cursor = await conn.cursor()
@@ -63,6 +69,12 @@ async def handle_message_reaction_count(update: Update, _context: object) -> int
 
     if affected:
         await _refresh_search_indexes(affected)
+    logger.info(
+        "Reaction projected: message_id=%s total_count=%s posts=%s",
+        message_id,
+        total,
+        len(affected),
+    )
     return len(affected)
 
 
