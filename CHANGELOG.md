@@ -10,6 +10,13 @@
 
 ---
 
+## [2.54.2](https://github.com/redtidev1918/TelePost/compare/v2.54.1...v2.54.2) (2026-09-20)
+
+
+### Bug Fixes
+
+* **stats:** accept context in reaction handler ([#200](https://github.com/redtidev1918/TelePost/issues/200)) ([9679248](https://github.com/redtidev1918/TelePost/commit/9679248a98ef84d584b06ab156ed13376785b374))
+
 ## [2.54.1](https://github.com/redtidev1918/TelePost/compare/v2.54.0...v2.54.1) (2026-09-20)
 
 
