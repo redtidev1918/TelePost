@@ -123,6 +123,8 @@ connect-src 'self';
 - Python：`pytest tests/test_miniapp_*.py tests/test_refetch.py`（auth tamper、RBAC 矩阵、
   endpoint 契约、refetch 状态机）。
 - WebApp：`cd webapp && npm test`（Vitest + Testing Library：AuthProvider、ReviewDetail mutation）。
+- Visual：`cd webapp && npx playwright test e2e/visual.spec.ts --project=mobile` 保留五条主路由的
+  截图契约；语义 E2E 仍由 `miniapp.spec.ts` 负责。
 - 完整回归：`pytest -q`（全量）+ `cd webapp && npm run typecheck && npm run lint && npm test && npm run build`。
 
 ## 已知边界

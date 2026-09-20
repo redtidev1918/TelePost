@@ -38,6 +38,22 @@ python3 -m venv .venv
 
 提交前仍要跑全量，表格只用于开发迭代。
 
+## Presentation contract
+
+Telegram 文案和 Mini App 布局各有可执行契约：
+
+- `tests/test_telegram_golden_messages.py` 用精确文本 golden 锁定 `/start`、`/help`、
+  `/about`、投稿预览和 caption 的排版。命令保持独立一行、无多余空行。
+- `webapp/e2e/visual.spec.ts` 生成并比较移动端截图，锁定首页、投稿、我的投稿、
+  审核队列和管理面板的视觉基线。
+- 更新截图前先确认 DOM 已经稳定：
+
+```bash
+cd webapp
+npx playwright test e2e/visual.spec.ts --update-snapshots --project=mobile
+npx playwright test --project=mobile
+```
+
 ## 测试约定
 
 - 使用 `tests/conftest.py` 的临时目录和 Telegram fake/mock。
