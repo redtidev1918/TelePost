@@ -1637,6 +1637,17 @@ def add_api_routes(web_app, application) -> None:
         if _invalid_refetch_request_id(fields):
             await _audit_submission("submission.invalid_refetch_provenance", user_id=user_id)
             return _error(400, "invalid_refetch_provenance", "refetch_request_id 必须是 UUID")
+
+        # Multipart clients (PixivFlow) use the same optional Delivery Asset
+        # Contract as JSON file_id clients: one JSON string field, no extra
+        # PixivFlow domain fields.
+        try:
+            raw_media_assets = fields.pop("media_assets", None)
+            media_assets = _validate_media_assets(
+                json.loads(raw_media_assets) if raw_media_assets else None
+            )
+        except (ValueError, json.JSONDecodeError, TypeError) as exc:
+            return _error(400, "invalid_media_asset", str(exc)[:200])
         if not files:
             return _error(400, "missing_files", "至少需要一个 files 字段")
         if len(files) > MAX_FILES:
@@ -1699,6 +1710,12 @@ def add_api_routes(web_app, application) -> None:
                 result = await queue_review_from_files(
                     bot, files, **queue_kwargs, **common,
                 )
+                if media_assets:
+                    result["media_assets"] = media_assets
+                    try:
+                        await _persist_media_assets(result)
+                    except Exception:
+                        logger.exception("持久化 multipart media_assets 失败")
             else:
                 result = await publish_from_files(
                     bot, files, **provenance, **common,

@@ -166,6 +166,8 @@ curl -X POST 'https://example.com/api/bot1/v1/submissions' \
 
 - 每项必须为对象，`asset_id` 非空、`kind` 只支持 `image`、`source_url` 必须
   `http(s)`；重复 `asset_id` 会被拒绝。
+- JSON 与 multipart 路径都支持：multipart 客户端把同一个数组序列化为
+  `media_assets` 字段里的 JSON 字符串；本地 `files` 上传仍然是主媒体。
 - `media_assets` 按 `review_chain_id` 落库到 `media_asset_refs`，可通过
   `GET /api/v1/reviews/{id}` 读回；空数组等价于不传。
 - 该字段向后兼容：不传时行为与之前完全一致，本地 `file_id` 仍走原有
