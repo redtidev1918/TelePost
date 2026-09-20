@@ -13,7 +13,7 @@ from telepost.domain.packing import (
     MEDIA_GROUP_CAPACITY,
     pack_media,
 )
-from telepost.telegram.delivery.planner import PlanningOrder, plan_delivery
+from telepost.telegram.delivery.planner import plan_delivery
 
 
 def _photos(count: int):
@@ -40,7 +40,7 @@ def test_pack_media_boundaries(total):
 
 
 def test_plan_delivery_uses_the_same_ssot_capacity():
-    plan = plan_delivery(_photos(11), ordering=PlanningOrder.INPUT)
+    plan = plan_delivery(_photos(11))
     kinds = [(batch.kind.value, len(batch.items)) for batch in plan.batches]
     assert kinds == [("album", MEDIA_GROUP_CAPACITY), ("single", 1)]
 
@@ -66,7 +66,7 @@ def test_overflow_has_no_caption_and_root_link_is_the_root_batch():
     """Telegram models a media group as several messages; the business ROOT is
     the whole first batch. Caption lands on the root batch's first item only —
     never repeated on overflow batches."""
-    plan = plan_delivery(_photos(21), ordering=PlanningOrder.INPUT)
+    plan = plan_delivery(_photos(21))
     assert plan.batches[0].is_album
     assert len(plan.batches) == 3
     # The first overflow batch is a reply of capacity 1 in this case.
