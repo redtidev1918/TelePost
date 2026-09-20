@@ -15,12 +15,29 @@ service DTO mapper.
 """
 from __future__ import annotations
 
+import html
 import json
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
 import aiosqlite
+
+_BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+
+
+def _plain_text(raw: str) -> str:
+    """Pixiv captions / descriptions are HTML; previews are plain text.
+
+    Convert <br> to newlines, strip remaining tags, decode entities. Applied
+    once at the repository insert so chat / API / MiniApp / PixivFlow entries
+    all get clean text and consumers never see literal "<br>".
+    """
+    text = _BR_RE.sub("\n", str(raw or ""))
+    text = _TAG_RE.sub("", text)
+    return html.unescape(text).strip()
 
 from database import db_manager
 
@@ -138,7 +155,8 @@ class ReviewRepository:
             (
                 review.idempotency_key, review.source, review.status,
                 review.user_id,
-                review.username, review.title, review.tags, review.note,
+                review.username, review.title, review.tags,
+                _plain_text(review.note),
                 review.link, int(review.anonymous), int(review.spoiler),
                 json.dumps(review.media), json.dumps(review.documents),
                 str(review.review_chat_id),

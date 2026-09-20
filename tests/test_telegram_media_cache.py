@@ -210,3 +210,33 @@ class TestSecondDeliveryReusesCachedFileId:
         captured = bot2.send_photo.await_args.kwargs
         assert captured["photo"] == "FIRST"
         bot2.send_media_group.assert_not_called()
+
+
+class TestNoteSanitizedOnInsert:
+    """Pixiv descriptions carry HTML (<br>, entities); previews are plain text."""
+
+    @pytest.mark.asyncio
+    async def test_br_becomes_newline_and_tags_stripped(self, isolated_db):
+        from telepost.storage.sqlite.reviews import NewReview, ReviewRepository
+        from telepost.storage.sqlite.media_assets import replace_for_chain
+
+        await replace_for_chain("chain-sanitize", [])
+        repo = ReviewRepository()
+        payload = dict(
+            idempotency_key="sanitize-1", source="api", user_id=7,
+            username="x", title="标题", tags="#a",
+            note="第一行<br>第二行<br/>第三行 <b>粗体</b> &amp; 更多",
+            link="", anonymous=False, spoiler=False,
+            media=[], documents=[], review_chat_id="-100",
+            review_message_ids=[], target_id="", source_label="",
+            source_ref="", pixiv_id="", work_type="",
+            delivery_target="", review_chain_id="chain-sanitize",
+            generation=0, supersedes_review_id=None, refetch_request_id="",
+            submitter_user_id=7, submitter_username="x",
+            submitter_display_name="", actor_kind="api",
+        )
+        review_id = await repo.insert(NewReview(**payload))
+        row = await repo.get(review_id)
+        assert "<br" not in row["note"]
+        assert "<b>" not in row["note"]
+        assert row["note"] == "第一行\n第二行\n第三行 粗体 & 更多"
