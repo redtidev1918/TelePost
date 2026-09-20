@@ -421,51 +421,6 @@ class MessageFormatter:
         )
 
     @staticmethod
-    def preview_text(row, review_first: bool = False) -> str:
-        """发布/审核预览的字段化文本（私聊）。"""
-        from utils.helper_functions import parse_json_list
-        media_list = parse_json_list(row["image_id"])
-        doc_list = parse_json_list(row["document_id"])
-        lines = ["📋 <b>发布预览</b>", ""]
-        if media_list or doc_list:
-            if media_list:
-                lines.append(f"📎 <b>媒体：{len(media_list)} 个</b>")
-            if doc_list:
-                lines.append(f"📄 <b>文档：{len(doc_list)} 个</b>")
-                for entry in doc_list:
-                    parts = entry.split(":", 2)
-                    name = parts[2] if len(parts) > 2 and parts[2] else "未命名文件"
-                    lines.append(f"   • {name[:60]}{'…' if len(name) > 60 else ''}")
-            lines.append("")
-        lines.append(f"🏷 <b>标签：</b>{row['tags'] or '（未设置）'}")
-        if row["link"]:
-            lines.append(f"🔗 <b>链接：</b>{row['link']}")
-        if row["title"]:
-            lines.append(f"🔖 <b>标题：</b>{row['title']}")
-        if row["note"]:
-            note = row["note"]
-            lines.append(f"📝 <b>简介：</b>{note[:80]}{' …' if len(note) > 80 else ''}")
-        is_anon = (row["anonymous"] if "anonymous" in row.keys() else "false") == "true"
-        lines.append(f"🔞 <b>剧透：</b>{'是' if (row['spoiler'] or '') == 'true' else '否'}")
-        lines.append(f"🕵️ <b>匿名：</b>{'是（频道内不显示投稿人）' if is_anon else '否（显示投稿人）'}")
-        lines.append("")
-        if row["tags"]:
-            lines.append(
-                "✅ 确认无误请点击下方按钮<b>提交审核</b>，审核通过后发布到频道；\n"
-                "💡 也可以先修改标签 / 标题 / 简介 / 链接，或开启匿名、剧透。"
-                if review_first
-                else "✅ 确认无误请点击下方按钮<b>发布到频道</b>；\n"
-                     "💡 也可以先修改标签 / 标题 / 简介 / 链接，或开启匿名、剧透。"
-            )
-        else:
-            lines.append(
-                "⚠️ <b>提交审核前必须填写标签</b>；其余字段均可留空。"
-                if review_first
-                else "⚠️ <b>发布前必须填写标签</b>；其余字段均可留空。"
-            )
-        return "\n".join(lines)
-
-    @staticmethod
     def edit_prompt(field: str) -> str:
         prompts = {
             "edit_tag": "🏷️ 请发送新的标签（用逗号分隔，直接覆盖原标签）：",

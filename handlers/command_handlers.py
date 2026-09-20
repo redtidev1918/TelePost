@@ -3,7 +3,7 @@
 """
 import logging
 from datetime import datetime
-from telegram import Update, ReplyKeyboardRemove
+from telegram import Update
 from telegram.ext import ConversationHandler, CallbackContext, ApplicationHandlerStop
 
 from database.db_manager import get_db
@@ -50,7 +50,7 @@ async def cancel(update: Update, context: CallbackContext) -> int:
         else "ℹ️ 当前没有进行中的投稿。\n\n想投稿？发送 /submit 即可开始。"
     )
     try:
-        await update.message.reply_text(message_text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text(message_text, parse_mode="HTML", reply_markup=Keyboards.main_menu())
     except Exception:
         # 在极少数情况下 message 可能不存在
         try:
