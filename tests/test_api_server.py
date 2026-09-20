@@ -3,6 +3,7 @@ HTTP API（/api/v1）测试：鉴权、校验、投稿流转、路由转发
 """
 import os
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -654,6 +655,64 @@ class TestDeliveryAssetContract:
                  "source_url": "https://i.pximg.net/b.png", "mime_type": "",
                  "file_id": "", "file_unique_id": ""},
             ]
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_multipart_media_assets_persist(self, monkeypatch, tmp_path):
+        from database import db_manager
+        monkeypatch.setattr(db_manager, "DB_PATH", str(tmp_path / "assets.db"))
+        monkeypatch.chdir(tmp_path)
+        await db_manager.init_db()
+        await self._seed_review_row(7, "chain-x")
+        queue_mock = AsyncMock(return_value={
+            "status": "pending_review", "review_id": 7,
+            "media_count": 1, "document_count": 0,
+        })
+        monkeypatch.setattr("handlers.review.queue_review_from_files", queue_mock)
+        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            form = __import__("aiohttp").FormData()
+            form.add_field("files", b"image", filename="p.jpg", content_type="image/jpeg")
+            form.add_field("tags", "Pixiv")
+            form.add_field("media_assets", json.dumps([
+                {"asset_id": "pixiv:1:illust:page-1", "kind": "image",
+                 "source_url": "https://i.pximg.net/1.jpg", "mime_type": "image/jpeg"},
+            ]))
+            resp = await client.post(
+                "/api/v1/submissions",
+                data=form,
+                headers={"Authorization": "Bearer tp_ok"},
+            )
+            assert resp.status == 201
+            queue_mock.assert_awaited_once()
+            publish_mock.assert_not_called()
+            from telepost.storage.sqlite import media_assets as ma
+            refs = await ma.list_for_chain("chain-x")
+            assert [r["asset_id"] for r in refs] == ["pixiv:1:illust:page-1"]
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_multipart_media_assets_invalid_json(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            form = __import__("aiohttp").FormData()
+            form.add_field("files", b"image", filename="p.jpg", content_type="image/jpeg")
+            form.add_field("tags", "Pixiv")
+            form.add_field("media_assets", "{not-json")
+            resp = await client.post(
+                "/api/v1/submissions",
+                data=form,
+                headers={"Authorization": "Bearer tp_ok"},
+            )
+            assert resp.status == 400
+            body = await resp.json()
+            assert body["error"]["code"] == "invalid_media_asset"
+            publish_mock.assert_not_called()
         finally:
             await client.close()
 
