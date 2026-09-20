@@ -3,6 +3,7 @@
   - [📥 下载](/download.md)
   - [安装与部署](/INSTALL.md)
   - [命令参考](/COMMANDS.md)
+  - [English](/en/)
 - 配置与部署
   - [配置参考](/CONFIGURATION.md)
   - [Telegram Mini App](/MINIAPP.md)
@@ -16,7 +17,10 @@
   - [HTTP API](/API.md)
   - [MCP 投稿审核](/MCP_REVIEW.md)
   - [测试指南](/TESTING.md)
+  - [重投（resubmit）](/RESUBMIT.md)
   - [运行时架构](/internals/architecture.md)
+  - [投稿归属契约](/architecture/identity-and-provenance.md)
   - [投稿状态机](/internals/submission-flow.md)
   - [管理控制面与治理](/internals/admin-control-plane.md)
   - [删帖与软删除](/internals/moderation.md)
+  - [私聊文案与投稿流程 RFC](/private-chat-ux-rfc.md)

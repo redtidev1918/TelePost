@@ -61,9 +61,13 @@ Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](downloa
 | --- | --- |
 | [API](API.md) | HTTP API v1 投稿接口参考 |
 | [TESTING](TESTING.md) | 测试指南 |
+| [RESUBMIT](RESUBMIT.md) | 重投：结果词汇、状态机与幂等语义 |
+| [architecture](internals/architecture.md) | 运行时分层：handler / 领域服务 / 适配器职责边界 |
+| [identity-and-provenance](architecture/identity-and-provenance.md) | 投稿归属契约：Actor / Submitter / Source 三者的区别 |
 | [submission-flow](internals/submission-flow.md) | 内部设计：聊天投稿状态机 |
 | [admin-control-plane](internals/admin-control-plane.md) | 管理控制面：来源可信度审核、治理名单、错误契约 |
 | [moderation](internals/moderation.md) | 内部设计：删帖与软删除 |
+| [private-chat-ux-rfc](private-chat-ux-rfc.md) | 私聊文案与投稿流程重构 RFC |
 
 ## 🔗 其他入口
 
