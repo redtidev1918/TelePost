@@ -475,6 +475,24 @@ def build_router_app(indices: list):
             payload["storage"] = await asyncio.to_thread(storage_health_snapshot)
         except Exception:
             pass
+        # Each bot owns its webhook and therefore its in-memory reaction
+        # ingest counter. Aggregate the loopback child health payload so the
+        # public health endpoint does not hide this signal behind the router.
+        payload["reaction_ingest_by_bot"] = {}
+        for index in indices:
+            try:
+                async with ClientSession(
+                    timeout=ClientTimeout(total=0.8)
+                ) as session:
+                    async with session.get(
+                        f"http://127.0.0.1:{bot_webhook_port(index)}/health"
+                    ) as response:
+                        child = await response.json(content_type=None)
+                payload["reaction_ingest_by_bot"][str(index)] = child.get(
+                    "reaction_ingest"
+                )
+            except Exception:
+                payload["reaction_ingest_by_bot"][str(index)] = None
         return web.json_response(payload)
 
     async def version(_request):

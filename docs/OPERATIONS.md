@@ -250,13 +250,14 @@ reaction 后，Bot 把 `(message_id, total_count)` 写入 `message_reaction_coun
 - 验证不要查看公开频道的浏览量，而是看 `message_reaction_counts` 是否出现真实更新。
 - 每收到一次 Telegram reaction 更新，webhook 日志会出现
   `🔔 收到频道反应更新`；处理完成后出现 `Reaction projected`。
-- `/health` 返回 `reaction_ingest.received_since_start`。该指标从进程启动起算，
-  重启后归零；持久事实仍以数据库和日志为准。
+- 公共 `/health` 的 `reaction_ingest_by_bot` 聚合每个 Bot 子进程的
+  `received_since_start`。该指标从进程启动起算，重启后归零；持久事实仍以
+  数据库和日志为准。
 - 常用排查命令：
 
 ```bash
 fly logs -a telesubmit-multi-bot --no-tail | grep "Reaction ingest"
-curl -s https://telesubmit-multi-bot.fly.dev/health | jq '.reaction_ingest'
+curl -s https://telesubmit-multi-bot.fly.dev/health | jq '.reaction_ingest_by_bot'
 ```
 
 ```bash
