@@ -1,6 +1,9 @@
 # 私聊文案与投稿流程重构 RFC
 
 > Phase 对齐：纯 UX/文案重构，不改变数据模型、命令集、状态机或对外回调契约。
+>
+> 状态：Telegram 文案契约 `IMPLEMENTED`；Mini App 移动端视觉基线 `IMPLEMENTED`；
+> 真人 Telegram / Mini App 验收 `EXTERNAL_ACCEPTANCE_REQUIRED`。
 
 ## 1. 目标
 
