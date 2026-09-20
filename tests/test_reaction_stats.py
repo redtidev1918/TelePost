@@ -68,7 +68,7 @@ class TestReactionStats:
                 reactions=[SimpleNamespace(total_count=5)],
             )
         )
-        updated = await reaction_stats.handle_message_reaction_count(update)
+        updated = await reaction_stats.handle_message_reaction_count(update, None)
         assert updated == 1
         row = await _read_post(100)
         assert row["reactions"] == 5
@@ -89,7 +89,7 @@ class TestReactionStats:
                 reactions=[SimpleNamespace(total_count=3)],
             )
         )
-        updated = await reaction_stats.handle_message_reaction_count(update)
+        updated = await reaction_stats.handle_message_reaction_count(update, None)
         assert updated == 1
         row = await _read_post(200)
         assert row["reactions"] == 3
@@ -97,7 +97,7 @@ class TestReactionStats:
         # Main message reaction counts too.
         update.message_reaction_count.message_id = 200
         update.message_reaction_count.reactions = [SimpleNamespace(total_count=2)]
-        updated = await reaction_stats.handle_message_reaction_count(update)
+        updated = await reaction_stats.handle_message_reaction_count(update, None)
         assert updated == 1
         row = await _read_post(200)
         assert row["reactions"] == 5
@@ -105,4 +105,4 @@ class TestReactionStats:
     @pytest.mark.asyncio
     async def test_no_update_ignored(self, isolated_db, monkeypatch):
         update = SimpleNamespace(message_reaction_count=None)
-        assert await reaction_stats.handle_message_reaction_count(update) == 0
+        assert await reaction_stats.handle_message_reaction_count(update, None) == 0

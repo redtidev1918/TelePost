@@ -220,6 +220,20 @@ class TestErrorHandler:
         assert True
 
 
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_error_handler_never_messages_channel(self, mock_telegram_update, mock_telegram_context):
+        """Reaction updates can have only effective_chat; channels must stay silent."""
+        from handlers.error_handler import error_handler
+
+        mock_telegram_update.effective_chat.type = "channel"
+        mock_telegram_update.effective_chat.send_message = AsyncMock()
+
+        await error_handler(mock_telegram_update, mock_telegram_context)
+
+        mock_telegram_update.effective_chat.send_message.assert_not_called()
+
+
 class TestSubmitHandlers:
     """投稿处理器测试"""
     
