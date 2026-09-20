@@ -15,8 +15,7 @@ import '@uppy/core/dist/style.min.css';
 import '@uppy/dashboard/dist/style.min.css';
 import '@uppy/react/dist/styles.css';
 import { useQueryClient } from '@tanstack/react-query';
-import { apiFetch, getSessionUser, hasSession } from '../../api/client';
-import { formatSubmitter } from '../../lib/formatSubmitter';
+import { apiFetch, hasSession } from '../../api/client';
 
 /**
  * Submission form (Mini App, §18-§23, §uppy).
@@ -184,7 +183,7 @@ function SubmitForm(props: FormProps) {
   const objectUrls = useObjectUrls(selected);
   const queryClient = useQueryClient();
   const inFlight = useRef(false);
-  const [caption, setCaption] = useState('');
+  const [previewHtml, setPreviewHtml] = useState('');
   const [previewOpen, setPreviewOpen] = useState(false);
 
   /** Server-side caption preview: the SAME formatter the review group sees. */
@@ -198,8 +197,7 @@ function SubmitForm(props: FormProps) {
             image: 'photo', video: 'video', audio: 'audio', document: 'document',
           } as Record<string, string>)[fileKind(f)]) }),
       });
-      // The server owns caption formatting. Render its text safely, never HTML.
-      setCaption(new DOMParser().parseFromString(result.caption, 'text/html').body.textContent || '');
+      setPreviewHtml(result.caption);
     } catch (error) {
       props.setSnack(`预览失败：${(error as Error).message}`);
     }
@@ -274,13 +272,6 @@ function SubmitForm(props: FormProps) {
       props.setSubmitting(false);
     }
   };
-
-  const sessionUser = getSessionUser();
-  const submitterLine = formatSubmitter(
-    sessionUser?.username,
-    sessionUser?.display_name,
-    sessionUser?.telegram_user_id,
-  );
 
   return (
     <div>
@@ -420,17 +411,12 @@ function SubmitForm(props: FormProps) {
               );
             })}
           </div>
-          {props.title && <div>🔖 标题：{props.title}</div>}
-          {props.note && <div>📝 简介：{props.note}</div>}
-          {props.link && <div>🔗 链接：{props.link}</div>}
-          {props.tags.trim() && <div>🏷 {props.tags.trim()}</div>}
-          {submitterLine && (
-            <div data-testid="preview-submitter">投稿人：{submitterLine}</div>
-          )}
-          {caption && (
-            <div data-testid="preview-caption" style={{ whiteSpace: 'pre-wrap', margin: '8px 0' }}>
-              {caption}
-            </div>
+          {previewHtml && (
+            <div
+              data-testid="preview-caption"
+              style={{ whiteSpace: 'pre-wrap', margin: '8px 0' }}
+              dangerouslySetInnerHTML={{ __html: previewHtml }}
+            />
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
             <Button mode="outline" stretched disabled={props.submitting}

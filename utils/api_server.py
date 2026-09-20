@@ -1326,6 +1326,22 @@ def add_api_routes(web_app, application) -> None:
             return _error(404, "review_not_found", "投稿不存在")
         return _ok({"hidden": True, "review_id": review_id})
 
+    async def delete_all_my_submissions(request):
+        """DELETE /api/v1/me/submissions — hide every owned terminal chain.
+
+        Soft-delete only. Review queue, published channel messages and audit
+        history are untouched; in-flight submissions are not hidden.
+        """
+        principal = await _resolve_principal(request)
+        if principal is None:
+            return _error(401, "invalid_token", "token 无效或已吊销")
+        uid = principal["telegram_user_id"]
+        if not uid or principal.get("kind") != "user":
+            return _error(403, "permission_denied", "需要用户会话")
+        from telepost.storage.sqlite.reviews import ReviewRepository
+        hidden = await ReviewRepository().hide_all_from_own_history(uid)
+        return _ok({"hidden": hidden})
+
     async def submission_preview(request):
         principal = await _resolve_principal(request)
         if principal is None:
@@ -1341,21 +1357,21 @@ def add_api_routes(web_app, application) -> None:
         for field in ("anonymous", "spoiler"):
             if field in payload and not isinstance(payload[field], bool):
                 return _error(400, "invalid_field", f"{field} 必须是布尔值")
-        from utils.helper_functions import build_caption
-        # Public-facing preview (Mini App). The client renders the submitter
-        # line from the verified session identity, so the caption itself carries
-        # no submitter fallback; media kinds decide the media action
-        # (§publication-presentation: document-only never shows 点击查看).
+        from telepost.application.publication import channel_caption
+        # Public-facing preview uses the real channel formatter. media_types
+        # decides the media action (§publication-presentation: document-only
+        # never shows 点击查看).
         media_types = payload.get("media_types")
         if media_types is not None and not isinstance(media_types, list):
             return _error(400, "invalid_field", "media_types 必须是数组")
-        caption = build_caption({
+        caption = channel_caption({
             **{k: payload.get(k, "") for k in ("title", "tags", "note", "link")},
             "anonymous": str(payload.get("anonymous", False)).lower(),
             "spoiler": str(payload.get("spoiler", False)).lower(),
-            "user_id": principal["telegram_user_id"], "username": principal["name"],
+            "submitter_user_id": principal["telegram_user_id"],
+            "submitter_username": principal["name"],
             "media_types": media_types or [],
-        }, surface="miniapp")
+        })
         return _ok({"caption": caption, "parse_mode": "HTML"})
 
     async def _notify_refetch_replacement(refetch_request_id: str,
@@ -2381,6 +2397,7 @@ def add_api_routes(web_app, application) -> None:
 
     web_app.router.add_get("/api/v1/me/submissions/{review_id}/media/{index}", my_submission_media)
     web_app.router.add_post("/api/v1/me/submissions/{review_id}/resubmit", resubmit_submission)
+    web_app.router.add_delete("/api/v1/me/submissions", delete_all_my_submissions)
     web_app.router.add_delete("/api/v1/me/submissions/{review_id}", delete_my_submission)
     web_app.router.add_post("/api/v1/submissions/preview", submission_preview)
     web_app.router.add_get("/api/v1/reviews/policy", review_policy)

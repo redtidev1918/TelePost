@@ -155,12 +155,13 @@ async def test_full_submission_conversation(monkeypatch, tmp_path):
 
     # 4) 完成上传 → 预览
     await process(_text_update("/done_media"))
-    assert any("发布预览" in t for k, t in bot.outbox if k == "text")
+    assert any("标题" in t for k, t in bot.outbox if k == "text")
 
     # 5) 编辑标签（回调 → EDIT → 文本 → 回 PREVIEW）
     await process(_callback_update("edit_tag"))
     await process(_text_update("#新标签, 测试"))
     assert any("标签已更新" in t for k, t in bot.outbox if k == "text")
+    assert any("Tags:" in t for k, t in bot.outbox if k == "text")
 
     # 6) 确认发布
     await process(_callback_update("publish"))

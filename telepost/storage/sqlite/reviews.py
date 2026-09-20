@@ -377,6 +377,21 @@ class ReviewRepository:
             await conn.commit()
             return cur.rowcount > 0
 
+    async def hide_all_from_own_history(self, submitter_user_id: int) -> int:
+        """Soft-hide every owned TERMINAL review chain from /me at once.
+
+        In-flight submissions remain visible until they reach a terminal state.
+        """
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "UPDATE pending_reviews SET hidden_from_submitter=1, updated_at=? "
+                "WHERE submitter_user_id=? AND hidden_from_submitter=0 "
+                "AND status NOT IN ('preparing', 'pending', 'publishing')",
+                (time.time(), int(submitter_user_id)),
+            )
+            await conn.commit()
+            return cur.rowcount
+
     async def set_control_message(self, review_id: int, message_id: int) -> None:
         async with db_manager.get_db() as conn:
             await conn.execute(

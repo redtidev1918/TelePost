@@ -77,16 +77,16 @@ function StatusSection({ snapshot }: { snapshot: AdminStatusSnapshot }) {
         subtitle={
           snapshot.refetch.active
             ? `${snapshot.refetch.active} 个进行中`
-            : '无进行中的候选更换'
+            : '没有进行中的重抓/换图'
         }
       >
-        候选更换
+        重抓/换图
       </Cell>
       {snapshot.refetch.recent_failures.length > 0 && (
         <Cell subtitle={snapshot.refetch.recent_failures
           .map((f) => `#${f.source_review_id} ${f.failure_code || f.state}`)
           .join(' · ')}>
-          最近更换失败
+          最近重抓失败
         </Cell>
       )}
       <Cell subtitle={`${snapshot.blacklist_size} 人`}>黑名单</Cell>
@@ -96,7 +96,7 @@ function StatusSection({ snapshot }: { snapshot: AdminStatusSnapshot }) {
 
 /** Server only accepts these toggles from the Mini App API (§admin-api). */
 const TOGGLES = [
-  { key: 'chat_review' as const, label: '审核群复审', testid: 'admin-policy-chat-review' },
+  { key: 'chat_review' as const, label: 'TG 聊天投稿先审核', testid: 'admin-policy-chat-review' },
   { key: 'show_submitter' as const, label: '公开投稿人', testid: 'admin-policy-show-submitter' },
 ];
 
@@ -146,9 +146,9 @@ function PolicySection({
           {toggle.label}
         </Cell>
       ))}
-      <Cell subtitle={`API 投稿必须审核（固定开启）`}>API 复审</Cell>
-      <Cell subtitle="小程序投稿必须审核（在 Bot 侧调整）">
-        小程序复审
+      <Cell subtitle="API 投稿必须审核（固定开启）">API 投稿先审核</Cell>
+      <Cell subtitle="Mini App 投稿必须审核（在 Bot 侧调整）">
+        Mini App 投稿先审核
       </Cell>
       {error && <div className="mutation-help">{error}</div>}
     </Section>

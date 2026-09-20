@@ -119,6 +119,10 @@ async function mockApi(page: Page, roles: string[] = ['submitter', 'reviewer', '
         body: JSON.stringify({ ok: true, data: { items, next_cursor: null } }),
       });
     }
+    if (path.endsWith('/submissions/preview') && method === 'POST') {
+      return route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { caption: '🔖 标题： \n【E2E】\n🏷 Tags: #e2e\n\n投稿人：<a href="tg://user?id=99999">@e2e</a>' } }) });
+    }
     if (path.endsWith('/submissions')) {
       const body = await route.request().postData();
       return route.fulfill({

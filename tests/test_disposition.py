@@ -77,7 +77,8 @@ class TestPreviewCopyReflectsChatDisposition:
                "anonymous": "false", "spoiler": "false",
                "image_id": "[]", "document_id": "[]"}
         text = self._handlers()._build_preview_text(row)
-        assert "发布到频道" in text
+        assert "Tags:" in text
+        assert "发布" in self._handlers()._build_preview_keyboard(row).inline_keyboard[0][0].text
         keyboard = self._handlers()._build_preview_keyboard(
             {"tags": "#a", "anonymous": "false", "spoiler": "false"}
         )
@@ -89,7 +90,8 @@ class TestPreviewCopyReflectsChatDisposition:
                "anonymous": "false", "spoiler": "false",
                "image_id": "[]", "document_id": "[]"}
         text = self._handlers()._build_preview_text(row)
-        assert "提交审核" in text
+        assert "Tags:" in text
+        assert "提交审核" in self._handlers()._build_preview_keyboard(row).inline_keyboard[0][0].text
         keyboard = self._handlers()._build_preview_keyboard(
             {"tags": "#a", "anonymous": "false", "spoiler": "false"}
         )

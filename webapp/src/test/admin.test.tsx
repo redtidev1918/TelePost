@@ -129,7 +129,7 @@ describe('AdminPage', () => {
   it('shows policy toggles reflecting the effective snapshot', async () => {
     renderAdmin();
     const policy = await screen.findByTestId('admin-policy');
-    expect(policy.textContent).toContain('审核群复审');
+    expect(policy.textContent).toContain('TG 聊天投稿先审核');
     expect(policy.textContent).toContain('公开投稿人');
     // Restart semantics are surfaced, never hidden.
     expect(policy.textContent).toContain('自动重启');
