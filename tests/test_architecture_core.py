@@ -15,7 +15,7 @@ from telepost.domain.review import (
     next_after_outcome, assert_can_claim,
 )
 from telepost.telegram.delivery.planner import (
-    BatchKind, PlanningOrder, plan_delivery,
+    BatchKind, plan_delivery,
 )
 from telepost.telegram.delivery.executor import (
     NetworkFailure, execute_plan,
@@ -120,22 +120,10 @@ def test_documents_form_their_own_albums():
     assert all(b.is_album for b in plan.batches)
 
 
-def test_family_order_puts_visuals_first():
-    items = [_fid("document", 1), _fid("photo", 1)]
-    plan = plan_delivery(items, ordering=PlanningOrder.FAMILY)
-    assert plan.batches[0].family == "visual"
-
-
-def test_default_ordering_keeps_the_artwork_order():
+def test_delivery_keeps_the_artwork_order():
     items = [_fid("document", 1), _fid("photo", 1), _fid("photo", 2)]
     plan = plan_delivery(items)
     assert [b.family for b in plan.batches] == ["document", "visual"]
-
-
-def test_input_ordering_preserves_upload_order_runs():
-    items = [_fid("document", 1), _fid("photo", 1)]
-    plan = plan_delivery(items, ordering=PlanningOrder.INPUT)
-    assert plan.batches[0].family == "document"
 
 
 # --------------------------------------------------------------------------

@@ -9,17 +9,11 @@ Turns an ordered list of :class:`MediaItem` into concrete send batches:
 * a run of one compatible item is also a single message (keeps its caption);
 * each album holds at most ``album_size`` items (Telegram cap = 10).
 
-Two orderings are supported because channel delivery and review-chat preview
-historically differ:
-
-* ``INPUT``  – **default**: keep the original artwork order and split it into
-  maximal same-family runs. Telegram only forces a split when a family genuinely
-  cannot share a media group (animation/audio are never album members, and
-  documents are only homogeneous with documents), so a gallery whose items are
-  all photos stays one ordered album instead of being regrouped into "photos
-  first, documents last";
-* ``FAMILY`` – stable family order visual → animation → audio → document, used
-  by channel publishing (preserves ``handlers.publish._item_batches``).
+Media are sent in **submitter order**: Telegram only forces a split when a
+family genuinely cannot share a media group (animation/audio are never album
+members, and documents are only homogeneous with documents), so a gallery whose
+items are all photos stays one ordered album instead of being regrouped into
+"photos first, documents last".
 """
 from __future__ import annotations
 
@@ -42,12 +36,6 @@ ALBUM_FAMILIES = {
     MediaKind.VIDEO: "visual",
     MediaKind.DOCUMENT: "document",
 }
-#: Family keys are the plain strings returned by :func:`family_of` (a
-#: ``MediaKind`` member is a ``str`` subclass, so mixing both shapes only works
-#: by accident of str-mixin hashing — keep this dict string-only).
-FAMILY_ORDER = {"visual": 0, "animation": 1, "audio": 2, "document": 3}
-
-
 def family_of(kind: MediaKind) -> str:
     """Album family for a kind; animation/audio are standalone singleton families."""
     return ALBUM_FAMILIES.get(kind, kind.value)
@@ -64,11 +52,6 @@ class Batch:
         return self.kind is BatchKind.ALBUM
 
 
-class PlanningOrder(str, Enum):
-    FAMILY = "family"
-    INPUT = "input"
-
-
 @dataclass(frozen=True)
 class DeliveryPlan:
     batches: List[Batch]
@@ -82,19 +65,10 @@ class DeliveryPlan:
         return len(self.batches)
 
 
-def _chunk_runs(ordering: PlanningOrder, items: List[MediaItem],
-                album_size: int) -> List[tuple]:
+def _chunk_runs(items: List[MediaItem], album_size: int) -> List[tuple]:
     """Return ``(family, items)`` runs of at most ``album_size``."""
-    if ordering is PlanningOrder.FAMILY:
-        ordered = sorted(
-            items,
-            key=lambda it: FAMILY_ORDER.get(family_of(it.kind), 9),
-        )
-    else:
-        ordered = list(items)
-
     runs: List[tuple] = []
-    for item in ordered:
+    for item in items:
         fam = family_of(item.kind)
         albumable = fam in ("visual", "document")
         if (
@@ -111,17 +85,12 @@ def _chunk_runs(ordering: PlanningOrder, items: List[MediaItem],
 
 def plan_delivery(items: List[MediaItem], *, album_size: int = MEDIA_GROUP_CAPACITY,
                   reply_mode: ReplyMode = ReplyMode.CHAIN,
-                  anchor_message_id: Optional[int] = None,
-                  ordering: PlanningOrder = PlanningOrder.INPUT) -> DeliveryPlan:
-    """Partition items into batches; album-capable runs longer than one become albums.
-
-    The default ``INPUT`` ordering keeps the artwork order the submitter sent:
-    items only leave their run when Telegram forbids sharing a media group.
-    """
+                  anchor_message_id: Optional[int] = None) -> DeliveryPlan:
+    """Partition items into batches; album-capable runs longer than one become albums."""
     if album_size < 1:
         raise ValueError("album_size must be >= 1")
     batches: List[Batch] = []
-    for fam, batch_items in _chunk_runs(ordering, items, album_size):
+    for fam, batch_items in _chunk_runs(items, album_size):
         if fam in ("visual", "document") and len(batch_items) > 1:
             batches.append(Batch(BatchKind.ALBUM, fam, batch_items))
         else:
