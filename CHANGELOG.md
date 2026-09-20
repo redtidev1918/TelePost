@@ -10,6 +10,14 @@
 
 ---
 
+## [2.56.0](https://github.com/redtidev1918/TelePost/compare/v2.55.4...v2.56.0) (2026-09-20)
+
+
+### Features
+
+* **ux:** make Mini App primary and expose reaction ingestion ([507fbbb](https://github.com/redtidev1918/TelePost/commit/507fbbbc7a1ff1d13cec80816fbbd8a3e5768db2))
+* **ux:** make Mini App primary and expose reaction ingestion ([90af281](https://github.com/redtidev1918/TelePost/commit/90af2813af454d6b74c9b57d2846da927edb941f))
+
 ## [2.55.4](https://github.com/redtidev1918/TelePost/compare/v2.55.3...v2.55.4) (2026-09-20)
 
 
