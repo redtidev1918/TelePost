@@ -1,13 +1,13 @@
 # TelePost
 
-**语言 / Language:** 中文 · [English](README.en.md)
+**语言 / Language:** 中文 · [English](README.en.md) · [📖 完整文档](https://redtidev1918.github.io/TelePost/)
 
 **Telegram 频道投稿、审核与自动化发布平台。**
 
 [![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Docs](https://img.shields.io/badge/docs-online-6366f1.svg)](https://redtidev1918.github.io/TelePost/)
+[![Docs](https://img.shields.io/badge/Docs-文档站点-6366f1?style=flat-square)](https://redtidev1918.github.io/TelePost/)
 
 用户可以通过 Telegram 聊天或 Mini App 投稿，管理员可以集中审核和管理内容；
 外部程序也可以通过 HTTP API 自动投递。所有入口共用同一套投稿、审核、搜索、发布和状态管理流程。
@@ -51,7 +51,7 @@ chmod +x telepost-linux-x64
 ## 核心能力
 
 - **投稿与发布**：图片、视频、音频和文件；支持预览、编辑、标签、匿名和剧透。
-- **按来源可信度审核**：Chat 直发默认直接发布（可配置审核）；API 自动化投稿**固定**进入私有审核群；Mini App 由独立的 `MINIAPP_REVIEW_REQUIRED` 控制，不与 API 共用开关。
+- **按来源可信度审核**：Chat 直发默认直接发布（可配置审核）；API 自动化投稿**固定**进入私有审核群；Mini App 由独立的 `MINIAPP_REVIEW_REQUIRED` 控制，不与 API 共用开关。审核员可以编辑后发布，投稿者原稿保持不变，见 [编辑后发布](docs/CONFIGURATION.md)。
 - **Mini App**：普通用户投稿并查看自己的投稿，审核员处理队列和详情。
 - **HTTP API**：Bearer Token、幂等键、文件上传和 Telegram `file_id`，适合脚本与自动化服务。
 - **频道管理**：搜索频道历史、标签、个人投稿和本地热榜，并提供常用管理命令。
@@ -144,10 +144,3 @@ TelePost 可以运行在本地、VPS、Docker、Fly.io 或其他能够运行 Pyt
 
 问题请提交到 [GitHub Issues](https://github.com/redtidev1918/TelePost/issues)，代码贡献见
 [CONTRIBUTING.md](CONTRIBUTING.md)。TelePost 使用 [MIT License](LICENSE)。
-
-
-## Editorial Revision（审核编辑后发布）
-
-审核员可以通过“编辑后发布”修改标题/简介/标签/链接/剧透与媒体顺序/移除附件后发布；
-投稿者原始稿件不可变更（immutable），发布保存独立 snapshot，并可在配置开启后收到发布通知（含修改摘要）。
-详见 `docs/CONFIGURATION.md` 与 AGENTS.md（§editorial / §notify-submitter）。

@@ -1,13 +1,13 @@
 # TelePost
 
-**Language / 语言:** [中文](README.md) · English
+**Language / 语言:** [中文](README.md) · English · [📖 Full documentation](https://redtidev1918.github.io/TelePost/)
 
 **A submission, moderation, and automated publishing platform for Telegram channels.**
 
 [![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Docs](https://img.shields.io/badge/docs-online-6366f1.svg)](https://redtidev1918.github.io/TelePost/)
+[![Docs](https://img.shields.io/badge/Docs-documentation-6366f1?style=flat-square)](https://redtidev1918.github.io/TelePost/)
 
 People can submit through Telegram chat or a Mini App, moderators can review and manage content,
 and external programs can send submissions through the HTTP API. Every entry point shares the same
@@ -54,7 +54,7 @@ platform-specific setup, and upgrades.
 ## Core capabilities
 
 - **Submission and publishing:** images, video, audio, and files, with preview, editing, tags, anonymity, and spoilers.
-- **Source-trust-based moderation:** native Chat submissions publish directly by default (opt-in review via `CHAT_REVIEW_REQUIRED`); API/automation submissions always enter the review queue; Mini App review is controlled independently by `MINIAPP_REVIEW_REQUIRED`.
+- **Source-trust-based moderation:** native Chat submissions publish directly by default (opt-in review via `CHAT_REVIEW_REQUIRED`); API/automation submissions always enter the review queue; Mini App review is controlled independently by `MINIAPP_REVIEW_REQUIRED`. Reviewers can edit before publishing; the original submission stays untouched — see [Editorial revision](docs/CONFIGURATION.md).
 - **Mini App:** contributors submit and track their own posts; moderators work through the review queue and details.
 - **HTTP API:** Bearer tokens, idempotency keys, uploads, and Telegram `file_id` reuse for scripts and services.
 - **Channel management:** search channel history, tags, personal submissions, and a local hot list, plus admin commands.
