@@ -18,6 +18,7 @@ Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](downloa
 | 第一次部署，跑起来 | [安装与部署](INSTALL.md) |
 | 了解所有 Telegram 命令 | [命令参考](COMMANDS.md) |
 | 精细配置（Token、频道、审核、多 Bot） | [配置参考](CONFIGURATION.md) |
+| 审核员改稿后再发布 | [配置参考 · 编辑后发布](CONFIGURATION.md) |
 | 启用 Telegram Mini App | [Mini App](MINIAPP.md) |
 | 部署到 Fly.io | [Fly.io 部署](FLYIO_DEPLOYMENT.md) |
 | 理解 Webhook 与 Polling 的区别 | [Webhook 与 Polling](WEBHOOK_MODE.md) |
