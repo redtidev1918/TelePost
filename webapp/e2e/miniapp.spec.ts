@@ -91,7 +91,7 @@ test.describe('My Submissions: logical rows', () => {
     await openApp(page, '/mine');
     const row = page.getByTestId('mine-item').first();
     await expect(row).toContainText('E2E 投稿（逻辑链头部）');
-    await expect(row).toContainText('已更换候选 2 次');
+    await expect(row).toContainText('已重抓/换图 2 次');
     const text = await row.textContent();
     expect(text).not.toContain('review-');
     // Filters are rendered.
@@ -136,7 +136,7 @@ test.describe('Preview: real local media, no Telegram side effects', () => {
     expect(src).toMatch(/^blob:/);
   });
 
-  test('submitter line prefers @username in the WebView DOM', async ({ page }) => {
+  test('preview renders the server channel caption with submitter', async ({ page }) => {
     await openApp(page, '/submit');
     // Preview opens without files only after validation; add one to reach it.
     const [chooser] = await Promise.all([
@@ -146,7 +146,8 @@ test.describe('Preview: real local media, no Telegram side effects', () => {
     await chooser.setFiles({ name: 'a.png', mimeType: 'image/png', buffer: Buffer.from('aaa') });
     await page.getByPlaceholder('标签（必填，可用空格或逗号分隔）').fill('#e2e');
     await page.getByRole('button', { name: /预览投稿/ }).click();
-    await expect(page.getByTestId('preview-submitter')).toContainText('@e2e');
+    await expect(page.getByTestId('preview-caption')).toContainText('投稿人：@e2e');
+    await expect(page.getByTestId('preview-caption')).toContainText('Tags: #e2e');
   });
 
   test('preview always mirrors the current selection (clear then re-add)', async ({ page }) => {

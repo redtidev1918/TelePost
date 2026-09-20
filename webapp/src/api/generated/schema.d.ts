@@ -718,7 +718,38 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Hide all of the caller's terminal submission chains from own history
+         * @description Soft-delete for the owner's history. Only terminal rows are hidden;
+         *     in-flight submissions, review queue, channel messages and audit
+         *     history are untouched.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Number of rows hidden */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            data?: {
+                                hidden?: number;
+                            };
+                        };
+                    };
+                };
+                401: components["responses"]["unauthorized"];
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;

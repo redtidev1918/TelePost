@@ -94,7 +94,8 @@ class TestSubmissionPreview:
             result = await done_upload(update, None)
 
         assert result == STATE["PREVIEW"]
-        assert "发布预览" in update.effective_message.reply_text.await_args.args[0]
+        assert "Tags:" in update.effective_message.reply_text.await_args.args[0]
+        assert update.effective_message.reply_text.await_args.kwargs.get("parse_mode") == "HTML"
 
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -291,8 +292,29 @@ class TestPreviewUX:
             "image_id": "[]",
         }
         text = _build_preview_text(row)
-        assert "report.pdf" in text
-        assert "专辑.zip" in text
+        # Channel captions do not list document filenames; private preview must
+        # use the same public formatter rather than inventing a second format.
+        assert "Tags:" in text
+        assert "标题" in text
+
+
+class TestPreviewChannelParity:
+    @pytest.mark.unit
+    def test_private_preview_uses_channel_caption(self):
+        from handlers.preview_handlers import _build_preview_text
+        from telepost.application.publication import channel_caption
+
+        row = _submission_row() | {
+            "user_id": 42,
+            "username": "alice",
+            "image_id": '["image:p1", "video:v1"]',
+        }
+        assert _build_preview_text(row) == channel_caption({
+            "link": "", "title": "标题", "note": "简介", "tags": "#测试",
+            "spoiler": "false", "anonymous": "false",
+            "media_types": ["photo", "video"],
+            "submitter_user_id": 42, "submitter_username": "alice",
+        })
 
 
 class TestRealChatMediaPreview:

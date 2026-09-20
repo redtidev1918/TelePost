@@ -697,6 +697,26 @@ paths:
                             refetch_count: {type: integer, description: Successful refetch replacements (chain length - 1)}
                       next_cursor: {type: [string, 'null']}
         '401': {$ref: '#/components/responses/unauthorized'}
+    delete:
+      summary: Hide all of the caller's terminal submission chains from own history
+      description: |
+        Soft-delete for the owner's history. Only terminal rows are hidden;
+        in-flight submissions, review queue, channel messages and audit
+        history are untouched.
+      responses:
+        '200':
+          description: Number of rows hidden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  data:
+                    type: object
+                    properties:
+                      hidden: {type: integer}
+        '401': {$ref: '#/components/responses/unauthorized'}
   /me/submissions/{review_id}:
     get:
       summary: User-safe detail of one of the caller's logical submissions

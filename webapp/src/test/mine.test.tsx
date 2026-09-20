@@ -57,7 +57,7 @@ describe('MySubmissionsPage (logical submissions)', () => {
     expect(rows[0].textContent).toContain('我的标题');
     expect(rows[0].textContent).toContain('审核中');
     // Generation metadata is user friendly: refetch collapsed into one item.
-    expect(rows[0].textContent).toContain('已更换候选 2 次');
+    expect(rows[0].textContent).toContain('已重抓/换图 2 次');
     expect(rows[0].textContent).toContain('2 个文件');
     // No raw review id shown in the list.
     expect(rows[0].textContent).not.toContain('review-');
@@ -97,6 +97,19 @@ describe('MySubmissionsPage (logical submissions)', () => {
       expect(other).toHaveLength(1);
       expect(other[0].textContent).toContain('被拒的');
     });
+  });
+
+  it('clears finished history after confirmation', async () => {
+    renderPage([
+      chainItem('chain-active', { status: 'in_review' }),
+      chainItem('chain-done', { status: 'published' }),
+    ]);
+    await screen.findAllByTestId('mine-item');
+    const clearAll = vi.spyOn(me, 'deleteAllMySubmissions')
+      .mockResolvedValue({ hidden: 1 });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getByTestId('mine-clear-history'));
+    await waitFor(() => expect(clearAll).toHaveBeenCalled());
   });
 
   it('renders every user-facing status label', async () => {

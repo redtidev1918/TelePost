@@ -184,11 +184,8 @@ describe('SubmitPage tag UX + preview (tag hint, real media, submitter)', () => 
       const img = screen.getByTestId('preview-media-0').querySelector('img') as HTMLImageElement;
       expect(img).toBeTruthy();
       expect(img.getAttribute('src')).toBe('blob:mock');
-      // Friendly submitter: @username, never the raw ID.
-      expect(screen.getByTestId('preview-submitter').textContent).toContain('@devuser');
-      expect(screen.getByTestId('preview-panel').textContent).toContain('🏷 ボテ腹, R18');
-      // Server caption is rendered from the shared formatter.
-      await waitFor(() => expect(screen.getByTestId('preview-caption').textContent).toContain('投稿人：devuser'));
+      // Server caption is rendered as the real channel HTML, including submitter.
+      await waitFor(() => expect(screen.getByTestId('preview-caption').innerHTML).toContain('投稿人：devuser'));
   });
 
   it('back returns to the form and removed files vanish from the preview', async () => {
