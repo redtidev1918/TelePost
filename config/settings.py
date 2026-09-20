@@ -383,3 +383,13 @@ logger.info(f"  - SEARCH_ENABLED: {SEARCH_ENABLED}")
 logger.info(f"  - SEARCH_ANALYZER: {SEARCH_ANALYZER}")
 logger.info(f"  - SEARCH_HIGHLIGHT: {SEARCH_HIGHLIGHT}")
 logger.info(f"  - DB_CACHE_KB: {DB_CACHE_KB}")
+
+# Public fixed-upstream media proxy for remote delivery sources. Empty keeps the
+# existing behavior: Telegram receives the canonical source URL unchanged.
+MEDIA_PROXY_BASE_URL = os.getenv("MEDIA_PROXY_BASE_URL", "").strip().rstrip("/")
+_MEDIA_PROXY_HOSTS_RAW = os.getenv("MEDIA_PROXY_HOSTS", "").strip()
+MEDIA_PROXY_HOSTS = frozenset(
+    host.strip().lower()
+    for host in _MEDIA_PROXY_HOSTS_RAW.split(",")
+    if host.strip()
+)

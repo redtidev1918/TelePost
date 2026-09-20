@@ -21,9 +21,34 @@ the plan.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional
 
 from ..domain.delivery import MediaItem, MediaKind, RemoteUrl, TelegramFileId
+
+
+
+def _proxied_source_url(url: str) -> str:
+    """Rewrite an allowlisted source URL through the public media proxy.
+
+    Telegram cannot fetch Pixiv CDN directly because the request needs a
+    Pixiv ``Referer``.  The fixed-upstream proxy supplies that header and never
+    acts as an open proxy: if no proxy is configured or the host is not in the
+    exact allowlist, the URL is returned unchanged.
+    """
+    from config.settings import MEDIA_PROXY_BASE_URL, MEDIA_PROXY_HOSTS
+    if not MEDIA_PROXY_BASE_URL or not MEDIA_PROXY_HOSTS:
+        return url
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return url
+    if parsed.scheme not in {"http", "https"} or parsed.hostname not in MEDIA_PROXY_HOSTS:
+        return url
+    path = parsed.path or "/"
+    return f"{MEDIA_PROXY_BASE_URL}/media/{parsed.hostname}{path}" + (
+        f"?{parsed.query}" if parsed.query else ""
+    )
 
 STRATEGY_FILE_ID = "telegram_file_id"
 STRATEGY_REMOTE_URL = "remote_url"
@@ -163,7 +188,7 @@ def plan_review_media(media: List[Dict[str, Any]],
                 kind=MediaKind.PHOTO.value,
                 strategy=STRATEGY_REMOTE_URL,
                 asset_id=asset_id,
-                source_url=source_url,
+                source_url=_proxied_source_url(source_url),
                 mime_type=mime_type,
             ))
 
