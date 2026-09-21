@@ -12,6 +12,7 @@ them (the new application layer never touches ``raw``).
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 from ...domain.delivery import (
@@ -22,7 +23,7 @@ from ...domain.delivery import (
     ReplyMode,
 )
 from . import discussion as discussion_mod
-from .executor import execute_plan
+from .executor import execute_plan, materialize_remote
 from .planner import plan_delivery
 from .preparation import cleanup_prepared, reclassify_oversized
 from .sender import PTBSender, timeout_kwargs
@@ -54,6 +55,27 @@ class PTBTelegramDeliveryGateway:
         items = request.items
         if self._reclassify_photos:
             items = reclassify_oversized(items)
+        materialized_paths: list = []
+        if any(item.is_remote for item in items):
+            materialized_items = []
+            for item in items:
+                if not item.is_remote:
+                    materialized_items.append(item)
+                    continue
+                local_item = await materialize_remote(item)
+                if local_item is None:
+                    for path in materialized_paths:
+                        try:
+                            os.unlink(path)
+                        except OSError:
+                            pass
+                    return DeliveryResult.failed(
+                        "remote media materialization failed",
+                        retryable=True,
+                    )
+                materialized_paths.append(local_item.local_path)
+                materialized_items.append(local_item)
+            items = materialized_items
         try:
             plan = plan_delivery(
                 items,
@@ -65,6 +87,11 @@ class PTBTelegramDeliveryGateway:
             return await execute_plan(plan, sender, caption=request.caption)
         finally:
             cleanup_prepared(items)
+            for path in materialized_paths:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
 
     async def _deliver_discussion(self, request: DeliveryRequest) -> DeliveryResult:
         strategy = self._discussion or discussion_mod.DiscussionStrategy(

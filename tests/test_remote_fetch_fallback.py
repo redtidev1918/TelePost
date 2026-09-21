@@ -7,6 +7,7 @@ import pytest
 
 from telepost.domain.delivery import LocalFile, MediaItem, MediaKind, RemoteUrl
 from telepost.telegram.delivery.executor import (
+    NetworkFailure,
     execute_plan,
     is_remote_fetch_error,
 )
@@ -64,7 +65,7 @@ async def test_remote_fetch_failure_materializes_and_retries(tmp_path):
     sender.send_single.side_effect = send_single
 
     with patch(
-        "telepost.telegram.delivery.executor._materialize_remote",
+        "telepost.telegram.delivery.executor.materialize_remote",
         new=AsyncMock(return_value=local_item),
     ):
         result = await execute_plan(plan, sender, caption="cap")
@@ -85,10 +86,43 @@ async def test_remote_failure_without_materialization_fails_cleanly():
     )
 
     with patch(
-        "telepost.telegram.delivery.executor._materialize_remote",
+        "telepost.telegram.delivery.executor.materialize_remote",
         new=AsyncMock(return_value=None),
     ):
         result = await execute_plan(plan, sender, caption=None)
 
     assert result.state.value == "failed"
     assert "remote media unavailable" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_network_failure_with_url_fetch_marker_falls_back(tmp_path):
+    plan = plan_delivery([_remote_item()])
+    local_path = str(tmp_path / "materialized.png")
+    with open(local_path, "wb") as fh:
+        fh.write(b"png")
+    local_item = MediaItem(
+        MediaKind.PHOTO,
+        LocalFile(local_path, "materialized.png", temporary=True),
+        spoiler=True,
+    )
+    sender = AsyncMock()
+
+    async def send_single(send_item, *, reply_to=None, caption=None):
+        if isinstance(send_item.source, RemoteUrl):
+            raise NetworkFailure(
+                'Failed to send message #7 with the error message '
+                '"webpage_curl_failed"',
+                original=RuntimeError("webpage_curl_failed"),
+            )
+        return _fake_message(0)
+
+    sender.send_single.side_effect = send_single
+    with patch(
+        "telepost.telegram.delivery.executor.materialize_remote",
+        new=AsyncMock(return_value=local_item),
+    ):
+        result = await execute_plan(plan, sender, caption=None)
+
+    assert result.ok
+    assert os.path.exists(local_path) is False

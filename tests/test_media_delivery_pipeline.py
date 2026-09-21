@@ -77,6 +77,8 @@ def _flatten(plan):
     ]
 
 
+
+
 def _fake_message(index):
     return SimpleNamespace(
         message_id=index + 1,
