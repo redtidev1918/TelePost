@@ -41,6 +41,16 @@ def family_of(kind: MediaKind) -> str:
     return ALBUM_FAMILIES.get(kind, kind.value)
 
 
+#: Stable channel order for mixed submissions: visual media first, then
+#: animation/audio, documents last, per operational rule #4.
+_FAMILY_SEND_ORDER = {
+    "visual": 0,
+    "animation": 1,
+    "audio": 2,
+    "document": 3,
+}
+
+
 @dataclass(frozen=True)
 class Batch:
     kind: BatchKind
@@ -90,7 +100,13 @@ def plan_delivery(items: List[MediaItem], *, album_size: int = MEDIA_GROUP_CAPAC
     if album_size < 1:
         raise ValueError("album_size must be >= 1")
     batches: List[Batch] = []
-    for fam, batch_items in _chunk_runs(items, album_size):
+    ordered = sorted(
+        items,
+        key=lambda item: _FAMILY_SEND_ORDER.get(
+            family_of(item.kind), 9
+        ),
+    )
+    for fam, batch_items in _chunk_runs(ordered, album_size):
         if fam in ("visual", "document") and len(batch_items) > 1:
             batches.append(Batch(BatchKind.ALBUM, fam, batch_items))
         else:

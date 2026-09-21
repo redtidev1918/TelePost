@@ -272,7 +272,8 @@ def test_mixed_gallery_keeps_order_and_adds_no_document_split(tmp_path):
     prepared = preparation.reclassify_oversized(items)
     plan = plan_delivery(prepared, album_size=10)
 
-    assert _flatten(plan) == ["g0.jpg", "g1.jpg", "loop.gif", "g2.jpg", "g3.jpg"]
+    # Operational rule #4: visual media leads, animation next, documents last.
+    assert _flatten(plan) == ["g0.jpg", "g1.jpg", "g2.jpg", "g3.jpg", "loop.gif"]
     assert {batch.family for batch in plan.batches} == {"visual", "animation"}
     assert all(
         item.kind is not MediaKind.DOCUMENT

@@ -120,10 +120,11 @@ def test_documents_form_their_own_albums():
     assert all(b.is_album for b in plan.batches)
 
 
-def test_delivery_keeps_the_artwork_order():
+def test_delivery_reorders_visual_media_before_documents():
     items = [_fid("document", 1), _fid("photo", 1), _fid("photo", 2)]
     plan = plan_delivery(items)
-    assert [b.family for b in plan.batches] == ["document", "visual"]
+    # Operational rule #4: images first, files after.
+    assert [b.family for b in plan.batches] == ["visual", "document"]
 
 
 # --------------------------------------------------------------------------

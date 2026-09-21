@@ -38,4 +38,4 @@ init-data-py==1.0.0
 
 # Optional novel preview enrichment: TXT novels get a Telegraph "read online" link.
 # Published to PyPI by the telepress repo; TelePress owns Telegraph rendering/pagination.
-telepress==0.9.0
+telepress==0.14.1
