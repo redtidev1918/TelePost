@@ -4,7 +4,7 @@
 
 **A submission, moderation, and automated publishing platform for Telegram channels.**
 
-📖 Full documentation: <https://redtidev1918.github.io/TelePost/>
+📖 [Full documentation](https://redtidev1918.github.io/TelePost/)
 
 [![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
