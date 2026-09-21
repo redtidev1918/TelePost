@@ -10,6 +10,13 @@
 
 ---
 
+## [2.60.0](https://github.com/redtidev1918/TelePost/compare/v2.59.0...v2.60.0) (2026-09-21)
+
+
+### Features
+
+* **reactions:** add operator history backfill script ([fa64205](https://github.com/redtidev1918/TelePost/commit/fa6420582e7d9965c7abd4dc45b4a8b54769b51d))
+
 ## [2.59.0](https://github.com/redtidev1918/TelePost/compare/v2.58.1...v2.59.0) (2026-09-21)
 
 
