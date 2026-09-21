@@ -66,12 +66,12 @@ telepost.telegram.delivery
 
 ## 讨论组策略
 
-cover 发频道 → 等待频道消息自动转发到关联讨论组（registry 记录
-`(channel_id, msg_id) → (discussion_chat_id, discussion_msg_id)`）→
-其余内容回复锚点发讨论组。确定性失败回滚后重试一次；uncertain
-（超时等）回滚已知消息后直接上抛。转发采集在 **webhook 与 polling 两条
-摄入路径**都注册（webhook 在入队前；polling 用 `TypeHandler` group
-`-1000`）。
+频道 root 发首组图片 + 首组文件（图片在前、文件在后）→ 分别等待两个频道消息自动
+转发到关联讨论组（registry 记录 `(channel_id, msg_id) →
+(discussion_chat_id, discussion_msg_id)`）→ 溢出图片回复图片锚点、溢出文件回复
+文件锚点。确定性失败回滚后重试一次；uncertain（超时等）回滚已知消息后直接上抛。
+转发采集在 **webhook 与 polling 两条摄入路径**都注册（webhook 在入队前；polling 用
+`TypeHandler` group `-1000`）。
 
 ## 适配层契约（不能破坏的 monkeypatch seam）
 
