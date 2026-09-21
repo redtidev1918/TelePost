@@ -144,7 +144,8 @@ class ReviewItem:
     # Minimal delivery asset contract (Step 10): canonical references that do
     # not carry local Telegram file_ids. Empty unless a PixivFlow manifest
     # was submitted.
-    media_assets: List[Dict[str, Any]] = None  # type: ignore[assignment]
+    # Batch 5: canonical MediaAsset objects (wire dicts only at the API edge).
+    media_assets: List[Any] = None  # type: ignore[assignment]
 
     def to_dict(self) -> Dict[str, Any]:
         payload = asdict(self)

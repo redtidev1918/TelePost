@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional
 
 from ..domain.delivery import MediaItem, MediaKind, RemoteUrl, TelegramFileId
+from ..domain.media import DeliveryVariant, MediaAsset
 
 
 
@@ -50,8 +51,8 @@ def _proxied_source_url(url: str) -> str:
         f"?{parsed.query}" if parsed.query else ""
     )
 
-STRATEGY_FILE_ID = "telegram_file_id"
-STRATEGY_REMOTE_URL = "remote_url"
+STRATEGY_FILE_ID = DeliveryVariant.TELEGRAM_FILE_ID
+STRATEGY_REMOTE_URL = DeliveryVariant.REMOTE_URL
 VALID_STRATEGIES = frozenset({STRATEGY_FILE_ID, STRATEGY_REMOTE_URL})
 
 
@@ -137,11 +138,12 @@ def plan_review_media(media: List[Dict[str, Any]],
     ordered and match the Telegram file list order; a mismatch can ONLY fall
     back to ``remote_url`` and never produces a bogus file_id.
     """
+    assets = [MediaAsset.coerce(a) for a in (media_assets or [])]
     media_items = list(media or [])
     document_items = list(documents or [])
     local_items = media_items + document_items
 
-    if not media_assets:
+    if not assets:
         entries: List[MediaPlanEntry] = []
         for index, item in enumerate(local_items):
             file_id = str(item.get("file_id") or "").strip()
@@ -160,16 +162,14 @@ def plan_review_media(media: List[Dict[str, Any]],
         return MediaDeliveryPlan(STRATEGY_FILE_ID if entries else "empty", entries)
 
     entries = []
-    for index, asset in enumerate(media_assets):
-        asset_id = str(asset.get("asset_id") or "").strip()
-        source_url = (str(asset.get("source_url") or "").strip()
-                      or str(asset.get("sourceUrl") or "").strip())
-        mime_type = str(asset.get("mime_type") or "").strip() or None
+    for index, asset in enumerate(assets):
+        asset_id = asset.asset_id
+        source_url = asset.source_url
+        mime_type = asset.mime_type or None
         local = local_items[index] if index < len(local_items) else None
         local_file_id = (str(local.get("file_id") or "").strip()
                          if isinstance(local, dict) else "")
-        cached_file_id = (str(asset.get("file_id") or "").strip()
-                          or str(asset.get("fileId") or "").strip())
+        cached_file_id = asset.file_id
         chosen_file_id = local_file_id or cached_file_id
         if chosen_file_id:
             entries.append(MediaPlanEntry(
@@ -193,7 +193,7 @@ def plan_review_media(media: List[Dict[str, Any]],
             ))
 
     # Leftover local items (e.g. documents) keep their zero-reupload fast path.
-    for index in range(len(media_assets), len(local_items)):
+    for index in range(len(assets), len(local_items)):
         item = local_items[index]
         file_id = str(item.get("file_id") or "").strip()
         if not file_id:

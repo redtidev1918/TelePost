@@ -983,30 +983,18 @@ def _validate_media_assets(payload_assets):
         return None
     if not isinstance(payload_assets, list):
         raise ValueError("media_assets 必须是数组")
-    from telepost.storage.sqlite.media_assets import VALID_KINDS
+    from telepost.domain.media import MediaAsset
     seen: set = set()
     cleaned = []
     for item in payload_assets:
         if not isinstance(item, dict):
             raise ValueError("media_assets 每项必须是对象")
-        asset_id = str(item.get("asset_id") or "").strip()
-        kind = str(item.get("kind") or "image").strip()
-        source_url = str(item.get("source_url") or "").strip()
-        if not asset_id:
-            raise ValueError("media_assets 每项必须包含 asset_id")
-        if kind not in VALID_KINDS:
-            raise ValueError(f"media_assets kind 只支持 {'/'.join(sorted(VALID_KINDS))}")
-        if not source_url.startswith(("http://", "https://")):
-            raise ValueError("media_assets source_url 必须是 http(s) URL")
+        asset = MediaAsset.from_wire(item)
+        asset_id = asset.asset_id
         if asset_id in seen:
             raise ValueError(f"重复的 asset_id: {asset_id}")
         seen.add(asset_id)
-        cleaned.append({
-            "asset_id": asset_id[:200],
-            "kind": kind,
-            "source_url": source_url[:2048],
-            "mime_type": str(item.get("mime_type") or "")[:100],
-        })
+        cleaned.append(asset.to_dict())
     return cleaned
 
 
@@ -1026,6 +1014,7 @@ def _delivery_plan_payload(item):
     """Serializable read-only Step 11 media delivery plan for a review item."""
     from dataclasses import asdict
     from telepost.application.delivery_planner import plan_review_media
+    from telepost.domain.media import MediaAsset
 
     media: list = []
     documents: list = []
@@ -1039,10 +1028,14 @@ def _delivery_plan_payload(item):
             d["type"] = m.kind
             media.append(d)
     plan = plan_review_media(media, item.media_assets or [], documents=documents)
+    wire_assets = [
+        a.to_dict() if isinstance(a, MediaAsset) else a
+        for a in (item.media_assets or [])
+    ]
     return {
         "review_id": item.id,
         "strategy": plan.strategy,
-        "media_assets": item.media_assets or [],
+        "media_assets": wire_assets,
         "entries": [asdict(entry) for entry in plan.entries],
     }
 

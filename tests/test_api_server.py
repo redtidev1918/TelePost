@@ -635,9 +635,9 @@ class TestDeliveryAssetContract:
             # DB landed
             from telepost.storage.sqlite import media_assets as ma
             refs = await ma.list_for_chain("chain-x")
-            assert [r["asset_id"] for r in refs] == ["pixiv-001", "pixiv-002"]
-            assert all(r["kind"] == "image" for r in refs)
-            assert refs[0]["mime_type"] == "image/jpeg"
+            assert [r.asset_id for r in refs] == ["pixiv-001", "pixiv-002"]
+            assert all(r.kind == "image" for r in refs)
+            assert refs[0].mime_type == "image/jpeg"
 
             # Read back through the review API
             monkeypatch.setattr(
@@ -690,7 +690,7 @@ class TestDeliveryAssetContract:
             publish_mock.assert_not_called()
             from telepost.storage.sqlite import media_assets as ma
             refs = await ma.list_for_chain("chain-x")
-            assert [r["asset_id"] for r in refs] == ["pixiv:1:illust:page-1"]
+            assert [r.asset_id for r in refs] == ["pixiv:1:illust:page-1"]
         finally:
             await client.close()
 

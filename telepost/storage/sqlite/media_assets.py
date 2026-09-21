@@ -18,7 +18,10 @@ from typing import Any, Dict, List
 
 from database import db_manager
 
-VALID_KINDS = frozenset({"image"})
+from telepost.domain.media import VALID_KINDS, MediaAsset
+
+__all__ = ["VALID_KINDS", "MediaAsset", "chain_id_for_review", "list_for_chain",
+           "mark_delivered_for_chain", "replace_for_chain"]
 
 
 def _clean(refs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -70,7 +73,7 @@ async def replace_for_chain(review_chain_id: str,
     return len(cleaned)
 
 
-async def list_for_chain(review_chain_id: str) -> List[Dict[str, Any]]:
+async def list_for_chain(review_chain_id: str) -> List[MediaAsset]:
     if not review_chain_id:
         return []
     async with db_manager.get_db() as conn:
@@ -81,17 +84,7 @@ async def list_for_chain(review_chain_id: str) -> List[Dict[str, Any]]:
             (review_chain_id,),
         )
         rows = await cur.fetchall()
-    return [
-        {
-            "asset_id": r["asset_id"],
-            "kind": r["kind"],
-            "source_url": r["source_url"],
-            "mime_type": r["mime_type"],
-            "file_id": r["file_id"] or "",
-            "file_unique_id": r["file_unique_id"] or "",
-        }
-        for r in rows
-    ]
+    return [MediaAsset.from_row(r) for r in rows]
 
 
 async def chain_id_for_review(review_id: int, row=None) -> str:

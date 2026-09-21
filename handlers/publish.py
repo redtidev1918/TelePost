@@ -694,12 +694,14 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
     )
     from telepost.application.delivery_planner import plan_review_media
     from telepost.storage.sqlite.media_assets import mark_delivered_for_chain
+    from telepost.domain.media import MediaAsset
 
     key = idempotency_key.strip()[:240]
     pid = (pixiv_id or _pixiv_id_from_link(link or "")).strip()
+    assets = [MediaAsset.coerce(a) for a in (media_assets or [])]
 
-    if media_assets:
-        plan = plan_review_media(media, media_assets, documents=documents)
+    if assets:
+        plan = plan_review_media(media, assets, documents=documents)
         items = plan.to_media_items(spoiler=spoiler)
     else:
         items = _items_from_dicts([
@@ -751,17 +753,17 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
     outcome = await service.publish(command)
     result = _outcome_to_legacy(outcome, raise_on_failure=True)
     # Step 12/13: record the confirmed Telegram media facts per canonical asset.
-    if media_assets and review_chain_id and not result.get("reused"):
+    if assets and review_chain_id and not result.get("reused"):
         known_messages = result.get("known_messages") or []
         delivered_refs: list = []
-        for index, asset in enumerate(media_assets):
+        for index, asset in enumerate(assets):
             if index >= len(known_messages):
                 break
             msg = known_messages[index]
             if not msg.get("file_id"):
                 continue
             delivered_refs.append({
-                "asset_id": str(asset.get("asset_id") or ""),
+                "asset_id": asset.asset_id,
                 "file_id": msg.get("file_id"),
                 "file_unique_id": msg.get("file_unique_id") or "",
             })
