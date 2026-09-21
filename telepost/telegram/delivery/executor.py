@@ -16,7 +16,12 @@ An album failure that is *not* a network error falls back to one-by-one sends
 """
 from __future__ import annotations
 
+import asyncio
+import logging
+import mimetypes
 import os
+import tempfile
+import urllib.request
 from typing import Callable, List, Optional, Protocol
 
 from ...domain.delivery import (
@@ -25,10 +30,26 @@ from ...domain.delivery import (
     LocalFile,
     MediaItem,
     MediaKind,
+    RemoteUrl,
     ReplyMode,
 )
 from .planner import Batch, DeliveryPlan
-from .preparation import is_photo_constraint_error, retry_photo_derivative
+from .preparation import (
+    PHOTO_MAX_BYTES,
+    is_photo_constraint_error,
+    retry_photo_derivative,
+)
+
+logger = logging.getLogger(__name__)
+
+#: Telegram's own URL fetcher failed to download a remote media source.
+REMOTE_FETCH_ERROR_MARKERS = (
+    "webpage_curl_failed",
+    "failed to fetch",
+    "failed to download",
+    "source url",
+    "url_fetch",
+)
 
 
 class NetworkFailure(Exception):
@@ -57,6 +78,69 @@ class Sender(Protocol):
 
 
 OnSent = Callable[[List[DeliveredMessage]], None]
+
+
+def is_remote_fetch_error(error: object) -> bool:
+    """True when Telegram itself could not fetch an external media URL."""
+    text = str(error or "").lower()
+    return any(marker in text for marker in REMOTE_FETCH_ERROR_MARKERS)
+
+
+def _download_remote(url: str, max_bytes: int = PHOTO_MAX_BYTES) -> str:
+    """Stream one remote media source to a bounded temp file.
+
+    Runs in a worker thread (blocking urllib I/O); Telegram's User-Agent is
+    deliberately reused so proxy/CDN policy treats TelePost like Telegram.
+    """
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "TelegramBot-LinkPreview/0.1"},
+    )
+    with urllib.request.urlopen(req, timeout=60) as response:
+        content_type = (response.headers.get("content-type") or "").split(";")[0].strip()
+        if content_type and not content_type.startswith(
+            ("image/", "video/", "audio/", "application/")
+        ):
+            raise ValueError(f"remote media has unsupported type {content_type!r}: {url[:120]}")
+        suffix = mimetypes.guess_extension(content_type) or ".bin"
+        fd, path = tempfile.mkstemp(prefix="tp-remote-", suffix=suffix)
+        total = 0
+        try:
+            with os.fdopen(fd, "wb") as out:
+                while True:
+                    chunk = response.read(65536)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise ValueError(
+                            f"remote media exceeds {max_bytes} bytes: {url[:120]}"
+                        )
+                    out.write(chunk)
+        except Exception:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            raise
+    return path
+
+
+async def _materialize_remote(item: MediaItem) -> Optional[MediaItem]:
+    """Turn one RemoteUrl item into a bounded temporary LocalFile."""
+    if not item.is_remote:
+        return item
+    try:
+        path = await asyncio.to_thread(_download_remote, str(item.source.url))
+    except Exception as exc:  # noqa: BLE001 - bounded remote fallback must fail the item cleanly
+        logger.warning("remote media materialization failed: %s", exc)
+        return None
+    name = getattr(item.source, "filename", None) or os.path.basename(item.source.url) or "remote"
+    return MediaItem(
+        item.kind,
+        LocalFile(path, name, temporary=True),
+        item.spoiler,
+    )
 
 
 async def _recover_rejected_photo(sender: "Sender", item, *,
@@ -101,6 +185,30 @@ async def _recover_rejected_photo(sender: "Sender", item, *,
             os.unlink(derivative)
         except OSError:
             pass
+
+
+async def _send_with_remote_fallback(
+    sender: "Sender",
+    item: MediaItem,
+    *,
+    reply_to: Optional[int],
+    caption: Optional[str],
+) -> Optional[DeliveredMessage]:
+    """One bounded remote→local retry when Telegram cannot fetch a URL."""
+    materialized = await _materialize_remote(item)
+    if materialized is None:
+        return None
+    try:
+        return await sender.send_single(
+            materialized, reply_to=reply_to, caption=caption
+        )
+    finally:
+        path = materialized.local_path
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
 
 
 async def execute_plan(
@@ -201,6 +309,18 @@ async def execute_plan(
                     if recovered is not None:
                         messages.append(recovered)
                         continue
+                    if item.is_remote and is_remote_fetch_error(exc):
+                        remote_fallback = await _send_with_remote_fallback(
+                            sender, item, reply_to=item_reply, caption=item_caption
+                        )
+                        if remote_fallback is not None:
+                            messages.append(remote_fallback)
+                            continue
+                        return DeliveryResult.failed(
+                            f"remote media unavailable: {exc}",
+                            retryable=True,
+                            known_messages=sent + messages,
+                        )
                     # Certain failure with known landed messages; the caller
                     # decides rollback/retry without guessing delivery state.
                     return DeliveryResult.failed(

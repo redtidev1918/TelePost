@@ -105,6 +105,10 @@ class MediaItem:
     def is_file_id(self) -> bool:
         return isinstance(self.source, TelegramFileId)
 
+    @property
+    def is_remote(self) -> bool:
+        return isinstance(self.source, RemoteUrl)
+
 
 @dataclass
 class DeliveryRequest:
