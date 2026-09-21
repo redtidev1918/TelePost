@@ -10,6 +10,13 @@
 
 ---
 
+## [2.62.1](https://github.com/redtidev1918/TelePost/compare/v2.62.0...v2.62.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* **preview:** regenerate legacy rich-marked text-only pages ([3528297](https://github.com/redtidev1918/TelePost/commit/35282975f3e05d2bb18cb955d9240eebe11e83e5))
+
 ## [2.62.0](https://github.com/redtidev1918/TelePost/compare/v2.61.1...v2.62.0) (2026-09-21)
 
 
