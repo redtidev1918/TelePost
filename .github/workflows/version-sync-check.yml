@@ -1,0 +1,17 @@
+name: Version sync check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  telepress:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check telepress pin matches TelePress service
+        run: python3 scripts/verify_telepress_version_sync.py
