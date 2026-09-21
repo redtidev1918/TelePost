@@ -13,7 +13,7 @@
 
 用户可以通过 Telegram 聊天或 Mini App 投稿，管理员可以集中审核和管理内容；
 外部程序也可以通过 HTTP API 自动投递。所有入口共用同一套投稿、审核、搜索、发布和状态管理流程。
-TelePost 可以独立运行，不要求 PixivFlow、Fly.io、Mini App 或多 Bot。
+TelePost 只依赖 Telegram：Bot 和目标频道齐了就能发布。Mini App、HTTP API、部署平台和多 Bot 都是可选集成，各有单独文档。
 
 ## 目录
 
