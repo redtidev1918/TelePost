@@ -14,6 +14,8 @@ beyond that bound.
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from typing import Optional, Protocol
 
 from ..domain.novel_preview import (
@@ -64,7 +66,34 @@ class TelePressNovelPreviewPublisher(NovelPreviewPublisher):
         return self._client
 
     def _publish_sync(self, snapshot: NovelSnapshot) -> str:
-        return self._publisher().publish_text(snapshot.content, snapshot.title)
+        publisher = self._publisher()
+        if snapshot.rich_content and snapshot.media_manifest:
+            rich = getattr(publisher, "publish_rich_markdown", None)
+            if callable(rich):
+                fd, path = tempfile.mkstemp(
+                    suffix=".md", prefix="telepress-rich-"
+                )
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                        handle.write(snapshot.rich_content)
+                    result = rich(
+                        path,
+                        snapshot.title,
+                        manifest=list(snapshot.media_manifest),
+                    )
+                    if isinstance(result, dict):
+                        return str(result.get("url") or "")
+                    return str(result or "")
+                finally:
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
+            logger.warning(
+                "installed telepress lacks publish_rich_markdown; "
+                "falling back to text-only preview"
+            )
+        return publisher.publish_text(snapshot.content, snapshot.title)
 
     async def publish_preview(self, snapshot: NovelSnapshot) -> PreviewResult:
         import asyncio
