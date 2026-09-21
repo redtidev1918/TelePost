@@ -10,6 +10,13 @@
 
 ---
 
+## [2.61.1](https://github.com/redtidev1918/TelePost/compare/v2.61.0...v2.61.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* **delivery:** materialize remote media before Telegram album send ([c764f0c](https://github.com/redtidev1918/TelePost/commit/c764f0c0e59d13d2d1535d9f0a994ee83a3d65d5))
+
 ## [2.61.0](https://github.com/redtidev1918/TelePost/compare/v2.60.1...v2.61.0) (2026-09-21)
 
 
