@@ -10,6 +10,13 @@
 
 ---
 
+## [2.58.1](https://github.com/redtidev1918/TelePost/compare/v2.58.0...v2.58.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* **media:** align documents to trailing novel assets ([#225](https://github.com/redtidev1918/TelePost/issues/225)) ([9b1044d](https://github.com/redtidev1918/TelePost/commit/9b1044d51a3f09f57e9de30734384e95d6f04f61))
+
 ## [2.58.0](https://github.com/redtidev1918/TelePost/compare/v2.57.1...v2.58.0) (2026-09-21)
 
 
