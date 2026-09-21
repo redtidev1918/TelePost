@@ -10,6 +10,13 @@
 
 ---
 
+## [2.62.2](https://github.com/redtidev1918/TelePost/compare/v2.62.1...v2.62.2) (2026-09-21)
+
+
+### Bug Fixes
+
+* **delivery:** route discussion publishing through shared strategy ([d82d0f9](https://github.com/redtidev1918/TelePost/commit/d82d0f9cb3b6a8723725173596f9c1607de75e35))
+
 ## [2.62.1](https://github.com/redtidev1918/TelePost/compare/v2.62.0...v2.62.1) (2026-09-21)
 
 
