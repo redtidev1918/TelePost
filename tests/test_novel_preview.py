@@ -20,7 +20,11 @@ import asyncio
 import pytest
 
 from database import db_manager
-from telepost.application.novel_preview import NovelPreviewEnricher
+from telepost.application.novel_preview import (
+    NovelPreviewEnricher,
+    _attach_review_media_assets,
+    build_rich_snapshot,
+)
 from telepost.application.publication import PublicationService, PublishCommand
 from telepost.domain.delivery import (
     DeliveryRequest,
@@ -42,12 +46,45 @@ from telepost.storage.sqlite.novel_preview import (
     PublicationPreviewRepository,
     preview_key,
 )
+from telepost.storage.sqlite.media_assets import replace_for_chain
 from utils.helper_functions import build_caption
 
 PREVIEW_URL = "https://telegra.ph/novel-preview-01-01"
 
 
 # ---- fakes ---------------------------------------------------------------
+
+def test_build_rich_snapshot_rewrites_markers_and_keeps_manifest_order():
+    snapshot = NovelSnapshot(
+        title="标题",
+        content="前[uploadedimage:25729636]后[uploadedimage:25729643]尾",
+    )
+    rich = build_rich_snapshot(snapshot, [
+        {"asset_id": "pixiv:1:uploadedimage:25729636",
+         "source_url": "https://i.pximg.net/a.png"},
+        {"asset_id": "pixiv:1:uploadedimage:25729643",
+         "source_url": "https://i.pximg.net/b.jpg"},
+        {"asset_id": "pixiv:1:uploadedimage:25729699",
+         "source_url": "https://i.pximg.net/missing.png"},
+    ])
+    assert rich.rich_content == "前![](images/25729636.png)后![](images/25729643.jpg)尾"
+    assert rich.media_manifest == (
+        {"local": "images/25729636.png",
+         "sourceUrl": "https://i.pximg.net/a.png",
+         "assetId": "pixiv:1:uploadedimage:25729636"},
+        {"local": "images/25729643.jpg",
+         "sourceUrl": "https://i.pximg.net/b.jpg",
+         "assetId": "pixiv:1:uploadedimage:25729643"},
+    )
+
+
+def test_build_rich_snapshot_without_matching_markers_stays_text_only():
+    snapshot = NovelSnapshot(title="t", content="纯文本")
+    rich = build_rich_snapshot(snapshot, [
+        {"asset_id": "pixiv:1:uploadedimage:99",
+         "source_url": "https://i.pximg.net/x.png"},
+    ])
+    assert rich is snapshot
 
 class FakeProvider:
     """Records every preview request; can fail, raise or stall on demand."""
@@ -573,6 +610,125 @@ def test_telepress_provider_calls_official_library_api():
 
     assert result.succeeded and result.url == "https://telegra.ph/Novel-01-01"
     assert fake.calls == [("正文", "标题")]
+
+
+def test_telepress_provider_publishes_rich_markdown_with_manifest():
+    from telepost.application.telepress_provider import (
+        TelePressNovelPreviewPublisher,
+    )
+
+    class RichFake:
+        def __init__(self):
+            self.calls = []
+
+        def publish_rich_markdown(self, path, title, manifest=None):
+            with open(path, encoding="utf-8") as handle:
+                content = handle.read()
+            self.calls.append((content, title, manifest))
+            return {"url": "https://telegra.ph/rich-novel-01", "assets": []}
+
+    fake = RichFake()
+    provider = TelePressNovelPreviewPublisher(
+        "telegraph-token", client_factory=lambda token: fake)
+    snapshot = NovelSnapshot(
+        title="标题",
+        content="raw",
+        rich_content="![](images/25729636.png)",
+        media_manifest=(
+            {"local": "images/25729636.png",
+             "sourceUrl": "https://i.pximg.net/a.png",
+             "assetId": "pixiv:1:uploadedimage:25729636"},
+        ),
+    )
+
+    result = asyncio.run(provider.publish_preview(snapshot))
+
+    assert result.succeeded and result.url == "https://telegra.ph/rich-novel-01"
+    assert fake.calls[0][0] == "![](images/25729636.png)"
+    assert fake.calls[0][2] == [snapshot.media_manifest[0]]
+
+
+def test_enricher_attaches_review_media_assets_to_snapshot(db):
+    import time
+    async def setup():
+        async with db_manager.get_db() as conn:
+            await conn.execute(
+                """
+                INSERT INTO pending_reviews
+                  (id, idempotency_key, source, status, user_id, username,
+                   title, tags, note, link, anonymous, spoiler, media_json,
+                   documents_json, review_chat_id, review_message_ids,
+                   control_message_id, created_at, updated_at,
+                   target_id, source_label, source_ref, scheduled_at,
+                   review_chain_id)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (92, "k", "api", "pending", 0, "", "t", "", "", "", 0, 0,
+                 "[]", "[]", "-100x", "[]", None, time.time(), time.time(),
+                 "", "", "", "", "chain-92"),
+            )
+        await replace_for_chain("chain-92", [
+            {"asset_id": "pixiv:1:uploadedimage:11", "kind": "image",
+             "source_url": "https://i.pximg.net/11.png"},
+        ])
+        snapshot = await _attach_review_media_assets(
+            NovelSnapshot(title="t", content="图[uploadedimage:11]"),
+            "publication:review:92:api:x:novel-preview",
+        )
+        return snapshot
+    snapshot = asyncio.run(setup())
+    assert snapshot.rich_content == "图![](images/11.png)"
+    assert snapshot.media_manifest == (
+        {"local": "images/11.png",
+         "sourceUrl": "https://i.pximg.net/11.png",
+         "assetId": "pixiv:1:uploadedimage:11"},
+    )
+
+
+def test_enricher_upgrades_legacy_text_only_preview_to_rich_form(db, tmp_path):
+    import time
+    async def setup():
+        async with db_manager.get_db() as conn:
+            await conn.execute(
+                """
+                INSERT INTO pending_reviews
+                  (id, idempotency_key, source, status, user_id, username,
+                   title, tags, note, link, anonymous, spoiler, media_json,
+                   documents_json, review_chat_id, review_message_ids,
+                   control_message_id, created_at, updated_at,
+                   target_id, source_label, source_ref, scheduled_at,
+                   review_chain_id)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (92, "k", "api", "pending", 0, "", "t", "", "", "", 0, 0,
+                 "[]", "[]", "-100x", "[]", None, time.time(), time.time(),
+                 "", "", "", "", "chain-92"),
+            )
+        await replace_for_chain("chain-92", [
+            {"asset_id": "pixiv:1:uploadedimage:11", "kind": "image",
+             "source_url": "https://i.pximg.net/11.png"},
+        ])
+        await db.upsert(
+            "review:92:api:x",
+            provider="telepress",
+            status=PreviewStatus.SUCCEEDED.value,
+            url="https://telegra.ph/text-only",
+            title="",
+        )
+        txt = _txt_file(tmp_path, body="图[uploadedimage:11]")
+        provider = FakeProvider(url="https://telegra.ph/rich-92")
+        enricher = _enricher(provider, repo=db)
+        result = await enricher.enrich(
+            publication_key="review:92:api:x",
+            title="t",
+            items=[_document_item(path=txt)],
+        )
+        record = await db.find("review:92:api:x")
+        return provider, result, record
+    provider, result, record = asyncio.run(setup())
+    assert result.succeeded and result.url == "https://telegra.ph/rich-92"
+    assert provider.calls == 1
+    assert record.title == "rich"
 
 
 def test_telepress_provider_wraps_library_failures():

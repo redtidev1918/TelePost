@@ -79,6 +79,10 @@ class NovelSnapshot:
 
     title: str
     content: str
+    #: Optional rich-novel form: markdown with ``![](images/<id>.<ext>)`` refs
+    #: plus the matching Delivery Asset Contract manifest (asset_id/source_url).
+    rich_content: str = ""
+    media_manifest: tuple = ()
 
 
 class NovelPreviewPublisher(Protocol):

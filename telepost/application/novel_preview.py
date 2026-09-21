@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from typing import Iterable, Optional
 
 from ..domain.delivery import MediaItem
@@ -39,6 +40,85 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PREVIEW_TIMEOUT_SECONDS = 15.0
 DEFAULT_PREVIEW_MAX_BYTES = 4 * 1024 * 1024
+_REVIEW_KEY_RE = re.compile(r"(?:publication:)?review:(\d+):")
+_URL_EXT_RE = re.compile(r"\.(jpg|jpeg|png|gif|webp)$", re.IGNORECASE)
+
+
+def _asset_extension(source_url: str) -> str:
+    match = _URL_EXT_RE.search(str(source_url))
+    return match.group(1).lower() if match else "jpg"
+
+
+def build_rich_snapshot(snapshot: NovelSnapshot,
+                        media_assets: Iterable[dict]) -> NovelSnapshot:
+    """Turn a raw TXT snapshot into rich markdown + Delivery Asset manifest.
+
+    ``[uploadedimage:<id>]`` / ``[pixivimage:<id>]`` markers that have a
+    canonical ``media_asset_refs`` row are rewritten to relative
+    ``![](images/<id>.<ext>)`` refs; the matching manifest lets TelePress
+    rewrite them to the media proxy without uploading to any image host.
+    Markers without a ref stay untouched (the page still publishes).
+    """
+    content = str(snapshot.content)
+    manifest: list = []
+    for asset in media_assets or []:
+        asset_id = str(asset.get("asset_id") or "").strip()
+        source_url = str(asset.get("source_url") or "").strip()
+        if not asset_id or not source_url.startswith(("http://", "https://")):
+            continue
+        source_id = str(asset_id).rsplit(":", 1)[-1]
+        if not source_id:
+            continue
+        local = f"images/{source_id}.{_asset_extension(source_url)}"
+        replaced = False
+        for marker in (f"[uploadedimage:{source_id}]",
+                       f"[pixivimage:{source_id}]"):
+            if marker in content:
+                content = content.replace(marker, f"![]({local})")
+                replaced = True
+        if replaced:
+            manifest.append({
+                "local": local,
+                "sourceUrl": source_url,
+                "assetId": asset_id,
+            })
+    if not manifest:
+        return snapshot
+    return NovelSnapshot(
+        title=snapshot.title,
+        content=snapshot.content,
+        rich_content=content,
+        media_manifest=tuple(manifest),
+    )
+
+
+async def _attach_review_media_assets(
+    snapshot: NovelSnapshot,
+    publication_key: str,
+) -> NovelSnapshot:
+    """Attach canonical media refs from the owning review chain when available."""
+    match = _REVIEW_KEY_RE.search(str(publication_key))
+    if not match:
+        return snapshot
+    try:
+        from telepost.storage.sqlite.media_assets import (
+            chain_id_for_review,
+            list_for_chain,
+        )
+        review_id = int(match.group(1))
+        chain_id = await chain_id_for_review(review_id)
+        if not chain_id:
+            return snapshot
+        assets = await list_for_chain(chain_id)
+        if not assets:
+            return snapshot
+        return build_rich_snapshot(
+            snapshot,
+            [asset.to_dict() for asset in assets],
+        )
+    except Exception:  # preview is an enrichment; DB hiccups never break publish
+        logger.warning("rich novel preview media lookup failed", exc_info=True)
+        return snapshot
 
 
 def _status_of(value: str) -> PreviewStatus:
@@ -80,15 +160,6 @@ class NovelPreviewEnricher:
             # idempotent, so it is not attempted at all.
             return PreviewResult(PreviewStatus.NOT_APPLICABLE)
 
-        existing = await self._repo.find(key)
-        if existing is not None:
-            # A recorded outcome is terminal for this publication: a retry of
-            # the same publication reuses it instead of calling the provider
-            # again (never a second Telegraph page for the same publication).
-            if existing.status == PreviewStatus.SUCCEEDED.value and existing.url:
-                return PreviewResult(PreviewStatus.SUCCEEDED, url=existing.url)
-            return PreviewResult(_status_of(existing.status), reason="reused_record")
-
         document = first_novel_txt(items)
         if document is None:
             return PreviewResult(PreviewStatus.NOT_APPLICABLE)
@@ -107,9 +178,39 @@ class NovelPreviewEnricher:
             title=str(title or "").strip() or fallback_title(document),
             content=content,
         )
+        snapshot = await _attach_review_media_assets(snapshot, key)
+        if snapshot.media_manifest:
+            logger.info(
+                "novel preview rich media attached: assets=%s",
+                len(snapshot.media_manifest),
+            )
+
+        existing = await self._repo.find(key)
+        if existing is not None:
+            # A recorded outcome is terminal for this publication: a retry of
+            # the same publication reuses it instead of calling the provider
+            # again (never a second Telegraph page for the same publication).
+            # Exception: a legacy text-only page may be upgraded when the same
+            # publication now resolves canonical media refs for the first time.
+            if existing.status == PreviewStatus.SUCCEEDED.value and existing.url:
+                if existing.title == "rich" or not snapshot.media_manifest:
+                    return PreviewResult(PreviewStatus.SUCCEEDED, url=existing.url)
+                logger.info(
+                    "upgrading legacy text-only preview to rich form: %s",
+                    key[:80],
+                )
+            else:
+                return PreviewResult(
+                    _status_of(existing.status), reason="reused_record"
+                )
+
         result = await self._publish_bounded(snapshot)
         logger.info("novel preview for publication %s: %s", key[:80], result.status.value)
-        return await self._record(key, result)
+        return await self._record(
+            key,
+            result,
+            rich=bool(snapshot.media_manifest),
+        )
 
     async def _publish_bounded(self, snapshot: NovelSnapshot) -> PreviewResult:
         try:
@@ -126,14 +227,15 @@ class NovelPreviewEnricher:
             return PreviewResult(PreviewStatus.FAILED, reason="invalid_result")
         return result
 
-    async def _record(self, key: str, result: PreviewResult) -> PreviewResult:
+    async def _record(self, key: str, result: PreviewResult,
+                      *, rich: bool = False) -> PreviewResult:
         try:
             await self._repo.upsert(
                 key,
                 provider="telepress",
                 status=result.status.value,
                 url=result.url if result.succeeded else "",
-                title="",
+                title="rich" if rich else "",
             )
         except Exception as exc:  # a bookkeeping failure is still not a publication failure
             logger.warning("novel preview record failed: %s", type(exc).__name__)
