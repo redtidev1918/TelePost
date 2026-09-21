@@ -166,7 +166,36 @@ def plan_review_media(media: List[Dict[str, Any]],
         asset_id = asset.asset_id
         source_url = asset.source_url
         mime_type = asset.mime_type or None
-        local = local_items[index] if index < len(local_items) else None
+        # Canonical assets pair media files from the front and documents from
+        # the back when they outnumber local files. This handles asset-only
+        # novel payloads, where a single TXT must never consume the first cover
+        # asset's remote slot. Equal-length payloads keep the documented
+        # positional order.
+        if len(assets) > len(local_items):
+            document_offset = len(assets) - len(document_items)
+            if index < len(media_items):
+                local = media_items[index]
+            elif index >= document_offset:
+                local = document_items[index - document_offset]
+            else:
+                local = None
+        else:
+            local = local_items[index] if index < len(local_items) else None
+        # The indexed local item is authoritative for presentation: a Telegram
+        # TXT document must never be sent as a photo, even though the matching
+        # canonical asset ref is kind=image (novel covers + TXT document case).
+        local_kind = (
+            str(local.get("type") or local.get("kind") or "")
+            .strip().lower().replace("-", "_")
+            if isinstance(local, dict) else ""
+        )
+        is_document = local_kind in ("document", "file") or (
+            len(assets) > len(local_items) and index >= document_offset
+        )
+        if is_document:
+            kind = MediaKind.DOCUMENT.value
+        else:
+            kind = MediaKind.PHOTO.value
         local_file_id = (str(local.get("file_id") or "").strip()
                          if isinstance(local, dict) else "")
         cached_file_id = asset.file_id
@@ -174,7 +203,7 @@ def plan_review_media(media: List[Dict[str, Any]],
         if chosen_file_id:
             entries.append(MediaPlanEntry(
                 index=index,
-                kind=MediaKind.PHOTO.value,
+                kind=kind,
                 strategy=STRATEGY_FILE_ID,
                 asset_id=asset_id,
                 file_id=chosen_file_id,
@@ -185,7 +214,7 @@ def plan_review_media(media: List[Dict[str, Any]],
         else:
             entries.append(MediaPlanEntry(
                 index=index,
-                kind=MediaKind.PHOTO.value,
+                kind=kind,
                 strategy=STRATEGY_REMOTE_URL,
                 asset_id=asset_id,
                 source_url=_proxied_source_url(source_url),
