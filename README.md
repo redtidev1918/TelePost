@@ -4,7 +4,7 @@
 
 > **Telegram 频道投稿、审核与自动化发布平台。**
 
-📖 [完整文档](https://redtidev1918.github.io/TelePost/)
+[完整文档](https://redtidev1918.github.io/TelePost/)
 
 [![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -14,6 +14,20 @@
 用户可以通过 Telegram 聊天或 Mini App 投稿，管理员可以集中审核和管理内容；
 外部程序也可以通过 HTTP API 自动投递。所有入口共用同一套投稿、审核、搜索、发布和状态管理流程。
 TelePost 可以独立运行，不要求 PixivFlow、Fly.io、Mini App 或多 Bot。
+
+## 目录
+
+- [适合什么场景](#适合什么场景)
+- [30 秒开始](#30-秒开始)
+- [核心能力](#核心能力)
+- [Telegram Mini App](#telegram-mini-app)
+- [HTTP API 与自动化](#http-api-与自动化)
+- [运行与部署](#运行与部署)
+- [面向长期运行](#面向长期运行)
+- [文档](#文档)
+- [相关项目](#相关项目)
+- [致谢](#致谢)
+- [贡献与许可](#贡献与许可)
 
 ## 适合什么场景
 
