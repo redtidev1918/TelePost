@@ -93,3 +93,4 @@ async def test_direct_publish_idempotent_replay_then_historical_duplicate(monkey
     completed = next(e for e in events if e["event"] == "publish.completed")
     assert completed["pixiv_id"] == "55"
     assert completed["idempotency_key"].endswith(":slot-a:t1")
+    assert audit_detail(completed)["media_delivery_strategy"] == "telegram_file_id"
