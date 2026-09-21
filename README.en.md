@@ -2,7 +2,7 @@
 
 **Language / 语言:** [中文](README.md) · English
 
-**A submission, moderation, and automated publishing platform for Telegram channels.**
+> **A submission, moderation, and automated publishing platform for Telegram channels.**
 
 📖 [Full documentation](https://redtidev1918.github.io/TelePost/)
 

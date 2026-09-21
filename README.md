@@ -2,7 +2,7 @@
 
 **语言 / Language:** 中文 · [English](README.en.md)
 
-**Telegram 频道投稿、审核与自动化发布平台。**
+> **Telegram 频道投稿、审核与自动化发布平台。**
 
 📖 [完整文档](https://redtidev1918.github.io/TelePost/)
 
