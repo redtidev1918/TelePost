@@ -53,7 +53,7 @@ chmod +x telepost-linux-x64
 Docker and source installs are also available. See [Install and deployment](docs/INSTALL.md) for downloads,
 platform-specific setup, and upgrades.
 
-## Core capabilities
+## Features
 
 - **Submission and publishing:** images, video, audio, and files, with preview, editing, tags, anonymity, and spoilers.
 - **Source-trust-based moderation:** native Chat submissions publish directly by default (opt-in review via `CHAT_REVIEW_REQUIRED`); API/automation submissions always enter the review queue; Mini App review is controlled independently by `MINIAPP_REVIEW_REQUIRED`. Reviewers can edit before publishing; the original submission stays untouched — see [Editorial revision](docs/CONFIGURATION.md).
