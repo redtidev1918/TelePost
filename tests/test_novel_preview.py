@@ -733,7 +733,7 @@ def test_enricher_upgrades_legacy_text_only_preview_to_rich_form(db, tmp_path):
     provider, result, record = asyncio.run(setup())
     assert result.succeeded and result.url == "https://telegra.ph/rich-92"
     assert provider.calls == 1
-    assert record.title == "rich"
+    assert record.title == "rich-v2"
 
 
 def test_telepress_provider_wraps_library_failures():

@@ -42,6 +42,7 @@ DEFAULT_PREVIEW_TIMEOUT_SECONDS = 15.0
 DEFAULT_PREVIEW_MAX_BYTES = 4 * 1024 * 1024
 _REVIEW_KEY_RE = re.compile(r"(?:publication:)?review:(\d+):")
 _URL_EXT_RE = re.compile(r"\.(jpg|jpeg|png|gif|webp)$", re.IGNORECASE)
+_RICH_PREVIEW_TITLE = "rich-v2"
 
 
 def _asset_extension(source_url: str) -> str:
@@ -193,7 +194,10 @@ class NovelPreviewEnricher:
             # Exception: a legacy text-only page may be upgraded when the same
             # publication now resolves canonical media refs for the first time.
             if existing.status == PreviewStatus.SUCCEEDED.value and existing.url:
-                if existing.title == "rich" or not snapshot.media_manifest:
+                if (
+                    existing.title == _RICH_PREVIEW_TITLE
+                    or not snapshot.media_manifest
+                ):
                     return PreviewResult(PreviewStatus.SUCCEEDED, url=existing.url)
                 logger.info(
                     "upgrading legacy text-only preview to rich form: %s",
@@ -233,7 +237,7 @@ class NovelPreviewEnricher:
                 provider="telepress",
                 status=result.status.value,
                 url=result.url if result.succeeded else "",
-                title="rich" if result.rich else "",
+                title=_RICH_PREVIEW_TITLE if result.rich else "",
             )
         except Exception as exc:  # a bookkeeping failure is still not a publication failure
             logger.warning("novel preview record failed: %s", type(exc).__name__)
