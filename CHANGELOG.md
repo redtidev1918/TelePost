@@ -10,6 +10,13 @@
 
 ---
 
+## [2.60.1](https://github.com/redtidev1918/TelePost/compare/v2.60.0...v2.60.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* **delivery:** fall back to local upload when Telegram cannot fetch remote media ([2814b27](https://github.com/redtidev1918/TelePost/commit/2814b271364926a4900ec68a6ecc31fde654cc5d))
+
 ## [2.60.0](https://github.com/redtidev1918/TelePost/compare/v2.59.0...v2.60.0) (2026-09-21)
 
 
