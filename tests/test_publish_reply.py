@@ -164,6 +164,39 @@ async def test_discussion_mode_at_capacity_needs_no_overflow_anchor(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_discussion_mixed_media_splits_image_and_file_threads(monkeypatch):
+    bot = AsyncMock()
+    bot.get_chat.return_value = SimpleNamespace(id=-1001, linked_chat_id=-1002)
+    bot.send_media_group.side_effect = [
+        [_Msg(i, -1001) for i in range(1, 11)],   # channel visual root
+        [_Msg(i, -1001) for i in range(11, 14)],  # channel file root (3 docs)
+    ]
+    bot.send_photo.return_value = _Msg(14, -1002)     # discussion image overflow
+    waiter = AsyncMock(side_effect=[(-1002, 77), (-1002, 88)])
+    monkeypatch.setattr(publish, "_wait_for_discussion_forward", waiter)
+
+    items = (
+        [{"kind": "photo", "file_id": f"p{i}"} for i in range(11)] +
+        [{"kind": "document", "file_id": f"d{i}", "filename": f"{i}.txt"}
+         for i in range(3)]
+    )
+    sent, main = await publish.deliver_items_to_chat(
+        bot, -1001, items,
+        caption="caption", timeout_kwargs={}, reply_mode="discussion",
+    )
+
+    channel_ids = publish._channel_message_ids(sent, main)
+    assert channel_ids == list(range(1, 14))  # 10 images + 3 files on channel
+    assert bot.send_photo.await_args.kwargs["chat_id"] == -1002
+    assert bot.send_photo.await_args.kwargs["reply_to_message_id"] == 77
+    root_docs = bot.send_media_group.await_args_list[1].kwargs
+    assert root_docs["chat_id"] == -1001
+    assert root_docs["reply_to_message_id"] == 10
+    assert waiter.await_args_list[0].args == (-1001, 10)
+    assert waiter.await_args_list[1].args == (-1001, 13)
+
+
+@pytest.mark.asyncio
 async def test_discussion_forward_is_correlated_before_update_queue_runs():
     publish._discussion_forwards.clear()
     message = SimpleNamespace(

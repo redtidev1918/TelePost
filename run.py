@@ -339,6 +339,24 @@ def bot_indices(env) -> list:
     return indices
 
 
+def _telepress_runtime() -> dict:
+    """Installed telepress version + rich-markdown capability for observability."""
+    try:
+        import telepress
+        from telepress.core import TelegraphPublisher
+        return {
+            "telepress_version": str(getattr(telepress, "__version__", "unknown")),
+            "telepress_rich_markdown": callable(
+                getattr(TelegraphPublisher, "publish_rich_markdown", None)
+            ),
+        }
+    except Exception:
+        return {
+            "telepress_version": "not_installed",
+            "telepress_rich_markdown": False,
+        }
+
+
 def build_bot_env(index: int, base: dict) -> dict:
     """
     为第 index 个 bot 构建子进程环境：
@@ -457,7 +475,12 @@ def build_router_app(indices: list):
 
     async def health(request):
         from telepost.build_info import release_info
-        payload = {"status": "ok", "bots": indices, **release_info()}
+        payload = {
+            "status": "ok",
+            "bots": indices,
+            **release_info(),
+            **_telepress_runtime(),
+        }
         try:
             import psutil
             procs = _process_rss_snapshot()
@@ -494,6 +517,7 @@ def build_router_app(indices: list):
             except Exception:
                 payload["reaction_ingest_by_bot"][str(index)] = None
         return web.json_response(payload)
+
 
     async def version(_request):
         from telepost.build_info import release_info
