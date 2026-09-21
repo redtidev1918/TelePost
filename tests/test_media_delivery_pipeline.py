@@ -26,6 +26,7 @@ import pytest
 from PIL import Image
 
 from telepost.domain.delivery import DeliveredMessage, LocalFile, MediaItem, MediaKind
+from telepost.application.delivery_planner import plan_review_media
 from telepost.telegram.delivery import preparation
 from telepost.telegram.delivery.planner import BatchKind, plan_delivery
 
@@ -277,6 +278,40 @@ def test_mixed_gallery_keeps_order_and_adds_no_document_split(tmp_path):
     )
     families = [batch.family for batch in plan.batches]
     assert families.count("animation") == 1, "the animation stays standalone"
+
+
+@pytest.mark.unit
+def test_novel_cover_assets_and_txt_never_mix_album_families():
+    """A 25-cover + 1-TXT novel plan must keep Telegram albums homogeneous."""
+    assets = [
+        {
+            "asset_id": f"pixiv:1:page-{index}",
+            "kind": "image",
+            "source_url": f"https://i.pximg.net/img-original/{index}.png",
+        }
+        for index in range(25)
+    ]
+    assets.append({
+        "asset_id": "pixiv:1:text",
+        "kind": "image",
+        "source_url": "https://i.pximg.net/img-original/text.png",
+    })
+
+    plan = plan_review_media(
+        [],
+        assets,
+        documents=[{"file_id": "TXT_FILE_ID", "filename": "novel.txt"}],
+    )
+    items = plan.to_media_items()
+    assert [item.kind for item in items] == (
+        [MediaKind.PHOTO] * 25 + [MediaKind.DOCUMENT]
+    )
+
+    delivery = plan_delivery(items, album_size=10)
+    families = [batch.family for batch in delivery.batches]
+    assert families == ["visual", "visual", "visual", "document"]
+    for batch in delivery.batches:
+        assert len({item.kind for item in batch.items}) == 1
 
 
 # --------------------------------------------------------------------------
