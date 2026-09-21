@@ -17,9 +17,9 @@ TelePost 可以独立运行，不要求 PixivFlow、Fly.io、Mini App 或多 Bot
 
 ## 目录
 
-- [适合什么场景](#适合什么场景)
+- [适用场景](#适用场景)
 - [30 秒开始](#30-秒开始)
-- [核心能力](#核心能力)
+- [功能](#功能)
 - [Telegram Mini App](#telegram-mini-app)
 - [HTTP API 与自动化](#http-api-与自动化)
 - [运行与部署](#运行与部署)
@@ -29,7 +29,7 @@ TelePost 可以独立运行，不要求 PixivFlow、Fly.io、Mini App 或多 Bot
 - [致谢](#致谢)
 - [贡献与许可](#贡献与许可)
 
-## 适合什么场景
+## 适用场景
 
 | 场景 | 流程 | 适合 |
 | --- | --- | --- |
@@ -64,7 +64,7 @@ chmod +x telepost-linux-x64
 
 也可以使用 Docker 或源码运行；各平台下载、安装和升级方式见[安装与部署](docs/INSTALL.md)。
 
-## 核心能力
+## 功能
 
 - **投稿与发布**：图片、视频、音频和文件；支持预览、编辑、标签、匿名和剧透。
 - **按来源可信度审核**：Chat 直发默认直接发布（可配置审核）；API 自动化投稿**固定**进入私有审核群；Mini App 由独立的 `MINIAPP_REVIEW_REQUIRED` 控制，不与 API 共用开关。审核员可以编辑后发布，投稿者原稿保持不变，见 [编辑后发布](docs/CONFIGURATION.md)。
