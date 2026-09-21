@@ -51,6 +51,25 @@ class TestPlanReviewMedia:
         strategies = [e.strategy for e in plan.entries]
         assert strategies == [STRATEGY_FILE_ID, STRATEGY_REMOTE_URL]
 
+    def test_indexed_document_is_not_photo(self):
+        """Regression: novel cover assets + indexed TXT file_id."""
+        plan = plan_review_media(
+            [],
+            [
+                {"asset_id": "a1", "kind": "image",
+                 "source_url": "https://x/a"},
+                {"asset_id": "txt", "kind": "image",
+                 "source_url": "https://x/txt"},
+            ],
+            documents=[{"file_id": "DDD", "filename": "novel.txt"}],
+        )
+        assert [e.kind for e in plan.entries] == ["photo", "document"]
+        assert plan.strategy == "mixed"
+        items = plan.to_media_items()
+        assert items[0].kind.value == "photo"
+        assert items[1].kind.value == "document"
+        assert items[1].telegram_file_id == "DDD"
+
     def test_leftover_document_keeps_file_id(self):
         plan = plan_review_media(
             [{"type": "photo", "file_id": "AAA"}],
