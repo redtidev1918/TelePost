@@ -10,6 +10,13 @@
 
 ---
 
+## [2.62.0](https://github.com/redtidev1918/TelePost/compare/v2.61.1...v2.62.0) (2026-09-21)
+
+
+### Features
+
+* **delivery:** novel images preview-only and family-aware overflow ([2b6506f](https://github.com/redtidev1918/TelePost/commit/2b6506f513ccec1ce51e44be3ac1e6d28dc7aa40))
+
 ## [2.61.1](https://github.com/redtidev1918/TelePost/compare/v2.61.0...v2.61.1) (2026-09-21)
 
 
