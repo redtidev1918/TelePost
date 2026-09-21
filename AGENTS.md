@@ -475,7 +475,13 @@ TelePost must not reimplement Telegraph rendering and pagination.
 - 幂等：`publication_previews` 以发布 idempotency key 为主键，
   `publication:<key>:novel-preview`；终态（succeeded/failed/timeout）复用，
   Telegram 投递重试**绝不**再次调用 TelePress；TelePress 自己的内容缓存不是
-  本幂等的替代。
+  本幂等的替代。rich 成功记录带 `title=rich-v2` 标记；旧 `rich` 或空标题的文本页
+  在带图 manifest 可解析时会重生成一次。
+- 小说内嵌图片是 preview-only：PixivFlow novel review 只把 TXT document 发频道，
+  所有 `media_asset_refs` 图片只渲染在 Telegraph 阅读页。
+- 跨仓依赖契约：`requirements.txt` 的 `telepress` pin 必须等于 deploy 仓库
+  `docker/telepress.Dockerfile` 的 pin；`Version sync check` CI 强制校验。`/health`
+  同时暴露 `telepress_version` 与 `telepress_rich_markdown`。
 - 失败隔离：provider 异常/超时/无 Token/未安装库 → PreviewResult.failed /
   timeout / disabled；TXT document 照常投递，Publication 成功与否只由
   Telegram 投递决定。`NOVEL_PREVIEW_TIMEOUT_SECONDS` 是严格上界。
