@@ -10,6 +10,13 @@
 
 ---
 
+## [2.57.1](https://github.com/redtidev1918/TelePost/compare/v2.57.0...v2.57.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* **reviews:** anchor review_chain_id at insert so media_asset_refs persist ([#221](https://github.com/redtidev1918/TelePost/issues/221)) ([fb0c2f4](https://github.com/redtidev1918/TelePost/commit/fb0c2f4c05cfa0bba474085b9c11fe64c635c13b))
+
 ## [2.57.0](https://github.com/redtidev1918/TelePost/compare/v2.56.2...v2.57.0) (2026-09-20)
 
 
