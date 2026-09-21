@@ -126,7 +126,7 @@ def _download_remote(url: str, max_bytes: int = PHOTO_MAX_BYTES) -> str:
     return path
 
 
-async def _materialize_remote(item: MediaItem) -> Optional[MediaItem]:
+async def materialize_remote(item: MediaItem) -> Optional[MediaItem]:
     """Turn one RemoteUrl item into a bounded temporary LocalFile."""
     if not item.is_remote:
         return item
@@ -195,7 +195,7 @@ async def _send_with_remote_fallback(
     caption: Optional[str],
 ) -> Optional[DeliveredMessage]:
     """One bounded remote→local retry when Telegram cannot fetch a URL."""
-    materialized = await _materialize_remote(item)
+    materialized = await materialize_remote(item)
     if materialized is None:
         return None
     try:
@@ -283,6 +283,13 @@ async def execute_plan(
                         )
                     )
                 except NetworkFailure as exc:
+                    if item.is_remote and is_remote_fetch_error(exc):
+                        remote_fallback = await _send_with_remote_fallback(
+                            sender, item, reply_to=item_reply, caption=item_caption
+                        )
+                        if remote_fallback is not None:
+                            messages.append(remote_fallback)
+                            continue
                     result = DeliveryResult.uncertain(
                         "message send response lost; Telegram may have accepted it",
                         known_messages=sent + messages,

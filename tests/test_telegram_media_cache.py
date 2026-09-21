@@ -107,8 +107,22 @@ class TestPublisherAdoptsPlanner:
         return message
 
     @pytest.mark.asyncio
-    async def test_remote_asset_uses_remote_url(self, monkeypatch):
+    async def test_remote_asset_uses_remote_url(self, monkeypatch, tmp_path):
         from handlers import publish
+        from telepost.domain.delivery import LocalFile, MediaItem, MediaKind
+        from telepost.telegram.delivery import gateway
+
+        path = tmp_path / "materialized.jpg"
+        path.write_bytes(b"image")
+        local_item = MediaItem(
+            MediaKind.PHOTO,
+            LocalFile(str(path), "materialized.jpg", temporary=True),
+        )
+        monkeypatch.setattr(
+            gateway,
+            "materialize_remote",
+            AsyncMock(return_value=local_item),
+        )
 
         bot = AsyncMock()
         bot.send_photo.return_value = self._photo_message(
@@ -129,7 +143,7 @@ class TestPublisherAdoptsPlanner:
         assert result["message_id"] == 56
         assert result["known_messages"][0]["file_id"] == "RID"
         bkwargs = bot.send_photo.await_args.kwargs
-        assert bkwargs["photo"] == "https://proxy.example/pixiv/1.jpg"
+        assert bkwargs["photo"] != "https://proxy.example/pixiv/1.jpg"
         bot.send_media_group.assert_not_called()
 
     @pytest.mark.asyncio
@@ -163,11 +177,25 @@ class TestSecondDeliveryReusesCachedFileId:
     same canonical asset reuses the Telegram file_id (zero re-upload)."""
 
     @pytest.mark.asyncio
-    async def test_second_delivery_uses_cached_file_id(self, isolated_db, monkeypatch):
+    async def test_second_delivery_uses_cached_file_id(self, isolated_db, monkeypatch, tmp_path):
         from handlers import publish
+        from telepost.domain.delivery import LocalFile, MediaItem, MediaKind
+        from telepost.telegram.delivery import gateway
         from telepost.storage.sqlite.media_assets import (
             list_for_chain,
             replace_for_chain,
+        )
+
+        path = tmp_path / "materialized.jpg"
+        path.write_bytes(b"image")
+        local_item = MediaItem(
+            MediaKind.PHOTO,
+            LocalFile(str(path), "materialized.jpg", temporary=True),
+        )
+        monkeypatch.setattr(
+            gateway,
+            "materialize_remote",
+            AsyncMock(return_value=local_item),
         )
 
         chain_id = "chain-step14"
