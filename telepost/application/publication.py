@@ -29,6 +29,7 @@ from ..domain.delivery import (
     DeliveryResult,
     MediaItem,
     MediaKind,
+    RemoteUrl,
 )
 from ..observability import audit
 from ..observability.errors import classify as classify_error
@@ -140,6 +141,20 @@ class PublicationService:
         if channel.startswith("@"):
             return f"https://t.me/{channel.lstrip('@')}/{message_id}"
         return f"https://t.me/c/{channel.replace('-100', '')}/{message_id}"
+
+    @staticmethod
+    def _media_delivery_strategy(items: List[MediaItem]) -> str:
+        """Summarize which transport sources this publication actually used."""
+        if not items:
+            return "empty"
+        sources = {item.source.__class__.__name__ for item in items}
+        if len(sources) == 1:
+            return {
+                "TelegramFileId": "telegram_file_id",
+                "LocalFile": "local_upload",
+                "RemoteUrl": "remote_url",
+            }.get(next(iter(sources)), "unknown")
+        return "mixed"
 
     async def publish(self, command: PublishCommand) -> PublicationOutcome:
         key = (command.idempotency_key or "").strip()[:240]
@@ -275,7 +290,11 @@ class PublicationService:
             album_size=command.album_size,
         )
         if audit_publish:
-            await audit.record_event("publish.started", **event_fields)
+            await audit.record_event(
+                "publish.started",
+                detail={"media_delivery_strategy": self._media_delivery_strategy(ordered_items)},
+                **event_fields,
+            )
         result = (
             DeliveryResult.delivered(prior, prior[0] if prior else None)
             if not request.items else await self._delivery.deliver(request)
@@ -367,7 +386,8 @@ class PublicationService:
             await audit.record_event(
                 "publish.completed",
                 detail={"message_id": main.message_id,
-                        "media": media_count, "documents": document_count},
+                        "media": media_count, "documents": document_count,
+                        "media_delivery_strategy": self._media_delivery_strategy(ordered_items)},
                 **event_fields,
             )
         return PublicationOutcome(
