@@ -10,6 +10,13 @@
 
 ---
 
+## [2.58.0](https://github.com/redtidev1918/TelePost/compare/v2.57.1...v2.58.0) (2026-09-21)
+
+
+### Features
+
+* **media:** typed MediaAsset domain model (Batch 5, RFC telepost-media-asset-model) ([#223](https://github.com/redtidev1918/TelePost/issues/223)) ([addbf77](https://github.com/redtidev1918/TelePost/commit/addbf7783c43344060401ec26be18ec1e62fab9f))
+
 ## [2.57.1](https://github.com/redtidev1918/TelePost/compare/v2.57.0...v2.57.1) (2026-09-21)
 
 
