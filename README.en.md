@@ -14,7 +14,8 @@
 People can submit through Telegram chat or a Mini App, moderators can review and manage content,
 and external programs can send submissions through the HTTP API. Every entry point shares the same
 submission, review, search, publishing, and status workflow.
-TelePost runs on its own; PixivFlow, Fly.io, the Mini App, and multi-bot mode are all optional.
+TelePost only depends on Telegram: a bot and a target channel are enough to publish. The Mini
+App, HTTP API, deployment platforms, and multi-bot mode are optional integrations with their own docs.
 
 ## Where it fits
 
