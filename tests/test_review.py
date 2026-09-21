@@ -1294,3 +1294,28 @@ def test_pixiv_id_extraction():
     assert review._pixiv_id_from_link("https://www.pixiv.net/novel/show.php?id=29004386") == "29004386"
     assert review._pixiv_id_from_link("https://example.com") == ""
     assert review._pixiv_id_from_link("") == ""
+
+
+@pytest.mark.asyncio
+async def test_new_review_gets_chain_immediately(monkeypatch, tmp_path):
+    """Chain invariant must hold at insert time, not after the next restart.
+
+    media_asset_refs persistence, refetch correlation and chain aggregation all
+    read pending_reviews.review_chain_id; an empty chain until the next
+    init_db() backfill silently drops media_asset_refs for new submissions.
+    """
+    from database import db_manager as db_mod
+    from telepost.storage.sqlite.reviews import NewReview, ReviewRepository
+
+    monkeypatch.setattr(db_mod, "DB_PATH", str(tmp_path / "chain.db"))
+    await db_mod.init_db()
+    review_id = await ReviewRepository().insert(NewReview(
+        idempotency_key="chain-key-1",
+        source="api", user_id=123456789, username="pixivflow",
+        title="title", tags="#tag", note="", link="",
+        anonymous=False, spoiler=False, media=[], documents=[],
+        review_chat_id="-100123", review_message_ids=[],
+        target_id="target-a", status="preparing",
+    ))
+    row = await ReviewRepository().get(int(review_id))
+    assert row["review_chain_id"] == f"chain-{review_id}"

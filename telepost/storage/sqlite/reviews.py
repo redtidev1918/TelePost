@@ -173,7 +173,20 @@ class ReviewRepository:
                 now, now,
             ),
         )
-        return cursor.lastrowid
+        review_id = cursor.lastrowid
+        # Chain invariant: every review belongs to a durable chain immediately
+        # (not on the next process restart). New non-refetch submissions get
+        # their own anchor; refetch replacements always pass an explicit chain
+        # so this branch is a no-op for them. This mirrors the startup
+        # backfill in db_manager.init_db and the refetch fallback
+        # (chain_id or f"chain-{id}").
+        if not review.review_chain_id:
+            await conn.execute(
+                "UPDATE pending_reviews SET review_chain_id='chain-'||id "
+                "WHERE id=? AND (review_chain_id='' OR review_chain_id IS NULL)",
+                (review_id,),
+            )
+        return review_id
 
     async def update_staged(self, review_id: int, *, media: list,
                             documents: list, preview_message_ids: List[int]) -> bool:
