@@ -10,6 +10,13 @@
 
 ---
 
+## [2.59.0](https://github.com/redtidev1918/TelePost/compare/v2.58.1...v2.59.0) (2026-09-21)
+
+
+### Features
+
+* **observability:** record media delivery strategy ([#228](https://github.com/redtidev1918/TelePost/issues/228)) ([3bc533f](https://github.com/redtidev1918/TelePost/commit/3bc533f93f91da62aef50fe9fff40acef8d30aaa))
+
 ## [2.58.1](https://github.com/redtidev1918/TelePost/compare/v2.58.0...v2.58.1) (2026-09-21)
 
 
