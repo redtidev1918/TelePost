@@ -363,6 +363,8 @@ def test_router_version_and_health_fields():
             health = await (await client.get("/health")).json()
             assert health["version"] == version["version"]
             assert health["commit"] == version["commit"]
+            assert "telepress_version" in health
+            assert "telepress_rich_markdown" in health
         finally:
             await client.close()
 

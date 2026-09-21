@@ -66,6 +66,7 @@ from telepost.telegram.delivery.legacy_runner import run_item_batches as _new_ru
 from telepost.telegram.delivery.planner import family_of
 from telepost.telegram.delivery.discussion import (
     DiscussionDeliveryError as DiscussionPublishError,
+    DiscussionStrategy,
 )
 from telepost.telegram.delivery.gateway import PTBTelegramDeliveryGateway
 from telepost.telegram.delivery.registry import default_registry
@@ -463,118 +464,36 @@ async def _execute_with_on_sent(gateway, request, on_sent):
 
 async def _deliver_discussion(bot, channel, items, *, caption, spoiler,
                               album_size, timeout_kwargs):
-    """Legacy-seamed discussion strategy: module globals stay monkeypatchable."""
-    # Re-implement via the old two-phase flow to preserve exact semantics and
-    # the monkeypatched _wait_for_discussion_forward/_scan_recent_forward seams.
-    from telegram.error import NetworkError
-    from telepost.telegram.delivery.planner import plan_delivery
-
-    linked = channel.linked_chat_id
-    plan = plan_delivery(
-        _items_from_dicts(
-            [dict(item, spoiler=item.get("spoiler", spoiler)) for item in items]
-        ),
-        album_size=album_size,
-        reply_mode=ReplyMode.POST,
-    )
-    root_items = _dicts_from_items(plan.batches[0].items)
-    overflow_items = _dicts_from_items([
-        item for batch in plan.batches[1:] for item in batch.items
+    """Shared family-aware discussion strategy, kept on the legacy seams."""
+    domain_items = _items_from_dicts([
+        dict(item, spoiler=item.get("spoiler", spoiler)) for item in items
     ])
-
-    async def attempt():
-        sent = {"cover": [], "anchor": [], "rest": []}
-        first_sent = None
-        try:
-            first_sent, main = await deliver_items_to_chat(
-                bot, channel.id, root_items,
-                caption=caption, spoiler=spoiler, album_size=album_size,
-                timeout_kwargs=timeout_kwargs, reply_mode="post",
-            )
-        except NetworkError:
-            found = await _scan_recent_forward(channel.id)
-            if found is not None:
-                cover_id, dchat, dmsg = found
-                sent["cover"] = [(channel.id, cover_id)]
-                sent["anchor"] = [(dchat, dmsg)]
-                raise DiscussionPublishError(
-                    "频道首贴发送响应丢失，已反查到帖子并回滚",
-                    uncertain=False, sent=sent,
-                )
-            raise DiscussionPublishError(
-                "频道首贴发送响应丢失，未在讨论区发现转发，重发一次",
-                uncertain=False, sent=sent,
-            )
-        except Exception as exc:
-            raise DiscussionPublishError(
-                f"频道首贴发送失败：{exc}", uncertain=False, sent=sent
-            )
-        sent["cover"] = [(m.chat.id, m.message_id) for m in first_sent]
-
-        if not overflow_items:
-            return first_sent, main
-
-        # Channel root is CONFIRMED: the channel Publication has happened. The
-        # linked-discussion overflow is a follow-up whose failure must NOT roll
-        # back (delete) the successful channel root nor re-run the whole
-        # operation (duplicate root) (§discussion-failure-isolation). We keep
-        # the cover and drop/report the overflow.
-        try:
-            dchat, dmsg = await _wait_for_discussion_forward(
-                channel.id, main.message_id
-            )
-        except Exception:
-            logger.warning("讨论组转发超时：保留频道主贴，溢出图片未投递 (cover msg=%s)",
-                           main.message_id)
-            return first_sent, main
-        if dchat != linked:
-            logger.warning("频道自动转发落点非预期讨论组：保留频道主贴，溢出未投递 (cover msg=%s)",
-                           main.message_id)
-            return first_sent, main
-        sent["anchor"] = [(dchat, dmsg)]
-
-        rest_collected = []
-        try:
-            rest_sent, _ = await deliver_items_to_chat(
-                bot, dchat, overflow_items,
-                caption=None, spoiler=spoiler, album_size=album_size,
-                timeout_kwargs=timeout_kwargs, reply_to_message_id=dmsg,
-                reply_mode="post",
-                on_sent=lambda msgs: rest_collected.extend(
-                    (m.chat.id, m.message_id) for m in msgs),
-            )
-        except NetworkError as exc:
-            logger.warning("评论区相册发送响应不确定：保留频道主贴，请人工核验评论区 (cover msg=%s)",
-                           main.message_id)
-            return first_sent, main
-        except Exception as exc:
-            for chat_id, msg_id in rest_collected:
-                await _delete_message(bot, chat_id, msg_id)
-            logger.warning("评论区相册发送失败：保留频道主贴，溢出已回滚 (cover msg=%s): %s",
-                           main.message_id, exc)
-            return first_sent, main
-        sent["rest"] = rest_collected
-        return first_sent + rest_sent, main
-
-    import asyncio
-    last = None
-    for try_no in (1, 2):
-        try:
-            return await attempt()
-        except DiscussionPublishError as exc:
-            last = exc
-            if exc.uncertain:
-                await _discussion_rollback(bot, exc.sent)
-                raise
-            if not await _discussion_rollback(bot, exc.sent):
-                raise DiscussionPublishError(
-                    f"{exc}；且回滚未能删净，请人工检查",
-                    uncertain=True, sent=exc.sent,
-                )
-            if try_no == 2:
-                raise
-            await asyncio.sleep(2.0)
-    raise last or DiscussionPublishError("评论区发布失败", uncertain=True)
+    gateway = _build_gateway(bot, timeout_kwargs=timeout_kwargs)
+    strategy = DiscussionStrategy(
+        gateway,
+        bot,
+        waiter=_wait_for_discussion_forward,
+        scanner=_scan_recent_forward,
+        rollback=lambda sent: _discussion_rollback(bot, sent),
+    )
+    request = DeliveryRequest(
+        chat_id=channel.id,
+        items=domain_items,
+        caption=caption,
+        spoiler=spoiler,
+        reply_mode=ReplyMode.DISCUSSION,
+        album_size=album_size,
+    )
+    result = await strategy.deliver(
+        request, linked_chat_id=channel.linked_chat_id
+    )
+    if not result.ok:
+        raise DiscussionPublishError(
+            result.reason,
+            uncertain=result.is_uncertain,
+        )
+    raw_messages = [m.raw for m in result.messages if m.raw is not None]
+    return raw_messages, result.main_message.raw
 
 
 # ---------------------------------------------------------------------------
