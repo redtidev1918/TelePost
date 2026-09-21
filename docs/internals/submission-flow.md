@@ -53,22 +53,22 @@ pending ──点「发布」──▶ publishing ──成功──▶ publishe
 ## `discussion` 多图发布编排
 
 `CHANNEL_ALBUM_REPLY=discussion` 时，`deliver_items_to_chat()` 进入
-`_deliver_discussion()`，分三阶段，**每一步发出的消息都登记，失败完整回滚**：
+`_deliver_discussion()`（委托给共享 `DiscussionStrategy`），分阶段，**每一步发出的
+消息都登记，root 失败重试，overflow 失败保留 root**：
 
-1. **频道首贴**：只发第 1 张 + caption（`reply_mode="post"`）。
-2. **等自动转发锚点**：Webhook 入队前 `capture_discussion_forward()` 抓
-   `is_automatic_forward` 更新，得到讨论组里那条转发消息的 id。
-3. **评论相册**：其余图片以相册回复该锚点（`on_sent` 回调收集已落地消息）。
+1. **频道 root**：首组图片 + 首组文件（图片在前、文件在后，文件回复最后一张图）。
+2. **等自动转发锚点**：分别等待图片 root 与文件 root 的自动转发（Webhook 入队前
+   `capture_discussion_forward()` 抓 `is_automatic_forward` 更新）。
+3. **分族 overflow**：溢出图片回复图片锚点，溢出文件回复文件锚点。
 
 失败语义（`DiscussionPublishError`）：
 
-- **确定态失败**（等转发超时、未关联讨论组、非网络错误、回滚删净）：先删干净
-  已落地的「频道首贴 + 讨论组锚点 + 已发相册」，再**自动重试一次**。
+- **确定态 root 失败**（等转发超时、未关联讨论组、非网络错误、回滚删净）：先删干净
+  已落地的 root/锚点/overflow，再**自动重试一次**。
 - **首贴响应丢失**（`NetworkError` 且不知是否到频道）：查 `_recent_forwards`
   近期自动转发；Telegram 实际收下就连首贴带锚点删干净 → 回到确定态 → 重试。
-- **评论相册响应丢失**（`uncertain=True`）：无法判断相册是否已建成，重试会重复
-  整个相册，因此**不自动重试**；回滚能确定的部分后提示人工核对频道首贴与评论串。
-  这是唯一需要人看的情况，文案明确指到评论串而非笼统的「检查频道」。
+- **overflow 失败/响应丢失**（`uncertain=True`）：保留已确认的频道 root（不删除），
+  overflow 按可确定部分回滚；提示人工核对对应评论串。只有这种情况需要人看。
 
 回滚删除容忍「消息已不存在」（视为成功）；删不净则升级为 `uncertain` 交人工。
 

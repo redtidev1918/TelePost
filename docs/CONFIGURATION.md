@@ -121,7 +121,7 @@ immutable original 暂存为最终发布用 document；没有 preview 时直接�
 
 ```bash
 # 多相册投稿改为「都回复主贴」（不再逐级嵌套成链）
-fly secrets set -a <app> CHANNEL_ALBUM_REPLY=post
+fly secrets set -a <app> CHANNEL_ALBUM_REPLY=discussion
 
 # 单次投稿文件数上限从 50 放宽到 100（支持超大图集整本投）
 fly secrets set -a <app> API_MAX_FILES=100
