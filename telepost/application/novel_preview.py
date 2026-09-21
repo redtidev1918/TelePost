@@ -209,7 +209,6 @@ class NovelPreviewEnricher:
         return await self._record(
             key,
             result,
-            rich=bool(snapshot.media_manifest),
         )
 
     async def _publish_bounded(self, snapshot: NovelSnapshot) -> PreviewResult:
@@ -227,15 +226,14 @@ class NovelPreviewEnricher:
             return PreviewResult(PreviewStatus.FAILED, reason="invalid_result")
         return result
 
-    async def _record(self, key: str, result: PreviewResult,
-                      *, rich: bool = False) -> PreviewResult:
+    async def _record(self, key: str, result: PreviewResult) -> PreviewResult:
         try:
             await self._repo.upsert(
                 key,
                 provider="telepress",
                 status=result.status.value,
                 url=result.url if result.succeeded else "",
-                title="rich" if rich else "",
+                title="rich" if result.rich else "",
             )
         except Exception as exc:  # a bookkeeping failure is still not a publication failure
             logger.warning("novel preview record failed: %s", type(exc).__name__)

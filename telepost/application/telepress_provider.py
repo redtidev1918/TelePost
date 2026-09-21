@@ -65,7 +65,9 @@ class TelePressNovelPreviewPublisher(NovelPreviewPublisher):
                 )
         return self._client
 
-    def _publish_sync(self, snapshot: NovelSnapshot) -> str:
+    def _publish_sync(self, snapshot: NovelSnapshot):
+        """Return ``(url, rich)``; ``rich`` is true only when the rich markdown
+        path (with image manifest) was actually used."""
         publisher = self._publisher()
         if snapshot.rich_content and snapshot.media_manifest:
             rich = getattr(publisher, "publish_rich_markdown", None)
@@ -82,8 +84,8 @@ class TelePressNovelPreviewPublisher(NovelPreviewPublisher):
                         manifest=list(snapshot.media_manifest),
                     )
                     if isinstance(result, dict):
-                        return str(result.get("url") or "")
-                    return str(result or "")
+                        return str(result.get("url") or ""), True
+                    return str(result or ""), True
                 finally:
                     try:
                         os.unlink(path)
@@ -93,13 +95,13 @@ class TelePressNovelPreviewPublisher(NovelPreviewPublisher):
                 "installed telepress lacks publish_rich_markdown; "
                 "falling back to text-only preview"
             )
-        return publisher.publish_text(snapshot.content, snapshot.title)
+        return publisher.publish_text(snapshot.content, snapshot.title), False
 
     async def publish_preview(self, snapshot: NovelSnapshot) -> PreviewResult:
         import asyncio
 
         try:
-            url = await asyncio.to_thread(self._publish_sync, snapshot)
+            url, rich = await asyncio.to_thread(self._publish_sync, snapshot)
         except Exception as exc:  # provider/library/network failure — never fatal
             logger.warning(
                 "novel preview publish failed (%s): %s", type(exc).__name__, exc
@@ -110,7 +112,7 @@ class TelePressNovelPreviewPublisher(NovelPreviewPublisher):
         if not url.startswith(("http://", "https://")):
             logger.warning("novel preview returned an unusable url")
             return PreviewResult(PreviewStatus.FAILED, reason="invalid_url")
-        return PreviewResult(PreviewStatus.SUCCEEDED, url=url)
+        return PreviewResult(PreviewStatus.SUCCEEDED, url=url, rich=rich)
 
 
 def telepress_available() -> bool:

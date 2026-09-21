@@ -90,12 +90,13 @@ class FakeProvider:
     """Records every preview request; can fail, raise or stall on demand."""
 
     def __init__(self, *, url=PREVIEW_URL, status=PreviewStatus.SUCCEEDED,
-                 raises=None, delay=0.0):
+                 raises=None, delay=0.0, rich=False):
         self.snapshots = []
         self._url = url
         self._status = status
         self._raises = raises
         self._delay = delay
+        self._rich = rich
 
     @property
     def calls(self) -> int:
@@ -107,7 +108,11 @@ class FakeProvider:
             await asyncio.sleep(self._delay)
         if self._raises is not None:
             raise self._raises
-        return PreviewResult(self._status, url=self._url if self._status is PreviewStatus.SUCCEEDED else "")
+        return PreviewResult(
+            self._status,
+            url=self._url if self._status is PreviewStatus.SUCCEEDED else "",
+            rich=self._rich,
+        )
 
 
 class RecordingDelivery:
@@ -716,7 +721,7 @@ def test_enricher_upgrades_legacy_text_only_preview_to_rich_form(db, tmp_path):
             title="",
         )
         txt = _txt_file(tmp_path, body="图[uploadedimage:11]")
-        provider = FakeProvider(url="https://telegra.ph/rich-92")
+        provider = FakeProvider(url="https://telegra.ph/rich-92", rich=True)
         enricher = _enricher(provider, repo=db)
         result = await enricher.enrich(
             publication_key="review:92:api:x",

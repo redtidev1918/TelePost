@@ -56,6 +56,7 @@ class PreviewResult:
     status: PreviewStatus
     url: str = ""
     reason: str = ""
+    rich: bool = False
 
     @property
     def succeeded(self) -> bool:

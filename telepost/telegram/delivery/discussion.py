@@ -28,7 +28,7 @@ from ...domain.delivery import (
     ReplyMode,
 )
 from .executor import execute_plan
-from .planner import plan_delivery
+from .planner import family_of, plan_delivery
 from .preparation import cleanup_prepared, reclassify_oversized
 from .registry import ForwardRegistry, default_registry
 from .sender import PTBSender
@@ -133,8 +133,18 @@ class DiscussionStrategy:
             album_size=request.album_size,
             reply_mode=ReplyMode.POST,
         )
-        root_items = list(plan.batches[0].items)
-        rest_items = [item for batch in plan.batches[1:] for item in batch.items]
+        visual_batches = [b for b in plan.batches if b.family == "visual"]
+        document_batches = [b for b in plan.batches if b.family == "document"]
+        other_batches = [b for b in plan.batches
+                         if b.family not in ("visual", "document")]
+
+        root_items = []
+        if visual_batches:
+            root_items.extend(visual_batches[0].items)
+        if document_batches:
+            root_items.extend(document_batches[0].items)
+        if not root_items and other_batches:
+            root_items.extend(other_batches[0].items)
 
         # Stage 1: the first compatible batch is the whole root publication.
         cover_result = await self._gateway.deliver(
@@ -143,7 +153,7 @@ class DiscussionStrategy:
                 items=root_items,
                 caption=request.caption,
                 spoiler=request.spoiler,
-                reply_mode=ReplyMode.POST,
+                reply_mode=ReplyMode.CHAIN,
                 album_size=request.album_size,
             )
         )
@@ -166,7 +176,7 @@ class DiscussionStrategy:
         main = cover_result.main_message
         sent["cover"] = [(m.chat_id, m.message_id) for m in cover_result.messages]
 
-        if not rest_items:
+        if len(root_items) >= len(request.items):
             return list(cover_result.messages), main
 
         # Channel root is now CONFIRMED: the channel Publication has happened.
@@ -175,53 +185,101 @@ class DiscussionStrategy:
         # the whole operation (which would re-post a duplicate root)
         # (§discussion-failure-isolation). We keep the cover and report the
         # overflow as dropped / needs verification.
-        # Stage 2: wait for the auto-forward anchor.
-        try:
-            dchat, dmsg = await self._wait_forward(
-                int(request.chat_id), main.message_id
-            )
-        except Exception:
-            logger.warning("讨论组转发超时：保留频道主贴，溢出图片未投递 (cover msg=%s)",
-                           main.message_id)
-            return list(cover_result.messages), main
-        if linked_chat_id is not None and dchat != linked_chat_id:
-            logger.warning("频道自动转发落点非预期讨论组：保留频道主贴，溢出未投递 (cover msg=%s)",
-                           main.message_id)
-            return list(cover_result.messages), main
-        sent["anchor"] = [(dchat, dmsg)]
+        # Stage 2/3: one anchor per media family. Overflow images reply to the
+        # forwarded image root; overflow files reply to the forwarded file root,
+        # so each family keeps its own discussion thread.
+        root_messages = list(cover_result.messages)
+        visual_root_len = len(visual_batches[0].items) if visual_batches else 0
+        visual_main = None
+        doc_main = None
+        if visual_batches and visual_root_len <= len(root_messages):
+            visual_main = root_messages[visual_root_len - 1]
+        if document_batches:
+            doc_index = visual_root_len + len(document_batches[0].items) - 1
+            if doc_index < len(root_messages):
+                doc_main = root_messages[doc_index]
 
-        # Stage 3: remaining items into the discussion thread.
-        rest_known: list = []
-        if rest_items:
-            def _collect(messages):
-                rest_known.extend((m.chat_id, m.message_id) for m in messages)
+        async def _anchor_for(message):
+            if message is None:
+                return None
+            try:
+                dchat, dmsg = await self._wait_forward(
+                    int(request.chat_id), message.message_id
+                )
+            except Exception:
+                return None
+            if linked_chat_id is not None and dchat != linked_chat_id:
+                return None
+            return dchat, dmsg
+
+        messages = list(root_messages)
+
+        async def _overflow(group, anchor, label):
+            if not group:
+                return
+            if anchor is None:
+                logger.warning(
+                    "讨论组转发超时：保留频道主贴，%s溢出未投递 (cover msg=%s)",
+                    label, main.message_id,
+                )
+                return
+            dchat, dmsg = anchor
+            sent["anchor"].append((dchat, dmsg))
+            known: list = []
+
+            def _collect(sent_messages):
+                known.extend(
+                    (m.chat_id, m.message_id) for m in sent_messages
+                )
 
             try:
                 rest_result = await self._send_rest(
-                    rest_items, dchat, dmsg, request, _collect
+                    group, dchat, dmsg, request, _collect
                 )
             except Exception as exc:
-                # Even a raising sender keeps the channel root; only confirmed
-                # discussion-side overflow is cleaned up best-effort.
-                for chat_id, msg_id in rest_known:
+                for chat_id, msg_id in known:
                     await self._delete(chat_id, msg_id)
-                logger.warning("评论区相册发送异常：保留频道主贴，溢出已回滚 (cover msg=%s): %s",
-                               main.message_id, type(exc).__name__)
-                return list(cover_result.messages), main
+                logger.warning(
+                    "评论区%s发送异常：保留频道主贴，溢出已回滚 (cover msg=%s): %s",
+                    label, main.message_id, type(exc).__name__,
+                )
+                return
             if rest_result.is_uncertain:
-                logger.warning("评论区相册发送响应不确定：保留频道主贴，请人工核验评论区 (cover msg=%s)",
-                               main.message_id)
-                return list(cover_result.messages), main
+                logger.warning(
+                    "评论区%s发送响应不确定：保留频道主贴，请人工核验评论区 (cover msg=%s)",
+                    label, main.message_id,
+                )
+                return
             if not rest_result.ok:
-                for chat_id, msg_id in rest_known:
+                for chat_id, msg_id in known:
                     await self._delete(chat_id, msg_id)
-                logger.warning("评论区相册发送失败：保留频道主贴，溢出已回滚 (cover msg=%s): %s",
-                               main.message_id, rest_result.reason)
-                return list(cover_result.messages), main
-            sent["rest"] = rest_known
-            messages = list(cover_result.messages) + list(rest_result.messages)
-        else:
-            messages = list(cover_result.messages)
+                logger.warning(
+                    "评论区%s发送失败：保留频道主贴，溢出已回滚 (cover msg=%s): %s",
+                    label, main.message_id, rest_result.reason,
+                )
+                return
+            sent["rest"].extend(known)
+            messages.extend(rest_result.messages)
+
+        rest_visual = [
+            item for batch in visual_batches[1:] for item in batch.items
+        ]
+        rest_doc = [
+            item for batch in document_batches[1:] for item in batch.items
+        ]
+        rest_other = [
+            item for batch in other_batches for item in batch.items
+        ]
+        if visual_batches:
+            await _overflow(rest_visual, await _anchor_for(visual_main), "图片")
+        if document_batches:
+            await _overflow(
+                rest_doc + rest_other, await _anchor_for(doc_main), "文件"
+            )
+        elif rest_other:
+            anchor = await _anchor_for(main)
+            await _overflow(rest_other, anchor, "其他")
+
         return messages, main
 
     async def _send_rest(self, rest_items, dchat, dmsg, request, on_sent):

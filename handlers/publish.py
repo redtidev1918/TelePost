@@ -63,6 +63,7 @@ from telepost.telegram.delivery.sender import (
 )
 from telepost.telegram.delivery import legacy_runner
 from telepost.telegram.delivery.legacy_runner import run_item_batches as _new_run_item_batches
+from telepost.telegram.delivery.planner import family_of
 from telepost.telegram.delivery.discussion import (
     DiscussionDeliveryError as DiscussionPublishError,
 )
@@ -233,6 +234,16 @@ def _normalize_chat_items(media_list, doc_list):
         filename = parts[2] if len(parts) >= 3 else "file"
         items.append({"kind": "document", "file_id": file_id, "filename": filename})
     return items
+
+
+def novel_images_preview_only(work_type, assets, documents) -> bool:
+    """PixivFlow novel inline illustrations are preview-only: they never ship
+    as Telegram channel media; the TXT document remains the channel item."""
+    return (
+        str(work_type or "").lower() == "novel"
+        and bool(assets)
+        and bool(documents)
+    )
 
 
 def _items_from_dicts(items):
@@ -712,6 +723,17 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
              "filename": d.get("filename") or "file"}
             for d in documents
         ])
+    # Novel inline illustrations are preview-only: they belong on the online
+    # reading page, never as channel albums. The TXT document remains the only
+    # Telegram delivery item for PixivFlow novel reviews.
+    preview_only_novel_images = novel_images_preview_only(
+        work_type, assets, documents
+    )
+    if preview_only_novel_images:
+        items = [
+            item for item in items
+            if item.kind is not MediaKind.PHOTO
+        ]
     data = _caption_identity_data(
         tags=tags, title=title, note=note, link=link, spoiler=spoiler,
         anonymous=anonymous, user_id=user_id, username=username,
@@ -753,7 +775,7 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
     outcome = await service.publish(command)
     result = _outcome_to_legacy(outcome, raise_on_failure=True)
     # Step 12/13: record the confirmed Telegram media facts per canonical asset.
-    if assets and review_chain_id and not result.get("reused"):
+    if assets and review_chain_id and not result.get("reused") and not preview_only_novel_images:
         known_messages = result.get("known_messages") or []
         delivered_refs: list = []
         for index, asset in enumerate(assets):
@@ -949,7 +971,13 @@ def _make_post_recorder(data, *, local, files=None, media_compact=None,
     async def _record(command, result, media_count, document_count):
         if local:
             media_list, doc_list = [], []
-            ordered_items = list(command.items)
+            ordered_items = sorted(
+                command.items,
+                key=lambda item: {
+                    "visual": 0, "animation": 1,
+                    "audio": 2, "document": 3,
+                }.get(family_of(item.kind), 9),
+            )
             for delivered, item in zip(result.messages, ordered_items):
                 fid = delivered.file_id
                 if item.kind is MediaKind.DOCUMENT:

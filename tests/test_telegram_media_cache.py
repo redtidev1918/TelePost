@@ -146,6 +146,24 @@ class TestPublisherAdoptsPlanner:
         assert bkwargs["photo"] != "https://proxy.example/pixiv/1.jpg"
         bot.send_media_group.assert_not_called()
 
+    def test_novel_inline_images_stay_out_of_channel(self):
+        from handlers import publish
+        assert publish.novel_images_preview_only(
+            "novel",
+            [{"asset_id": "pixiv:1:uploadedimage:11", "kind": "image",
+              "source_url": "https://i.pximg.net/11.png"}],
+            [{"file_id": "DOC", "filename": "novel.txt"}],
+        ) is True
+        assert publish.novel_images_preview_only(
+            "illustration",
+            [{"asset_id": "pixiv:1:uploadedimage:11", "kind": "image",
+              "source_url": "https://i.pximg.net/11.png"}],
+            [],
+        ) is False
+        assert publish.novel_images_preview_only(
+            "novel", [], [{"file_id": "DOC", "filename": "novel.txt"}]
+        ) is False
+
     @pytest.mark.asyncio
     async def test_cached_file_id_uses_zero_reupload(self, monkeypatch):
         from handlers import publish
