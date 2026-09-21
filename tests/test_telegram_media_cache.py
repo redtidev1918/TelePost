@@ -29,7 +29,7 @@ class TestPlannerUsesCachedFileId:
         ])
         refs = __import__("telepost.storage.sqlite.media_assets", fromlist=["list_for_chain"])
         refs = await refs.list_for_chain("chain-1")
-        assert refs[0]["file_id"] == "FILE_ID_1"
+        assert refs[0].file_id == "FILE_ID_1"
         # The planner sees the cached file_id even when media_json is empty.
         plan = plan_review_media([], refs)
         assert plan.strategy == STRATEGY_FILE_ID
@@ -52,11 +52,11 @@ class TestMarkDelivered:
         refs = await __import__(
             "telepost.storage.sqlite.media_assets", fromlist=["list_for_chain"]
         ).list_for_chain("chain-x")
-        by_id = {r["asset_id"]: r for r in refs}
-        assert by_id["a1"]["file_id"] == "AA"
-        assert by_id["a1"]["file_unique_id"] == "UA"
+        by_id = {r.asset_id: r for r in refs}
+        assert by_id["a1"].file_id == "AA"
+        assert by_id["a1"].file_unique_id == "UA"
         # Unknown asset never invents a cache row.
-        assert by_id["a2"]["file_id"] == ""
+        assert by_id["a2"].file_id == ""
 
     @pytest.mark.asyncio
     async def test_empty_chain_is_noop(self, isolated_db):
@@ -192,8 +192,8 @@ class TestSecondDeliveryReusesCachedFileId:
         assert first["known_messages"][0]["file_id"] == "FIRST"
 
         refs = await list_for_chain(chain_id)
-        assert refs[0]["file_id"] == "FIRST"
-        assert refs[0]["file_unique_id"] == "U1"
+        assert refs[0].file_id == "FIRST"
+        assert refs[0].file_unique_id == "U1"
 
         bot2 = AsyncMock()
         bot2.send_photo.return_value = TestPublisherAdoptsPlanner._photo_message(
