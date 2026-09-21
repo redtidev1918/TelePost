@@ -10,6 +10,13 @@
 
 ---
 
+## [2.61.0](https://github.com/redtidev1918/TelePost/compare/v2.60.1...v2.61.0) (2026-09-21)
+
+
+### Features
+
+* **preview:** include inline novel images in online reading page ([e9d7cce](https://github.com/redtidev1918/TelePost/commit/e9d7cced0f0d192fb162fdb1ca34ac35c8cd37da))
+
 ## [2.60.1](https://github.com/redtidev1918/TelePost/compare/v2.60.0...v2.60.1) (2026-09-21)
 
 
