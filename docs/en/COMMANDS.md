@@ -44,6 +44,8 @@ tokens; new tokens can still only be created by the Owner through `/gen_token`.
 
 | Command | Description |
 |---|---|
+| `/ban_user <user id> [reason]` | Manually block a user (fallback if buttons fail; use the anonymous ID from the admin alert) |
+| `/ban_api <token id> [reason]` | Manually disable an API token (fallback if buttons fail) |
 | `/rebuild_index` | Clear and rebuild the search index |
 | `/sync_index` | Incrementally sync the database and the index |
 | `/index_stats` | Show the database/index difference |

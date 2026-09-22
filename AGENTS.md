@@ -296,6 +296,8 @@ api token 持有者                     绝不是 submitter
 - 匿名 human 保留 ownership：manager 通知显示内部用户 ID（`tg://user` 链接）供封禁，
   但不展示 username / display name；service submission 不发 manager 新投稿提醒。
   允许展示时，username 或 display name 均链接到显式 submitter_user_id。
+- Admin 手动兜底命令 `/ban_user` / `/ban_api` 与按钮写同一 moderation subject；
+  用户命令会同步 legacy blacklist 表，确保所有入口一致拦截。
 - 多图 publication 使用 capacity-first packing：root publication 先填满 Telegram
   media-group 容量，再把 overflow 按同一容量分批发到 replies/discussion；caption 只在
   root，canonical link/message_id 也始终指向 root。

@@ -58,6 +58,8 @@ class MessageFormatter:
         
         admin_help = """
 👑 <b>管理员命令</b>
+/ban_user &lt;ID&gt; [原因] 手动封禁用户
+/ban_api &lt;token编号&gt; [原因] 手动禁用API
 /addblacklist &lt;ID&gt; [原因] 添加黑名单
 /removeblacklist &lt;ID&gt; 移除黑名单
 /blacklist 查看黑名单
@@ -486,4 +488,3 @@ class MessageFormatter:
         empty = width - filled
         
         return "▰" * filled + "▱" * empty
-
