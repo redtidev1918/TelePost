@@ -192,10 +192,13 @@ class DiscussionStrategy:
         visual_root_len = len(visual_batches[0].items) if visual_batches else 0
         visual_main = None
         doc_main = None
-        if visual_batches and visual_root_len <= len(root_messages):
-            visual_main = root_messages[visual_root_len - 1]
+        # Telegram anchors a linked-discussion thread to the FIRST message of
+        # each channel media group. Waiting on a later album member misses the
+        # automatic-forward update and silently drops the overflow.
+        if visual_batches and root_messages:
+            visual_main = root_messages[0]
         if document_batches:
-            doc_index = visual_root_len + len(document_batches[0].items) - 1
+            doc_index = visual_root_len
             if doc_index < len(root_messages):
                 doc_main = root_messages[doc_index]
 

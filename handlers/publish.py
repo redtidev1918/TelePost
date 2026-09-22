@@ -594,6 +594,7 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
         work_type=work_type,
         pixiv_id=pid,
         album_size=CHANNEL_ALBUM_SIZE,
+        reply_mode=_reply_mode_from(None),
     )
     outcome = await service.publish(command)
     for fobj in files:
@@ -690,6 +691,7 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
         work_type=work_type,
         pixiv_id=pid,
         album_size=CHANNEL_ALBUM_SIZE,
+        reply_mode=_reply_mode_from(None),
     )
     outcome = await service.publish(command)
     result = _outcome_to_legacy(outcome, raise_on_failure=True)
