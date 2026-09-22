@@ -7,6 +7,7 @@ import pytest
 from telegram.error import TelegramError
 
 from handlers import publish
+from telepost.domain.delivery import ReplyMode
 
 
 class _Msg:
@@ -119,8 +120,9 @@ async def test_discussion_mode_fills_root_capacity_then_replies_with_overflow(mo
     bot.get_chat.return_value = SimpleNamespace(id=-1001, linked_chat_id=-1002)
     bot.send_media_group.return_value = [_Msg(i, -1001) for i in range(10, 20)]
     bot.send_photo.return_value = _Msg(20, -1002)
+    waiter = AsyncMock(return_value=(-1002, 77))
     monkeypatch.setattr(
-        publish, "_wait_for_discussion_forward", AsyncMock(return_value=(-1002, 77))
+        publish, "_wait_for_discussion_forward", waiter
     )
 
     sent, main = await publish.deliver_items_to_chat(
@@ -142,6 +144,7 @@ async def test_discussion_mode_fills_root_capacity_then_replies_with_overflow(mo
     assert bot.send_photo.await_args.kwargs["chat_id"] == -1002
     assert bot.send_photo.await_args.kwargs["reply_to_message_id"] == 77
     assert bot.send_photo.await_args.kwargs["caption"] is None
+    assert waiter.await_args.args == (-1001, 10)
 
 
 @pytest.mark.asyncio
@@ -192,8 +195,49 @@ async def test_discussion_mixed_media_splits_image_and_file_threads(monkeypatch)
     root_docs = bot.send_media_group.await_args_list[1].kwargs
     assert root_docs["chat_id"] == -1001
     assert root_docs["reply_to_message_id"] == 10
-    assert waiter.await_args_list[0].args == (-1001, 10)
-    assert waiter.await_args_list[1].args == (-1001, 13)
+    assert waiter.await_args_list[0].args == (-1001, 1)
+    assert waiter.await_args_list[1].args == (-1001, 11)
+
+
+@pytest.mark.asyncio
+async def test_publication_commands_use_channel_album_reply(monkeypatch, tmp_path):
+    captured = []
+
+    class _StubPublicationService:
+        def __init__(self, **kwargs):
+            pass
+
+        async def publish(self, command):
+            captured.append(command.reply_mode)
+            from telepost.application.publication import PublicationOutcome
+            return PublicationOutcome(
+                status="published", message_id=42, link="https://t.me/c/1/42"
+            )
+
+    monkeypatch.setattr(
+        "telepost.application.publication.PublicationService",
+        _StubPublicationService,
+    )
+    monkeypatch.setattr(publish, "CHANNEL_ALBUM_REPLY", "discussion")
+
+    await publish.publish_from_file_ids(
+        AsyncMock(),
+        [{"type": "photo", "file_id": "P1"}],
+        [],
+        tags="#tag", user_id=1, idempotency_key="k",
+        work_type="illust", pixiv_id="123",
+    )
+    local = tmp_path / "a.jpg"
+    local.write_bytes(b"fake")
+    await publish.publish_from_files(
+        AsyncMock(),
+        [{"kind": "photo", "path": str(local), "filename": "a.jpg"}],
+        tags="#tag", user_id=1, idempotency_key="k2",
+        work_type="illust", pixiv_id="456",
+    )
+
+    assert publish._reply_mode_from(None) is ReplyMode.DISCUSSION
+    assert captured == [ReplyMode.DISCUSSION, ReplyMode.DISCUSSION]
 
 
 @pytest.mark.asyncio
