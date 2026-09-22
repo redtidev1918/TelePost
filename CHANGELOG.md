@@ -10,6 +10,13 @@
 
 ---
 
+## [2.63.0](https://github.com/redtidev1918/TelePost/compare/v2.62.4...v2.63.0) (2026-09-22)
+
+
+### Features
+
+* **moderation:** add manual ban commands for users and api tokens ([0326cf8](https://github.com/redtidev1918/TelePost/commit/0326cf8f6532d9a9b61ddcc1a562b1bb02300ed3))
+
 ## [2.62.4](https://github.com/redtidev1918/TelePost/compare/v2.62.3...v2.62.4) (2026-09-22)
 
 
