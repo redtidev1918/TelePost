@@ -71,7 +71,7 @@ def _retry_after_seconds(exc: RetryAfter) -> float:
 
 class TelegramReviewStager:
     def __init__(self, bot, review_chat_id, *,
-                 album_size: int = 5,
+                 album_size: int = 10,
                  preview_interval: float = 0.75,
                  preview_timeout: float = 120.0,
                  preview_max_attempts: int = 5,

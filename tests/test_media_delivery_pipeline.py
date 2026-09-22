@@ -506,6 +506,14 @@ async def test_unrelated_photo_errors_are_not_retried(tmp_path):
 # 11: the review group sees one ordered photo album (end to end)
 # --------------------------------------------------------------------------
 
+@pytest.mark.unit
+def test_review_stager_default_album_size_is_telegram_capacity():
+    from telepost.telegram.review_stager import TelegramReviewStager
+
+    stager = TelegramReviewStager(AsyncMock(), -100123)
+    assert stager._album_size == 10
+
+
 @pytest.mark.asyncio
 async def test_review_group_gallery_is_one_photo_album_in_source_order(tmp_path):
     from telepost.telegram.review_stager import TelegramReviewStager

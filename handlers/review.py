@@ -61,7 +61,7 @@ REVIEW_PREVIEW_THREAD = str(
     os.getenv("REVIEW_PREVIEW_THREAD", "1")
 ).strip().lower() in {"1", "true", "yes", "on"}
 REVIEW_ALBUM_SIZE = max(
-    1, min(10, int(os.getenv("REVIEW_ALBUM_SIZE", "5")))
+    1, min(10, int(os.getenv("REVIEW_ALBUM_SIZE", "10")))
 )
 PENDING_REVIEW_RETENTION_DAYS = max(
     0, int(os.getenv("PENDING_REVIEW_RETENTION_DAYS", "0"))
