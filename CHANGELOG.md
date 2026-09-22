@@ -10,6 +10,14 @@
 
 ---
 
+## [2.62.3](https://github.com/redtidev1918/TelePost/compare/v2.62.2...v2.62.3) (2026-09-22)
+
+
+### Bug Fixes
+
+* **delivery:** anchor discussion overflow to album roots ([cad09dd](https://github.com/redtidev1918/TelePost/commit/cad09ddb377dd056c334f2bff88cae863880a70f))
+* **review:** default review albums to Telegram media group capacity ([3a2bda1](https://github.com/redtidev1918/TelePost/commit/3a2bda11c4c512f72d0ba6df47a1a929b2562bbb))
+
 ## [2.62.2](https://github.com/redtidev1918/TelePost/compare/v2.62.1...v2.62.2) (2026-09-21)
 
 
