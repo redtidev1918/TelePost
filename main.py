@@ -52,6 +52,7 @@ from handlers import (
 # 黑名单管理
 from utils.blacklist import manage_blacklist, init_blacklist
 from handlers.command_handlers import blacklist_add, blacklist_remove, blacklist_list, catch_all, debug, handle_menu_shortcuts, about_command
+from handlers.moderation import ban_api_command, ban_user_command
 from handlers.botconfig import botconfig, botconfig_callback
 
 # 投稿处理（状态机由 handlers.conversation 构建）
@@ -612,6 +613,8 @@ def setup_application(application):
         application.add_handler(CommandHandler('blacklist_add', blacklist_add), group=-998)
         application.add_handler(CommandHandler('blacklist_remove', blacklist_remove), group=-998)
         application.add_handler(CommandHandler('blacklist_list', blacklist_list), group=-998)
+        application.add_handler(CommandHandler('ban_user', ban_user_command), group=-998)
+        application.add_handler(CommandHandler('ban_api', ban_api_command), group=-998)
         application.add_handler(CommandHandler('botconfig', botconfig), group=-998)
         # 不再注册高优先级的cancel命令，只在ConversationHandler的fallbacks中注册
         # application.add_handler(CommandHandler('cancel', cancel), group=-998)  # 注释掉这行

@@ -196,3 +196,64 @@ async def test_admin_block_callback_disables_api(monkeypatch, tmp_path):
     await admin_block(update, MagicMock())
     assert await ModerationRepository().is_blocked("api:5") is True
     assert query.answer.await_args.args[0].startswith("已封禁API")
+
+
+@pytest.mark.asyncio
+async def test_ban_user_command_writes_both_stores(monkeypatch, tmp_path):
+    await _init(monkeypatch, tmp_path)
+    import config.settings as settings
+    monkeypatch.setattr(settings, "ADMIN_IDS", {900})
+    from utils.blacklist import init_blacklist, is_blacklisted
+    await init_blacklist()
+    from handlers.moderation import ban_user_command
+
+    reply = AsyncMock()
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=900),
+        message=SimpleNamespace(reply_text=reply),
+    )
+    context = SimpleNamespace(args=["77", "违规投稿"])
+    await ban_user_command(update, context)
+
+    assert await ModerationRepository().is_blocked("user:77") is True
+    assert is_blacklisted(77) is True
+    assert "已封禁用户 77" in reply.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_ban_api_command_writes_moderation_store(monkeypatch, tmp_path):
+    await _init(monkeypatch, tmp_path)
+    import config.settings as settings
+    monkeypatch.setattr(settings, "ADMIN_IDS", {900})
+    from handlers.moderation import ban_api_command
+
+    reply = AsyncMock()
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=900),
+        message=SimpleNamespace(reply_text=reply),
+    )
+    context = SimpleNamespace(args=["#9", "异常投稿"])
+    await ban_api_command(update, context)
+
+    assert await ModerationRepository().is_blocked("api:9") is True
+    assert "已禁用 API token #9" in reply.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_ban_commands_deny_non_admin(monkeypatch, tmp_path):
+    await _init(monkeypatch, tmp_path)
+    import config.settings as settings
+    monkeypatch.setattr(settings, "ADMIN_IDS", {900})
+    from handlers.moderation import ban_api_command, ban_user_command
+
+    reply = AsyncMock()
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=901),
+        message=SimpleNamespace(reply_text=reply),
+    )
+    await ban_user_command(update, SimpleNamespace(args=["77"]))
+    await ban_api_command(update, SimpleNamespace(args=["9"]))
+
+    assert await ModerationRepository().is_blocked("user:77") is False
+    assert await ModerationRepository().is_blocked("api:9") is False
+    assert "仅限管理员" in reply.await_args.args[0]
