@@ -161,7 +161,7 @@ async def test_no_username_uses_clickable_display_name(notification_db):
 
 
 @pytest.mark.asyncio
-async def test_anonymous_alert_hides_identity_but_keeps_owner(notification_db):
+async def test_anonymous_alert_keeps_internal_user_id_for_moderation(notification_db):
     await ManagerNotifyService().notify_accepted(ManagerAcceptanceContext(
         logical_submission_id="anon", submitter_user_id=44,
         submitter_username="secret", submitter_display_name="Secret Name",
@@ -174,8 +174,10 @@ async def test_anonymous_alert_hides_identity_but_keeps_owner(notification_db):
     kwargs = bot.send_message.await_args.kwargs
     assert "📝 投稿通知" in kwargs["text"]
     assert "（匿名投稿）" in kwargs["text"]
+    assert "投稿人：匿名用户（ID: 44）" in kwargs["text"]
     assert "状态：待审核" in kwargs["text"]
-    assert "entities" not in kwargs
+    assert len(kwargs["entities"]) == 1
+    assert kwargs["entities"][0].url == "tg://user?id=44"
     assert "secret" not in kwargs["text"].lower()
 
 

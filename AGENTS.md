@@ -293,8 +293,9 @@ api token 持有者                     绝不是 submitter
   Publication Success 后通知。
 - Manager 通知复用 durable notification outbox，按 logical submission 幂等；refetch
   generation、editorial revision 和重放不重复发送，manager 自投不发冗余提醒。
-- 匿名 human 保留 ownership 但 manager 消息隐藏身份；service submission 不发 manager
-  新投稿提醒。允许展示时，username 或 display name 均链接到显式 submitter_user_id。
+- 匿名 human 保留 ownership：manager 通知显示内部用户 ID（`tg://user` 链接）供封禁，
+  但不展示 username / display name；service submission 不发 manager 新投稿提醒。
+  允许展示时，username 或 display name 均链接到显式 submitter_user_id。
 - 多图 publication 使用 capacity-first packing：root publication 先填满 Telegram
   media-group 容量，再把 overflow 按同一容量分批发到 replies/discussion；caption 只在
   root，canonical link/message_id 也始终指向 root。
@@ -384,8 +385,9 @@ submission detail and is labeled accordingly.
   PixivFlow`（真实 source/provenance）；公开 surface（频道 / Mini App 预览）
   永不显示来源行。
 - 频道公开署名与 manager 新投稿消息是 intentional identity contexts：非匿名 human
-  使用显式 submitter_user_id 的 `tg://user` link；review/refetch/schedule/system 状态消息
-  不创建 user mention entity。
+  使用显式 submitter_user_id 的 `tg://user` link；匿名 human 在 manager 通知中只显示
+  user ID（不显示 username / display name）供封禁。review/refetch/schedule/system
+  状态消息不创建 user mention entity。
 
 ## Submission CTA 不变量（§submission-entrypoint）
 

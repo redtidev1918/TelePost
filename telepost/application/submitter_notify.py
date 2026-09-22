@@ -200,6 +200,14 @@ def format_manager_acceptance(payload: Dict[str, Any]) -> tuple[str, Optional[di
         lines.append(f"API token：#{token_id}")
     elif anonymous:
         lines.append("（匿名投稿）")
+        if submitter_uid:
+            uid = int(submitter_uid)
+            label = f"匿名用户（ID: {uid}）"
+            lines += ["", f"投稿人：{label}"]
+            start = len("\n".join(lines)) - len(label)
+            entity = {
+                "offset": start, "length": len(label), "url": f"tg://user?id={uid}",
+            }
     lines.append(f"状态：{statuses.get(status, status)}")
     if review_id:
         lines.append(f"审核稿：#{int(review_id)}")

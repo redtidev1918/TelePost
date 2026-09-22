@@ -249,5 +249,7 @@ Fly.io 拆分部署由独立 PixivFlow Machine 按需唤醒；TelePost 常驻。
 - 触发点统一为 **Publication Success**（频道发布确认），不是 review approval。
 - 覆盖 Chat 直发 / 审核原稿 / 审核编辑三条路径；匿名 human 仍私聊通知；Service
   投稿从不通知。
+- 匿名 human 在管理员「投稿通知」中显示内部用户 ID（`tg://user` 链接）供封禁，
+  不显示 username / display name；频道公开 caption 仍保持匿名。
 - 幂等键 `publication:<message_id>:submitter-notification`；失败只重试通知，
   不回滚发布。
