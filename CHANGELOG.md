@@ -10,6 +10,13 @@
 
 ---
 
+## [2.62.4](https://github.com/redtidev1918/TelePost/compare/v2.62.3...v2.62.4) (2026-09-22)
+
+
+### Bug Fixes
+
+* **notify:** keep anonymous submitter id visible in admin alerts ([241de35](https://github.com/redtidev1918/TelePost/commit/241de350acb698780989e9586e826e01bcf5d08e))
+
 ## [2.62.3](https://github.com/redtidev1918/TelePost/compare/v2.62.2...v2.62.3) (2026-09-22)
 
 
