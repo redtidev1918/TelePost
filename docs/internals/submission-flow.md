@@ -58,17 +58,17 @@ pending ──点「发布」──▶ publishing ──成功──▶ publishe
 
 1. **频道 root**：首组图片 + 首组文件（图片在前、文件在后，文件回复最后一张图）。
 2. **等自动转发锚点**：分别等待图片 root 与文件 root 的自动转发（Webhook 入队前
-   `capture_discussion_forward()` 抓 `is_automatic_forward` 更新）。
+   `capture_discussion_forward()` 抓 `is_automatic_forward` 更新）。Telegram 把
+   讨论线程锚定在每个根 media group 的**首条消息**，因此等待的是首条而非成员末条。
 3. **分族 overflow**：溢出图片回复图片锚点，溢出文件回复文件锚点。
 
 失败语义（`DiscussionPublishError`）：
 
-- **确定态 root 失败**（等转发超时、未关联讨论组、非网络错误、回滚删净）：先删干净
-  已落地的 root/锚点/overflow，再**自动重试一次**。
-- **首贴响应丢失**（`NetworkError` 且不知是否到频道）：查 `_recent_forwards`
-  近期自动转发；Telegram 实际收下就连首贴带锚点删干净 → 回到确定态 → 重试。
+- **root 未确认失败**（发送失败 / 响应丢失且反查不到自动转发）：按已确认消息保守
+  处理并允许**自动重试一次**；响应丢失时会先查 `_recent_forwards` 确认是否已落地。
 - **overflow 失败/响应丢失**（`uncertain=True`）：保留已确认的频道 root（不删除），
-  overflow 按可确定部分回滚；提示人工核对对应评论串。只有这种情况需要人看。
+  也**不整组重跑**；overflow 按可确定部分回滚，提示人工核对对应评论串。只有这种
+  情况需要人看。
 
 回滚删除容忍「消息已不存在」（视为成功）；删不净则升级为 `uncertain` 交人工。
 

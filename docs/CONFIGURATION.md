@@ -92,7 +92,7 @@ API（自动化）固定进入审核；Mini App 由 `MINIAPP_REVIEW_REQUIRED` �
 | `REVIEW_PREVIEW_TIMEOUT_SECONDS` | `120` | 单次审核预览 Telegram I/O 超时 |
 | `TELEGRAM_SEND_TIMEOUT_SECONDS` | `REVIEW_PREVIEW_TIMEOUT_SECONDS` | 频道发布 Telegram I/O 超时；大相册建议保持 120 秒 |
 | `CHANNEL_ALBUM_REPLY` | code `chain` / 生产 deploy `discussion` | 多图展示：`chain` 在频道逐级回复；`post` 在频道都回复主贴；`discussion` 先填频道首组图片 + 首组文件，overflow 分别走图片/文件讨论串（Webhook 模式） |
-| `DISCUSSION_FORWARD_TIMEOUT_SECONDS` | `10` | `discussion` 模式等待频道帖自动转发到讨论组的超时；超时则删除频道主贴并判为发布失败，最小 1 秒 |
+| `DISCUSSION_FORWARD_TIMEOUT_SECONDS` | `10` | `discussion` 模式等待频道帖自动转发到讨论组的超时；root 已确认后超时会保留主贴、溢出等待人工核验，最小 1 秒 |
 | `REVIEW_PREVIEW_THREAD` | `1` | 后续预览和控制消息回复上一条 |
 | `PENDING_REVIEW_RETENTION_DAYS` | `0` | 待审过期天数；`0` 永久保留 |
 | `NOVEL_PREVIEW_ENABLED` | `false` | **可选发布增强**：TXT 小说经 TelePress 发布到 Telegraph，「在线阅读」链接出现在频道 caption；**默认关闭**，开启后 TXT document 仍正常发送，Telegraph 失败/超时绝不导致投稿失败（§telepress-preview） |
@@ -123,7 +123,7 @@ immutable original 暂存为最终发布用 document；没有 preview 时直接�
 # 多相册投稿改为「都回复主贴」（不再逐级嵌套成链）
 fly secrets set -a <app> CHANNEL_ALBUM_REPLY=discussion
 
-# 单次投稿文件数上限从 50 放宽到 100（支持超大图集整本投）
+# 单次投稿文件数上限（代码默认已为 100；可继续按需调大）
 fly secrets set -a <app> API_MAX_FILES=100
 ```
 
@@ -132,8 +132,8 @@ fly secrets set -a <app> API_MAX_FILES=100
 - `post` 指同一频道内的消息回复，不会把后续图片移到关联讨论群的评论区；它不改变发送目标。
 - `discussion` 才是评论区展示：频道 root 保留首组图片和首组文件（图片在前、文件在后），溢出图片/文件分别进入各自的讨论锚点串；Bot 必须在频道的关联讨论组中且可发消息。
 - 普通 `chain` / `post` 多批发布遇到**确定失败**时，会把已确认的 Telegram 消息写入 delivery ledger；同一幂等键重试只续发剩余批次。响应状态不确定时该键会停止自动发送，必须先人工核对，避免重复主贴。
-- `discussion` 仅在 **Webhook 模式**可用——自动转发事件要在进入 PTB 更新队列前捕获；Polling 模式拿不到，多图发布会在 `DISCUSSION_FORWARD_TIMEOUT_SECONDS` 超时后回滚（删除频道主贴）并判失败。配错时启动日志会有告警。
-- 讨论串建立失败（未关联讨论组 / Bot 不在讨论组 / 转发超时）时，已落地的频道封面主贴、讨论组锚点、已发相册会**完整回滚删除**，不留半成品；确定态失败会**自动重试一次**。首贴发送"响应丢失"时会反查自动转发自愈。仅评论相册"发了没成功"这类无法判断是否重复的情况不自动重试，审核群提示人工核对评论串后再点重试。
+- `discussion` 仅在 **Webhook 模式**可用——自动转发事件要在进入 PTB 更新队列前捕获；Polling 模式拿不到自动转发，root 确认后只能保留频道主贴、不能投递溢出，不会自动重跑。配错时启动日志会有告警。
+- 频道 root 未确认（发送失败 / 响应丢失且反查不到转发）时允许回滚并自动重试一次；root 一旦确认，linked-discussion overflow 失败**绝不删除或重跑 root**，只按可确定部分清理讨论区并保留主贴，需人工核验对应评论串。仅评论相册"发了没成功"这类无法判断是否重复的情况不自动重试。
 - 审核发布若进程中途崩溃，记录会卡在 `publishing`；超过 `PUBLISHING_STALE_SECONDS`（默认 300）秒后点「重试发布」会自动解锁重发。
 - `API_MAX_FILES` 放宽的是 HTTP API 投稿入口（PixivFlow 等）；单个 Telegram 相册仍 ≤10，发布侧自动分批。
 - 设置会触发应用重启；生产现网（telesubmit-multi-bot）已启用 `discussion`，单个 Telegram 相册仍 ≤10。
