@@ -10,6 +10,16 @@
 
 ---
 
+
+## [2.64.0](https://github.com/redtidev1918/TelePost/compare/v2.63.0...v2.64.0) (2026-09-24)
+
+
+### Features
+
+* **hot:** redesign /hot and add /hotweek — natural-week hot ranking with stable sort
+* **automation:** add /schedule for admin-defined recurring tasks (SQLite persistent, hot-reload, idempotent runs)
+* **help:** reorganize /help and /start; split user vs admin command menus via Telegram scopes
+
 ## [2.63.0](https://github.com/redtidev1918/TelePost/compare/v2.62.4...v2.63.0) (2026-09-22)
 
 
@@ -1832,3 +1842,5 @@ main.py (379行)        →  main.py (主入口)
 - 基础投稿功能
 - 简单的管理命令
 - 单文件实现
+
+
