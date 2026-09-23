@@ -9,7 +9,13 @@
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
 ---
-## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+## [2.64.2](https://github.com/redtidev1918/TelePost/compare/v2.64.1...v2.64.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** await reply_text — /schedule produced zero response ([fb46a4a](https://github.com/redtidev1918/TelePost/commit/fb46a4a))## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
 
 
 ### Bug Fixes
@@ -18,7 +24,13 @@
 
 
 
-## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+## [2.64.2](https://github.com/redtidev1918/TelePost/compare/v2.64.1...v2.64.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** await reply_text — /schedule produced zero response ([fb46a4a](https://github.com/redtidev1918/TelePost/commit/fb46a4a))## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
 
 
 ### Bug Fixes
@@ -31,7 +43,13 @@
 * **hot,automation,help:** add /hotweek, /schedule, reorganize help & menus ([66e1257](https://github.com/redtidev1918/TelePost/commit/66e125764addff7b9c6d646d401c89c561e1af0a))
 
 
-## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+## [2.64.2](https://github.com/redtidev1918/TelePost/compare/v2.64.1...v2.64.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** await reply_text — /schedule produced zero response ([fb46a4a](https://github.com/redtidev1918/TelePost/commit/fb46a4a))## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
 
 
 ### Bug Fixes
@@ -887,7 +905,13 @@
 - Docker 默认配置改为开箱可用的生产默认值，配置改由 `.env` 注入，不再需要手动改网络 / DNS。
 
 ---
-## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+## [2.64.2](https://github.com/redtidev1918/TelePost/compare/v2.64.1...v2.64.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** await reply_text — /schedule produced zero response ([fb46a4a](https://github.com/redtidev1918/TelePost/commit/fb46a4a))## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
 
 
 ### Bug Fixes
@@ -1522,7 +1546,13 @@
 - 健康检查：两种模式均正常响应
 - 验证平台：PaaS 平台、VPS 服务器、Docker 容器
 ---
-## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+## [2.64.2](https://github.com/redtidev1918/TelePost/compare/v2.64.1...v2.64.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** await reply_text — /schedule produced zero response ([fb46a4a](https://github.com/redtidev1918/TelePost/commit/fb46a4a))## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
 
 
 ### Bug Fixes
@@ -1634,7 +1664,13 @@
   - CHANGELOG.md：版本历史记录
 
 ---
-## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+## [2.64.2](https://github.com/redtidev1918/TelePost/compare/v2.64.1...v2.64.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** await reply_text — /schedule produced zero response ([fb46a4a](https://github.com/redtidev1918/TelePost/commit/fb46a4a))## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
 
 
 ### Bug Fixes
@@ -1677,7 +1713,13 @@
   - 改进备份失败时的降级处理
 
 ---
-## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+## [2.64.2](https://github.com/redtidev1918/TelePost/compare/v2.64.1...v2.64.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** await reply_text — /schedule produced zero response ([fb46a4a](https://github.com/redtidev1918/TelePost/commit/fb46a4a))## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
 
 
 ### Bug Fixes
@@ -1720,7 +1762,13 @@
 - 更新部署脚本的帮助信息
 
 ---
-## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+## [2.64.2](https://github.com/redtidev1918/TelePost/compare/v2.64.1...v2.64.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** await reply_text — /schedule produced zero response ([fb46a4a](https://github.com/redtidev1918/TelePost/commit/fb46a4a))## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
 
 
 ### Bug Fixes
@@ -1804,7 +1852,13 @@
  - 移除 README 中对 `docs/INDEX.md` 的失效链接
 
 ---
-## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+## [2.64.2](https://github.com/redtidev1918/TelePost/compare/v2.64.1...v2.64.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** await reply_text — /schedule produced zero response ([fb46a4a](https://github.com/redtidev1918/TelePost/commit/fb46a4a))## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
 
 
 ### Bug Fixes
@@ -1897,7 +1951,13 @@ main.py (379行)        →  main.py (主入口)
 - 添加了详细的代码注释
 
 ---
-## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+## [2.64.2](https://github.com/redtidev1918/TelePost/compare/v2.64.1...v2.64.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** await reply_text — /schedule produced zero response ([fb46a4a](https://github.com/redtidev1918/TelePost/commit/fb46a4a))## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
 
 
 ### Bug Fixes
@@ -1909,4 +1969,5 @@ main.py (379行)        →  main.py (主入口)
 - 基础投稿功能
 - 简单的管理命令
 - 单文件实现
+
 
