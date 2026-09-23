@@ -63,7 +63,7 @@ class MessageFormatter:
 
         admin_help = """
 👑 <b>管理员</b>
-/schedule 定时任务 · 如每周日 20:00 发热榜
+/schedule 定时任务（发 /schedule 查看引导）
 /ban_user &lt;ID&gt; 封禁用户
 /ban_api &lt;编号&gt; 禁用 API
 /blacklist 黑名单管理
@@ -486,6 +486,7 @@ class MessageFormatter:
         empty = width - filled
         
         return "▰" * filled + "▱" * empty
+
 
 
 
