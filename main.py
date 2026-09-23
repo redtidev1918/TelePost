@@ -8,7 +8,7 @@ import asyncio
 import platform
 import logging
 import os
-from telegram import MenuButtonWebApp, Update, WebAppInfo, BotCommand, MenuButtonDefault
+from telegram import MenuButtonWebApp, Update, WebAppInfo, BotCommand, BotCommandScopeChat, BotCommandScopeDefault, MenuButtonDefault
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -69,9 +69,10 @@ from handlers.error_handler import error_handler
 # API 令牌管理
 from handlers.api_commands import gen_token, tokens as api_tokens_command, revoke_token as revoke_token_command
 from handlers.schedule_status import status_command, pin_status_command
+from handlers.automation import schedule_command, handle_automation_callback
 
 # 统计和搜索功能
-from handlers.stats_handlers import get_hot_posts, get_user_stats, stats_command
+from handlers.stats_handlers import get_hot_posts, get_user_stats, stats_command, hot_week_posts
 from handlers.search_handlers import (
     search_posts, 
     get_tag_cloud, 
@@ -248,23 +249,63 @@ async def setup_bot_commands(application):
     Mini App 是用户主入口：配置可用时菜单按钮直接打开 Web App；命令仍然
     全量可用，但不再占用主菜单按钮。未启用 Mini App 时回退为默认命令菜单。
     """
-    commands = [
+    user_commands = [
         BotCommand("start", "🚀 启动机器人"),
         BotCommand("submit", "📝 发起投稿"),
         BotCommand("search", "🔍 搜索投稿内容"),
         BotCommand("tags", "🏷️ 查看标签云"),
         BotCommand("myposts", "📋 查看我的投稿"),
         BotCommand("mystats", "📊 查看个人统计"),
-        BotCommand("hot", "🔥 查看热门投稿"),
+        BotCommand("hot", "🔥 全部时间热榜"),
+        BotCommand("hotweek", "🔥 本周热榜"),
         BotCommand("help", "❓ 查看帮助信息"),
         BotCommand("about", "ℹ️ 关于机器人"),
         BotCommand("cancel", "❌ 取消当前操作"),
         BotCommand("settings", "⚙️ 机器人设置"),
         BotCommand("status", "📌 查看最近计划状态"),
     ]
+    admin_commands = user_commands + [
+        BotCommand("schedule", "⏰ 定时任务"),
+        BotCommand("stats", "📊 全局统计"),
+        BotCommand("searchuser", "🔍 查询用户投稿"),
+        BotCommand("delete_posts", "🗑 批量删除投稿"),
+        BotCommand("gen_token", "🔑 生成 API Token"),
+        BotCommand("tokens", "🔑 查看 API Token"),
+        BotCommand("revoke_token", "🔑 撤销 API Token"),
+        BotCommand("ban_user", "🚫 封禁用户"),
+        BotCommand("ban_api", "🚫 禁用 API"),
+        BotCommand("blacklist_add", "🚫 添加黑名单"),
+        BotCommand("blacklist_remove", "✅ 移除黑名单"),
+        BotCommand("blacklist_list", "📋 查看黑名单"),
+        BotCommand("blacklist", "📋 管理黑名单"),
+        BotCommand("rebuild_index", "🔧 重建索引"),
+        BotCommand("sync_index", "🔧 同步索引"),
+        BotCommand("index_stats", "📊 索引统计"),
+        BotCommand("optimize_index", "🔧 优化索引"),
+        BotCommand("botconfig", "⚙️ Bot 配置"),
+        BotCommand("debug", "🔧 调试"),
+        BotCommand("pin_status", "📌 置顶状态"),
+    ]
 
     try:
-        await application.bot.set_my_commands(commands)
+        from telegram import BotCommandScopeDefault, BotCommandScopeChat
+        # Default scope: normal users only see user commands.
+        await application.bot.set_my_commands(
+            user_commands, scope=BotCommandScopeDefault()
+        )
+        # Per-chat admin scope: admins additionally see admin commands.
+        from utils.blacklist import OWNER_ID, ADMIN_IDS
+        admin_chat_ids = set(ADMIN_IDS or [])
+        if OWNER_ID:
+            admin_chat_ids.add(OWNER_ID)
+        for admin_id in admin_chat_ids:
+            try:
+                await application.bot.set_my_commands(
+                    admin_commands,
+                    scope=BotCommandScopeChat(chat_id=admin_id),
+                )
+            except Exception:
+                logger.debug("无法为 admin %s 设置 chat scope（可能尚未私聊过）", admin_id)
         menu_button = MenuButtonDefault()
         try:
             from config.settings import MINIAPP_ENABLED, MINIAPP_PUBLIC_URL
@@ -636,6 +677,8 @@ def setup_application(application):
     
     # 注册统计和搜索命令处理器
     application.add_handler(CommandHandler("hot", get_hot_posts))
+    application.add_handler(CommandHandler("hotweek", hot_week_posts))
+    application.add_handler(CommandHandler("schedule", schedule_command))
     application.add_handler(CommandHandler("mystats", get_user_stats))
     application.add_handler(CommandHandler("search", search_posts))
     application.add_handler(CommandHandler("tags", get_tag_cloud))
@@ -715,6 +758,9 @@ def setup_application(application):
         application.add_handler(
             CallbackQueryHandler(handle_callback_query, pattern=pattern), group=3
         )
+    application.add_handler(
+        CallbackQueryHandler(handle_automation_callback, pattern=r"^auto"), group=3
+    )
     application.add_handler(CallbackQueryHandler(handle_unknown_callback), group=3)
     
     # 添加周期性清理任务
@@ -750,6 +796,15 @@ def setup_application(application):
             logger.info("跳过全局日志/PixivFlow 维护任务（仅主 Bot 注册）")
         
         logger.info("定期任务设置完成")
+
+        # Load native automation tasks after application starts (needs event loop).
+        async def load_automation(context):
+            from telepost.application.automation import sync_jobqueue
+            try:
+                await sync_jobqueue(context.application)
+            except Exception as e:
+                logger.error("automation 任务加载失败: %s", e, exc_info=True)
+        job_queue.run_once(load_automation, when=5, name="automation_load")
     except Exception as e:
         logger.error(f"设置定期任务失败: {e}", exc_info=True)
     
@@ -797,3 +852,8 @@ def entrypoint() -> None:
 
 if __name__ == "__main__":
     entrypoint()
+
+
+
+
+

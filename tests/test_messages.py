@@ -51,7 +51,7 @@ class TestMessageFormatter:
         assert "/cancel" in message
         assert "/help" in message
         # 应该包含管理员命令
-        assert "/broadcast" in message
+        assert "/schedule" in message
         assert "/blacklist" in message or "黑名单" in message
     
     @pytest.mark.unit
@@ -409,3 +409,4 @@ class TestCommandClickability:
         for text in samples:
             assert "<code>/" not in text, f"命令被包在 <code> 里不可点击: {text[:120]}"
             assert "/submit" in text or "/help" in text or "/cancel" in text or "/done_media" in text
+

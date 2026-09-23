@@ -18,7 +18,8 @@
 | `/cancel` | Cancel the current submission; outside a session it explains there is none in progress |
 | `/search <keyword>` | Search; supports `#tag`, `-t day\|week\|month`, `-n <count>` |
 | `/tags` | Tag cloud |
-| `/hot [count] [range]` | Local hot list; at most 50 |
+| `/hot [count] [week]` | All-time hot list; `/hot 20` for TOP 20 |
+| `/hotweek [count]` | This week's hot list (natural week, Mon 00:00 local) |
 | `/myposts [count]` | Your submissions |
 | `/mystats` | Statistics for your submissions |
 | `/settings` | Show the current public configuration |
@@ -92,3 +93,4 @@ default.
 
 > Pages marked **（中文）** are currently Chinese-only. Their English versions are being added
 > incrementally.
+

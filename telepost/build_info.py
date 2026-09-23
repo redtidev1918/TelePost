@@ -8,7 +8,7 @@ to the entry points; when present it overrides these committed defaults.
 # Bumped automatically by release-please (extra-files in
 # release-please-config.json). Release bundles and images override it at build
 # time with the exact version/commit; this constant is the local-dev fallback.
-RELEASE_VERSION = "2.63.0"  # x-release-please-version
+RELEASE_VERSION = "2.64.0"  # x-release-please-version
 RELEASE_COMMIT = "dev"
 BUILD_DATE = "dev"
 SERVICE = "telepost"
@@ -34,3 +34,4 @@ def release_info() -> dict:
             "commit": RELEASE_COMMIT,
             "build_date": BUILD_DATE,
         }
+

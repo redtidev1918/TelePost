@@ -25,7 +25,8 @@ class MessageFormatter:
             "/search 搜索内容\n"
             "/mystats 我的统计\n"
             "/myposts 我的投稿\n"
-            "/hot 热门排行\n"
+            "/hot 全部热榜\n"
+            "/hotweek 本周热榜\n"
             "/help 完整帮助\n\n"
             "💡 <i>想直接投稿？发送 /submit 就开始。</i>"
         )
@@ -33,53 +34,50 @@ class MessageFormatter:
     @staticmethod
     def help_message(is_admin: bool = False) -> str:
         """帮助消息"""
-        basic_help = """
-📚 <b>使用指南</b>
+        basic_help = """📚 <b>使用帮助</b>
 
 <b>📝 投稿</b>
-/submit 开始新投稿
-/done_media 上传完成后打开预览
-/cancel 取消当前投稿
+/submit 开始投稿
+/done_media 完成上传、打开预览
+/cancel 取消投稿
 
-<b>📊 统计查询</b>
-/hot [数量] [时间] 热门排行 · 如 /hot 20 week
-/mystats 我的投稿统计
-/myposts [数量] 我的投稿列表
+<b>📊 热榜</b>
+/hot 全部时间热榜 TOP 10
+/hot 20 全部时间热榜 TOP 20
+/hotweek 本周热榜 TOP 10
+/hotweek 10 本周热榜 TOP 10
 
-<b>🔍 搜索</b>
-/search 关键词 搜索内容 · 如 /search Python
-/tags [数量] 热门标签
+<b>🔍 内容</b>
+/search 关键词
+/tags
 
-<b>ℹ️ 其它</b>
+<b>📋 我的内容</b>
+/myposts
+/mystats
+
+<b>ℹ️ 其他</b>
 /help 完整帮助
-/settings 查看机器人设置
-/about 关于机器人
+/settings
+/about
 """
-        
-        admin_help = """
-👑 <b>管理员命令</b>
-/ban_user &lt;ID&gt; [原因] 手动封禁用户
-/ban_api &lt;token编号&gt; [原因] 手动禁用API
-/addblacklist &lt;ID&gt; [原因] 添加黑名单
-/removeblacklist &lt;ID&gt; 移除黑名单
-/blacklist 查看黑名单
-/searchuser &lt;ID&gt; 查询用户投稿
-/broadcast &lt;消息&gt; 广播消息
-/stats 全局统计信息
 
+        admin_help = """
+👑 <b>管理员</b>
+/schedule 定时任务 · 如每周日 20:00 发热榜
+/ban_user &lt;ID&gt; 封禁用户
+/ban_api &lt;编号&gt; 禁用 API
+/blacklist 黑名单管理
+/searchuser &lt;ID&gt; 查询用户投稿
+/stats 全局统计
 """
-        
-        footer = """
-💡 <b>小贴士</b>
-• 投稿支持图片 / 视频 / 压缩包 / PDF 等
-• 添加 #标签 让内容更易被发现
-• 任一环节都可发送 /cancel 取消投稿
-"""
-        
+
+        footer = """💡 投稿支持图片 / 视频 / 压缩包 / PDF。
+任一环节发 /cancel 可取消。"""
+
         if is_admin:
             return basic_help + admin_help + footer
         return basic_help + footer
-    
+
     @staticmethod
     def about_message() -> str:
         """关于消息"""
@@ -488,3 +486,8 @@ class MessageFormatter:
         empty = width - filled
         
         return "▰" * filled + "▱" * empty
+
+
+
+
+

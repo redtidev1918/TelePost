@@ -14,7 +14,7 @@ from database.db_manager import get_db
 logger = logging.getLogger(__name__)
 
 
-async def get_hot_posts(update: Update, context: CallbackContext, edit_message: bool = False, page: int = 1):
+async def get_hot_posts(update: Update, context: CallbackContext, edit_message: bool = False, page: int = 1, week_alias_flag: bool = False):
     """
     获取热门帖子排行 - 只显示主贴，优化预览样式
 
@@ -35,65 +35,41 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
         context: 回调上下文
     """
     try:
-        # 解析参数
-        args = context.args
-        limit = 10  # 默认10个
-        time_filter = None  # 时间过滤：day, week, month, all
-        
-        if args:
-            # 第一个参数可能是数量
-            if args[0].isdigit():
-                limit = int(args[0])
-                limit = min(limit, 50)  # 最多50个
-                
-                # 第二个参数可能是时间范围
-                if len(args) > 1:
-                    time_filter = args[1].lower()
-            else:
-                # 第一个参数是时间范围
-                time_filter = args[0].lower()
-        
-        # 构建查询 - 只查询主贴（有标题或至少有内容的帖子）
-        # published_posts 表中存储的都是主贴，不包含多组媒体的后续消息
-        # 过滤已删除的帖子
+        from telepost.domain.hot import HotArgError, HotQuery, parse_hot_query
+        week_alias = week_alias_flag  # noqa
+        try:
+            hq = parse_hot_query(list(context.args or []), week_alias=week_alias)
+        except HotArgError as e:
+            msg = f"⚠️ {e}"
+            if update.message:
+                await update.message.reply_text(msg)
+            elif update.callback_query:
+                await update.callback_query.answer(msg, show_alert=True)
+            return
+
+        scope = hq.scope
+        limit = hq.limit
+        time_filter = scope
+        time_desc = hq.scope_label
+        from telepost.domain.hot import week_start_utc
+        cutoff = week_start_utc() if scope == "week" else None
+
+        # 构建查询 - 只查询主贴
         query = "SELECT * FROM published_posts WHERE is_deleted = 0"
         query_params = []
-        
-        # 时间过滤
-        if time_filter == 'day':
-            cutoff = (datetime.now() - timedelta(days=1)).timestamp()
+        if cutoff is not None:
             query += " AND publish_time > ?"
             query_params.append(cutoff)
-            time_desc = "今日"
-        elif time_filter == 'week':
-            cutoff = (datetime.now() - timedelta(days=7)).timestamp()
-            query += " AND publish_time > ?"
-            query_params.append(cutoff)
-            time_desc = "本周"
-        elif time_filter == 'month':
-            cutoff = (datetime.now() - timedelta(days=30)).timestamp()
-            query += " AND publish_time > ?"
-            query_params.append(cutoff)
-            time_desc = "本月"
-        else:
-            time_desc = "全部"
-        
-        # 总条数（用于分页导航）
+
         page = max(1, int(page or 1))
         count_query = "SELECT COUNT(*) AS c FROM published_posts WHERE is_deleted = 0"
         count_params = []
-        if time_filter == 'day':
+        if cutoff is not None:
             count_query += " AND publish_time > ?"
-            count_params.append((datetime.now() - timedelta(days=1)).timestamp())
-        elif time_filter == 'week':
-            count_query += " AND publish_time > ?"
-            count_params.append((datetime.now() - timedelta(days=7)).timestamp())
-        elif time_filter == 'month':
-            count_query += " AND publish_time > ?"
-            count_params.append((datetime.now() - timedelta(days=30)).timestamp())
+            count_params.append(cutoff)
 
-        # 按热度排序（分页取数）
-        query += " ORDER BY heat_score DESC LIMIT ? OFFSET ?"
+        # 稳定排序：heat DESC → publish_time DESC → message_id DESC
+        query += " ORDER BY heat_score DESC, publish_time DESC, message_id DESC LIMIT ? OFFSET ?"
         offset = (page - 1) * limit
         query_params.append(limit)
         query_params.append(offset)
@@ -156,7 +132,11 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
             return
         
         # 构建消息 - 优化显示格式
-        message = f"🔥 <b>{time_desc}热门帖子 TOP {len(valid_hot_posts)}</b>\n\n"
+        message = f"🔥 <b>{time_desc}热榜 TOP {len(valid_hot_posts)}</b>\n"
+        if scope == "week":
+            from telepost.domain.hot import week_range_label
+            message += f"📅 {week_range_label()}\n"
+        message += "\n"
         
         for idx, post in enumerate(valid_hot_posts, 1):
             # 生成帖子链接
@@ -237,8 +217,8 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
                 break
         
         message += f"━━━━━━━━━━━━━━━\n"
-        message += f"💡 使用 /hot &lt;数量&gt; &lt;时间&gt; 自定义查询\n"
-        message += f"⏰ 时间范围：day(今日)、week(本周)、month(本月)"
+        message += f"💡 /hot 全部 · /hot 20 · /hotweek 本周 · /hotweek 10"
+        
         
         # 分页导航：多页时附加 ⬅️/➡️ 按钮，并记录翻页上下文
         from ui.keyboards import Keyboards
@@ -433,4 +413,66 @@ async def stats_command(update: Update, context: CallbackContext):
     except Exception as exc:
         logger.error("全局统计失败: %s", exc, exc_info=True)
         await update.message.reply_text("❌ 获取全局统计失败，请稍后重试。")
+
+
+
+
+async def hot_week_posts(update: Update, context: CallbackContext):
+    """/hotweek — 本周热榜（自然周，周一 00:00 起）。"""
+    await get_hot_posts(update, context, week_alias_flag=True)
+
+
+async def build_hot_message(hq=None, *, scope: str = "all", limit: int = 10) -> str:
+    """Build the hot list message text (no Telegram send). Used by /hot and automation."""
+    from telepost.domain.hot import HotQuery as _HQ, week_start_utc, week_range_label
+    if hq is None:
+        hq = _HQ(scope=scope, limit=limit)
+    time_filter = hq.scope
+    limit = hq.limit
+    cutoff = week_start_utc() if hq.scope == "week" else None
+    time_desc = hq.scope_label
+
+    query = "SELECT * FROM published_posts WHERE is_deleted = 0"
+    query_params = []
+    if cutoff is not None:
+        query += " AND publish_time > ?"
+        query_params.append(cutoff)
+    query += " ORDER BY heat_score DESC, publish_time DESC, message_id DESC LIMIT ?"
+    query_params.append(limit)
+
+    async with get_db() as conn:
+        cursor = await conn.cursor()
+        await cursor.execute(query, query_params)
+        posts = await cursor.fetchall()
+
+    if not posts:
+        return f"📊 暂无{time_desc}热榜数据"
+
+    message = f"🔥 <b>{time_desc}热榜 TOP {len(posts)}</b>\n"
+    if hq.scope == "week":
+        message += f"📅 {week_range_label()}\n"
+    message += "\n"
+
+    for idx, post in enumerate(posts, 1):
+        if CHANNEL_ID.startswith('@'):
+            channel_username = CHANNEL_ID.lstrip('@')
+            post_link = f"https://t.me/{channel_username}/{post['message_id']}"
+        else:
+            post_link = f"消息ID: {post['message_id']}"
+        title = post['title'] or '无标题'
+        if len(title) > 40:
+            title = title[:37] + '...'
+        title = _html.escape(str(title))
+        if str(post_link).startswith("http"):
+            message += f"<b>{idx}.</b> <a href=\"{post_link}\">{title}</a>\n"
+        else:
+            message += f"<b>{idx}.</b> {title}\n"
+        stats_parts = []
+        if post['reactions'] > 0:
+            stats_parts.append(f"❤️ {post['reactions']}")
+        if stats_parts:
+            message += f"   📊 {' | '.join(stats_parts)}\n"
+        message += f"   🔥 <code>{post['heat_score']:.1f}</code>\n\n"
+    return message
+
 
