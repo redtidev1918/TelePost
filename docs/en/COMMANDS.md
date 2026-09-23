@@ -45,6 +45,7 @@ tokens; new tokens can still only be created by the Owner through `/gen_token`.
 
 | Command | Description |
 |---|---|
+| `/schedule` | Manage scheduled tasks (see detailed section below) |
 | `/ban_user <user id> [reason]` | Manually block a user (fallback if buttons fail; use the anonymous ID from the admin alert) |
 | `/ban_api <token id> [reason]` | Manually disable an API token (fallback if buttons fail) |
 | `/rebuild_index` | Clear and rebuild the search index |
@@ -73,6 +74,49 @@ Process the pending review queue before switching channel or review group, or ru
 A multi-bot supervisor restarts only the current bot; a single-bot deployment needs a manual
 restart after the policy is written.
 
+
+## `/schedule` (Admin command)
+
+Admins can create recurring tasks so the bot automatically sends content (e.g. a weekly hot
+list) at a set time.
+
+### Interactive creation
+
+Send `/schedule` (no args). The bot shows the task list or a create button. Tap "🔥 创建每周热榜":
+
+1. Pick a weekday (Mon–Sun buttons)
+2. Pick a time (presets 20:00 / 21:00 / 08:00 / 12:00, or send HH:MM directly)
+3. Pick the TOP count (5 / 10 / 20)
+4. Confirm the preview to create
+
+### One-line command
+
+```text
+/schedule add weekly-hot <weekday> <HH:MM> <TOP N>
+```
+
+Example: `/schedule add weekly-hot sunday 20:00 10`
+
+### Management subcommands
+
+| Command | Description |
+|---|---|
+| `/schedule` | List all tasks (with run/disable/delete buttons) |
+| `/schedule add weekly-hot <weekday> <HH:MM> <N>` | Create a weekly hot-list task |
+| `/schedule enable <id>` | Enable a task |
+| `/schedule disable <id>` | Disable a task |
+| `/schedule run <id>` | Run the task immediately (manual trigger) |
+| `/schedule preview <id>` | Preview the task output (no send) |
+| `/schedule delete <id>` | Delete a task |
+
+### Notes
+
+- The target chat is the current bot's review group (`REVIEW_CHAT_ID`, falling back to
+  `CHANNEL_ID` when unset)
+- Tasks are persisted in SQLite; the bot restores them after a restart
+- The same task will not send twice for the same time slot (idempotent)
+- Timezone uses the `TZ` env var (default `Asia/Shanghai`)
+- Manual runs do not affect the next scheduled occurrence
 ## Submission flow commands
 
 | Command | Stage | Description |
@@ -93,4 +137,5 @@ default.
 
 > Pages marked **（中文）** are currently Chinese-only. Their English versions are being added
 > incrementally.
+
 

@@ -43,6 +43,7 @@
 
 | 命令 | 说明 |
 |---|---|
+| `/schedule` | 管理定时任务（见下方详细说明） |
 | `/ban_user <用户ID> [原因]` | 手动封禁用户（按钮失效兜底；匿名投稿用通知中的 ID） |
 | `/ban_api <token编号> [原因]` | 手动禁用 API token（按钮失效兜底） |
 | `/rebuild_index` | 清空并重建搜索索引 |
@@ -78,6 +79,47 @@
 切换频道、审核群或 reset 前必须处理完待审队列。多 Bot supervisor 只重启当前 Bot；
 单 Bot 部署写入策略后需要手工重启。
 
+
+## `/schedule`（Admin 命令）
+
+管理员可以设置定时任务，让 Bot 自动定期发送内容（如每周热榜）。
+
+### 交互式创建
+
+发送 `/schedule`（无参数），Bot 会显示任务列表或创建按钮。点击「🔥 创建每周热榜」后：
+
+1. 选择星期（周一到周日按钮）
+2. 选择时间（预设 20:00 / 21:00 / 08:00 / 12:00，或直接发送 HH:MM）
+3. 选择 TOP 数量（5 / 10 / 20）
+4. 确认预览并创建
+
+### 一行命令创建
+
+```text
+/schedule add weekly-hot <星期> <HH:MM> <TOP N>
+```
+
+示例：`/schedule add weekly-hot sunday 20:00 10`
+
+### 管理子命令
+
+| 命令 | 说明 |
+|---|---|
+| `/schedule` | 查看所有任务（含执行/停用/删除按钮） |
+| `/schedule add weekly-hot <星期> <HH:MM> <N>` | 创建每周热榜任务 |
+| `/schedule enable <id>` | 启用任务 |
+| `/schedule disable <id>` | 停用任务 |
+| `/schedule run <id>` | 立即手动执行一次 |
+| `/schedule preview <id>` | 预览任务输出（不发送） |
+| `/schedule delete <id>` | 删除任务 |
+
+### 注意事项
+
+- 目标 chat 为当前 Bot 的审核群（`REVIEW_CHAT_ID`，未配置时回退 `CHANNEL_ID`）
+- 任务持久化在 SQLite；Bot 重启后自动恢复
+- 同一任务的同一时间点不会重复发送（幂等）
+- 时区使用 `TZ` 环境变量（默认 `Asia/Shanghai`）
+- 手动执行不会影响下次定时调度
 ## 投稿流程命令
 
 | 命令 | 阶段 | 说明 |
@@ -93,4 +135,5 @@
 - `/hot` 读取本地数据库；Telegram Bot API 不提供无副作用回读任意频道帖实时浏览数。
 - `/search` 与 `/hot` 支持分页；`/myposts` 按消息逐条输出。
 - 黑名单会拦截投稿和按钮交互。
+
 
