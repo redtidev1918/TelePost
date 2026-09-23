@@ -69,7 +69,7 @@ from handlers.error_handler import error_handler
 # API 令牌管理
 from handlers.api_commands import gen_token, tokens as api_tokens_command, revoke_token as revoke_token_command
 from handlers.schedule_status import status_command, pin_status_command
-from handlers.automation import schedule_command, handle_automation_callback
+from handlers.automation import schedule_command, handle_automation_callback, handle_automation_wizard
 
 # 统计和搜索功能
 from handlers.stats_handlers import get_hot_posts, get_user_stats, stats_command, hot_week_posts
@@ -759,7 +759,10 @@ def setup_application(application):
             CallbackQueryHandler(handle_callback_query, pattern=pattern), group=3
         )
     application.add_handler(
-        CallbackQueryHandler(handle_automation_callback, pattern=r"^auto"), group=3
+        CallbackQueryHandler(handle_automation_callback, pattern=r"^auto[^w]"), group=3
+    )
+    application.add_handler(
+        CallbackQueryHandler(handle_automation_wizard, pattern=r"^autowiz"), group=3
     )
     application.add_handler(CallbackQueryHandler(handle_unknown_callback), group=3)
     
@@ -852,6 +855,8 @@ def entrypoint() -> None:
 
 if __name__ == "__main__":
     entrypoint()
+
+
 
 
 

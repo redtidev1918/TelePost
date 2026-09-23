@@ -24,7 +24,12 @@ logger = logging.getLogger(__name__)
 
 def _is_admin(update: Update) -> bool:
     user = update.effective_user
-    return bool(user and is_owner(user.id))
+    if not user:
+        return False
+    if is_owner(user.id):
+        return True
+    from config.settings import ADMIN_IDS
+    return user.id in (ADMIN_IDS or [])
 
 
 def _deny(update: Update) -> None:
@@ -35,6 +40,20 @@ async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """/schedule — 管理定时任务。"""
     if not _is_admin(update):
         _deny(update)
+        return
+
+    try:
+        await automation_store.ensure_tables()
+    except Exception as exc:
+        logger.error('automation ensure_tables failed: %s', exc, exc_info=True)
+        update.effective_message.reply_text('定时任务表初始化失败，请检查日志')
+        return
+
+    try:
+        await automation_store.ensure_tables()
+    except Exception as exc:
+        logger.error('automation ensure_tables failed: %s', exc, exc_info=True)
+        update.effective_message.reply_text('定时任务表初始化失败，请检查日志')
         return
 
     args = context.args or []
@@ -62,7 +81,7 @@ async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     else:
         update.effective_message.reply_text(
             "⏰ 定时任务\n\n"
-            "/schedule list — 查看所有任务\n"
+            "/schedule — 查看所有任务\n"
             "/schedule add weekly-hot <星期> <HH:MM> <TOP N>\n"
             "  例：/schedule add weekly-hot sunday 20:00 10\n"
             "/schedule enable <id> — 启用\n"
@@ -77,9 +96,14 @@ async def _list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     tasks = await automation_store.list_tasks()
     if not tasks:
         update.effective_message.reply_text(
-            "⏰ 还没有定时任务。\n\n"
-            "创建：/schedule add weekly-hot sunday 20:00 10"
+            "⏰ 定时任务\n\n"
+            "还没有任务。\n\n"
+            "点击下方按钮创建，或发送 /schedule add weekly-hot 星期日 20:00 10",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔥 创建每周热榜", callback_data="autowiz_start"),
+            ]]),
         )
+        return
         return
 
     from telepost.domain.hot import active_timezone
@@ -224,6 +248,129 @@ async def _sync(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ─── Callback handlers ───
 
+
+# ─── Wizard ───
+
+WIZ_DAYS = [("周一",0),("周二",1),("周三",2),("周四",3),("周五",4),("周六",5),("周日",6)]
+WIZ_TIMES = ["20:00","21:00","08:00","12:00"]
+WIZ_LIMITS = [5,10,20]
+
+
+async def handle_automation_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    data = query.data or ""
+    if not _is_admin(update):
+        await query.answer("⛔ 仅管理员", show_alert=True)
+        return
+    ud = context.user_data
+    wiz = ud.get("autowiz", {})
+
+    if data == "autowiz_start":
+        ud["autowiz"] = {}
+        rows = []
+        row = []
+        for label, d in WIZ_DAYS:
+            row.append(InlineKeyboardButton(label, callback_data=f"autowiz_day_{d}"))
+            if len(row) == 4:
+                rows.append(row)
+                row = []
+        if row:
+            rows.append(row)
+        await query.edit_message_text("① 选择星期", reply_markup=InlineKeyboardMarkup(rows))
+    elif data.startswith("autowiz_day_"):
+        day = int(data.replace("autowiz_day_", ""))
+        wiz["day"] = day
+        ud["autowiz"] = wiz
+        day_label = next(l for l, d in WIZ_DAYS if d == day)
+        rows = [[InlineKeyboardButton(t, callback_data=f"autowiz_time_{t}") for t in WIZ_TIMES]]
+        rows.append([InlineKeyboardButton("⌨️ 输入其他时间", callback_data="autowiz_time_custom")])
+        await query.edit_message_text(
+            f"② 选择时间（已选：{day_label}）",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
+    elif data == "autowiz_time_custom":
+        wiz["awaiting_time"] = True
+        ud["autowiz"] = wiz
+        await query.edit_message_text("② 请直接发送时间，格式 HH:MM（如 20:30）")
+    elif data.startswith("autowiz_time_"):
+        t = data.replace("autowiz_time_", "")
+        try:
+            from telepost.domain.hot import parse_schedule_time
+            h, m = parse_schedule_time(t)
+        except ValueError:
+            await query.answer("时间格式不对，请重选", show_alert=True)
+            return
+        wiz["hour"] = h
+        wiz["minute"] = m
+        wiz.pop("awaiting_time", None)
+        ud["autowiz"] = wiz
+        rows = [[InlineKeyboardButton(f"TOP {n}", callback_data=f"autowiz_limit_{n}") for n in WIZ_LIMITS]]
+        await query.edit_message_text(
+            f"③ 选择数量（已选：{t}）",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
+    elif data.startswith("autowiz_limit_"):
+        n = int(data.replace("autowiz_limit_", ""))
+        wiz["limit"] = n
+        ud["autowiz"] = wiz
+        day_label = next((l for l, d in WIZ_DAYS if d == wiz.get("day")), "?")
+        hour, minute = wiz.get("hour", 20), wiz.get("minute", 0)
+        preview = (
+            f"⏰ 新任务预览\n\n"
+            f"任务：每周热榜\n"
+            f"执行：{day_label} {hour:02d}:{minute:02d}\n"
+            f"范围：本周\n"
+            f"数量：TOP {n}\n"
+            f"目标：审核群\n\n"
+            f"确认创建？"
+        )
+        wiz["confirmed_payload"] = {
+            "schedule_day": wiz.get("day", 6),
+            "schedule_hour": hour,
+            "schedule_minute": minute,
+            "limit": n,
+        }
+        ud["autowiz"] = wiz
+        await query.edit_message_text(
+            preview,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ 创建", callback_data="autowiz_confirm"),
+                InlineKeyboardButton("❌ 取消", callback_data="autowiz_cancel"),
+            ]]),
+        )
+    elif data == "autowiz_confirm":
+        payload = wiz.get("confirmed_payload")
+        if not payload:
+            await query.answer("会话已过期，请重新创建", show_alert=True)
+            return
+        from config.settings import REVIEW_CHAT_ID, CHANNEL_ID
+        target = str(REVIEW_CHAT_ID or CHANNEL_ID)
+        from telepost.domain.automation import ACTION_HOT
+        task = AutomationTask(
+            id=None, name="每周热榜", enabled=True,
+            schedule_type="weekly",
+            schedule_day=payload.get("schedule_day", 6),
+            schedule_hour=payload.get("schedule_hour", 20),
+            schedule_minute=payload.get("schedule_minute", 0),
+            action_type=ACTION_HOT,
+            action_payload={"scope": "week", "limit": payload.get("limit", 10)},
+            target_chat_id=target,
+            timezone=active_timezone().key,
+            created_by=update.effective_user.id,
+        )
+        created = await automation_store.create_task(task)
+        await record_event("automation_create", task_id=created.id, actor_id=update.effective_user.id)
+        ud.pop("autowiz", None)
+        await _sync(update, context)
+        next_run = created.next_run_at()
+        next_str = _fmt_ts(next_run) if next_run else "—"
+        await query.edit_message_text(
+            f"✅ 任务已创建（#{created.id}）\n下次执行：{next_str}"
+        )
+    elif data == "autowiz_cancel":
+        ud.pop("autowiz", None)
+        await query.edit_message_text("已取消")
+
 async def handle_automation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     data = query.data or ""
@@ -287,3 +434,6 @@ def _fmt_ts(ts) -> str:
     if not ts:
         return "—"
     return datetime.fromtimestamp(ts, tz=active_timezone()).strftime("%m-%d %H:%M")
+
+
+
