@@ -11,6 +11,13 @@
 ---
 
 
+## [2.64.0](https://github.com/redtidev1918/TelePost/compare/v2.63.0...v2.64.0) (2026-09-23)
+
+
+### Features
+
+* **hot,automation,help:** add /hotweek, /schedule, reorganize help & menus ([66e1257](https://github.com/redtidev1918/TelePost/commit/66e125764addff7b9c6d646d401c89c561e1af0a))
+
 ## [2.64.0](https://github.com/redtidev1918/TelePost/compare/v2.63.0...v2.64.0) (2026-09-24)
 
 
@@ -1842,5 +1849,3 @@ main.py (379行)        →  main.py (主入口)
 - 基础投稿功能
 - 简单的管理命令
 - 单文件实现
-
-
