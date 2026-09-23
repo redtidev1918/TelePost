@@ -9,16 +9,34 @@
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
 ---
+## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
 
 
-## [2.64.0](https://github.com/redtidev1918/TelePost/compare/v2.63.0...v2.64.0) (2026-09-23)
+### Bug Fixes
+
+* **automation:** /schedule no response on fresh DB; add interactive wizard ([68013f9](https://github.com/redtidev1918/TelePost/commit/68013f9))---
+
+
+
+## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** /schedule no response on fresh DB; add interactive wizard ([68013f9](https://github.com/redtidev1918/TelePost/commit/68013f9))## [2.64.0](https://github.com/redtidev1918/TelePost/compare/v2.63.0...v2.64.0) (2026-09-23)
 
 
 ### Features
 
 * **hot,automation,help:** add /hotweek, /schedule, reorganize help & menus ([66e1257](https://github.com/redtidev1918/TelePost/commit/66e125764addff7b9c6d646d401c89c561e1af0a))
 
-## [2.64.0](https://github.com/redtidev1918/TelePost/compare/v2.63.0...v2.64.0) (2026-09-24)
+
+## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** /schedule no response on fresh DB; add interactive wizard ([68013f9](https://github.com/redtidev1918/TelePost/commit/68013f9))## [2.64.0](https://github.com/redtidev1918/TelePost/compare/v2.63.0...v2.64.0) (2026-09-24)
 
 
 ### Features
@@ -869,6 +887,12 @@
 - Docker 默认配置改为开箱可用的生产默认值，配置改由 `.env` 注入，不再需要手动改网络 / DNS。
 
 ---
+## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** /schedule no response on fresh DB; add interactive wizard ([68013f9](https://github.com/redtidev1918/TelePost/commit/68013f9))---
 
 ## [2.10.33] - 2026-09-03
 
@@ -1498,6 +1522,12 @@
 - 健康检查：两种模式均正常响应
 - 验证平台：PaaS 平台、VPS 服务器、Docker 容器
 ---
+## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** /schedule no response on fresh DB; add interactive wizard ([68013f9](https://github.com/redtidev1918/TelePost/commit/68013f9))---
 
 ## [2.2.0] - 2025-10-25
 
@@ -1604,6 +1634,12 @@
   - CHANGELOG.md：版本历史记录
 
 ---
+## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** /schedule no response on fresh DB; add interactive wizard ([68013f9](https://github.com/redtidev1918/TelePost/commit/68013f9))---
 
 ## [2.1.0] - 2025-10-28
 
@@ -1641,6 +1677,12 @@
   - 改进备份失败时的降级处理
 
 ---
+## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** /schedule no response on fresh DB; add interactive wizard ([68013f9](https://github.com/redtidev1918/TelePost/commit/68013f9))---
 
 
 ### 新增
@@ -1678,6 +1720,12 @@
 - 更新部署脚本的帮助信息
 
 ---
+## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** /schedule no response on fresh DB; add interactive wizard ([68013f9](https://github.com/redtidev1918/TelePost/commit/68013f9))---
 
 ## [2.0.x] - 之前版本
 
@@ -1756,6 +1804,12 @@
  - 移除 README 中对 `docs/INDEX.md` 的失效链接
 
 ---
+## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** /schedule no response on fresh DB; add interactive wizard ([68013f9](https://github.com/redtidev1918/TelePost/commit/68013f9))---
 
 ## [2.0.0] - 2025-10-25
 
@@ -1843,9 +1897,16 @@ main.py (379行)        →  main.py (主入口)
 - 添加了详细的代码注释
 
 ---
+## [2.64.1](https://github.com/redtidev1918/TelePost/compare/v2.64.0...v2.64.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **automation:** /schedule no response on fresh DB; add interactive wizard ([68013f9](https://github.com/redtidev1918/TelePost/commit/68013f9))---
 
 ## [1.0.0] - 初始版本
 
 - 基础投稿功能
 - 简单的管理命令
 - 单文件实现
+
