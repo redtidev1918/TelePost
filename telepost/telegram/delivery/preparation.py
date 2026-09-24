@@ -55,6 +55,15 @@ MEDIA_MAX_BYTES = int(float(os.getenv("TELEPOST_MEDIA_MAX_MB", "50")) * 1024 * 1
 IMAGE_DECODE_BUDGET_BYTES = max(
     1, int(os.getenv("TELEPOST_IMAGE_DECODE_BUDGET_MB", "64"))
 ) * 1024 * 1024
+#: Formats without ``Image.draft`` cannot decode at a reduced scale. Still give
+#: them one bounded chance to become a photo: 192 MB is safely below the 512 MB
+#: production box while covering the common oversized-PNG case. Larger images
+#: remain documents instead of risking the service process.
+UNBOUNDED_TRANSFORM_DECODE_BUDGET_BYTES = max(
+    IMAGE_DECODE_BUDGET_BYTES,
+    max(1, int(os.getenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_MB", "192")))
+    * 1024 * 1024,
+)
 #: How many images may be prepared at once. 1 = strictly sequential (low-memory
 #: default, one decoded image in RAM at a time). Higher values only shorten wall
 #: time; they never raise the per-image peak.
@@ -313,6 +322,9 @@ class MediaPreparationPolicy:
         )
         self.max_bytes = self.limits.max_bytes
         self.decode_budget_bytes = self.limits.decode_budget_bytes
+        self.unbounded_transform_budget_bytes = (
+            UNBOUNDED_TRANSFORM_DECODE_BUDGET_BYTES
+        )
 
     def prepare(self, path: str, *, preview_path: Optional[str] = None) -> PreparedMedia:
         try:
@@ -354,12 +366,16 @@ class MediaPreparationPolicy:
 
         # ---- 3. bounded, memory-safe transform ------------------------
         if not self._decode_is_bounded(probe, estimate):
-            # Peak working set cannot be bounded for this format (no reduced
-            # decode available) — a routing decision, not a silent loss.
-            return self._fallback(
-                path, preview_path, probe=probe, estimate=estimate,
-                reason="decode_budget_exceeded", violation=violation,
-            )
+            # PNG and other formats have no reduced-decode API. Give images
+            # that still fit the hard transform budget one chance to become a
+            # photo; larger ones stay documents rather than risking OOM.
+            if estimate.estimated_peak_bytes > (
+                self.unbounded_transform_budget_bytes
+            ):
+                return self._fallback(
+                    path, preview_path, probe=probe, estimate=estimate,
+                    reason="decode_budget_exceeded", violation=violation,
+                )
 
         if violation == "photo_aspect_ratio_exceeded":
             # A uniform downscale preserves the ratio, so no compliant photo is

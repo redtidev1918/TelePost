@@ -54,6 +54,70 @@ def test_huge_rgba_never_enters_full_decode(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
+def test_oversized_png_within_hard_budget_attempts_compression(tmp_path, monkeypatch):
+    """A >10 MB PNG should stay a photo when a bounded transform is possible."""
+    source = tmp_path / "oversized.png"
+    _sparse(source, preparation.PHOTO_MAX_BYTES + 1)
+
+    class Header:
+        size = (4000, 4000)
+        mode = "RGBA"
+        format = "PNG"
+        n_frames = 1
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+
+    from PIL import Image
+    monkeypatch.setattr(Image, "open", lambda *_a, **_kw: Header())
+
+    derivative = tmp_path / "prepared.jpg"
+    derivative.write_bytes(b"jpeg")
+    monkeypatch.setattr(
+        preparation, "compress_photo", lambda *_a, **_kw: str(derivative)
+    )
+    monkeypatch.setattr(
+        preparation, "artifact_of",
+        lambda *_a, **_kw: preparation.MediaArtifact(
+            str(derivative), 1, 2048, 2048, "JPEG"
+        ),
+    )
+
+    result = preparation.MediaPreparationPolicy().prepare(str(source))
+    assert result.reason is preparation.PreparationDecision.SAFE_COMPRESS
+    assert result.kind is preparation.MediaKind.PHOTO
+    assert result.delivery_source == str(derivative)
+
+
+@pytest.mark.unit
+def test_extremely_large_png_stays_document_without_decoding(tmp_path, monkeypatch):
+    source = tmp_path / "huge.png"
+    _sparse(source, preparation.PHOTO_MAX_BYTES + 1)
+
+    class Header:
+        size = (10000, 10000)
+        mode = "RGBA"
+        format = "PNG"
+        n_frames = 1
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+
+    from PIL import Image
+    for name in ("load", "convert", "resize", "thumbnail"):
+        monkeypatch.setattr(
+            Image.Image, name,
+            lambda *_a, _name=name, **_kw: (_ for _ in ()).throw(
+                AssertionError(f"Image.{_name} must not be called")
+            ),
+        )
+    monkeypatch.setattr(Image, "open", lambda *_a, **_kw: Header())
+
+    result = preparation.MediaPreparationPolicy().prepare(str(source))
+    assert result.reason is preparation.PreparationDecision.DOCUMENT_FALLBACK
+    assert result.kind is preparation.MediaKind.DOCUMENT
+    assert result.decision["fallback_reason"] == "decode_budget_exceeded"
+
+
+@pytest.mark.unit
 def test_small_file_with_oversized_dimensions_falls_back_to_document(tmp_path, monkeypatch):
     """A 5-byte PNG stub cannot be decoded, so no compliant photo exists.
 
