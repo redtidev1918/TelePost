@@ -55,15 +55,63 @@ MEDIA_MAX_BYTES = int(float(os.getenv("TELEPOST_MEDIA_MAX_MB", "50")) * 1024 * 1
 IMAGE_DECODE_BUDGET_BYTES = max(
     1, int(os.getenv("TELEPOST_IMAGE_DECODE_BUDGET_MB", "64"))
 ) * 1024 * 1024
+
+
+def _container_memory_limit_bytes() -> Optional[int]:
+    """Best-effort container memory limit (cgroup v2/v1), not host RAM."""
+    paths = (
+        "/sys/fs/cgroup/memory.max",
+        "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+    )
+    for path in paths:
+        try:
+            with open(path, "r", encoding="ascii") as handle:
+                value = handle.read().strip()
+        except OSError:
+            continue
+        if value in {"", "max"}:
+            continue
+        try:
+            limit = int(value)
+        except ValueError:
+            continue
+        # cgroup "unlimited" can be a huge sentinel; ignore absurd values.
+        if 0 < limit < 1024 * 1024 * 1024 * 1024:
+            return limit
+    return None
+
+
+def default_unbounded_decode_budget_bytes(
+    container_limit_bytes: Optional[int] = None,
+) -> int:
+    """Derive a safe hard peak for formats without Image.draft().
+
+    This is a *routing* budget for a bounded one-shot transform, not the total
+    process RSS. The default is capacity-aware instead of assuming one fixed
+    machine size; an explicit env var always wins.
+    """
+    raw = os.getenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_MB")
+    if raw is not None:
+        return max(1, int(raw)) * 1024 * 1024
+    limit = (
+        container_limit_bytes
+        if container_limit_bytes is not None
+        else _container_memory_limit_bytes()
+    )
+    if limit is None:
+        return 128 * 1024 * 1024
+    return min(192 * 1024 * 1024, max(64 * 1024 * 1024, limit // 4))
+
+
 #: Formats without ``Image.draft`` cannot decode at a reduced scale. Still give
-#: them one bounded chance to become a photo: 192 MB is safely below the 512 MB
-#: production box while covering the common oversized-PNG case. Larger images
-#: remain documents instead of risking the service process.
+#: them one bounded chance to become a photo, sized to the container rather
+#: than to one hardcoded box. Larger images remain documents instead of risking
+#: the service process.
 UNBOUNDED_TRANSFORM_DECODE_BUDGET_BYTES = max(
     IMAGE_DECODE_BUDGET_BYTES,
-    max(1, int(os.getenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_MB", "192")))
-    * 1024 * 1024,
+    default_unbounded_decode_budget_bytes(),
 )
+
 #: How many images may be prepared at once. 1 = strictly sequential (low-memory
 #: default, one decoded image in RAM at a time). Higher values only shorten wall
 #: time; they never raise the per-image peak.

@@ -45,7 +45,7 @@
 | `ROUTER_TIMEOUT_SECONDS` | `300` | 多 Bot 父路由的上游总超时 |
 | `UPLOAD_SESSION_MAX_AGE_SECONDS` | `3600` | 强制中断后遗留上传目录的清理年龄 |
 | `TELEPOST_IMAGE_DECODE_BUDGET_MB` | `64` | 常规压缩路径的估算峰值预算；超出后仅 JPEG 仍可用降采样解码 |
-| `TELEPOST_UNBOUNDED_DECODE_BUDGET_MB` | `192` | 没有 Image.draft 能力的格式（如 PNG）在压缩前允许的硬峰值；超限才回退文档 |
+| `TELEPOST_UNBOUNDED_DECODE_BUDGET_MB` | 自动 | 没有 Image.draft 能力的格式（如 PNG）在压缩前允许的硬峰值；未配置时按容器 memory limit 推导（64–192 MiB），显式设置时覆盖默认 |
 
 `AUTO` 只有在 `WEBHOOK_URL` 是公网 HTTPS 地址时才选择 Webhook；自动选择的 Webhook
 注册失败会回退 Polling。强制 `WEBHOOK` 失败则退出。
@@ -114,7 +114,8 @@ Telegram 只保证 Bot 可删除 48 小时内消息；需要自动清理审核�
 `TELEPOST_IMAGE_DECODE_BUDGET_MB` 衡量的是解码后的像素工作集，不是压缩文件大小。
 无需转换且符合 Telegram photo 限制的文件会直接流式发送，不调用 Pillow；常规需要转换的文件在
 估算峰值不超过 64 MiB 时才生成临时 JPEG。PNG 这类没有降采样解码能力的格式可再用
-192 MiB 硬峰值尝试一次压缩；超过这个硬峰值才把 immutable original 暂存为 document，或在没有
+容量感知的硬峰值尝试一次压缩（默认按容器 memory limit 推导，范围 64–192 MiB；也可用
+`TELEPOST_UNBOUNDED_DECODE_BUDGET_MB` 显式覆盖）；超过这个硬峰值才把 immutable original 暂存为 document，或在没有
 preview 时直接回退。
 
 ### 已部署实例调整（Fly.io）
