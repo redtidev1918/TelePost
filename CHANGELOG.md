@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.67.0](https://github.com/redtidev1918/TelePost/compare/v2.66.0...v2.67.0) (2026-09-24)
+
+
+### Bug Fixes
+
+* **publication:** 混合图档投稿的频道归档保留全部图片和文件；多文件投稿的说明文字单独发送，不再被误读为首份文件的标注 ([e138973](https://github.com/redtidev1918/TelePost/commit/e1389734829cad5e9131d81d6b119b3ce3eec0c4))
+
 ---
 
 ## [2.66.0](https://github.com/redtidev1918/TelePost/compare/v2.65.0...v2.66.0) (2026-09-24)
