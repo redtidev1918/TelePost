@@ -10,7 +10,20 @@
 
 ---
 
-## [2.64.3](https://github.com/redtidev1918/TelePost/compare/v2.64.2...v2.64.3) (2026-09-24)
+## [2.65.0](https://github.com/redtidev1918/TelePost/compare/v2.64.3...v2.65.0) (2026-09-24)
+
+
+### Features
+
+* **miniapp:** 新增「热门」内容浏览入口（首页推荐、全部/本周热榜、帖子详情与媒体预览），与 Bot `/hot` 共用同一套热榜数据 ([6ab7fc0](https://github.com/redtidev1918/TelePost/commit/6ab7fc036fba93b327f924d0a3ad06a5679e68c9))
+* **webapp:** 热门内容页、帖子详情页与底部导航「热门」入口 ([55861fd](https://github.com/redtidev1918/TelePost/commit/55861fde6bbe7f98b7cdf09f5bc1740173c30c9e))
+
+
+### Bug Fixes
+
+* **hot:** 修复热榜分页偏移导致第一页结果被跳过 ([6ab7fc0](https://github.com/redtidev1918/TelePost/commit/6ab7fc036fba93b327f924d0a3ad06a5679e68c9))
+
+(https://github.com/redtidev1918/TelePost/compare/v2.64.2...v2.64.3) (2026-09-24)
 
 
 ### Bug Fixes
