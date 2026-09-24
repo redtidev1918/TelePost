@@ -10,6 +10,14 @@
 
 ---
 
+## [2.64.3](https://github.com/redtidev1918/TelePost/compare/v2.64.2...v2.64.3) (2026-09-24)
+
+
+### Bug Fixes
+
+* **delivery:** compress oversized images before document fallback ([10e9481](https://github.com/redtidev1918/TelePost/commit/10e94811ab56582e19347c7ec85c36d8a493aa4e))
+* **publication:** keep novel TXT in asset delivery plan ([10e9481](https://github.com/redtidev1918/TelePost/commit/10e94811ab56582e19347c7ec85c36d8a493aa4e))
+
 ## [2.64.2](https://github.com/redtidev1918/TelePost/compare/v2.64.1...v2.64.2) (2026-09-24)
 
 
