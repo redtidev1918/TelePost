@@ -10,7 +10,15 @@
 
 ---
 
-## [2.65.0](https://github.com/redtidev1918/TelePost/compare/v2.64.3...v2.65.0) (2026-09-24)
+## [2.66.0](https://github.com/redtidev1918/TelePost/compare/v2.65.0...v2.66.0) (2026-09-24)
+
+
+### Features
+
+* **novel:** 有真实封面的小说「封面主帖 + TXT 回复」；正文插图只进在线阅读页，不再发频道 ([4896d80](https://github.com/redtidev1918/TelePost/commit/4896d80b93d1c8c2614e5610a0dfe7c34e332f47))
+* **novel:** 无封面小说自动生成轻量 fallback 卡片作频道 root（`NOVEL_FALLBACK_CARD_ENABLED`，默认开）；生成失败降级为纯文本 root，发布永不因卡片失败而失败 ([4896d80](https://github.com/redtidev1918/TelePost/commit/4896d80b93d1c8c2614e5610a0dfe7c34e332f47))
+
+(https://github.com/redtidev1918/TelePost/compare/v2.64.3...v2.65.0) (2026-09-24)
 
 
 ### Features
