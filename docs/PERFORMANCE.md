@@ -25,7 +25,8 @@ Fly.io 组合部署应拆分两个服务：TelePost 常驻，PixivFlow 独立管
 压缩文件大小不等于解码内存。图片解码工作集至少约为 `width × height × bytes_per_pixel`；
 RGBA 按至少 4 B/px 估算，转换 RGB 还会产生额外工作集。TelePost 先读取文件大小、格式、
 尺寸、模式和帧数等 header metadata，再比较 `TELEPOST_IMAGE_DECODE_BUDGET_MB`（默认 64 MiB）。
-超过预算是硬边界：不会调用 `load`、`convert`、`resize` 或 `thumbnail`。
+超过常规预算时 JPEG 仍可用降采样解码；PNG 等格式只有在估算峰值超过 192 MiB 硬边界后才
+完全不调用 `load`、`convert`、`resize` 或 `thumbnail`。
 
 符合 Telegram photo 限制的原文件直接 pass-through。需要转换且预算允许时，TelePost 只生成
 有界质量次数的 tempfile JPEG，原文件不变；预算不足、图片损坏、Pillow 缺失或压缩失败时，

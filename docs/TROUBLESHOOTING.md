@@ -127,7 +127,7 @@ flyctl machine status <machine-id> --app <app>
 - 双 Bot 用 512 MiB；低配关闭搜索并把 `DB_CACHE_KB` 设为 1024。
 - PixivFlow 等采集器应放在独立运行单元中，按其实际 RSS 和任务生命周期配置资源。
 - 不要用 PNG/JPEG 文件大小推断内存。检查尺寸和 mode；RGBA 解码至少约 4 B/px，RGB 转换还会增加峰值。
-- 保持 `TELEPOST_IMAGE_DECODE_BUDGET_MB` 的保守值。超预算素材变成 document 是预期安全行为；不要靠增大 `REVIEW_ALBUM_SIZE` 或强制 ffmpeg 转码绕过预算。
+- 保持 `TELEPOST_IMAGE_DECODE_BUDGET_MB` 保守；PNG 的 192 MiB 硬峰值用于把常见大图救回 photo，超过它的素材变成 document 是预期安全行为。不要靠增大 `REVIEW_ALBUM_SIZE` 或强制 ffmpeg 转码绕过预算。
 - `api_uploads` 持续增长说明请求被强制中断。
 - outbox 增长先修复投递；不要直接删除引用的缓存。
 - Volume 使用率高时先扩容/备份，不要边写入边 VACUUM。
