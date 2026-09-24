@@ -324,6 +324,15 @@ _novel_preview_enabled = get_env_or_config(
 )
 NOVEL_PREVIEW_ENABLED = str(_novel_preview_enabled).lower() in ('true', '1', 'yes')
 
+# 无真实封面的小说在频道需要一个轻量 fallback 卡片作为 root（§novel-cover）。
+# TelePost 展示层职责：Pillow 现场生成、可关闭；生成失败降级为 text-only root，
+# 绝不影响 Publication 成败。默认开启。
+NOVEL_FALLBACK_CARD_ENABLED = str(
+    get_env_or_config('NOVEL_FALLBACK_CARD_ENABLED', 'BOT', 'NOVEL_FALLBACK_CARD_ENABLED',
+                      fallback='true')
+    or 'true'
+).strip().lower() in {'1', 'true', 'yes', 'on'}
+
 _novel_preview_timeout = get_env_or_config(
     'NOVEL_PREVIEW_TIMEOUT_SECONDS', 'NOVEL_PREVIEW', 'TIMEOUT_SECONDS',
     fallback='15'

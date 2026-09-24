@@ -15,6 +15,22 @@ from typing import Any, Dict, Mapping
 
 VALID_KINDS = frozenset({"image"})
 
+#: PixivFlow novel covers ride the same ``kind: image`` wire contract, but their
+#: canonical ``asset_id`` ends with a dedicated pixivKind suffix
+#: (``pixiv:<workId>:novelcover``). Inline novel illustrations keep their
+#: ``uploadedimage`` / ``pixivimage`` ids, so the two roles never collide and
+#: legacy payloads (no cover asset at all) stay valid.
+NOVEL_COVER_ASSET_SUFFIX = ":novelcover"
+
+
+def is_novel_cover_asset(asset: Any) -> bool:
+    """True when this canonical asset is the novel's real cover (not body art)."""
+    if isinstance(asset, MediaAsset):
+        return asset.asset_id.endswith(NOVEL_COVER_ASSET_SUFFIX)
+    if isinstance(asset, Mapping):
+        return str(asset.get("asset_id") or "").endswith(NOVEL_COVER_ASSET_SUFFIX)
+    return False
+
 
 class DeliveryVariant(str, Enum):
     """How a canonical asset may reach Telegram."""

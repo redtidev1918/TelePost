@@ -46,7 +46,10 @@ ENV PYTHONUNBUFFERED=1 \
     HTTP_PROXY="" \
     HTTPS_PROXY=""
 
+# fonts-wqy-microhei (~7 MB): novel fallback cards render CJK titles; without a
+# CJK font every glyph would be a tofu box. Loaded lazily per card render.
 RUN apt-get update && apt-get install -y --no-install-recommends tzdata \
+    fonts-wqy-microhei \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
