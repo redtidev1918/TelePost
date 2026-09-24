@@ -289,6 +289,15 @@ MINIAPP_ENABLED = str(
     or 'false'
 ).strip().lower() in {'1', 'true', 'yes', 'on'}
 
+# Mini App optional content browsing (Hot / post detail / post media). It is
+# independent from the core submission pipeline and can be disabled without
+# affecting Bot submission, review or publication.
+MINIAPP_CONTENT_ENABLED = str(
+    get_env_or_config('MINIAPP_CONTENT_ENABLED', 'BOT', 'MINIAPP_CONTENT_ENABLED',
+                      fallback='true')
+    or 'true'
+).strip().lower() in {'1', 'true', 'yes', 'on'}
+
 # Optional BotFather Direct Mini App short name. When set, channel footers can
 # open the attached app directly. Without it, navigation falls back to
 # ?startapp=miniapp, which opens the Main Mini App directly.
