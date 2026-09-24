@@ -147,6 +147,14 @@ class PTBSender:
         )
 
     def _single_kwargs(self, item: MediaItem, caption: Optional[str]) -> dict:
+        if item.kind is MediaKind.TEXT:
+            text = caption or item.source.text
+            return {
+                "method": "send_message",
+                "text": text,
+                "parse_mode": "HTML" if text else None,
+                "disable_web_page_preview": True,
+            }
         ref = self._media_ref(item, attach=False)
         kw = {"caption": caption, "parse_mode": "HTML" if caption else None}
         kind = item.kind

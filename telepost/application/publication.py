@@ -30,6 +30,7 @@ from ..domain.delivery import (
     MediaItem,
     MediaKind,
     RemoteUrl,
+    SubmissionText,
 )
 from ..observability import audit
 from ..observability.errors import classify as classify_error
@@ -147,7 +148,10 @@ class PublicationService:
         """Summarize which transport sources this publication actually used."""
         if not items:
             return "empty"
-        sources = {item.source.__class__.__name__ for item in items}
+        sources = {
+            item.source.__class__.__name__ for item in items
+            if item.kind is not MediaKind.TEXT
+        }
         if len(sources) == 1:
             return {
                 "TelegramFileId": "telegram_file_id",
@@ -198,13 +202,53 @@ class PublicationService:
             return await self._replay(historical, reason="duplicate_existing")
 
         mode = command.reply_mode or ReplyMode.CHAIN
-        plan = plan_delivery(
+        base_plan = plan_delivery(
             command.items,
             album_size=command.album_size,
             reply_mode=mode,
         )
-        ordered_items = [item for batch in plan.batches for item in batch.items]
+        base_items = [item for batch in base_plan.batches for item in batch.items]
         prior = self._progress_messages(replay) if replay is not None else []
+        # Optional publication enrichment: a TXT novel in the FINAL snapshot may
+        # gain a Telegraph "read online" link BEFORE the channel caption is
+        # built. Failure/timeout/absence only means "no extra link"; the TXT
+        # document is always still delivered and the publication outcome is
+        # decided by Telegram delivery alone. The enrichment is idempotent per
+        # publication key, so a delivery retry never creates a second page.
+        preview_url = ""
+        if key and not prior and self._novel_preview is not None:
+            try:
+                preview = await self._novel_preview.enrich(
+                    publication_key=key,
+                    title=dict(command.caption_data or {}).get("title", ""),
+                    items=base_items,
+                    fetch=self._txt_fetch,
+                )
+                if preview.succeeded:
+                    preview_url = preview.url
+            except Exception as exc:
+                # Enrichment must never break the TXT publication path.
+                logger.warning("novel preview enrichment skipped: %s",
+                               type(exc).__name__)
+        caption = self._caption(command, preview_url=preview_url)
+        ordered_items = base_items
+        # A multi-document submission's caption is submission metadata. Send it as
+        # the final message instead of attaching it to the first document, so
+        # readers do not mistake it for that one file's label. Visual media
+        # keeps the existing root-caption UX.
+        text_as_caption = bool(caption and len(base_items) > 1 and all(
+            item.kind is MediaKind.DOCUMENT for item in base_items
+        ))
+        if text_as_caption:
+            ordered_items = base_items + [MediaItem(
+                MediaKind.TEXT, SubmissionText(caption)
+            )]
+        plan = plan_delivery(
+            ordered_items,
+            album_size=command.album_size,
+            reply_mode=mode,
+        )
+        ordered_items = [item for batch in plan.batches for item in batch.items]
         if replay is not None and replay.status != "partial":
             return PublicationOutcome(
                 status="uncertain",
@@ -259,31 +303,10 @@ class PublicationService:
                 reply_to = command.reply_to_message_id or prior[0].message_id
             else:
                 reply_to = prior[-1].message_id
-        # Optional publication enrichment: a TXT novel in the FINAL snapshot may
-        # gain a Telegraph "read online" link BEFORE the channel caption is
-        # built. Failure/timeout/absence only means "no extra link"; the TXT
-        # document is always still delivered and the publication outcome is
-        # decided by Telegram delivery alone. The enrichment is idempotent per
-        # publication key, so a delivery retry never creates a second page.
-        preview_url = ""
-        if key and not prior and self._novel_preview is not None:
-            try:
-                preview = await self._novel_preview.enrich(
-                    publication_key=key,
-                    title=dict(command.caption_data or {}).get("title", ""),
-                    items=ordered_items,
-                    fetch=self._txt_fetch,
-                )
-                if preview.succeeded:
-                    preview_url = preview.url
-            except Exception as exc:
-                # Enrichment must never break the TXT publication path.
-                logger.warning("novel preview enrichment skipped: %s",
-                               type(exc).__name__)
         request = DeliveryRequest(
             chat_id=command.chat_id,
             items=ordered_items[len(prior):],
-            caption=(None if prior else self._caption(command, preview_url=preview_url)),
+            caption=(None if prior or text_as_caption else caption),
             spoiler=command.spoiler,
             reply_mode=mode,
             reply_to_message_id=reply_to,
@@ -351,7 +374,10 @@ class PublicationService:
         main = messages[0]
         result = DeliveryResult.delivered(messages, main)
         channel_ids = result.channel_message_ids(main.chat_id)
-        media_count = sum(1 for m in messages if m.kind.value != "document")
+        media_count = sum(
+            1 for m in messages
+            if m.kind.value not in {"document", "text"}
+        )
         document_count = sum(1 for m in messages if m.kind.value == "document")
 
         if self._record_post is not None:
@@ -471,7 +497,7 @@ class PublicationService:
     def _caption(command, preview_url: str = "") -> str:
         """Channel caption. Attachment kinds come from the REAL delivery items,
         so the media presentation (the spoiler "点击查看" hint) always reflects
-        what is actually published — a document-only publication never
+        what is actually published — a multi-document publication never
         advertises a media view (§publication-presentation). An optional novel
         preview link (Telegraph "read online") is appended when the enrichment
         succeeded; its absence never alters the presentation of the TXT

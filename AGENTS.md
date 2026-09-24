@@ -378,6 +378,11 @@ submission detail and is labeled accordingly.
   决定最终频道语义，附件类型与显式 submitter 才决定。
 - “点击查看”（剧透媒体提示）只对 photo / video / animation 出现；
   document / audio / 无附件绝不出现；mixed（photo+document）保留。
+- **混合媒体不降维**：document 是素材，不是“media 为空时的替身”。
+  归档 `file_ids` 必须按投递顺序保留 media + documents；禁止用
+  `media if media else documents` 丢弃 document。`SubmissionText` 只承载
+  multi-document publication 的投稿级 caption，排到最后一条纯文本消息，
+  绝不计入 media/document 数量，也绝不伪装成附件。
 - `投稿人` 只能来自 `submitter_user_id` / `submitter_username` /
   `submitter_display_name`；
   `user_id` / `username`（请求身份 / token alias）永不作投稿人展示。

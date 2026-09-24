@@ -103,7 +103,10 @@ async def test_publish_local_album_uses_attach_uri(
                 ))
         return out
 
-    bot = SimpleNamespace(send_media_group=send_media_group)
+    bot = SimpleNamespace(
+        send_media_group=send_media_group,
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=999, text="caption")),
+    )
     monkeypatch.setattr(publish, "CHANNEL_ID", "@channel")
     monkeypatch.setattr(publish, "save_published_post", AsyncMock())
 

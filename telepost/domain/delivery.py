@@ -25,6 +25,9 @@ class MediaKind(str, Enum):
     ANIMATION = "animation"
     AUDIO = "audio"
     DOCUMENT = "document"
+    #: Submission-level text (for multi-document publications whose caption must
+    #: not be misread as metadata of the first file). It is not a media asset.
+    TEXT = "text"
 
     @classmethod
     def coerce(cls, value: "str | MediaKind") -> "MediaKind":
@@ -62,7 +65,13 @@ class RemoteUrl:
     filename: Optional[str] = None
 
 
-MediaSource = Union[TelegramFileId, LocalFile, RemoteUrl]
+@dataclass(frozen=True)
+class SubmissionText:
+    """Submission-level text, deliberately not an asset or Telegram file."""
+    text: str
+
+
+MediaSource = Union[TelegramFileId, LocalFile, RemoteUrl, SubmissionText]
 
 
 @dataclass
@@ -109,12 +118,17 @@ class MediaItem:
     def is_remote(self) -> bool:
         return isinstance(self.source, RemoteUrl)
 
+    @property
+    def is_submission_text(self) -> bool:
+        return isinstance(self.source, SubmissionText)
+
 
 @dataclass
 class DeliveryRequest:
     """Everything the delivery engine needs for one publication.
 
-    ``caption`` is attached to the very first message only.
+    ``caption`` is attached to the first media message only. A multi-document
+    publication carries it as a trailing ``SubmissionText`` item instead.
     """
 
     chat_id: Union[int, str]

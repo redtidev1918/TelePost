@@ -6,6 +6,7 @@ Turns an ordered list of :class:`MediaItem` into concrete send batches:
 * animations (GIF) can never be in an album → always standalone;
 * audio is always standalone;
 * documents form their own homogeneous albums;
+* submission-level text is always a standalone trailing message;
 * a run of one compatible item is also a single message (keeps its caption);
 * each album holds at most ``album_size`` items (Telegram cap = 10).
 
@@ -48,6 +49,7 @@ _FAMILY_SEND_ORDER = {
     "animation": 1,
     "audio": 2,
     "document": 3,
+    "text": 4,
 }
 
 
