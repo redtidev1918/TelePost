@@ -20,6 +20,8 @@ import { submissionIntent } from '../lib/submissionEntry';
 import { Tabbar } from '@telegram-apps/telegram-ui';
 import { AuthProvider, useAuth } from '../auth/AuthProvider';
 import { HomePage } from '../pages/Home/HomePage';
+import { HotPage } from '../pages/Hot/HotPage';
+import { PostDetailPage } from '../pages/PostDetail/PostDetailPage';
 import { SubmitPage } from '../pages/Submit/SubmitPage';
 import { MySubmissionsPage } from '../pages/MySubmissions/MySubmissionsPage';
 import { SubmissionDetailPage } from '../pages/SubmissionDetail/SubmissionDetailPage';
@@ -38,6 +40,7 @@ interface NavItem {
 export function navigationForSpace(isReviewer: boolean, isAdmin = false): NavItem[] {
   const userNav: NavItem[] = [
     { path: '/', label: '首页' },
+    { path: '/hot', label: '热门' },
     { path: '/submit', label: '投稿' },
     { path: '/mine', label: '我的投稿' },
   ];
@@ -151,6 +154,9 @@ function Shell() {
       <main className="page">
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/hot" element={<HotPage scope="all" />} />
+          <Route path="/hotweek" element={<HotPage scope="week" />} />
+          <Route path="/post/:id" element={<PostDetailPage />} />
           <Route path="/submit" element={<SubmitPage />} />
           <Route path="/mine" element={<MySubmissionsPage />} />
           <Route path="/mine/:id" element={<SubmissionDetailPage />} />
