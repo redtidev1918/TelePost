@@ -189,8 +189,12 @@ def plan_review_media(media: List[Dict[str, Any]],
             .strip().lower().replace("-", "_")
             if isinstance(local, dict) else ""
         )
+        has_local = local is not None
         is_document = local_kind in ("document", "file") or (
-            len(assets) > len(local_items) and index >= document_offset
+            (has_local and index >= len(media_items)) or (
+                not has_local and len(assets) > len(local_items)
+                and index >= document_offset
+            )
         )
         if is_document:
             kind = MediaKind.DOCUMENT.value

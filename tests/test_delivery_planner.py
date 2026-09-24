@@ -70,6 +70,21 @@ class TestPlanReviewMedia:
         assert items[1].kind.value == "document"
         assert items[1].telegram_file_id == "DDD"
 
+    def test_single_cover_asset_pairs_with_indexed_txt_document(self):
+        """Regression: a novel with one cover asset and one TXT must not plan
+        the TXT as a photo; that made novel_images_preview_only remove every
+        item and the publication failed with "delivery returned no messages"."""
+        plan = plan_review_media(
+            [],
+            [{"asset_id": "cover", "kind": "image",
+              "source_url": "https://i.pximg.net/cover.png"}],
+            documents=[{"file_id": "TXT_FILE_ID", "filename": "novel.txt"}],
+        )
+        assert [e.kind for e in plan.entries] == ["document"]
+        assert [e.strategy for e in plan.entries] == [STRATEGY_FILE_ID]
+        assert plan.entries[0].file_id == "TXT_FILE_ID"
+        assert plan.entries[0].filename == "novel.txt"
+
     def test_leftover_document_keeps_file_id(self):
         plan = plan_review_media(
             [{"type": "photo", "file_id": "AAA"}],
