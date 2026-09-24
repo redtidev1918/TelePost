@@ -279,3 +279,26 @@ def test_compression_failure_uses_preview_then_document(tmp_path, monkeypatch):
     assert policy.prepare(
         str(source)
     ).reason is preparation.PreparationDecision.DOCUMENT_FALLBACK
+
+
+@pytest.mark.unit
+def test_unbounded_decode_budget_is_capacity_aware(monkeypatch):
+    monkeypatch.delenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_MB", raising=False)
+    assert preparation.default_unbounded_decode_budget_bytes(None) == 128 * 1024 * 1024
+    assert preparation.default_unbounded_decode_budget_bytes(
+        512 * 1024 * 1024
+    ) == 128 * 1024 * 1024
+    assert preparation.default_unbounded_decode_budget_bytes(
+        256 * 1024 * 1024
+    ) == 64 * 1024 * 1024
+    assert preparation.default_unbounded_decode_budget_bytes(
+        1024 * 1024 * 1024
+    ) == 192 * 1024 * 1024
+
+
+@pytest.mark.unit
+def test_unbounded_decode_budget_env_override_wins(monkeypatch):
+    monkeypatch.setenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_MB", "80")
+    assert preparation.default_unbounded_decode_budget_bytes(
+        512 * 1024 * 1024
+    ) == 80 * 1024 * 1024
