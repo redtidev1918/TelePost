@@ -43,6 +43,7 @@ from telepost.domain.delivery import (
     MediaItem,
     MediaKind,
     ReplyMode,
+    SubmissionText,
     TelegramFileId,
     LocalFile,
     RemoteUrl,
@@ -320,6 +321,8 @@ def _items_from_dicts(items):
             )
         elif it.get("url"):
             source = RemoteUrl(it["url"], it.get("filename"))
+        elif it.get("text") is not None:
+            source = SubmissionText(it["text"])
         elif it.get("file_id") is not None:
             source = TelegramFileId(it["file_id"], it.get("filename"))
         else:
@@ -337,7 +340,9 @@ def _dicts_from_items(items, *, preserve=None):
 
 def _item_to_dict(item: MediaItem) -> dict:
     out = {"kind": item.kind.value, "spoiler": item.spoiler}
-    if item.is_local:
+    if item.is_submission_text:
+        out["text"] = item.source.text
+    elif item.is_local:
         out["path"] = item.source.path
         out["filename"] = item.source.filename
         if item.source.preview_path:
@@ -978,6 +983,8 @@ def _kind_of_raw_message(message) -> str:
     for attr in ("video", "animation", "audio", "document"):
         if getattr(message, attr, None):
             return attr
+    if getattr(message, "text", None):
+        return "text"
     return "document"
 
 

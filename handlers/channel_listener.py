@@ -578,7 +578,8 @@ async def save_channel_message(message_info: dict):
         
         # 安全地序列化 JSON
         try:
-            file_ids_data = media_list if media_list else doc_list
+            # Mixed posts keep both transport forms; documents are still assets.
+            file_ids_data = media_list + doc_list
             file_ids = json.dumps(file_ids_data, ensure_ascii=False)
         except (TypeError, ValueError) as e:
             logger.warning(f"序列化 file_ids 失败: {e}，使用空列表")

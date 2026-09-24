@@ -77,7 +77,10 @@ async def record_published_post(post: PublishedPostInput) -> Optional[int]:
         link=post.link or "",
         note=post.note or "",
         content_type=content_type_of(media, docs),
-        file_ids=json.dumps(media if media else docs),
+        # Mixed submissions must keep every transport representation. A doc
+        # fallback is still one of the submission's assets, not a reason to
+        # discard it from the public post archive.
+        file_ids=json.dumps(media + docs, ensure_ascii=False),
         caption=caption,
         filename=filenames_of(docs),
         related_message_ids=post.all_message_ids or [],
