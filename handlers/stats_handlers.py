@@ -51,43 +51,16 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
         limit = hq.limit
         time_filter = scope
         time_desc = hq.scope_label
-        from telepost.domain.hot import week_start_utc
-        cutoff = week_start_utc() if scope == "week" else None
 
-        # 构建查询 - 只查询主贴
-        query = "SELECT * FROM published_posts WHERE is_deleted = 0"
-        query_params = []
-        if cutoff is not None:
-            query += " AND publish_time > ?"
-            query_params.append(cutoff)
-
-        page = max(1, int(page or 1))
-        count_query = "SELECT COUNT(*) AS c FROM published_posts WHERE is_deleted = 0"
-        count_params = []
-        if cutoff is not None:
-            count_query += " AND publish_time > ?"
-            count_params.append(cutoff)
-
-        # 稳定排序：heat DESC → publish_time DESC → message_id DESC
-        query += " ORDER BY heat_score DESC, publish_time DESC, message_id DESC LIMIT ? OFFSET ?"
-        offset = (page - 1) * limit
-        query_params.append(limit)
-        query_params.append(offset)
-
-        async with get_db() as conn:
-            cursor = await conn.cursor()
-            await cursor.execute(count_query, count_params)
-            crow = await cursor.fetchone()
-            try:
-                total_count = int(crow["c"]) if crow else 0
-            except (TypeError, ValueError, IndexError):
-                total_count = 0
-            pages = max(1, (total_count + limit - 1) // limit)
-            page = min(page, pages)
-
-            await cursor.execute(query, query_params)
-            hot_posts = await cursor.fetchall()
-        
+        # Canonical HotService: Bot and Mini App MUST NOT drift.
+        from telepost.application.hot import HotService
+        service = HotService()
+        page_result = await service.page(hq, max(1, int(page or 1)))
+        if page_result.page > page_result.pages:
+            page_result = await service.page(hq, page_result.pages)
+        page = page_result.page
+        pages = page_result.pages
+        hot_posts = page_result.items
         if not hot_posts:
             empty_text = f"📊 暂无{time_desc}热门帖子数据"
             if edit_message and update.callback_query:
@@ -101,7 +74,7 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
         
         # 再次验证帖子是否仍然存在（防止并发问题）
         # 批量检查消息ID是否已删除
-        message_ids = [post['message_id'] for post in hot_posts]
+        message_ids = [post.message_id for post in hot_posts]
         valid_hot_posts = []
         
         if message_ids:
@@ -117,7 +90,7 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
             
             # 只保留未删除的帖子
             for post in hot_posts:
-                if post['message_id'] in valid_message_ids:
+                if post.message_id in valid_message_ids:
                     valid_hot_posts.append(post)
         
         if not valid_hot_posts:
@@ -142,35 +115,35 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
             # 生成帖子链接
             if CHANNEL_ID.startswith('@'):
                 channel_username = CHANNEL_ID.lstrip('@')
-                post_link = f"https://t.me/{channel_username}/{post['message_id']}"
+                post_link = f"https://t.me/{channel_username}/{post.message_id}"
             else:
-                post_link = f"消息ID: {post['message_id']}"
+                post_link = f"消息ID: {post.message_id}"
             
             # 解析标签
             tags_display = ""
-            if post['tags']:
+            if post.tags:
                 try:
                     # 尝试解析JSON格式的标签
-                    tags = json.loads(post['tags'])
+                    tags = json.loads(post.tags)
                     if isinstance(tags, list):
                         tags_display = ' '.join([f"#{tag}" for tag in tags[:5]])  # 显示最多5个标签
                     else:
-                        tags_display = post['tags']  # 如果不是列表，直接显示
+                        tags_display = post.tags  # 如果不是列表，直接显示
                 except (json.JSONDecodeError, TypeError, ValueError):
                     # 如果解析失败，假设是空格分隔的字符串
-                    tags_list = post['tags'].split()[:5]
+                    tags_list = post.tags.split()[:5]
                     tags_display = ' '.join([f"#{tag.lstrip('#')}" for tag in tags_list])
             
             # 处理标题（纯文本上截断，转义后再进 HTML，防止 < > & 破坏解析）
-            title = post['title'] or '无标题'
+            title = post.title or '无标题'
             if len(title) > 40:
                 title = title[:37] + '...'
             title = _html.escape(str(title))
 
             # 处理简介（note）——同样转义
             note_preview = ""
-            if post['note']:
-                note = post['note'].strip()
+            if post.note:
+                note = post.note.strip()
                 if note:
                     # 去掉换行，限制长度
                     note = note.replace('\n', ' ').replace('\r', ' ')
@@ -183,7 +156,7 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
                 tags_display = _html.escape(str(tags_display))
             
             # 格式化发布时间
-            publish_time = datetime.fromtimestamp(post['publish_time'])
+            publish_time = datetime.fromtimestamp(post.publish_time)
             time_ago = _format_time_ago(publish_time)
             
             # 构建单个帖子的显示
@@ -201,14 +174,14 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
             
             # 统计数据
             stats_parts = []
-            if post['reactions'] > 0:
-                stats_parts.append(f"❤️ {post['reactions']}")
+            if post.reactions > 0:
+                stats_parts.append(f"❤️ {post.reactions}")
             
             if stats_parts:
                 message += f"   📊 {' | '.join(stats_parts)}\n"
             
             # 热度和时间
-            message += f"   🔥 热度: <code>{post['heat_score']:.1f}</code> • 🕐 {time_ago}\n"
+            message += f"   🔥 热度: <code>{post.heat_score:.1f}</code> • 🕐 {time_ago}\n"
             message += "\n"
             
             # 防止消息过长
@@ -424,26 +397,14 @@ async def hot_week_posts(update: Update, context: CallbackContext):
 
 async def build_hot_message(hq=None, *, scope: str = "all", limit: int = 10) -> str:
     """Build the hot list message text (no Telegram send). Used by /hot and automation."""
-    from telepost.domain.hot import HotQuery as _HQ, week_start_utc, week_range_label
+    from telepost.domain.hot import HotQuery as _HQ, week_range_label
+    from telepost.application.hot import HotService
     if hq is None:
         hq = _HQ(scope=scope, limit=limit)
-    time_filter = hq.scope
-    limit = hq.limit
-    cutoff = week_start_utc() if hq.scope == "week" else None
     time_desc = hq.scope_label
 
-    query = "SELECT * FROM published_posts WHERE is_deleted = 0"
-    query_params = []
-    if cutoff is not None:
-        query += " AND publish_time > ?"
-        query_params.append(cutoff)
-    query += " ORDER BY heat_score DESC, publish_time DESC, message_id DESC LIMIT ?"
-    query_params.append(limit)
-
-    async with get_db() as conn:
-        cursor = await conn.cursor()
-        await cursor.execute(query, query_params)
-        posts = await cursor.fetchall()
+    page = await HotService().page(hq)
+    posts = page.items
 
     if not posts:
         return f"📊 暂无{time_desc}热榜数据"
@@ -456,10 +417,10 @@ async def build_hot_message(hq=None, *, scope: str = "all", limit: int = 10) -> 
     for idx, post in enumerate(posts, 1):
         if CHANNEL_ID.startswith('@'):
             channel_username = CHANNEL_ID.lstrip('@')
-            post_link = f"https://t.me/{channel_username}/{post['message_id']}"
+            post_link = f"https://t.me/{channel_username}/{post.message_id}"
         else:
-            post_link = f"消息ID: {post['message_id']}"
-        title = post['title'] or '无标题'
+            post_link = f"消息ID: {post.message_id}"
+        title = post.title or '无标题'
         if len(title) > 40:
             title = title[:37] + '...'
         title = _html.escape(str(title))
@@ -468,11 +429,11 @@ async def build_hot_message(hq=None, *, scope: str = "all", limit: int = 10) -> 
         else:
             message += f"<b>{idx}.</b> {title}\n"
         stats_parts = []
-        if post['reactions'] > 0:
-            stats_parts.append(f"❤️ {post['reactions']}")
+        if post.reactions > 0:
+            stats_parts.append(f"❤️ {post.reactions}")
         if stats_parts:
             message += f"   📊 {' | '.join(stats_parts)}\n"
-        message += f"   🔥 <code>{post['heat_score']:.1f}</code>\n\n"
+        message += f"   🔥 <code>{post.heat_score:.1f}</code>\n\n"
     return message
 
 

@@ -21,6 +21,7 @@ from aiohttp import web
 
 from config.settings import (
     CHAT_REVIEW_REQUIRED,
+    MINIAPP_CONTENT_ENABLED,
     MINIAPP_REVIEW_REQUIRED,
     OWNER_ID,
     REVIEW_CHAT_ID,
@@ -1122,6 +1123,104 @@ def add_api_routes(web_app, application) -> None:
         if principal["surface"] == "mini_app":
             payload["roles"] = _principal_roles(principal)
         return _ok(payload)
+
+    def _require_content_enabled(request):
+        """Shared optional-feature gate: no content API when disabled."""
+        if not MINIAPP_CONTENT_ENABLED:
+            return _error(404, "not_found", "内容浏览未开启")
+        return None
+
+    async def _require_user_principal(request):
+        principal = await _resolve_principal(request)
+        if principal is None:
+            return None, _error(401, "invalid_token", "token 无效或已吊销")
+        if principal.get("kind") != "user":
+            return None, _error(403, "permission_denied", "需要用户会话")
+        return principal, None
+
+    async def public_hot_posts(request):
+        """GET /api/v1/posts/hot — Mini App hot list (Bot shares HotService)."""
+        gate = _require_content_enabled(request)
+        if gate:
+            return gate
+        _, auth_error = await _require_user_principal(request)
+        if auth_error:
+            return auth_error
+        from telepost.application.hot import HotService
+        try:
+            limit = int(request.query.get("limit", "10"))
+            scope = str(request.query.get("scope", "all")).strip().lower()
+        except (TypeError, ValueError):
+            return _error(400, "invalid_limit", "limit 必须是整数")
+        cursor = request.query.get("cursor") or None
+        try:
+            page = await HotService().cursor_page(scope, limit, cursor)
+        except Exception:
+            logger.exception("Mini App hot list failed")
+            return _error(500, "unknown", "热门列表获取失败")
+        from telepost.application.hot import hot_post_payload
+        return _ok({
+            "items": [hot_post_payload(item) for item in page.items],
+            "next_cursor": page.next_cursor,
+        })
+
+    async def public_post_detail(request):
+        """GET /api/v1/posts/{message_id} — public safe post detail."""
+        gate = _require_content_enabled(request)
+        if gate:
+            return gate
+        _, auth_error = await _require_user_principal(request)
+        if auth_error:
+            return auth_error
+        try:
+            message_id = int(request.match_info["message_id"])
+        except (TypeError, ValueError):
+            return _error(400, "invalid_post_id", "message_id 必须是整数")
+        from telepost.application.hot import HotService, hot_post_payload
+        try:
+            post = await HotService().get(message_id)
+        except Exception:
+            logger.exception("Mini App post detail failed")
+            return _error(500, "unknown", "帖子获取失败")
+        if post is None:
+            return _error(404, "not_found", "帖子不存在")
+        return _ok(hot_post_payload(post, include_note=True))
+
+    async def public_post_media(request):
+        """GET /api/v1/posts/{message_id}/media/{index} — bounded preview bytes."""
+        gate = _require_content_enabled(request)
+        if gate:
+            return gate
+        _, auth_error = await _require_user_principal(request)
+        if auth_error:
+            return auth_error
+        try:
+            message_id = int(request.match_info["message_id"])
+            index = int(request.match_info["index"])
+        except (TypeError, ValueError):
+            return _error(400, "invalid_media_index", "message_id/index 必须是整数")
+        from telepost.application.post_media import (
+            PostMediaError,
+            PostMediaService,
+        )
+        try:
+            result = await PostMediaService().get(
+                bot, message_id, index,
+                request.query.get("variant", "preview"),
+            )
+        except PostMediaError as exc:
+            return _error(exc.http_status, exc.code, exc.message)
+        except Exception:
+            logger.exception("Mini App post media failed")
+            return _error(500, "unknown", "媒体获取失败")
+        response = web.Response(body=result.data, content_type=result.mime_type)
+        response.headers["Cache-Control"] = "private, max-age=60"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        if result.kind in {"document", "audio"}:
+            response.content_type = "application/octet-stream"
+            response.headers["Content-Disposition"] = "attachment"
+            response.headers["Content-Security-Policy"] = "sandbox"
+        return response
 
     async def miniapp_session(request):
         """POST /api/v1/miniapp/session — validate Telegram initData, mint a session.
@@ -2383,6 +2482,11 @@ def add_api_routes(web_app, application) -> None:
         return _ok({"ok": True, "attempt_state": applied})
 
     web_app.router.add_post("/api/v1/miniapp/session", miniapp_session)
+    web_app.router.add_get("/api/v1/posts/hot", public_hot_posts)
+    web_app.router.add_get("/api/v1/posts/{message_id}", public_post_detail)
+    web_app.router.add_get(
+        "/api/v1/posts/{message_id}/media/{index}", public_post_media
+    )
     web_app.router.add_get("/api/v1/me/submissions", my_submissions)
     web_app.router.add_get(
         "/api/v1/me/submissions/{review_id}", my_submission_detail

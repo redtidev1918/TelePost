@@ -45,6 +45,25 @@ components:
       type: http
       scheme: bearer
   schemas:
+    PostSummary:
+      type: object
+      required: [message_id, title, tags, publish_time, heat_score, reactions, content_type, media_count]
+      properties:
+        message_id: {type: integer}
+        title: {type: string}
+        tags: {type: array, items: {type: string}}
+        link: {type: string}
+        publish_time: {type: number}
+        heat_score: {type: number}
+        reactions: {type: integer}
+        content_type: {type: string}
+        media_count: {type: integer}
+    PostDetail:
+      allOf:
+        - {$ref: '#/components/schemas/PostSummary'}
+        - type: object
+          properties:
+            note: {type: string}
     ErrorResponse:
       type: object
       required: [ok, error]
@@ -601,7 +620,76 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
 
-  # ---- Telegram Mini App (§41-§42, §84) ----------------------------------
+  # ---- Telegram Mini App public content (§miniapp-content) ---------------
+  /posts/hot:
+    get:
+      summary: Hot publications shared by Bot /hot and the Mini App (HotService SSOT)
+      description: |
+        Requires a Mini App user session (kind=user). Service/API principals are
+        rejected. Returns safe public rows only: submitter identity, captions,
+        and file_ids never cross the wire. Sorting is the canonical
+        heat_score DESC, publish_time DESC, message_id DESC keyset.
+      parameters:
+        - {name: scope, in: query, required: false, schema: {type: string, enum: [all, week], default: all}}
+        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 50, default: 10}}
+        - {name: cursor, in: query, required: false, schema: {type: string}}
+      responses:
+        '200':
+          description: Hot page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: {$ref: '#/components/schemas/PostSummary'}
+                      next_cursor: {type: string, nullable: true}
+        '400': {$ref: '#/components/responses/unauthorized'}
+        '401': {$ref: '#/components/responses/unauthorized'}
+        '403': {$ref: '#/components/responses/unauthorized'}
+        '404': {description: MINIAPP_CONTENT_ENABLED=false}
+  /posts/{message_id}:
+    get:
+      summary: Public detail of one published post
+      parameters:
+        - {name: message_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          description: Safe public DTO (includes note, never file_ids/identity)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  data: {$ref: '#/components/schemas/PostDetail'}
+        '401': {$ref: '#/components/responses/unauthorized'}
+        '404': {description: Unknown post or MINIAPP_CONTENT_ENABLED=false}
+  /posts/{message_id}/media/{index}:
+    get:
+      summary: Authenticated media bytes of a published post
+      description: |
+        Reads only published_posts media (never pending_reviews), proxies the
+        Telegram file server-side, and applies the 20MB download budget.
+        variant=thumbnail/preview re-encodes with PIL; original passes through.
+      parameters:
+        - {name: message_id, in: path, required: true, schema: {type: integer}}
+        - {name: index, in: path, required: true, schema: {type: integer, minimum: 0}}
+        - {name: variant, in: query, required: false, schema: {type: string, enum: [thumbnail, preview, original], default: original}}
+      responses:
+        '200':
+          description: Media bytes (Cache-Control private, max-age=60)
+          content:
+            image/*: {schema: {type: string, format: binary}}
+            video/*: {schema: {type: string, format: binary}}
+        '401': {$ref: '#/components/responses/unauthorized'}
+        '404': {description: Unknown post or media index}
+        '415': {description: Media type not servable (e.g. document)}
   /miniapp/session:
     post:
       summary: Validate Telegram initData and mint a short-lived Mini App session

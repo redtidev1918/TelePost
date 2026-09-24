@@ -138,22 +138,19 @@ class TestStatsHandlers:
         mock_telegram_context
     ):
         """测试 /hot 命令（实现为 get_hot_posts）"""
-        # 模拟数据库连接：查询返回空列表 → 走"暂无热门数据"分支
-        mock_cursor = AsyncMock()
-        mock_cursor.fetchall = AsyncMock(return_value=[])
-        mock_conn = MagicMock()
-        mock_conn.cursor = AsyncMock(return_value=mock_cursor)
-        mock_get_db.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_get_db.return_value.__aexit__ = AsyncMock(return_value=False)
+        # Bot 与 Mini App 共用 HotService：这里模拟 service 空页 → 走"暂无热门数据"分支
+        from telepost.application.hot import HotPage, HotService
+        with patch.object(
+            HotService, "page",
+            AsyncMock(return_value=HotPage(items=[], total_count=0)),
+        ):
+            from handlers.stats_handlers import get_hot_posts
+            mock_telegram_context.args = []
+            mock_telegram_update.callback_query = None
+            mock_telegram_update.message.reply_text = AsyncMock()
 
-        mock_telegram_context.args = []
-        mock_telegram_update.callback_query = None
-        mock_telegram_update.message.reply_text = AsyncMock()
-        
-        from handlers.stats_handlers import get_hot_posts
-        
-        await get_hot_posts(mock_telegram_update, mock_telegram_context)
-        
+            await get_hot_posts(mock_telegram_update, mock_telegram_context)
+
         # 验证回复被调用（暂无数据提示）
         mock_telegram_update.message.reply_text.assert_called()
 
