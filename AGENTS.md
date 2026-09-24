@@ -447,6 +447,33 @@ entrypoints are configured.
 - superseded 旧卡：所有 moderation 按钮移除（后端 stale guard 仍是权威）；也绝不
   追加公共投稿 CTA。
 
+## Novel Cover 与 fallback card 不变量（§novel-cover）
+
+```text
+A novel's channel structure is: visual root + TXT document reply.
+The root is the REAL cover when one exists, otherwise a TelePost-rendered
+fallback card, otherwise (fallback disabled/failed) the TXT alone.
+Inline body illustrations NEVER ship as channel media; they render on the
+online reading page only.
+```
+
+- **资源角色不靠猜**：PixivFlow 把封面发布为专用 `pixiv:<id>:novelcover`
+  canonical asset（wire 仍是 `kind: image`）；正文插图保留
+  `uploadedimage` / `pixivimage` 身份。禁止用 `asset[0]`、图片数量、
+  MIME 或 URL 顺序猜测资源角色。
+- **Pixiv 默认封面不是封面**：`novel-cover-master-default` 占位图在
+  PixivFlow 归一化为 `cover_url: null`，绝不作为 Telegram media 发布。
+- **TelePost 消费侧**：`novel_cover_asset_ids()` 只认显式 `:novelcover`
+  后缀；旧 payload（无封面字段）保守降级为 fallback card / text-only root，
+  绝不把正文第一张图当封面。
+- **Fallback card 是展示层职责**：`NOVEL_FALLBACK_CARD_ENABLED`（默认开）
+  控制；Pillow 固定尺寸 RGB 渲染、临时文件发布后清理；渲染失败返回
+  `None` → text-only root + TXT reply，绝不把 Publication 判失败。
+- **投递永不为空**：预览过滤删掉所有插图后，TXT document 仍然是频道条目；
+  过滤导致 items 为空时回退完整 plan（#130 类失败的硬防线）。
+- 小说正文插图继续只渲染在 Telegraph 在线阅读页（§telepress-preview）；
+  `:novelcover` 资产不得进入阅读页 manifest。
+
 ## Novel TXT Telegraph Preview（§telepress-preview）
 
 ```text

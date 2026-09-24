@@ -247,6 +247,66 @@ def novel_images_preview_only(work_type, assets, documents) -> bool:
     )
 
 
+def _novel_channel_items(assets, documents, cover_ids, *, spoiler=False):
+    """Channel items for a novel publication (§novel-cover).
+
+    * every document (TXT, ZIP) keeps the zero-reupload file_id path;
+    * the REAL cover (``:novelcover`` asset) becomes the visual root via
+      cached file_id or the allowlisted media proxy;
+    * inline illustrations never appear here (online reader only).
+    Visual items sort first so the packing keeps ``cover root + TXT reply``.
+    """
+    from telepost.application.delivery_planner import _proxied_source_url
+    items = []
+    for doc in documents or []:
+        file_id = str(doc.get("file_id") or "").strip()
+        if not file_id:
+            continue
+        items.append(MediaItem.file_id(
+            "document", file_id, spoiler=spoiler,
+            filename=doc.get("filename") or "file",
+        ))
+    for asset in (assets or []):
+        if asset.asset_id not in cover_ids:
+            continue
+        if asset.file_id:
+            items.append(MediaItem.file_id(
+                "photo", asset.file_id, spoiler=spoiler,
+            ))
+        else:
+            items.append(MediaItem(
+                MediaKind.PHOTO,
+                RemoteUrl(_proxied_source_url(asset.source_url)),
+                spoiler=spoiler,
+            ))
+    items.sort(key=lambda item: 0 if item.kind is not MediaKind.DOCUMENT else 1)
+    return items
+
+
+def _render_novel_root_card(title, tags):
+    """Fallback card for cover-less novels; ``None`` → text-only root."""
+    from telepost.application.novel_fallback_card import (
+        render_novel_fallback_card,
+    )
+    return render_novel_fallback_card(title, tags)
+
+
+def novel_cover_asset_ids(assets) -> set:
+    """Canonical asset ids of the novel's REAL cover (§novel-cover).
+
+    PixivFlow marks the cover with the dedicated ``pixiv:<id>:novelcover``
+    pixivKind; inline body illustrations keep ``uploadedimage``/``pixivimage``
+    ids. Legacy payloads carry no cover asset at all → empty set → the caller
+    falls back conservatively instead of promoting body art to a cover.
+    """
+    from telepost.domain.media import MediaAsset, is_novel_cover_asset
+    return {
+        asset.asset_id
+        for asset in (MediaAsset.coerce(a) for a in (assets or []))
+        if is_novel_cover_asset(asset)
+    }
+
+
 def _items_from_dicts(items):
     out = []
     for it in items:
@@ -643,17 +703,43 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
              "filename": d.get("filename") or "file"}
             for d in documents
         ])
-    # Novel inline illustrations are preview-only: they belong on the online
-    # reading page, never as channel albums. The TXT document remains the only
-    # Telegram delivery item for PixivFlow novel reviews.
+    # Novel asset semantics (§novel-cover): inline illustrations are
+    # preview-only — they belong on the online reading page, never as channel
+    # albums. A REAL cover (canonical ``:novelcover`` asset) IS the channel
+    # root; without one, an optional Pillow fallback card takes that role, and
+    # if that fails the TXT document stands alone. Delivery can never become
+    # empty just because the preview filtering removed images.
     preview_only_novel_images = novel_images_preview_only(
         work_type, assets, documents
     )
+    cover_ids = novel_cover_asset_ids(assets) if preview_only_novel_images else set()
+    fallback_card_path = None
     if preview_only_novel_images:
-        items = [
-            item for item in items
-            if item.kind is not MediaKind.PHOTO
-        ]
+        # The planner's positional pairing assumes the last asset and the TXT
+        # document are the SAME file. With an explicit cover asset that no
+        # longer holds, so novels build their channel items directly: covers
+        # become the visual root, TXT/zip stay document replies, inline
+        # illustrations are dropped (preview-only).
+        items = _novel_channel_items(
+            assets, documents, cover_ids, spoiler=spoiler,
+        )
+        from config.settings import NOVEL_FALLBACK_CARD_ENABLED
+        if NOVEL_FALLBACK_CARD_ENABLED and not any(
+            item.kind is not MediaKind.DOCUMENT for item in items
+        ):
+            fallback_card_path = _render_novel_root_card(title, tags)
+            if fallback_card_path:
+                items.insert(0, MediaItem.local(
+                    "photo", fallback_card_path, "novel-card.png",
+                    spoiler=spoiler,
+                ))
+        if not items:
+            # Safety net: a channel publication without any item is exactly
+            # the "delivery returned no messages" failure class (#130).
+            logger.warning(
+                "novel payload produced no channel items; keeping full plan"
+            )
+            items = plan.to_media_items(spoiler=spoiler)
     data = _caption_identity_data(
         tags=tags, title=title, note=note, link=link, spoiler=spoiler,
         anonymous=anonymous, user_id=user_id, username=username,
@@ -693,8 +779,16 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
         album_size=CHANNEL_ALBUM_SIZE,
         reply_mode=_reply_mode_from(None),
     )
-    outcome = await service.publish(command)
-    result = _outcome_to_legacy(outcome, raise_on_failure=True)
+    try:
+        outcome = await service.publish(command)
+        result = _outcome_to_legacy(outcome, raise_on_failure=True)
+    finally:
+        # The fallback card is a throwaway render; never leak the temp file.
+        if fallback_card_path:
+            try:
+                os.unlink(fallback_card_path)
+            except OSError:
+                pass
     # Step 12/13: record the confirmed Telegram media facts per canonical asset.
     if assets and review_chain_id and not result.get("reused") and not preview_only_novel_images:
         known_messages = result.get("known_messages") or []

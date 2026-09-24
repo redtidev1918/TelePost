@@ -98,6 +98,7 @@ API（自动化）固定进入审核；Mini App 由 `MINIAPP_REVIEW_REQUIRED` �
 | `REVIEW_PREVIEW_THREAD` | `1` | 后续预览和控制消息回复上一条 |
 | `PENDING_REVIEW_RETENTION_DAYS` | `0` | 待审过期天数；`0` 永久保留 |
 | `NOVEL_PREVIEW_ENABLED` | `false` | **可选发布增强**：TXT 小说经 TelePress 发布到 Telegraph，「在线阅读」链接出现在频道 caption；**默认关闭**，开启后 TXT document 仍正常发送，Telegraph 失败/超时绝不导致投稿失败（§telepress-preview） |
+| `NOVEL_FALLBACK_CARD_ENABLED` | `true` | 无真实封面的小说用 Pillow 生成轻量 fallback 卡片作为频道 root（§novel-cover）；关闭或生成失败时降级为 text-only root + TXT 回复，绝不影响发布成败 |
 | `NOVEL_PREVIEW_TIMEOUT_SECONDS` | `15` | 单次预览尝试的严格超时（秒）；Telegraph 不能无限拖住发布 |
 | `NOVEL_PREVIEW_MAX_BYTES` | `4194304` | 读取 TXT 正文的大小上限（字节），超限则不生成预览 |
 | `TELEGRAPH_ACCESS_TOKEN` | 空 | Telegraph 账户 access token（Secret，绝不写日志）；空 = 预览关闭 |
