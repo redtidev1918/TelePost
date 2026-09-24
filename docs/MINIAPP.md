@@ -28,12 +28,12 @@ Telegram
 
 ## 空间与导航（§mine-admin-split）
 
-Mini App 只有**一个**工作空间：所有人都拥有用户三件套（首页 / 投稿 / 我的投稿），
+Mini App 只有**一个**工作空间：所有人都拥有用户四件套（首页 / 热门 / 投稿 / 我的投稿），
 reviewer / admin 额外持有审核队列，admin 再额外持有管理面板。路由与底部导航单一来源是
 `webapp/src/app/App.tsx` 的 `navigationForSpace(isReviewer, isAdmin)`：
 
-- **普通用户**（submitter）：Tabbar 为「首页 / 投稿 / 我的投稿」，路由只有投稿三件套与
-  各自的详情/编辑历史；不注册审核路径。
+- **普通用户**（submitter）：Tabbar 为「首页 / 热门 / 投稿 / 我的投稿」，路由只有内容浏览
+  （`/hot`、`/hotweek`、`/post/:id`）、投稿三件套与各自的详情/编辑历史；不注册审核路径。
 - **reviewer / admin**：在用户三件套之上额外显示「审核队列」，并注册
   `/review`、`/review/:id`、`/review/:id/edit`；同时保留了投稿与「我的投稿」全部能力，
   与后端 RBAC 一致（`roles` 始终包含 `submitter`）。
@@ -45,6 +45,23 @@ reviewer / admin 额外持有审核队列，admin 再额外持有管理面板。
   解除拉黑），故无二次确认弹窗。
 - 服务端 RBAC 仍是唯一权威；Tabbar/路由只是把非授权表面藏起来，不能替代服务端校验。
   新路由必须走 `navigationForSpace`，禁止各页面自拼底部导航。
+
+### 公开内容浏览（§miniapp-content）
+
+首页与「热门」是轻量内容消费入口，与 Bot 的 `/hot` / `/hotweek` 共用同一个
+`telepost/application/hot.py` 的 HotService（Bot 与 Mini App 禁止各自实现热榜查询）：
+
+- 排序 SSOT：`heat_score DESC, publish_time DESC, message_id DESC`；周榜复用
+  `telepost.domain.hot.week_start_utc()`；Mini App 分页用 keyset cursor，Bot 分页用 OFFSET。
+- 公开 DTO（`hot_post_payload`）永不包含 `file_ids`、`user_id`、`username`、caption；
+  `views` / `forwards` 是 Bot API 读不到的字段，界面不展示假指标。
+- API（均要求 `kind=user` Mini App 会话，service/API principal 返回 403）：
+  `GET /api/v1/posts/hot`、`GET /api/v1/posts/{message_id}`、
+  `GET /api/v1/posts/{message_id}/media/{index}?variant=thumbnail|preview|original`。
+- 媒体端点只读 `published_posts`（绝不触碰 `pending_reviews`），服务端代理 Telegram 文件并
+  受 20MB 下载预算约束；`Cache-Control: private`，浏览器不接触 file_id。
+- 开关：`MINIAPP_CONTENT_ENABLED`（默认 `true`）。关闭时内容 API 返回 404，
+  前端静默隐藏热门区块，投稿与审核完全不受影响。
 
 ### 预览与发送边界（§preview-ux）
 
