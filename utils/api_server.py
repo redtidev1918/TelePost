@@ -1631,6 +1631,9 @@ def add_api_routes(web_app, application) -> None:
                         source_ref=_fields_source_ref(payload),
                         scheduled_at=_fields_scheduled_at(payload),
                         refetch_request_id=_fields_refetch_request_id(payload),
+                        # §novel-cover: the review-group preview needs the
+                        # canonical cover asset (URL) — it is not a staged file.
+                        media_assets=media_assets,
                         **provenance,
                     )
                     result = await queue_review_from_file_ids(
@@ -1813,6 +1816,9 @@ def add_api_routes(web_app, application) -> None:
                     source_ref=_fields_source_ref(fields),
                     scheduled_at=_fields_scheduled_at(fields),
                     refetch_request_id=_fields_refetch_request_id(fields),
+                    # §novel-cover: multipart is production's actual path — the
+                    # review-group preview needs the canonical cover asset (URL).
+                    media_assets=media_assets,
                     **provenance,
                 )
                 result = await queue_review_from_files(

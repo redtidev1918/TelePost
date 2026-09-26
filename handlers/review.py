@@ -182,19 +182,20 @@ def _source_label(source: str) -> str:
 
 # ---- back-compat preview staging delegates -------------------------------
 async def _stage_file_ids(bot, media, documents, caption: str, spoiler: bool,
-                          message_ids):
+                          message_ids, cover_url=None):
     stager = _stager(bot)
     staged_media, staged_documents, preview_ids = await stager.stage_file_ids(
-        media, documents, caption=caption, spoiler=spoiler
+        media, documents, caption=caption, spoiler=spoiler, cover_url=cover_url
     )
     message_ids.extend(preview_ids)
     return staged_media, staged_documents
 
 
-async def _stage_local_files(bot, files, caption: str, spoiler: bool, message_ids):
+async def _stage_local_files(bot, files, caption: str, spoiler: bool, message_ids,
+                             cover_url=None):
     stager = _stager(bot)
     staged_media, staged_documents, preview_ids, _decisions = await stager.stage_local(
-        files, caption=caption, spoiler=spoiler
+        files, caption=caption, spoiler=spoiler, cover_url=cover_url
     )
     message_ids.extend(preview_ids)
     return staged_media, staged_documents
@@ -292,6 +293,7 @@ async def queue_review_from_file_ids(
     submitter_display_name="",
     actor_kind="user", actor_subject="",
     review_chain_id="", generation=0, supersedes_review_id=None,
+    media_assets=None,
 ) -> dict:
     """Stage a file_id submission and create a durable pending review."""
     key = normalize_idempotency_key(user_id, idempotency_key, source)
@@ -308,6 +310,7 @@ async def queue_review_from_file_ids(
         actor_kind=actor_kind, actor_subject=actor_subject,
         review_chain_id=review_chain_id, generation=generation,
         supersedes_review_id=supersedes_review_id,
+        media_assets=tuple(media_assets or ()),
     )
     return await queue_service.enqueue(
         command, _stager(bot), media=media, documents=documents
@@ -322,6 +325,7 @@ async def queue_review_from_files(
     refetch_request_id="", submitter_user_id=None, submitter_username="",
     submitter_display_name="",
     actor_kind="user", actor_subject="",
+    media_assets=None,
 ) -> dict:
     """Stage multipart API files and create a durable pending review."""
     key = normalize_idempotency_key(user_id, idempotency_key, source)
@@ -338,6 +342,7 @@ async def queue_review_from_files(
         submitter_username=submitter_username,
         submitter_display_name=submitter_display_name,
         actor_kind=actor_kind, actor_subject=actor_subject,
+        media_assets=tuple(media_assets or ()),
     )
     return await queue_service.enqueue(
         command, _stager(bot), files=files
