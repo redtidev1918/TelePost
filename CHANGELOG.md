@@ -8,6 +8,15 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.68.0](https://github.com/redtidev1918/TelePost/compare/v2.67.0...v2.68.0) (2026-09-26)
+
+
+### Features
+
+* **review:** 审核群预览小说封面：有真实封面的小说在审核群里先显示封面图、再显示 TXT 文档，与频道发布结构一致；封面只用于预览展示，不写入审核记录 ([c8d7048](https://github.com/redtidev1918/TelePost/commit/c8d7048ff383d9d5da5952eff9ef5ff2c6869ef2))
+
+---
+
 ## [2.67.0](https://github.com/redtidev1918/TelePost/compare/v2.66.0...v2.67.0) (2026-09-24)
 
 
