@@ -20,6 +20,7 @@ from telegram.ext import ConversationHandler, CallbackContext
 from models.state import STATE
 from utils.helper_functions import process_tags, parse_json_list
 from telepost.application.publication import channel_caption
+from telepost.domain.packing import MEDIA_GROUP_CAPACITY
 from utils.submission import get_session, update_fields, append_entry, classify_message, entry_kind
 
 logger = logging.getLogger(__name__)
@@ -129,9 +130,11 @@ async def _send_preview_media(update: Update, context: CallbackContext,
         if file_id:
             singles.append(("document", file_id, name))
 
-    # 照片合并成相册（每批最多 10 张），其它媒体单独发送。
-    for i in range(0, len(photos), 10):
-        batch = photos[i:i + 10]
+    # 照片合并成相册（每批最多 MEDIA_GROUP_CAPACITY 张），其它媒体单独发送。
+    # 容量必须与真正发布时同源，否则调低 MEDIA_GROUP_CAPACITY 后预览分组与
+    # 实际发布分组不一致（审核看到 10 张、发布只有 5 张）。
+    for i in range(0, len(photos), MEDIA_GROUP_CAPACITY):
+        batch = photos[i:i + MEDIA_GROUP_CAPACITY]
         try:
             await bot.send_media_group(chat_id=chat_id, media=[InputMediaPhoto(media=fid) for fid in batch])
         except Exception as exc:

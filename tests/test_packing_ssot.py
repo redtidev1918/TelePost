@@ -5,6 +5,7 @@ Boundary contract with the SSOT capacity: 10 -> root 10, 11 -> root 10 + 1,
 from ONE SSOT (MEDIA_GROUP_CAPACITY) and is never hardcoded in handlers.
 """
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -73,3 +74,53 @@ def test_overflow_has_no_caption_and_root_link_is_the_root_batch():
     overflow = plan.batches[1:]
     assert len(overflow[0].items) <= MEDIA_GROUP_CAPACITY
     assert plan.reply_mode is ReplyMode.CHAIN
+
+
+@pytest.mark.asyncio
+async def test_preview_batching_uses_the_same_ssot_capacity(monkeypatch):
+    """Regression (§media-packing): handlers/preview_handlers.py hardcoded 10, so
+    lowering MEDIA_GROUP_CAPACITY grouped the review preview differently from the
+    actual publication (review shows 10, publish sends 5). The preview batches
+    must be cut with the same SSOT constant the delivery planner uses.
+    """
+    from handlers import preview_handlers
+
+    sent = []
+
+    class _Bot:
+        async def send_media_group(self, chat_id=None, media=None):
+            sent.append(len(media))
+
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=42),
+        effective_message=SimpleNamespace(chat_id=42),
+    )
+    context = SimpleNamespace(user_data={}, bot=_Bot())
+    monkeypatch.setattr(preview_handlers, "MEDIA_GROUP_CAPACITY", 3)
+
+    media_list = [f"photo:pid{i}:p{i}.jpg" for i in range(7)]
+    await preview_handlers._send_preview_media(update, context, media_list, [])
+
+    assert sent == [3, 3, 1]
+
+
+@pytest.mark.asyncio
+async def test_preview_batching_default_capacity_matches_the_planner():
+    from handlers import preview_handlers
+
+    sent = []
+
+    class _Bot:
+        async def send_media_group(self, chat_id=None, media=None):
+            sent.append(len(media))
+
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=42),
+        effective_message=SimpleNamespace(chat_id=42),
+    )
+    context = SimpleNamespace(user_data={}, bot=_Bot())
+
+    media_list = [f"photo:pid{i}:p{i}.jpg" for i in range(2 * MEDIA_GROUP_CAPACITY + 1)]
+    await preview_handlers._send_preview_media(update, context, media_list, [])
+
+    assert sent == [MEDIA_GROUP_CAPACITY, MEDIA_GROUP_CAPACITY, 1]
