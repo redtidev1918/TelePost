@@ -113,6 +113,14 @@ API（自动化）固定进入审核；Mini App 由 `MINIAPP_REVIEW_REQUIRED` �
 
 Telegram 只保证 Bot 可删除 48 小时内消息；需要自动清理审核群时通常把待审保留设为 1 天。
 
+### 小说封面在审核群里同样可见（§novel-cover）
+
+带真实封面（`pixiv:<id>:novelcover` 资产）的小说，审核群预览与频道发布**同形**：
+先发封面照片（PixivFlow 提供的远程 URL，经媒体代理），再发 TXT document。封面是
+`staging_only` 的展示项，绝不写入审核记录（`media_json`/`documents_json`），发布时
+仍由 canonical asset 构建频道 root，因此不会重复计数。资产缺失或畸形时静默跳过，
+绝不因此让投稿失败；无真实封面时审核群只显示 TXT，频道由 fallback 卡片兜底。
+
 `TELEPOST_IMAGE_DECODE_BUDGET_MB` 衡量的是解码后的像素工作集，不是压缩文件大小。
 无需转换且符合 Telegram photo 限制的文件会直接流式发送，不调用 Pillow；常规需要转换的文件在
 估算峰值不超过 64 MiB 时才生成临时 JPEG。PNG 这类没有降采样解码能力的格式可再用
