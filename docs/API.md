@@ -172,6 +172,12 @@ curl -X POST 'https://example.com/api/bot1/v1/submissions' \
   `GET /api/v1/reviews/{id}` 读回；空数组等价于不传。
 - 该字段向后兼容：不传时行为与之前完全一致，本地 `file_id` 仍走原有
   `media_json`/`documents_json` 路径。
+- **小说封面（`<work>:novelcover`）也会进审核群预览**：带真实封面的小说，审核群预览与
+  频道发布同形——先发封面照片（取该资产的 `source_url`，经媒体代理），再发 TXT document。
+  这条封面是审核预览用的**一次性消息**：它不会写入 `media_json`/`documents_json`，发布侧
+  仍从 canonical asset 自建频道 root，因此审核记录里的媒体数量不变（小说仍是 `media=0`、
+  `documents=1`）。资产缺失或字段不合法时静默跳过，绝不影响投稿成败。见
+  [配置说明](CONFIGURATION.md) 的「小说封面在审核群里同样可见」一节。
 
 ### 投递计划（只读，Step 11）
 
