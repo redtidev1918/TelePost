@@ -313,7 +313,9 @@ Multi-media publication uses capacity-first packing.
 - Telegram media-group 容量只定义一次：`telepost/domain/packing.py` 的
   `MEDIA_GROUP_CAPACITY`（env `MEDIA_GROUP_CAPACITY`，默认 10，clamp 到 Telegram 上限）。
   `handlers.publish.CHANNEL_ALBUM_SIZE`、`PublicationService` / `PublishCommand` /
-  delivery gateway / planner 的默认值全部读取它；禁止在 handler 里散落 `10`。
+  delivery gateway / planner 的默认值全部读取它；禁止在 handler 里散落 `10`
+  （含 `handlers/preview_handlers._send_preview_media` 的预览相册：容量被下调时，
+  审核预览必须与实际发布按同一容量分批，否则审核看到 10 张、发布只发 5 张）。
 - `pack_media(ordered, capacity)` 是纯函数 SSOT：`root = first capacity`，
   overflow 按同一 capacity 分块。11 → root 10 + reply 1；21 → root 10 + reply 10 + reply 1。
 - 一个 media group 在业务上是 ONE root publication，即使 Telegram 把它建模为多条
