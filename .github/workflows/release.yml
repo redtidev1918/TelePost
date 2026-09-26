@@ -24,6 +24,11 @@ permissions:
 
 jobs:
   release:
+    # Skip release-please PRs (authored by github-actions[bot]): GitHub holds their
+    # workflow runs for approval so they never start, which shows a permanent failed
+    # check on every release PR. Self-healing: once RELEASE_PLEASE_TOKEN (a real user
+    # PAT) authors the release PR, this guard no longer matches and CI returns.
+    if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'github-actions[bot]'
     uses: redtidev1918/releasegraph/.github/workflows/reusable-release.yml@20ac922821e2c11d1a6f8360b3ceafb434a7c9d6 # ReleaseGraph healthy tag-drift recovery resume
     with:
       version: ${{ inputs.version || '' }}

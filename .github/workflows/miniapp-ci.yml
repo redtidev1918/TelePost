@@ -12,6 +12,11 @@ permissions:
 
 jobs:
   python:
+    # Skip release-please PRs (authored by github-actions[bot]): GitHub holds their
+    # workflow runs for approval so they never start, which shows a permanent failed
+    # check on every release PR. Self-healing: once RELEASE_PLEASE_TOKEN (a real user
+    # PAT) authors the release PR, this guard no longer matches and CI returns.
+    if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -29,6 +34,11 @@ jobs:
         run: pytest -q
 
   webapp:
+    # Skip release-please PRs (authored by github-actions[bot]): GitHub holds their
+    # workflow runs for approval so they never start, which shows a permanent failed
+    # check on every release PR. Self-healing: once RELEASE_PLEASE_TOKEN (a real user
+    # PAT) authors the release PR, this guard no longer matches and CI returns.
+    if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'github-actions[bot]'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -51,6 +61,11 @@ jobs:
       - name: Generate API client + build
         run: npm run generate:api && npm run build
   browser-e2e:
+    # Skip release-please PRs (authored by github-actions[bot]): GitHub holds their
+    # workflow runs for approval so they never start, which shows a permanent failed
+    # check on every release PR. Self-healing: once RELEASE_PLEASE_TOKEN (a real user
+    # PAT) authors the release PR, this guard no longer matches and CI returns.
+    if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'github-actions[bot]'
     runs-on: ubuntu-latest
     defaults:
       run:
