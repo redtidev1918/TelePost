@@ -24,6 +24,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, List, Optional, Protocol, Tuple
 
+from ..domain.media import is_novel_cover_asset
 from ..observability import audit
 from ..observability.errors import classify as classify_error
 from ..storage.sqlite.reviews import NewReview, ReviewRepository
@@ -122,13 +123,51 @@ class QueueCommand:
     review_chain_id: str = ""
     generation: int = 0
     supersedes_review_id: Optional[int] = None
+    # Canonical media-asset sidecar of this submission (§novel-cover). A novel's
+    # REAL cover is an asset-only ``pixiv:<id>:novelcover`` reference that
+    # PixivFlow never materializes locally, so the review-group preview can only
+    # show it by URL — it is never part of the staged media.
+    media_assets: tuple = ()
+
+
+def novel_cover_preview_url(command: QueueCommand) -> Optional[str]:
+    """Review-group preview URL for a novel's REAL cover, or ``None``.
+
+    §novel-cover: only an explicit ``:novelcover`` asset is a cover; body
+    illustrations (``uploadedimage`` / ``pixivimage``) never are. This is a
+    presentation enrichment, so malformed assets are skipped instead of failing
+    the submission, and the canonical URL goes through the same media proxy the
+    publication uses.
+    """
+    for raw in getattr(command, "media_assets", None) or ():
+        try:
+            if not is_novel_cover_asset(raw):
+                continue
+            url = (
+                getattr(raw, "source_url", "")
+                if not isinstance(raw, dict) else raw.get("source_url")
+            )
+            url = str(url or "").strip()
+            if not url:
+                continue
+            # Lazy import: keeps the domain/application import graph acyclic
+            # (publish.py imports the same helper only inside its function).
+            from .delivery_planner import _proxied_source_url
+            return _proxied_source_url(url)
+        except Exception:  # pragma: no cover - defensive, never blocks a review
+            logger.warning("忽略无法解析的 cover 资产：%r", raw, exc_info=True)
+    return None
 
 
 class StagingPort(Protocol):
-    async def stage_local(self, files, *, caption: str, spoiler: bool
+    async def stage_local(self, files, *, caption: str, spoiler: bool,
+                          message_ids: Optional[List[int]] = None,
+                          cover_url: Optional[str] = None
                           ) -> Tuple[list, list, List[int], list]: ...
 
-    async def stage_file_ids(self, media, documents, *, caption: str, spoiler: bool
+    async def stage_file_ids(self, media, documents, *, caption: str, spoiler: bool,
+                             message_ids: Optional[List[int]] = None,
+                             cover_url: Optional[str] = None
                              ) -> Tuple[list, list, List[int]]: ...
 
     async def delete_preview_messages(self, message_ids: List[int]) -> None: ...
@@ -312,6 +351,11 @@ class ReviewQueueService:
         if callable(set_deadline):
             set_deadline(time.monotonic() + self._staging_deadline_seconds)
         media_decisions: list = []
+        # §novel-cover: a novel with a real cover is previewed as visual root +
+        # TXT document, exactly like the channel publication. The cover is an
+        # asset-only URL, so it is passed to staging as a presentation extra and
+        # never becomes part of the review's media.
+        cover_url = novel_cover_preview_url(command)
         try:
             # Pass the id list in-out: when staging fails mid-way, ids of
             # already-uploaded previews survive for rollback deletion.
@@ -319,13 +363,13 @@ class ReviewQueueService:
                 staged_media, staged_documents, preview_ids, media_decisions = \
                     await stager.stage_local(
                         files, caption=caption, spoiler=command.spoiler,
-                        message_ids=preview_ids,
+                        message_ids=preview_ids, cover_url=cover_url,
                     )
             else:
                 staged_media, staged_documents, preview_ids = await stager.stage_file_ids(
                     media or [], documents or [],
                     caption=caption, spoiler=command.spoiler,
-                    message_ids=preview_ids,
+                    message_ids=preview_ids, cover_url=cover_url,
                 )
         except RuntimeError as exc:
             message = str(exc)

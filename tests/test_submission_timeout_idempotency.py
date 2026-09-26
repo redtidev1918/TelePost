@@ -61,7 +61,8 @@ class _Stager:
     def set_staging_deadline(self, deadline):
         self.deadline = deadline
 
-    async def stage_local(self, files, *, caption, spoiler, message_ids=None):
+    async def stage_local(self, files, *, caption, spoiler, message_ids=None,
+                          cover_url=None):
         self.stages += 1
         ids = message_ids if message_ids is not None else []
         extra = []
@@ -72,7 +73,7 @@ class _Stager:
         return [{"type": "photo", "file_id": "P"}], [], ids, extra
 
     async def stage_file_ids(self, media, documents, *, caption, spoiler,
-                             message_ids=None):
+                             message_ids=None, cover_url=None):
         self.stages += 1
         ids = message_ids if message_ids is not None else []
         if self._on_stage is not None:

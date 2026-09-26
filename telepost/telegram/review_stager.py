@@ -69,6 +69,26 @@ def _retry_after_seconds(exc: RetryAfter) -> float:
         return 5.0
 
 
+def _is_remote_item(item: dict) -> bool:
+    """True for an item sent by URL (a novel's cover) instead of a local file."""
+    return bool(item.get("url")) and not item.get("path")
+
+
+def _remote_cover_item(cover_url: Optional[str]) -> list:
+    """Review-group preview item for a novel's REAL cover (§novel-cover).
+
+    The canonical cover is an asset-only ``:novelcover`` reference that PixivFlow
+    never materializes locally, so there is no file and no Telegram ``file_id``
+    to stage: it is sent by URL exactly like the channel publication does.
+    ``staging_only`` keeps it out of the recorded media — the publication builds
+    its cover from the canonical asset and must never count it twice.
+    """
+    url = str(cover_url or "").strip()
+    if not url:
+        return []
+    return [{"kind": "photo", "type": "photo", "url": url, "staging_only": True}]
+
+
 class TelegramReviewStager:
     def __init__(self, bot, review_chat_id, *,
                  album_size: int = 10,
@@ -96,13 +116,17 @@ class TelegramReviewStager:
 
     # ---- StagingPort ---------------------------------------------------
     async def stage_local(self, files, *, caption: str, spoiler: bool,
-                          message_ids: Optional[List[int]] = None
+                          message_ids: Optional[List[int]] = None,
+                          cover_url: Optional[str] = None
                           ) -> Tuple[list, list, List[int], list]:
         ids: List[int] = message_ids if message_ids is not None else []
         prepared, decisions = reclassify_oversized(
             list(files), max_bytes=self._photo_max_bytes, use_preview=True
         )
-        staged_items = []
+        # The cover preview leads the submission so the caption lands on it and
+        # the review group sees the same shape as the channel (§novel-cover):
+        # visual root first, TXT document reply after.
+        staged_items = list(_remote_cover_item(cover_url))
         original_documents = []
         for index, item in enumerate(prepared):
             if item.get("preparation_reason") == "use_preview":
@@ -127,9 +151,10 @@ class TelegramReviewStager:
             cleanup_prepared_dicts(prepared)
 
     async def stage_file_ids(self, media, documents, *, caption: str, spoiler: bool,
-                             message_ids: Optional[List[int]] = None
+                             message_ids: Optional[List[int]] = None,
+                             cover_url: Optional[str] = None
                              ) -> Tuple[list, list, List[int]]:
-        items = [
+        items = list(_remote_cover_item(cover_url)) + [
             {"kind": item["type"], "type": item["type"], "file_id": item["file_id"]}
             for item in media
         ] + [
@@ -476,14 +501,26 @@ class TelegramReviewStager:
             common["reply_to_message_id"] = reply_to
         kind = item["kind"]
 
-        if kind == "photo":
+        if kind == "photo" and item.get("path"):
             return await self._local_photo_single(item, caption, spoiler, reply_to)
 
         async def factory():
-            handle = open(item["path"], "rb")
+            # A remote item (a novel's cover) has no local file: Telegram fetches
+            # the URL itself, exactly like the channel publication. Every other
+            # item is a local file whose handle must stay open until the awaited
+            # send finishes.
+            handle = open(item["path"], "rb") if item.get("path") else None
+            media = (
+                InputFile(handle, filename=item["filename"],
+                          read_file_handle=False, attach=True)
+                if handle is not None else item["url"]
+            )
             try:
-                media = InputFile(handle, filename=item["filename"],
-                                  read_file_handle=False, attach=True)
+                if kind == "photo":
+                    return await self._bot.send_photo(
+                        photo=media, caption=caption,
+                        parse_mode="HTML" if caption else None,
+                        has_spoiler=spoiler, **common)
                 if kind == "video":
                     return await self._bot.send_video(
                         video=media, caption=caption,
@@ -503,7 +540,8 @@ class TelegramReviewStager:
                     caption=caption, parse_mode="HTML" if caption else None,
                     **common)
             finally:
-                handle.close()
+                if handle is not None:
+                    handle.close()
         return await self._send_throttled(factory)
 
     async def _file_id_album(self, chunk, caption, spoiler, reply_to):
@@ -529,29 +567,31 @@ class TelegramReviewStager:
         kind = item["kind"]
         parse = "HTML" if caption else None
         kw = dict(caption=caption, parse_mode=parse, **common)
+        # URL-sent items (a novel's cover) carry no file_id yet.
+        media_ref = item.get("file_id") or item.get("url")
 
         if kind == "photo":
             return await self._send_throttled(
                 lambda: self._bot.send_photo(
-                    photo=item["file_id"], has_spoiler=spoiler, **kw)
+                    photo=media_ref, has_spoiler=spoiler, **kw)
             )
         if kind == "video":
             return await self._send_throttled(
                 lambda: self._bot.send_video(
-                    video=item["file_id"], has_spoiler=spoiler, **kw)
+                    video=media_ref, has_spoiler=spoiler, **kw)
             )
         if kind == "animation":
             return await self._send_throttled(
                 lambda: self._bot.send_animation(
-                    animation=item["file_id"], has_spoiler=spoiler, **kw)
+                    animation=media_ref, has_spoiler=spoiler, **kw)
             )
         if kind == "audio":
             return await self._send_throttled(
-                lambda: self._bot.send_audio(audio=item["file_id"], **kw)
+                lambda: self._bot.send_audio(audio=media_ref, **kw)
             )
         return await self._send_throttled(
             lambda: self._bot.send_document(
-                document=item["file_id"], filename=item.get("filename"), **kw)
+                document=media_ref, filename=item.get("filename"), **kw)
         )
 
     # ---- core staging --------------------------------------------------
@@ -560,8 +600,18 @@ class TelegramReviewStager:
         for item in items:
             kind = item["kind"] if local else item["type"]
             family = self._family(kind)
-            if (family is not None and runs and runs[-1][0] == family
-                    and len(runs[-1][1]) < self._album_size):
+            # A remote item is always sent alone: Telegram accepts a URL as an
+            # album member, but a cover must never be bundled with the pieces it
+            # introduces, and nothing may join the run after it.
+            joinable = (
+                family is not None
+                and runs
+                and runs[-1][0] == family
+                and not _is_remote_item(item)
+                and not _is_remote_item(runs[-1][1][-1])
+                and len(runs[-1][1]) < self._album_size
+            )
+            if joinable:
                 runs[-1][1].append(item)
             else:
                 runs.append((family, [item]))

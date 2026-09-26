@@ -462,6 +462,8 @@ The root is the REAL cover when one exists, otherwise a TelePost-rendered
 fallback card, otherwise (fallback disabled/failed) the TXT alone.
 Inline body illustrations NEVER ship as channel media; they render on the
 online reading page only.
+The Telegram review group previews the SAME shape: the real cover leads the
+submission and never becomes part of the review's staged media.
 ```
 
 - **资源角色不靠猜**：PixivFlow 把封面发布为专用 `pixiv:<id>:novelcover`
@@ -473,6 +475,11 @@ online reading page only.
 - **TelePost 消费侧**：`novel_cover_asset_ids()` 只认显式 `:novelcover`
   后缀；旧 payload（无封面字段）保守降级为 fallback card / text-only root，
   绝不把正文第一张图当封面。
+- **审核群预览与频道同形**：`novel_cover_preview_url()` 只从显式 `:novelcover`
+  资产取 `source_url`（经媒体代理），作为 **URL 照片** 先发给审核群，再发 TXT
+  document。该封面是 `staging_only` 展示项，绝不写入 `media_json`/`documents_json`
+  （发布侧从 canonical asset 自建 root，不能重复计数）；`QueueCommand.media_assets`
+  是唯一来源，畸形/缺失资产静默跳过，绝不因此让投稿失败。
 - **Fallback card 是展示层职责**：`NOVEL_FALLBACK_CARD_ENABLED`（默认开）
   控制；Pillow 固定尺寸 RGB 渲染、临时文件发布后清理；渲染失败返回
   `None` → text-only root + TXT reply，绝不把 Publication 判失败。
