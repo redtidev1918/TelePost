@@ -268,3 +268,48 @@ Fly.io 拆分部署由独立 PixivFlow Machine 按需唤醒；TelePost 常驻。
   不显示 username / display name；频道公开 caption 仍保持匿名。
 - 幂等键 `publication:<message_id>:submitter-notification`；失败只重试通知，
   不回滚发布。
+
+## 健康自检 `telepost doctor`（只读）
+
+```bash
+python -m telepost.observability.cli doctor                 # 默认数据库（同 reviews inspect）
+python -m telepost.observability.cli doctor --bot 1 --bot 2 # 指定 Bot，可重复
+python -m telepost.observability.cli doctor --all-bots      # 扫描 data/bot*/submissions.db
+python -m telepost.observability.cli doctor --json          # 单个 JSON 对象
+python -m telepost.observability.cli doctor --now 1800000000 # 固定参考时钟（测试用）
+```
+
+数据库路径解析与 `reviews inspect`、`run.build_bot_env` 完全一致：
+`BOTn_DB_PATH` → `data/botn/submissions.db`，否则 `DB_PATH` → `config.settings.DB_PATH`。
+
+**只读契约**：所有连接都是 `file:...?mode=ro`，本命令**不写入任何数据库**，
+不跑迁移、不做修复、不起后台循环；输出里绝不包含任何令牌（Bot token / 投稿 token /
+webhook secret / PixivFlow secret），审计事件只统计数量与最新时间，不打印 payload。
+
+退出码与输出：
+
+| 退出码 | 含义 | 人类可读末行 |
+|---|---|---|
+| `0` | 全部 OK 或仅有 WARN | `HEALTHY` / `DEGRADED` |
+| `1` | 至少一项 CRIT | `FAILED` |
+| `2` | 无法验证（数据库文件缺失/不可读/`PRAGMA integrity_check` 未通过） | `FAILED` |
+
+`--json` 输出 `{"status", "checks":[{"code","level","message","details"?}], "databases", "generated_at"}`，
+`details` 保证 JSON 可序列化且不含密钥。
+
+检查项（表/列缺失时降级为 `SKIP`，绝不崩溃）：
+
+| code | 级别 | 说明 |
+|---|---|---|
+| `db_integrity` | CRIT/OK | 每个数据库的 `PRAGMA integrity_check`；非 `ok` 即无法验证（退出码 2） |
+| `refetch_stuck` | CRIT/WARN/OK | `refetch_attempts` 中活跃的 attempt（**先经 `telepost/domain/refetch_state.py` 归一化**，兼容旧库的 `requested`/`admitted`）；依据 `created_at`（缺失时 `started_at`）：> 30 分钟 CRIT，> 15 分钟 WARN，并逐条列出 `request_id`/`state`/`source_review_id`/等待分钟数 |
+| `refetch_active_invariant` | CRIT/OK | partial UNIQUE 索引 `idx_refetch_one_active` 必须存在；任一条 `review_chain_id` 同时出现 ≥2 个活跃 attempt 即 CRIT |
+| `review_queue_orphans` | CRIT/WARN/OK | `pending_reviews.status='pending'` 且 `control_message_id` 为空/NULL：> 15 分钟 WARN，> 60 分钟 CRIT（最多列出 5 个 id） |
+| `review_queue_publishing` | CRIT/OK | `status='publishing'` 超过 `PUBLISHING_STALE_SECONDS`（复用 `services.review_service` 的常量，未改定义）即 CRIT——说明清理任务没有回收它 |
+| `review_queue_counts` | WARN/OK | 按 `status` 分组的计数与 `oldest_pending_age_seconds`；最老 pending > 7 天 WARN |
+| `delivery_outbox` | WARN/OK/SKIP | 投递账本（`delivery_ledger` 及同源 outbox 表）总尝试数、失败数、最老年龄；失败 > 0 或最老 > 30 分钟 WARN，表不存在 SKIP |
+| `audit_events_recent` | WARN/OK/SKIP | 最近 24 小时 `audit_events` 数量与最新 `review.refetch_*` 事件年龄；存在活跃 attempt 而最新重抓事件 > 2 小时未更新则 WARN |
+
+实现位于 `telepost/observability/doctor.py`（纯函数 `run_doctor(*, db_paths, now)`），
+CLI 只是薄封装；诊断逻辑不依赖 web 应用（不导入 `run.py` / aiohttp）。
+

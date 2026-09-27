@@ -1,4 +1,10 @@
-"""Read-only observability CLI: ``reviews inspect <id> [--bot N]``.
+"""Read-only observability CLI.
+
+Two subcommands, both strictly read-only:
+
+* ``reviews inspect <id> [--bot N]`` — dump one review row plus its audit trail;
+* ``doctor [--bot N]... [--all-bots] [--json] [--now EPOCH]`` — health
+  self-inspection (see :mod:`telepost.observability.doctor`).
 
 Resolves the SQLite DB the same way the migration/cleanup scripts do:
 ``config.settings.DB_PATH`` (which honors ``DB_PATH``/``BOTN_DB_PATH`` env) with
@@ -91,6 +97,19 @@ def inspect_review(db_path: str, review_id: int) -> int:
     return 0 if review is not None else 1
 
 
+def run_doctor_command(bots, all_bots: bool, as_json: bool, now) -> int:
+    """Thin wrapper around the pure doctor core. Returns the process exit code."""
+    from telepost.observability import doctor
+
+    db_paths = doctor.resolve_paths(bots, all_bots, resolve_db_path)
+    exit_code, report = doctor.run_doctor(db_paths=db_paths, now=now)
+    if as_json:
+        print(json.dumps(report, ensure_ascii=False, default=str))
+    else:
+        print(doctor.render_human(report))
+    return exit_code
+
+
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(prog="telepost.observability.cli")
     sub = parser.add_subparsers(dest="resource", required=True)
@@ -100,9 +119,27 @@ def main(argv: Optional[list] = None) -> int:
     inspect_parser.add_argument("review_id", type=int)
     inspect_parser.add_argument("--bot", type=int, default=None)
 
+    doctor_parser = sub.add_parser("doctor", help="只读健康自检")
+    doctor_parser.add_argument(
+        "--bot", type=int, action="append", default=None, dest="bots",
+        help="要检查的 Bot 序号，可重复（BOTn_DB_PATH 优先）",
+    )
+    doctor_parser.add_argument(
+        "--all-bots", action="store_true", help="扫描 data/bot*/submissions.db",
+    )
+    doctor_parser.add_argument(
+        "--json", action="store_true", dest="as_json", help="输出单个 JSON 对象",
+    )
+    doctor_parser.add_argument(
+        "--now", type=float, default=None,
+        help="用于年龄阈值的参考时间（epoch 秒），默认当前时间",
+    )
+
     args = parser.parse_args(argv)
     if args.resource == "reviews" and args.action == "inspect":
         return inspect_review(resolve_db_path(args.bot), args.review_id)
+    if args.resource == "doctor":
+        return run_doctor_command(args.bots, args.all_bots, args.as_json, args.now)
     parser.error("unsupported command")
     return 2
 
