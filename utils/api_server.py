@@ -2928,6 +2928,48 @@ def add_api_routes(web_app, application) -> None:
 
     web_app.router.add_post("/api/v1/schedule/outcomes", schedule_outcome)
     web_app.router.add_post("/api/v1/refetch/outcomes", refetch_outcome)
+
+    async def jobs_events_ingress(request):
+        """§events ingress — PixivFlow POSTs a bare protoEvent to our callback_url.
+
+        Mounted at child path ``/api/v1/jobs/events`` (the run.py relay strips
+        ``/api/botN`` and prepends ``/api``, so the public producer-facing path
+        ``/api/botN/v1/jobs/events`` lands here). Auth is the SAME bot auth as
+        ``refetch_outcome`` (the per-bot SUBMIT_TOKEN PixivFlow already holds):
+        no new shared credential is introduced on this channel.
+
+        Semantics:
+          * 2xx response = the producer's outbox treats the event as acked
+            (at-least-once otherwise).
+          * Dedupe on ``event_id`` (UNIQUE index) — an at-least-once replay is a
+            no-op that persists nothing and fires no business effect.
+          * The event is durably persisted; the refetch reconcile loop
+            (``reconcile_refetch_events``) is the SOLE consumer of the durable
+            store and feeds any terminal Event through the shared outcome seam.
+            This is what binds the callback and the pull to exactly-once: they
+            converge on ``protocol_job_events`` and never double-notify.
+        """
+        token_row = await authenticate(_bearer(request) or "")
+        if token_row is None:
+            return _error(401, "invalid_token", "token 无效或已吊销")
+        try:
+            payload = await request.json()
+        except Exception:
+            return _error(400, "invalid_json", "JSON body 必须是对象")
+        if not isinstance(payload, dict):
+            return _error(400, "invalid_json", "JSON body 必须是对象")
+        event_id = str(payload.get("event_id") or "").strip()
+        if not event_id:
+            return _error(400, "missing_event_id", "event_id 必填")
+        from telepost.storage.sqlite.protocol_events import ProtocolEventRepository
+        events_repo = ProtocolEventRepository()
+        result = await events_repo.persist(payload)
+        return _ok({
+            "event_id": event_id,
+            "deduplicated": not bool(result["inserted"]),
+        })
+
+    web_app.router.add_post("/api/v1/jobs/events", jobs_events_ingress)
     logger.info("API 路由已注册: /api/v1/*")
     _ensure_upload_sweeper()
 

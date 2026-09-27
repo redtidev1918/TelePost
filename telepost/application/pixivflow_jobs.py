@@ -97,6 +97,32 @@ PROTOCOL_STATUS_REMOTE_STATES: Dict[str, str] = {
 }
 #: Projected remote-state tokens that are a reported OUTCOME, not a stage.
 TERMINAL_REMOTE_STATES = frozenset({"no_candidate", "duplicate", "failed", "submitted"})
+
+#: Protocol Event ``type`` values that carry a terminal verdict. These are the
+#: only events the consumer's §events wiring feeds into the refetch outcome
+#: path (the "不再永久静默" requirement): a terminal Event and the poll agree on
+#: the same terminal outcome through the shared outcome/notify seam.
+TERMINAL_EVENT_TYPES = frozenset({
+    "job.succeeded", "job.failed", "job.expired", "job.cancelled",
+})
+#: Event ``type`` -> the protocol ``status`` token from which the remote-state
+#: projection is derived (``cancelled``/``expired`` fold onto ``failed``).
+_EVENT_TYPE_STATUS = {
+    "job.accepted": "queued",
+    "job.started": "running",
+    "job.progress": "running",
+    "job.succeeded": "succeeded",
+    "job.failed": "failed",
+    "job.expired": "expired",
+    "job.cancelled": "cancelled",
+}
+#: Consumer-side public ingress root for the events callback. A submitted Task's
+#: ``callback_url`` is ``{base}/api/bot{N}/v1/jobs/events`` where ``base`` is
+#: ``TELEPOST_API_BASE_URL`` (must be *configured*; production compose sets it to
+#: ``http://telepost:8080``) and ``N`` is the per-bot process index (child
+#: ``TELEPOST_BOT_INDEX``, default ``1``). Read at call time by
+#: :func:`consumer_callback_url`, never cached at import.
+TELEPOST_API_BASE_URL = "http://telepost:8080"
 #: Vendored protocol SSOT (``protocol/v1/error-mapping.json``): the retryable
 #: default per closed error code.
 _ERROR_MAPPING_PATH = (
@@ -484,6 +510,158 @@ def decode_protocol_submit_receipt(payload: Any, status: int) -> SubmitReceipt:
     )
 
 
+def consumer_callback_url(bot_index: Optional[str] = None) -> str:
+    """The consumer's own events-ingress URL to declare on a submitted Task.
+
+    Only meaningful under the ``protocol`` transport: the producer's outbox
+    POSTs each Event to this callback (at-least-once). The public base comes
+    from ``TELEPOST_API_BASE_URL`` (production compose sets this to
+    ``http://telepost:8080``); the per-bot process supplies its own index via
+    ``TELEPOST_BOT_INDEX`` (default ``1``). ``TELEPOST_API_BASE_URL`` must
+    actually be configured for the field to be emitted — this keeps Task bodies
+    byte-stable for consumers/fixtures that do not run the ingress. Returns
+    ``""`` when no base is configured or none resolves to a usable origin, so
+    the caller can omit the field entirely.
+    """
+    base = os.environ.get("TELEPOST_API_BASE_URL", "").strip().rstrip("/")
+    parsed = urlparse(base)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    bot = (str(bot_index if bot_index is not None
+               else os.environ.get("TELEPOST_BOT_INDEX", "1")).strip() or "1")
+    return f"{base}/api/bot{bot}/v1/jobs/events"
+
+
+@dataclass(frozen=True)
+class ProtocolEvent:
+    """One normalized consumer-side Event document.
+
+    Normalized from a bare ``$defs/Event`` (the exact body a producer callback
+    POSTs to the consumer ingress). Only a few projection fields are surfaced;
+    ``payload`` stays the raw, opaque bag so business handling can read
+    ``payload.job``/``payload.error`` without this port guessing meaning.
+    ``at`` is coerced to epoch seconds (the protocol often ships milliseconds).
+    """
+
+    event_id: str = ""
+    job_id: str = ""
+    event_type: str = ""
+    at: Optional[float] = None
+    correlation_id: str = ""
+    labels: Dict[str, Any] = field(default_factory=dict)
+    payload: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_terminal(self) -> bool:
+        """True when this Event carries a terminal verdict."""
+        return str(self.event_type or "").strip() in TERMINAL_EVENT_TYPES
+
+    @property
+    def error_code(self) -> str:
+        """The protocol ``error.code`` carried on a terminal event, if any."""
+        error = self.payload.get("error")
+        if isinstance(error, dict):
+            return str(error.get("code") or "")
+        return ""
+
+    @property
+    def status_token(self) -> str:
+        """The protocol ``status`` token this Event reports (best effort).
+
+        Prefers ``payload.job.status`` (the authoritative snapshot) and falls
+        back to the type-to-status table so an event without a job payload still
+        projects onto a remote-state token.
+        """
+        job = self.payload.get("job") if isinstance(self.payload, dict) else None
+        if isinstance(job, dict) and str(job.get("status") or "").strip():
+            return str(job["status"]).strip()
+        return _EVENT_TYPE_STATUS.get(str(self.event_type or "").strip(), "")
+
+    @property
+    def remote_state(self) -> str:
+        """The remote-state token this Event projects onto.
+
+        Reuses :func:`project_remote_state`, so a terminal Event and the poll
+        agree on the exact same outcome vocabulary the refetch state machine
+        already consumes (``submitted`` / ``failed`` / ``no_candidate``).
+        """
+        token = project_remote_state(self.status_token, self.error_code)
+        token = str(token or "").strip().lower()
+        if token in TERMINAL_REMOTE_STATES:
+            return token
+        return token
+
+
+@dataclass(frozen=True)
+class EventPage:
+    """``GET /jobs/{job_id}/events`` — one ascending replay page."""
+
+    job_id: str = ""
+    events: tuple = ()
+    next_after: str = ""
+    unacked: int = 0
+
+    @property
+    def has_more(self) -> bool:
+        """True when ``next_after`` says there are further events to pull."""
+        return bool(str(self.next_after or "").strip())
+
+
+@dataclass(frozen=True)
+class AckResult:
+    """``POST /jobs/{job_id}/events/ack`` — the consumer's cursor acknowledgement."""
+
+    job_id: str = ""
+    acked: int = 0
+    unacked: int = 0
+
+
+def decode_protocol_event(payload: Any) -> ProtocolEvent:
+    """Normalize one bare ``$defs/Event`` into :class:`ProtocolEvent`.
+
+    Tolerant: a payload missing fields still yields a valid (degraded) event,
+    never a fatal error — mirroring the snapshot decoders.
+    """
+    if not isinstance(payload, dict):
+        return ProtocolEvent()
+    labels = payload.get("labels") if isinstance(payload.get("labels"), dict) else {}
+    inner = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    return ProtocolEvent(
+        event_id=str(payload.get("event_id") or ""),
+        job_id=str(payload.get("job_id") or ""),
+        event_type=str(payload.get("type") or ""),
+        at=_to_epoch(payload.get("at")),
+        correlation_id=str(payload.get("correlation_id") or ""),
+        labels=dict(labels) if isinstance(labels, dict) else {},
+        payload=dict(inner),
+    )
+
+
+def decode_event_page(payload: Any) -> EventPage:
+    """Normalize a protocol ``EventPage`` into :class:`EventPage`."""
+    if not isinstance(payload, dict):
+        return EventPage()
+    raw_events = [item for item in (payload.get("events") or []) if isinstance(item, dict)]
+    events = tuple(decode_protocol_event(item) for item in raw_events)
+    return EventPage(
+        job_id=str(payload.get("job_id") or ""),
+        events=events,
+        next_after=str(payload.get("next_after") or ""),
+        unacked=int(payload.get("unacked") or 0),
+    )
+
+
+def decode_ack_result(payload: Any) -> AckResult:
+    """Normalize a protocol ``AckResult`` into :class:`AckResult`."""
+    if not isinstance(payload, dict):
+        return AckResult()
+    return AckResult(
+        job_id=str(payload.get("job_id") or ""),
+        acked=int(payload.get("acked") or 0),
+        unacked=int(payload.get("unacked") or 0),
+    )
+
+
 def classify_error(exc: BaseException) -> str:
     """Map a boundary exception to the opaque ``error.code`` vocabulary."""
     if isinstance(exc, PixivFlowJobError):
@@ -725,6 +903,15 @@ class HttpPixivFlowJobClient:
         }
         if correlation_id:
             body["correlation_id"] = str(correlation_id)
+        # §events: under the protocol transport TelePost declares its OWN events
+        # ingress as the Task's callback_url, so the producer's outbox can push
+        # each Event to us (at-least-once). This is ACCELERATION, not the only
+        # channel — the reconcile loop still pulls — so a missing/unusable base
+        # simply omits the field (a producer that does not see it falls back to
+        # pull-only, which §events already supports).
+        callback = consumer_callback_url()
+        if callback:
+            body["callback_url"] = callback
         payload, status = self._request_json(
             base, "POST", "/jobs",
             body=body, timeout=SUBMIT_TIMEOUT_SECONDS, action="拒绝重抓",
@@ -765,6 +952,65 @@ class HttpPixivFlowJobClient:
                 "remote_rejected", "PixivFlow 作业快照缺少 job_id", retryable=False,
             )
         return snapshot
+
+    def _require_protocol(self, feature: str) -> str:
+        """Refuse a protocol-only call on the legacy transport.
+
+        ``events``/``ackEvents`` are §events consumer operations that have no
+        legacy route; calling them under ``PIXIVFLOW_JOB_TRANSPORT=legacy`` is a
+        configuration error, surfaced loudly rather than silently no-op'd.
+        """
+        if self._job_transport == LEGACY_JOB_TRANSPORT:
+            raise PixivFlowJobError(
+                "remote_rejected",
+                f"{feature} 仅在协议通道可用（请启用 PIXIVFLOW_JOB_TRANSPORT=protocol）",
+                retryable=False,
+            )
+        return self._validated_base()
+
+    def events(self, job_id: str, *, after: str = "",
+               unacked: bool = False) -> EventPage:
+        """``GET /jobs/{job_id}/events`` — one ascending replay page (protocol only).
+
+        ``after`` is the monotonic cursor (the newest event_id this consumer has
+        durably persisted); ``unacked=True`` asks the producer to include events
+        we have not yet acknowledged. Failures surface as
+        :class:`PixivFlowJobError`; a page with no new events returns an empty
+        page, never an error.
+        """
+        base = self._require_protocol("事件流")
+        job_id = str(job_id or "").strip()
+        if not job_id:
+            raise PixivFlowJobError("remote_rejected", "缺少 job_id", retryable=False)
+        query = f"/jobs/{quote(job_id, safe='')}/events"
+        params = []
+        if str(after or "").strip():
+            params.append(f"after={quote(str(after).strip(), safe='')}")
+        if unacked:
+            params.append("unacked=1")
+        if params:
+            query = f"{query}?{'&'.join(params)}"
+        payload, _ = self._request_json(base, "GET", query, action="读取事件流失败")
+        return decode_event_page(payload)
+
+    def ackEvents(self, job_id: str, *, ack_through: str = "") -> AckResult:
+        """``POST /jobs/{job_id}/events/ack`` — ack the newest persisted event (protocol only).
+
+        ``ack_through`` is the event_id of the newest Event we durably persisted
+        (monotonic). The producer MUST treat an older/unknown cursor as a no-op
+        (HTTP 200) and never change job state, so a stale ack here is never an
+        error. Returns :class:`AckResult`.
+        """
+        base = self._require_protocol("事件确认")
+        job_id = str(job_id or "").strip()
+        if not job_id:
+            raise PixivFlowJobError("remote_rejected", "缺少 job_id", retryable=False)
+        body: Dict[str, Any] = {"ack_through": str(ack_through or "")}
+        payload, _ = self._request_json(
+            base, "POST", f"/jobs/{quote(job_id, safe='')}/events/ack",
+            body=body, action="确认事件失败",
+        )
+        return decode_ack_result(payload)
 
     # ---- legacy transport (rollback switch, unchanged behaviour) ------
     def _legacy_submit(
@@ -886,4 +1132,12 @@ __all__ = [
     "project_remote_state",
     "protocol_job_type",
     "protocol_retryable_defaults",
+    "AckResult",
+    "EventPage",
+    "ProtocolEvent",
+    "TERMINAL_EVENT_TYPES",
+    "consumer_callback_url",
+    "decode_ack_result",
+    "decode_event_page",
+    "decode_protocol_event",
 ]

@@ -114,6 +114,13 @@ python check_config.py             # 配置自检
   都必须把正常可操作卡片交还审核人。**不得**为了让点击“看起来生效”而提前把源审核标记为
   rejected：`finalize_replacement()` / `apply_outcome()` 只在源审核仍为 `pending` 时落结果，
   提前驳回会让自己的替换稿变 `obsolete`，审核人可能什么都发不出去。
+- Workflow Protocol §events 通道（`POST /api/botN/v1/jobs/events` 事件入口 +
+  `reconcile_refetch_events` 调和循环）是终态到达的**加速与自愈**通道，不是新的业务状态机：
+  事件与 `poll_refetch_jobs` 汇合到同一个 `apply_outcome()` + `terminal_notified_at` 终态缝，
+  以 `event_id`（`protocol_job_events` UNIQUE 索引）幂等去重 —— 回调重放、回调丢失后被调和
+  拉取补回，都只能各自应用一次终态、最多发一次终态通知，绝无二次通知。Task 上声明的
+  `callback_url` 只在 `TELEPOST_API_BASE_URL`「已配置」时携带（见 docs/CONFIGURATION.md）；
+  事件入口用的是 `refetch/outcomes` 同款 bot 鉴权，不新增共享凭据。
 
 ## Refetch Generation Replacement 不变量（§refetch-replacement）
 

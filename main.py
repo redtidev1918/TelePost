@@ -832,6 +832,19 @@ def setup_application(application):
             first=5,
             name="refetch_heartbeat",
         )
+        # §events consumer heartbeat: pull unacked protocol events for every
+        # in-flight job so a lost producer callback is compensated. Same cadence
+        # as poll_refetch_jobs and idempotent (see reconcile_refetch_events).
+        from handlers.review import reconcile_refetch_events
+        async def refetch_events_heartbeat_job(context):
+            await reconcile_refetch_events(context.bot)
+        application.bot_data["refetch_events_heartbeat_job"] = \
+            job_queue.run_repeating(
+                refetch_events_heartbeat_job,
+                interval=REFETCH_POLL_INTERVAL_SECONDS,
+                first=8,
+                name="refetch_events_reconcile",
+            )
         # Independent supply watchdog: alert when a recognized schedule goes
         # silent for too long instead of waiting for the user to report a miss.
         job_queue.run_repeating(schedule_watchdog_job, interval=1800, first=120)

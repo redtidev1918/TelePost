@@ -805,6 +805,47 @@ async def init_db():
                 except Exception:
                     pass  # column already exists
 
+            # Workflow Protocol v1 §events: TelePost is the CONSUMER, so both a
+            # producer callback (POST /api/botN/v1/jobs/events) and the reconcile
+            # pull persist incoming Event documents here. The UNIQUE index on
+            # event_id is the consumer's dedupe guarantee — an at-least-once
+            # producer replay (callback redelivery OR a reconcile re-pull) is a
+            # no-op, never a second business effect. Only the raw Event plus a
+            # few queryable projections are kept; business handling is driven
+            # from ``raw`` so a protocol decode upgrade never needs a migration.
+            # ``received_at`` is when WE learned the event (epoch seconds);
+            # ``at`` is the protocol event timestamp coerced to epoch seconds.
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS protocol_job_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id TEXT NOT NULL UNIQUE,
+                    job_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    correlation_id TEXT NOT NULL DEFAULT '',
+                    at REAL,
+                    raw TEXT NOT NULL,
+                    received_at REAL NOT NULL
+                )
+            ''')
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_protocol_job_events_job '
+                'ON protocol_job_events(job_id, at ASC)'
+            )
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_protocol_job_events_type '
+                'ON protocol_job_events(event_type, at ASC)'
+            )
+            # Per-job monotonic ack cursor for reconcile: the newest event_id this
+            # consumer durably persisted (and acknowledged), passed back as
+            # ``?after=…`` on the next pull and as ``ack_through`` on the ack.
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS protocol_job_cursors (
+                    job_id TEXT PRIMARY KEY,
+                    ack_through TEXT NOT NULL DEFAULT '',
+                    updated_at REAL NOT NULL
+                )
+            ''')
+
             # published_posts 是频道现状，pending_reviews 是审核审计。频道消息被软删除时
             # 同步把对应审核记录从“曾发布”推进到“已删除”，避免把历史终态误当成
             # 当前仍在线的发布。触发器覆盖项目内所有软删除入口。

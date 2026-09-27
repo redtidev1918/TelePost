@@ -194,6 +194,7 @@ HTTPS 请求时自动唤醒）；审核群重抓使用以下配置：
 | `PIXIVFLOW_REFETCH_BASE_URL` | PixivFlow 的 HTTPS 地址，例如 `https://pixivflow-scheduler.fly.dev` |
 | `PIXIVFLOW_REFETCH_TOKEN` | 与 PixivFlow 端同名 Secret 一致的专用 Bearer；与定时触发令牌分离 |
 | `PIXIVFLOW_JOB_TRANSPORT` | 作业通道：`protocol`（默认，Workflow Protocol v1）或 `legacy`（回滚，见下） |
+| `TELEPOST_API_BASE_URL` | TelePost 的对外公开地址（各 bot 进程共用同域），例如 `http://telepost:8080`。仅在 `protocol` 通道下、且该变量**已配置**时生效：TelePost 作为协议消费端提交作业时，会在 Task 上声明 `callback_url = {base}/api/bot{N}/v1/jobs/events`（`N` 为子进程 `TELEPOST_BOT_INDEX`，默认 `1`），供 PixivFlow 的出站盒把事件推送到本端事件入口 `POST /api/botN/v1/jobs/events`。未配置则不携带 `callback_url`（Task 报文保持逐字节稳定） |
 
 `PIXIVFLOW_JOB_TRANSPORT` 只在 `telepost/application/pixivflow_jobs.py` 一处读取，默认
 `protocol`：提交走 `POST /jobs`（`job_type=candidate_search`、`params.target_id`、以
