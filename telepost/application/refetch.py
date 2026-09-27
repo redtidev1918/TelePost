@@ -15,10 +15,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 import uuid
 from typing import Any, Optional, Tuple
 
 from database import db_manager
+from telepost.domain import refetch_state as fsm
 from telepost.storage.sqlite.refetch import RefetchRepository
 from telepost.storage.sqlite.reviews import ReviewRepository
 
@@ -233,8 +235,14 @@ async def get_refetch_state(review_id: int) -> dict:
 
     async with db_manager.get_db() as conn:
         attempt = await repo.find_active_by_chain(chain_id)
+        if attempt is None:
+            # §refetch-lifecycle — a terminal attempt is still the answer the user
+            # asked for: the Mini App must be able to show HOW the last refetch
+            # ended (and why), not just "nothing running".
+            attempt = await repo.find_latest_by_chain(chain_id)
         lineage_rows = await conn.execute(
-            "SELECT generation, candidate_id, source, created_at "
+            "SELECT generation, candidate_id, source, created_at, request_id, "
+            "outcome, reason, decided_at, replaced_by "
             "FROM refetch_seen_candidates WHERE review_chain_id=? "
             "ORDER BY created_at ASC, id ASC",
             (chain_id,),
@@ -243,8 +251,29 @@ async def get_refetch_state(review_id: int) -> dict:
             {"generation": int(r["generation"] or 0),
              "candidate_id": r["candidate_id"] or "",
              "source": r["source"] or "original",
+             "request_id": r["request_id"] or "",
+             # Candidate lifecycle: who was rejected, why, when and by what.
+             "outcome": r["outcome"] or "current",
+             "reason": r["reason"] or "",
+             "decided_at": r["decided_at"],
+             "replaced_by": r["replaced_by"] or "",
              "created_at": r["created_at"]}
             for r in await lineage_rows.fetchall()
+        ]
+    events = []
+    if attempt is not None:
+        events = [
+            {
+                "from_state": e["from_state"] or "",
+                "to_state": e["to_state"] or "",
+                "state": fsm.normalize(e["to_state"] or e["from_state"] or ""),
+                "label": fsm.label(e["to_state"] or e["from_state"] or ""),
+                "reason": e["reason"] or "",
+                "actor": e["actor"] or "",
+                "remote_state": e["remote_state"] or "",
+                "created_at": e["created_at"],
+            }
+            for e in await repo.list_events(attempt["request_id"])
         ]
     return {
         "review_id": int(review_id),
@@ -252,26 +281,69 @@ async def get_refetch_state(review_id: int) -> dict:
         "generation": int(row["generation"] or 0),
         "supersedes_review_id": row["supersedes_review_id"],
         "attempt": _attempt_dict(attempt) if attempt is not None else None,
+        "events": events,
         "lineage": lineage,
     }
 
 
+def refetch_task_id(attempt) -> str:
+    """The stable, human-quotable id of one attempt (shown on the card).
+
+    Derived from the durable row (never random) so every surface — review card,
+    Mini App, log line, doctor output — prints the same string for the same
+    attempt: ``refetch-<source_review_id>-<epoch seconds>``.
+    """
+    created = float(attempt["created_at"] or 0)
+    return f"refetch-{int(attempt['source_review_id'])}-{int(created)}"
+
+
 def _attempt_dict(attempt) -> dict:
-    return {
+    """Project one attempt row for the API/Mini App.
+
+    ``state``/``attempt_state`` stay LEGACY-mapped so existing clients keep
+    working; the canonical vocabulary plus the progress projection (stage,
+    Chinese label, elapsed seconds, task id, notify count) ride alongside, and
+    the durable timeline is appended by :func:`get_refetch_state`.
+    """
+    canonical = fsm.normalize(attempt["state"])
+    created = float(attempt["created_at"] or 0)
+    finished = attempt["finished_at"]
+    end = float(finished) if finished else time.time()
+    elapsed = max(0, int(end - created)) if created else 0
+    task_id = refetch_task_id(attempt)
+    data = {
         "request_id": attempt["request_id"],
-        "state": attempt["state"],
+        "task_id": task_id,
+        "state": fsm.to_legacy(canonical),
+        "attempt_state": fsm.to_legacy(canonical),
+        "canonical_state": canonical,
+        "stage": canonical,
+        "label": fsm.label(canonical),
         "generation": int(attempt["generation"] or 0),
         "source_review_id": int(attempt["source_review_id"]),
         "result_candidate_id": attempt["result_candidate_id"] or "",
         "slot_id": attempt["slot_id"] or "",
         "failure_code": attempt["failure_code"] or "",
+        "terminal_reason": attempt["terminal_reason"] or "",
+        "last_remote_state": attempt["last_remote_state"] or "",
+        "notify_count": int(attempt["notify_count"] or 0),
         "scanned": int(attempt["scanned"] or 0),
         "skipped_duplicate": int(attempt["skipped_duplicate"] or 0),
         "skipped_invalid": int(attempt["skipped_invalid"] or 0),
         "skipped_unavailable": int(attempt["skipped_unavailable"] or 0),
         "created_at": attempt["created_at"],
-        "finished_at": attempt["finished_at"],
+        "finished_at": finished,
     }
+    data["progress"] = {
+        "task_id": task_id,
+        "stage": canonical,
+        "label": fsm.label(canonical),
+        "elapsed_seconds": elapsed,
+        "notify_count": data["notify_count"],
+        "last_remote_state": data["last_remote_state"],
+        "terminal_reason": data["terminal_reason"],
+    }
+    return data
 
 
 import json as _json

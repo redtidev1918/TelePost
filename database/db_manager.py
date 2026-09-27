@@ -259,13 +259,22 @@ async def init_db():
             )
 
             # Durable refetch attempts: one row per user click / transport retry.
-            #   state: requested → admitted → replaced | no_alternative | failed
-            #          | obsolete.
+            #   state: the CANONICAL job state machine
+            #          (telepost/domain/refetch_state.py):
+            #          requested → searching → filtering → candidate_found
+            #          → replaced, with terminal failed | timeout | no_candidate
+            #          | cancelled. Rows written by TelePost <= 2.68.x use the
+            #          legacy vocabulary (requested/admitted/replaced/
+            #          no_alternative/failed/obsolete) and are normalized below;
+            #          the mapping is the single source of truth in that module.
             #   request_id  = durable idempotency key sent to PixivFlow; the same
             #                 id always maps to the same attempt (same slot).
             #   callback_key = Telegram callback_query.id (or a persisted UUID
             #                 fallback) so webhook redelivery of the SAME click
             #                 reuses the attempt instead of starting a second one.
+            #   updated_at / last_remote_state / notify_count / terminal_reason /
+            #                 result_review_id / operation_id are the progress
+            #                 projection + timeline inputs (P0 slice).
             # The partial UNIQUE index is the DATA-LAYER one-active-per-chain
             # guard: only one non-terminal attempt may exist per review chain.
             await conn.execute('''
@@ -288,32 +297,96 @@ async def init_db():
                     created_at REAL NOT NULL,
                     started_at REAL,
                     finished_at REAL,
-                    last_progress_notified_at REAL
+                    last_progress_notified_at REAL,
+                    updated_at REAL,
+                    last_remote_state TEXT NOT NULL DEFAULT '',
+                    notify_count INTEGER NOT NULL DEFAULT 0,
+                    terminal_reason TEXT NOT NULL DEFAULT '',
+                    result_review_id INTEGER,
+                    operation_id TEXT NOT NULL DEFAULT ''
                 )
             ''')
+            # Older TelePost databases: add every column the CREATE TABLE above
+            # carries, idempotently (one try/except per column, same pattern as
+            # pending_reviews).
+            for column, ddl in (
+                ("last_progress_notified_at", "REAL"),
+                ("updated_at", "REAL"),
+                ("last_remote_state", "TEXT NOT NULL DEFAULT ''"),
+                ("notify_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("terminal_reason", "TEXT NOT NULL DEFAULT ''"),
+                ("result_review_id", "INTEGER"),
+                ("operation_id", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                try:
+                    await conn.execute(
+                        f"ALTER TABLE refetch_attempts ADD COLUMN {column} {ddl}"
+                    )
+                except Exception:
+                    pass  # column already exists
+            # Backfill the progress clock for rows written before it existed.
+            await conn.execute(
+                "UPDATE refetch_attempts SET updated_at = "
+                "COALESCE(updated_at, finished_at, started_at, created_at) "
+                "WHERE updated_at IS NULL"
+            )
+            # Normalize legacy states in place (idempotent). Keep in sync with
+            # telepost/domain/refetch_state.py::_FROM_LEGACY.
+            for legacy, canonical in (
+                ("admitted", "searching"),
+                ("no_alternative", "no_candidate"),
+                ("obsolete", "cancelled"),
+            ):
+                await conn.execute(
+                    "UPDATE refetch_attempts SET state=? WHERE state=?",
+                    (canonical, legacy),
+                )
+            # The one-active-per-chain guard must cover the CANONICAL active set.
+            # The WHERE clause of an index cannot be altered, so rebuild it.
+            # Safe: normalization is cardinality-preserving (requested/admitted
+            # → requested/searching), so the old index already guaranteed ≤1.
+            await conn.execute('DROP INDEX IF EXISTS idx_refetch_one_active')
             await conn.execute(
                 'CREATE UNIQUE INDEX IF NOT EXISTS idx_refetch_one_active '
                 "ON refetch_attempts(review_chain_id) "
-                "WHERE state IN ('requested','admitted')"
+                "WHERE state IN ('requested','searching','filtering','candidate_found')"
             )
             await conn.execute(
                 'CREATE INDEX IF NOT EXISTS idx_refetch_attempts_chain '
                 'ON refetch_attempts(review_chain_id, created_at DESC)'
             )
-            # Older TelePost databases: add the progress-watchdog column
-            # idempotently (the CREATE TABLE above carries it for fresh DBs).
-            try:
-                await conn.execute(
-                    "ALTER TABLE refetch_attempts "
-                    "ADD COLUMN last_progress_notified_at REAL"
+
+            # Per-attempt timeline: every state change is durable and queryable.
+            # Before this table the only trace was audit_events, which cannot be
+            # sliced per attempt — so "where did it get stuck" was unanswerable.
+            # Written by RefetchRepository._apply_transition() on the SAME
+            # connection/transaction as the state change.
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS refetch_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    request_id TEXT NOT NULL,
+                    review_id INTEGER,
+                    review_chain_id TEXT NOT NULL DEFAULT '',
+                    from_state TEXT NOT NULL DEFAULT '',
+                    to_state TEXT NOT NULL,
+                    reason TEXT NOT NULL DEFAULT '',
+                    actor TEXT NOT NULL DEFAULT '',
+                    remote_state TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL
                 )
-            except Exception:
-                pass  # column already exists
+            ''')
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_refetch_events_request '
+                'ON refetch_events(request_id, created_at ASC)'
+            )
 
             # Candidate history per review chain: every work already shown to
             # reviewers for this chain. (review_chain_id, candidate_id) is the
             # semantic unique key; candidate identity is the canonical Pixiv work
             # id (pending_reviews.pixiv_id), never parsed from captions.
+            # The attempt/outcome columns turn the flat seen-set into the
+            # candidate lifecycle: who proposed this candidate, what happened to
+            # it and what replaced it.
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS refetch_seen_candidates (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -322,9 +395,27 @@ async def init_db():
                     source TEXT NOT NULL DEFAULT 'original',
                     generation INTEGER NOT NULL DEFAULT 0,
                     created_at REAL NOT NULL,
+                    request_id TEXT NOT NULL DEFAULT '',
+                    outcome TEXT NOT NULL DEFAULT '',
+                    reason TEXT NOT NULL DEFAULT '',
+                    decided_at REAL,
+                    replaced_by TEXT NOT NULL DEFAULT '',
                     UNIQUE(review_chain_id, candidate_id)
                 )
             ''')
+            for column, ddl in (
+                ("request_id", "TEXT NOT NULL DEFAULT ''"),
+                ("outcome", "TEXT NOT NULL DEFAULT ''"),
+                ("reason", "TEXT NOT NULL DEFAULT ''"),
+                ("decided_at", "REAL"),
+                ("replaced_by", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                try:
+                    await conn.execute(
+                        f"ALTER TABLE refetch_seen_candidates ADD COLUMN {column} {ddl}"
+                    )
+                except Exception:
+                    pass  # column already exists
             # Durable manual RECOVERY attempts (§manual-recovery): re-running a
             # FAILED schedule target under a server-defined policy preset.
             # callback_key UNIQUE makes button-click redelivery idempotent; the

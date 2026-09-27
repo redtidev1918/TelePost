@@ -113,19 +113,28 @@ def reused_notice_text(row) -> str:
     )
 
 
-def refetch_pending_text(*, review_id: int, minutes: Optional[int] = None) -> str:
+def refetch_pending_text(*, review_id: int, minutes: Optional[int] = None,
+                         stage_label: str = "", task_id: str = "") -> str:
     """Control-card text while a manual replacement (重抓) is running.
 
     §refetch-card-state: pressing 重抓 means the CURRENT candidate is rejected,
     so the post the operator clicked must say so immediately instead of staying
-    byte-identical until a replacement lands (or forever, when none is found)."""
-    waited = f"\n已等待约 {minutes} 分钟，仍在查找…" if minutes else ""
+    byte-identical until a replacement lands (or forever, when none is found).
+    The card also carries the lifecycle facts the operator asks for — the
+    current stage, how long it has been waiting, and the quotable task id."""
+    progress = ""
+    if stage_label:
+        progress += f"\n当前阶段：{stage_label}"
+    if minutes:
+        progress += f"\n已等待约 {minutes} 分钟，仍在查找…"
+    if task_id:
+        progress += f"\n任务ID：{task_id}"
     return (
         f"🔄 审核 #{review_id} 已提交重抓\n\n"
         "当前候选已作废（视为已拒绝），不会再被发布。\n"
         "正在查找新的候选作品…通常 1–3 分钟。\n"
         "找到后会自动替换进审核队列；没有找到时本卡片会恢复。"
-        + waited
+        + progress
     )
 
 

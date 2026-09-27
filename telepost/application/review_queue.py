@@ -614,10 +614,11 @@ class ReviewQueueService:
             if attempt is None:
                 raise ValueError("refetch attempt is unknown or terminal")
             if source is None or source["status"] != "pending":
-                await conn.execute(
-                    "UPDATE refetch_attempts SET state='obsolete', finished_at=? "
-                    "WHERE request_id=? AND state IN ('requested','admitted')",
-                    (time.time(), new_review.refetch_request_id),
+                # No bypass write: the attempt state machine owns this
+                # transition (and records the timeline event).
+                await refetch_repo.mark_cancelled_on(
+                    conn, new_review.refetch_request_id,
+                    "source_review_resolved",
                 )
                 obsolete = True
             if not obsolete:
@@ -654,7 +655,7 @@ class ReviewQueueService:
                         self.result_from_row(existing, reused=True), []
                     ) from exc
         if obsolete:
-            raise ValueError("refetch attempt is obsolete")
+            raise ValueError("refetch attempt is cancelled or already terminal")
         # Telegram preview staging continues with the same row identity.
         return review_id
 

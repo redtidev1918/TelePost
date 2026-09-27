@@ -75,16 +75,24 @@ SUPERSEDED_RETENTION_DAYS = max(
     0, int(os.getenv("SUPERSEDED_RETENTION_DAYS", "30"))
 )
 # 重抓进展看门狗：受理后超过 REMIND 分钟仍未到终态，向审核群发一次“仍在处理”
-# 提醒（每个 attempt 最多一次）并把审核卡刷新为“已等待 N 分钟”；超过 STALE 分钟仍无
-# 终态时先查 PixivFlow durable cell；不能把仍在投递的 admitted attempt
-# 凭本地时间判失败。两者为 0 时关闭对应行为。
-# 默认 2 分钟：PixivFlow 的正常重抓在 1–3 分钟内返回，操作者必须在这段等待里
-# 看得到进展（§refetch-card-state / 现场反馈：5 分钟等于“卡死”）。
+# 重抓生命周期兜底（P0）。四道闸门各自独立，全部为 0 时才关闭兜底：
+#   1. REMIND：每 REMIND 分钟向审核群播报一次进展（阶段 + 已等待 + 任务ID），
+#      不再“每个 attempt 只提醒一次”——操作者必须始终看得到它在动；
+#   2. STAGE：远端仍在 working 但阶段连续 STAGE 分钟没有前进 → timeout
+#      （stalled_no_progress）；远端状态读不出来（空/未知）同样按此判定。
+#      绝不能出现“无限 SEARCHING”；
+#   3. WAKE：机器不可达且超过 WAKE 分钟时，用同一个 request UUID 幂等唤醒
+#      PixivFlow（Fly Proxy 拉起机器，PixivFlow 恢复既有 manual slot）；
+#   4. HARD：绝对上限，任何分支超过 HARD 分钟仍未终态 → timeout(stalled)。
+#      admission 超时（STALE）只针对还没被远端接受的 requested attempt。
 REFETCH_PROGRESS_REMIND_MINUTES = max(
     0, int(os.getenv("REFETCH_PROGRESS_REMIND_MINUTES", "2"))
 )
+REFETCH_STAGE_TIMEOUT_MINUTES = max(
+    0, int(os.getenv("REFETCH_STAGE_TIMEOUT_MINUTES", "10"))
+)
 REFETCH_STALE_TIMEOUT_MINUTES = max(
-    0, int(os.getenv("REFETCH_STALE_TIMEOUT_MINUTES", "45"))
+    0, int(os.getenv("REFETCH_STALE_TIMEOUT_MINUTES", "20"))
 )
 # 幂等 wake：机器不可达（停机）且超过 WAKE 分钟无进展时，TelePost 用同一个
 # request UUID 再调一次 PixivFlow refetch（Fly Proxy 拉起机器，PixivFlow 找到
@@ -92,10 +100,11 @@ REFETCH_STALE_TIMEOUT_MINUTES = max(
 REFETCH_WAKE_MINUTES = max(
     0, int(os.getenv("REFETCH_WAKE_MINUTES", "12"))
 )
-# 硬性 SLA：超过 HARD 分钟仍无法形成任何 terminal outcome（远端持续不可达）时，
-# TelePost 必须把 attempt 明确标 failed(stalled) 并通知审核群，绝不永久 running。
+# 硬性 SLA：超过 HARD 分钟仍未形成任何 terminal outcome 时，TelePost 必须把
+# attempt 明确标 timeout(stalled_after_hard_timeout) 并通知审核群，绝不永久 running。
+# 现场验收要求 30 分钟内必须自动终止（健康巡检 15 分钟告警）。
 REFETCH_HARD_TIMEOUT_MINUTES = max(
-    0, int(os.getenv("REFETCH_HARD_TIMEOUT_MINUTES", "90"))
+    0, int(os.getenv("REFETCH_HARD_TIMEOUT_MINUTES", "30"))
 )
 REFETCH_TIMEOUT_SECONDS = 120
 
@@ -314,8 +323,11 @@ async def queue_review_from_file_ids(
         supersedes_review_id=supersedes_review_id,
         media_assets=tuple(media_assets or ()),
     )
-    return await queue_service.enqueue(
-        command, _stager(bot), media=media, documents=documents
+    return await _enqueue_reporting_dropped(
+        bot, refetch_request_id,
+        lambda: queue_service.enqueue(
+            command, _stager(bot), media=media, documents=documents
+        ),
     )
 
 
@@ -346,9 +358,47 @@ async def queue_review_from_files(
         actor_kind=actor_kind, actor_subject=actor_subject,
         media_assets=tuple(media_assets or ()),
     )
-    return await queue_service.enqueue(
-        command, _stager(bot), files=files
+    return await _enqueue_reporting_dropped(
+        bot, refetch_request_id,
+        lambda: queue_service.enqueue(command, _stager(bot), files=files),
     )
+
+
+async def _enqueue_reporting_dropped(bot, refetch_request_id: str, enqueue):
+    """Enqueue a submission; if its refetch attempt already ended, say so once.
+
+    §refetch-terminal-notify — a replacement that arrives after the source review
+    was decided is dropped by the refetch state machine (the enqueue raises), and
+    the caller only sees an error status. The review group must be told
+    explicitly instead of losing the candidate silently.
+    """
+    try:
+        return await enqueue()
+    except ValueError as exc:
+        message = str(exc)
+        if refetch_request_id and ("cancelled" in message or "obsolete" in message):
+            await _report_dropped_replacement(bot, refetch_request_id)
+        raise
+
+
+async def _report_dropped_replacement(bot, refetch_request_id: str) -> None:
+    """Best-effort notice that a late replacement was discarded (never raises)."""
+    try:
+        from telepost.storage.sqlite.refetch import RefetchRepository
+        attempt = await RefetchRepository().find_by_request_id(refetch_request_id)
+        if attempt is None:
+            return
+        review_id = attempt["source_review_id"]
+        created = attempt["created_at"] or 0
+        await context_bot_send(
+            bot,
+            f"🔄 审核 #{review_id} 的重抓结果到达时该审核已被处理"
+            "（驳回/通过/过期），替换稿已丢弃，当前稿件保持不变。"
+            f"\n任务ID：refetch-{int(review_id)}-{int(created)}",
+        )
+        await refresh_refetch_card(bot, review_id)
+    except Exception:
+        logger.debug("发送重抓结果丢弃通知失败", exc_info=True)
 
 
 # ---- legacy reuse/expire helpers (used by maintenance job + tests) --------
@@ -437,166 +487,230 @@ async def cleanup_superseded_reviews(bot, *, now: Optional[float] = None) -> int
 
 
 async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
-    """重抓崩溃兜底：一次进展提醒 + 超时失败通知。
+    """重抓生命周期兜底：进展播报 + 阶段超时 + 幂等唤醒 + 绝对超时。
 
-    Scans durable refetch attempts that are still active (requested/admitted):
+    Every active attempt must reach a business terminal state; the durable
+    ``refetch_attempts`` row plus its ``refetch_events`` timeline is the state
+    machine, this sweep is its crash-only driver (Telegpost never fails an
+    admitted attempt on local time alone — the remote durable cell is consulted
+    first):
 
-    * older than REFETCH_PROGRESS_REMIND_MINUTES and not reminded recently →
-      send one 「仍在处理中」 reminder to the review group per attempt;
-    * older than REFETCH_STALE_TIMEOUT_MINUTES → fail only unadmitted requests;
-      admitted attempts are reconciled against PixivFlow's durable cell. A
-      pending delivery or unavailable remote stays active for remote recovery.
+    * REMIND_MINUTES → a REPEATING 「仍在处理中」 reminder (stage + elapsed +
+      task id) so the operator always sees movement;
+    * STAGE_TIMEOUT_MINUTES without a stage advance while the remote reports a
+      working cell (or reports nothing usable) → ``timeout(stalled_no_progress)``;
+    * an unadmitted ``requested`` attempt is never polled; it is failed with
+      ``admission_timeout`` after STALE_MINUTES, and re-submitted (same UUID,
+      idempotent) after WAKE_MINUTES because the first submission may have died
+      with its process;
+    * an unreachable remote gets one idempotent WAKE at WAKE_MINUTES, and the
+      absolute HARD_MINUTES ceiling ends every branch;
+    * every terminal path notifies the review group once and restores the card.
 
-    Returns the number of attempts acted on. Disabled when both knobs are 0.
+    Returns the number of attempts acted on. Disabled only when every knob is 0.
     """
+    from telepost.domain import refetch_state as fsm
     from telepost.storage.sqlite.refetch import RefetchRepository
 
-    if REFETCH_PROGRESS_REMIND_MINUTES <= 0 and REFETCH_STALE_TIMEOUT_MINUTES <= 0:
+    if max(REFETCH_PROGRESS_REMIND_MINUTES, REFETCH_STAGE_TIMEOUT_MINUTES,
+           REFETCH_STALE_TIMEOUT_MINUTES, REFETCH_WAKE_MINUTES,
+           REFETCH_HARD_TIMEOUT_MINUTES) <= 0:
         return 0
     current_time = time.time() if now is None else now
     remind_seconds = REFETCH_PROGRESS_REMIND_MINUTES * 60
+    stage_seconds = REFETCH_STAGE_TIMEOUT_MINUTES * 60
     stale_seconds = REFETCH_STALE_TIMEOUT_MINUTES * 60
     wake_seconds = REFETCH_WAKE_MINUTES * 60
     hard_seconds = REFETCH_HARD_TIMEOUT_MINUTES * 60
-    cutoff_remind = current_time - remind_seconds
-    cutoff_fail = current_time - stale_seconds
+    cutoff_remind = current_time - remind_seconds if remind_seconds > 0 else current_time
 
     repo = RefetchRepository()
     acted = 0
-    for row, kind in await repo.active_since(
-        cutoff_remind=cutoff_remind, cutoff_fail=cutoff_fail
+    for row, _kind in await repo.active_since(
+        cutoff_remind=cutoff_remind, cutoff_fail=cutoff_remind
     ):
         review_id = row["source_review_id"]
-        minutes = int((current_time - row["created_at"]) // 60)
-        if kind == "stale":
-            if stale_seconds <= 0:
-                continue
-            if row["state"] == "requested":
-                if await repo.mark_failed(row["request_id"], "admission_timeout"):
-                    acted += 1
-                    try:
-                        await context_bot_send(
-                            bot, f"⚠️ 审核 #{review_id} 重抓请求超时，当前稿件未变，请稍后重试。"
-                        )
-                    except Exception:
-                        logger.debug("发送重抓超时通知失败: review_id=%s",
-                                     review_id, exc_info=True)
-                    await refresh_refetch_card(bot, review_id)
-                continue
-            from telepost.storage.sqlite.reviews import ReviewRepository
-            source = await ReviewRepository().get(review_id)
-            if source is None or source["status"] != "pending":
-                _, _, changed = await repo.apply_outcome(
-                    row["request_id"], "failed", reason="source_review_resolved",
+        request_id = row["request_id"]
+        created = row["created_at"] or current_time
+        age = current_time - created
+        minutes = int(age // 60)
+        state = fsm.normalize(row["state"])
+        task_id = f"refetch-{int(review_id)}-{int(created)}"
+        stage_label = fsm.label(state)
+
+        async def _notify(text: str) -> None:
+            try:
+                await context_bot_send(bot, text)
+            except Exception:
+                logger.debug("发送重抓通知失败: review_id=%s", review_id,
+                             exc_info=True)
+
+        async def _terminate(target: str, reason: str, text: str,
+                             remote: str = "") -> None:
+            nonlocal acted
+            if not await repo.mark_timeout(request_id, reason, remote_state=remote):
+                return
+            acted += 1
+            await _notify(text)
+            await refresh_refetch_card(bot, review_id,
+                                       stage_label=fsm.label(target),
+                                       task_id=task_id)
+
+        # 1. The source review is the owner of the attempt: once it is decided,
+        #    expired or superseded the attempt can only be cancelled.
+        from telepost.storage.sqlite.reviews import ReviewRepository
+        source = await ReviewRepository().get(review_id)
+        if source is None or source["status"] != "pending":
+            if await repo.mark_cancelled(request_id, "source_review_resolved"):
+                acted += 1
+                await _notify(
+                    f"🔄 审核 #{review_id} 的重抓已取消：该审核已被处理"
+                    "（驳回/通过/过期），不会产生替换稿，当前稿件保持不变。"
+                    f"\n任务ID：{task_id}"
                 )
-                if changed:
-                    acted += 1
-                    try:
-                        await context_bot_send(
-                            bot,
-                            f"🔄 审核 #{review_id} 的重抓已取消：该审核在重抓期间已被处理"
-                            "（驳回/通过），不会产生替换稿，当前稿件保持不变。",
-                        )
-                    except Exception:
-                        logger.debug("发送重抓取消通知失败: review_id=%s",
-                                     review_id, exc_info=True)
-                    await refresh_refetch_card(bot, review_id)
+                await refresh_refetch_card(bot, review_id, task_id=task_id)
+            continue
+
+        # 2. Unadmitted request: never poll or wait forever. The first
+        #    submission may have died with its process, so re-submit the SAME
+        #    request UUID (idempotent on the PixivFlow side) and promote the row
+        #    once the remote confirms acceptance.
+        if state == fsm.REQUESTED:
+            if stale_seconds > 0 and age >= stale_seconds:
+                await _terminate(
+                    fsm.TIMEOUT, "admission_timeout",
+                    f"⚠️ 审核 #{review_id} 重抓请求未被 PixivFlow 接受（已等待约"
+                    f" {minutes} 分钟），当前稿件未变，请重新点击重抓。"
+                    f"\n任务ID：{task_id}",
+                )
                 continue
+            if (wake_seconds > 0 and age >= wake_seconds
+                    and request_id not in _wake_pinged):
+                _wake_pinged.add(request_id)
+                try:
+                    accepted = await asyncio.to_thread(
+                        _submit_pixivflow_refetch, source["target_id"], request_id
+                    )
+                    slot_id = str((accepted or {}).get("slotId")
+                                  or (accepted or {}).get("slot_id") or "")
+                    await repo.mark_admitted(request_id, slot_id,
+                                             actor="watchdog:resubmit")
+                    acted += 1
+                    await _notify(
+                        f"🔄 审核 #{review_id} 重抓任务此前未在 PixivFlow 落地，"
+                        "已用同一任务ID重新提交并开始处理，有新结果会第一时间"
+                        f"在本群通知。\n任务ID：{task_id}"
+                    )
+                except Exception:
+                    logger.warning("重抓重新提交失败: review_id=%s", review_id,
+                                   exc_info=True)
+        else:
             try:
                 remote_state = await asyncio.to_thread(
                     _read_pixivflow_refetch_status,
-                    source["target_id"], row["request_id"],
+                    source["target_id"], request_id,
                 )
             except Exception as exc:
-                # A durable outbox may still be delivering after stale minutes.
-                # Transport failure is not evidence that the work failed; it may
-                # also mean the Machine is stopped, in which case an idempotent
-                # wake (same request UUID) restarts the resume path.
+                # A durable outbox may still be delivering. Transport failure is
+                # not evidence that the work failed; it may also mean the Machine
+                # is stopped, in which case an idempotent wake (same request
+                # UUID) restarts the resume path.
                 logger.warning("重抓远端状态不可用: review_id=%s error=%s",
                                review_id, type(exc).__name__)
                 remote_state = "unavailable"
+
             if remote_state in {"no_candidate", "duplicate", "failed", "submitted"}:
                 disposition = ("no_alternative" if remote_state in {"no_candidate", "duplicate"}
                                else "failed")
                 reason = ("delivery_uncorrelated" if remote_state == "submitted"
                           else "remote_failed" if remote_state == "failed" else "")
                 _, applied, changed = await repo.apply_outcome(
-                    row["request_id"], disposition, reason=reason,
+                    request_id, disposition, reason=reason,
                 )
                 if changed:
                     acted += 1
                     if applied == "no_alternative":
-                        message = f"📭 审核 #{review_id} 没有找到新的可替换作品，当前稿件保持不变。"
+                        message = (f"📭 审核 #{review_id} 没有找到新的可替换作品，"
+                                   "当前稿件保持不变。")
                     elif applied == "failed":
-                        message = f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，请稍后重试。"
+                        message = (f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，"
+                                   "请稍后重试。")
                     else:
                         message = ""
                     if message:
-                        try:
-                            await context_bot_send(bot, message)
-                        except Exception:
-                            logger.debug("发送重抓终态通知失败: review_id=%s",
-                                         review_id, exc_info=True)
-                    await refresh_refetch_card(bot, review_id)
+                        await _notify(f"{message}\n任务ID：{task_id}")
+                    await refresh_refetch_card(bot, review_id, task_id=task_id)
                 continue
+
             if remote_state == "unavailable":
-                if hard_seconds > 0 and current_time - row["created_at"] >= hard_seconds:
-                    if await repo.mark_failed(
-                        row["request_id"], "stalled_after_hard_timeout"
-                    ):
+                # Idempotent wake (same request UUID) — PixivFlow resumes the
+                # existing manual slot; no new business is created. An attempt
+                # already past the absolute ceiling is never woken: step 3 below
+                # terminates it instead.
+                within_ceiling = hard_seconds <= 0 or age < hard_seconds
+                if (within_ceiling and wake_seconds > 0 and age >= wake_seconds
+                        and request_id not in _wake_pinged):
+                    _wake_pinged.add(request_id)
+                    try:
+                        _submit_pixivflow_refetch(source["target_id"], request_id)
                         acted += 1
-                        try:
-                            await context_bot_send(
-                                bot,
-                                f"❌ 审核 #{review_id} 重抓在长时间后仍未完成，"
-                                "当前稿件保持不变；请检查 PixivFlow 后重新重抓。",
-                            )
-                        except Exception:
-                            logger.debug("发送重抓硬超时通知失败: review_id=%s",
-                                         review_id, exc_info=True)
-                        await refresh_refetch_card(bot, review_id)
+                        await _notify(
+                            f"🔄 审核 #{review_id} 处理时间较长，已自动恢复任务"
+                            "（同一重抓请求），有新结果会第一时间通知。"
+                            f"\n任务ID：{task_id}"
+                        )
+                    except Exception:
+                        logger.warning("重抓自动唤醒失败: review_id=%s", review_id)
+            else:
+                stage = fsm.stage_for_remote_state(str(remote_state or ""))
+                if stage:
+                    await repo.advance_stage(request_id, stage,
+                                             remote_state=str(remote_state),
+                                             reason="remote_progress")
+                    stage_label = fsm.label(stage)
+                    state = stage
+                # A stage that stops advancing (or a remote that reports nothing
+                # usable) is a stall — a longer wait is never a fix.
+                last_progress = row["updated_at"] or created
+                if stage_seconds > 0 and current_time - last_progress >= stage_seconds:
+                    await _terminate(
+                        fsm.TIMEOUT,
+                        "stalled_no_progress" if stage else "remote_state_unknown",
+                        f"❌ 审核 #{review_id} 重抓在阶段「{stage_label}」停留超过"
+                        f" {max(1, int(stage_seconds // 60))} 分钟仍未前进，已判定超时"
+                        "（当前稿件保持不变，可重新点击重抓）。"
+                        f"\n任务ID：{task_id}",
+                        remote=str(remote_state or ""),
+                    )
                     continue
-                # 幂等 wake（同一 request UUID；PixivFlow 端恢复既有 manual slot）。
-                if wake_seconds > 0 and current_time - row["created_at"] >= wake_seconds:
-                    if row["request_id"] not in _wake_pinged:
-                        _wake_pinged.add(row["request_id"])
-                        try:
-                            _submit_pixivflow_refetch(
-                                source["target_id"], row["request_id"]
-                            )
-                            acted += 1
-                            try:
-                                await context_bot_send(
-                                    bot,
-                                    f"🔄 审核 #{review_id} 处理时间较长，已自动恢复任务"
-                                    "（同一重抓请求），有新结果会第一时间通知。",
-                                )
-                            except Exception:
-                                logger.debug("发送重抓唤醒通知失败: review_id=%s",
-                                             review_id, exc_info=True)
-                        except Exception:
-                            logger.warning("重抓自动唤醒失败: review_id=%s", review_id)
-                continue
-            # Active remote state: the durable cell is still working. Wait for
-            # the PixivFlow terminal callback / recovery owner.
+
+        # 3. Absolute ceiling: no active attempt may outlive HARD_MINUTES.
+        if hard_seconds > 0 and age >= hard_seconds:
+            await _terminate(
+                fsm.TIMEOUT, "stalled_after_hard_timeout",
+                f"❌ 审核 #{review_id} 重抓超过 {int(hard_seconds // 60)} 分钟仍未完成，"
+                "已自动终止，当前稿件保持不变；请检查 PixivFlow 后重新重抓。"
+                f"\n任务ID：{task_id}",
+                remote=str(row["last_remote_state"] or ""),
+            )
+            continue
+
+        # 4. Repeating progress reminder (stage + elapsed + task id).
         if remind_seconds <= 0:
             continue
         last = row["last_progress_notified_at"] or 0
-        if last:
-            continue  # one delayed reminder per attempt; terminal result is authoritative
-        await repo.bump_progress_notified(row["request_id"], current_time)
+        if last and current_time - last < remind_seconds:
+            continue
+        await repo.bump_progress_notified(request_id, current_time)
         acted += 1
-        try:
-            await context_bot_send(
-                bot,
-                f"🔄 审核 #{review_id} 重抓仍在处理中（已运行约 {minutes} 分钟），"
-                "有新结果会第一时间在本群通知。",
-            )
-        except Exception:
-            logger.debug("发送重抓进展提醒失败: review_id=%s",
-                         review_id, exc_info=True)
+        await _notify(
+            f"🔄 审核 #{review_id} 重抓仍在处理中（当前阶段：{stage_label}，"
+            f"已等待约 {minutes} 分钟），有新结果会第一时间在本群通知。"
+            f"\n任务ID：{task_id}"
+        )
         # Same progress on the card the operator pressed (§refetch-card-state).
-        await refresh_refetch_card(bot, review_id, minutes=minutes)
+        await refresh_refetch_card(bot, review_id, minutes=minutes,
+                                   stage_label=stage_label, task_id=task_id)
     return acted
 
 
@@ -605,7 +719,9 @@ async def context_bot_send(bot, text: str) -> None:
 
 
 async def refresh_refetch_card(bot, review_id: int, *,
-                               minutes: Optional[int] = None) -> bool:
+                               minutes: Optional[int] = None,
+                               stage_label: str = "",
+                               task_id: str = "") -> bool:
     """Rewrite a review's control card to its CURRENT 重抓 state.
 
     §refetch-card-state — 重抓 means "the current candidate is rejected", so the
@@ -643,6 +759,7 @@ async def refresh_refetch_card(bot, review_id: int, *,
         if active is not None:
             text = review_keyboard.refetch_pending_text(
                 review_id=review_id, minutes=minutes,
+                stage_label=stage_label, task_id=task_id,
             )
             markup = review_keyboard.refetch_pending_keyboard(
                 review_id, row["link"] or "",
