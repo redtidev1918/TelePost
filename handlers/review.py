@@ -75,11 +75,13 @@ SUPERSEDED_RETENTION_DAYS = max(
     0, int(os.getenv("SUPERSEDED_RETENTION_DAYS", "30"))
 )
 # 重抓进展看门狗：受理后超过 REMIND 分钟仍未到终态，向审核群发一次“仍在处理”
-# 提醒（每个 attempt 最多一次）；超过 STALE 分钟仍无
+# 提醒（每个 attempt 最多一次）并把审核卡刷新为“已等待 N 分钟”；超过 STALE 分钟仍无
 # 终态时先查 PixivFlow durable cell；不能把仍在投递的 admitted attempt
 # 凭本地时间判失败。两者为 0 时关闭对应行为。
+# 默认 2 分钟：PixivFlow 的正常重抓在 1–3 分钟内返回，操作者必须在这段等待里
+# 看得到进展（§refetch-card-state / 现场反馈：5 分钟等于“卡死”）。
 REFETCH_PROGRESS_REMIND_MINUTES = max(
-    0, int(os.getenv("REFETCH_PROGRESS_REMIND_MINUTES", "5"))
+    0, int(os.getenv("REFETCH_PROGRESS_REMIND_MINUTES", "2"))
 )
 REFETCH_STALE_TIMEOUT_MINUTES = max(
     0, int(os.getenv("REFETCH_STALE_TIMEOUT_MINUTES", "45"))
@@ -479,6 +481,7 @@ async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
                     except Exception:
                         logger.debug("发送重抓超时通知失败: review_id=%s",
                                      review_id, exc_info=True)
+                    await refresh_refetch_card(bot, review_id)
                 continue
             from telepost.storage.sqlite.reviews import ReviewRepository
             source = await ReviewRepository().get(review_id)
@@ -497,6 +500,7 @@ async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
                     except Exception:
                         logger.debug("发送重抓取消通知失败: review_id=%s",
                                      review_id, exc_info=True)
+                    await refresh_refetch_card(bot, review_id)
                 continue
             try:
                 remote_state = await asyncio.to_thread(
@@ -533,6 +537,7 @@ async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
                         except Exception:
                             logger.debug("发送重抓终态通知失败: review_id=%s",
                                          review_id, exc_info=True)
+                    await refresh_refetch_card(bot, review_id)
                 continue
             if remote_state == "unavailable":
                 if hard_seconds > 0 and current_time - row["created_at"] >= hard_seconds:
@@ -549,6 +554,7 @@ async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
                         except Exception:
                             logger.debug("发送重抓硬超时通知失败: review_id=%s",
                                          review_id, exc_info=True)
+                        await refresh_refetch_card(bot, review_id)
                     continue
                 # 幂等 wake（同一 request UUID；PixivFlow 端恢复既有 manual slot）。
                 if wake_seconds > 0 and current_time - row["created_at"] >= wake_seconds:
@@ -589,11 +595,78 @@ async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
         except Exception:
             logger.debug("发送重抓进展提醒失败: review_id=%s",
                          review_id, exc_info=True)
+        # Same progress on the card the operator pressed (§refetch-card-state).
+        await refresh_refetch_card(bot, review_id, minutes=minutes)
     return acted
 
 
 async def context_bot_send(bot, text: str) -> None:
     await bot.send_message(chat_id=REVIEW_CHAT_ID, text=text)
+
+
+async def refresh_refetch_card(bot, review_id: int, *,
+                               minutes: Optional[int] = None) -> bool:
+    """Rewrite a review's control card to its CURRENT 重抓 state.
+
+    §refetch-card-state — 重抓 means "the current candidate is rejected", so the
+    post the operator actually pressed must change:
+
+    * an ACTIVE attempt → the card becomes 「已提交重抓 / 当前候选已作废」 with the
+      publish/reject buttons removed (finding a replacement is the only way
+      forward), optionally showing elapsed minutes;
+    * NO active attempt → the normal card is rebuilt from the row, so a refetch
+      that ended without a replacement (no_alternative / failed / timeout /
+      obsolete) leaves the candidate actionable again instead of dead-ending.
+
+    Cosmetic on purpose: never raises, never touches review state.
+    """
+    from telepost.storage.sqlite.refetch import RefetchRepository
+    from telepost.storage.sqlite.reviews import ReviewRepository
+
+    try:
+        row = await ReviewRepository().get(review_id)
+    except Exception:
+        logger.debug("读取审核记录失败: review_id=%s", review_id, exc_info=True)
+        return False
+    if row is None:
+        return False
+    keys = row.keys() if hasattr(row, "keys") else []
+    control = row["control_message_id"] if "control_message_id" in keys else None
+    if row["status"] != "pending" or not control:
+        # Decided / superseded / still-preparing cards are owned by the
+        # decision, replacement and reconciliation paths respectively.
+        return False
+    try:
+        chain = (row["review_chain_id"] if "review_chain_id" in keys else "") \
+            or f"chain-{review_id}"
+        active = await RefetchRepository().find_active_by_chain(chain)
+        if active is not None:
+            text = review_keyboard.refetch_pending_text(
+                review_id=review_id, minutes=minutes,
+            )
+            markup = review_keyboard.refetch_pending_keyboard(
+                review_id, row["link"] or "",
+            )
+        else:
+            text, markup = review_keyboard.control_card_from_row(row)
+    except Exception:
+        logger.warning("渲染审核卡失败: review_id=%s", review_id, exc_info=True)
+        return False
+    try:
+        await bot.edit_message_text(
+            chat_id=REVIEW_CHAT_ID,
+            message_id=int(control),
+            text=text,
+            reply_markup=markup,
+            disable_web_page_preview=True,
+            **_review_timeout_kwargs(),
+        )
+        return True
+    except Exception as exc:
+        # "Message is not modified" is a no-op (the card already says this).
+        if "not modified" not in str(exc).lower():
+            logger.debug("更新审核卡失败: review_id=%s", review_id, exc_info=True)
+        return False
 
 
 async def reconcile_incomplete_reviews(bot, *, stale_seconds: float = 60.0) -> int:
@@ -809,6 +882,8 @@ async def refetch_review(update, context):
             await context.bot.send_message(chat_id=REVIEW_CHAT_ID, text=text)
         except Exception:
             logger.debug("发送重抓提示失败: review_id=%s", review_id, exc_info=True)
+        # §refetch-card-state: the post that was pressed must show the new state.
+        await refresh_refetch_card(context.bot, review_id)
 
     try:
         result = await request_refetch(
@@ -837,6 +912,10 @@ async def refetch_review(update, context):
         await _answer(query, _refetch_replay_text(
             {"state": result["state"]} if result["state"] else {}), show_alert=True)
         return
+
+    # Install the durable attempt row into the card right away: the remote call
+    # can take a second or two, and an unmoved post is what reads as “卡死”.
+    await refresh_refetch_card(context.bot, review_id)
 
     await _answer(query, "已提交重抓，找到新候选后会替换进本群", show_alert=True)
 

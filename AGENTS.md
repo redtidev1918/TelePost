@@ -107,6 +107,12 @@ python check_config.py             # 配置自检
   不可仅凭本地时间判失败，应先查 PixivFlow durable slot。
 - 替换稿必须在预览和控制卡准备成功后，与旧稿 `superseded`、attempt `replaced`
   同事务提交。来源不明或过期的 `refetch_request_id` 不能作为普通投稿落库。
+- 点击重抓后**审核卡本身必须立刻反映该事实**（§refetch-card）：控制卡切到「重抓中」形态
+  （隐藏 发布/拒绝/遮罩，保留 重抓 与 查看原链接），进度提醒（默认 2 分钟）带已等待时长，
+  任何终态（替换稿到达、`no_alternative`/`failed`、watchdog 取消或 stalled、源审核已决）
+  都必须把正常可操作卡片交还审核人。**不得**为了让点击“看起来生效”而提前把源审核标记为
+  rejected：`finalize_replacement()` / `apply_outcome()` 只在源审核仍为 `pending` 时落结果，
+  提前驳回会让自己的替换稿变 `obsolete`，审核人可能什么都发不出去。
 
 ## Refetch Generation Replacement 不变量（§refetch-replacement）
 

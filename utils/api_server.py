@@ -2428,6 +2428,20 @@ def add_api_routes(web_app, application) -> None:
         )
         if applied == "not_found":
             return _error(404, "unknown_attempt", "attempt 不存在")
+
+        async def _refresh_refetch_card(target_review_id) -> None:
+            """§refetch-card-state: an attempt that ended without a replacement
+            must give the operator a normal, actionable card back."""
+            if not target_review_id:
+                return
+            try:
+                from handlers.review import refresh_refetch_card
+                await refresh_refetch_card(
+                    application.bot, int(target_review_id))
+            except Exception:
+                logger.debug("刷新重抓审核卡失败: review_id=%s",
+                             target_review_id, exc_info=True)
+
         if applied == "obsolete":
             # Source review was decided while the refetch was running: the
             # verdict is recorded as obsolete, and we never disturb the review.
@@ -2446,6 +2460,7 @@ def add_api_routes(web_app, application) -> None:
                 except Exception as exc:
                     logger.warning("发送重抓取消通知失败: review_id=%s error=%s",
                                    review_id, exc)
+                await _refresh_refetch_card(review_id)
             return _ok({"ok": True, "attempt_state": applied, "notified": bool(changed)})
         if not changed:
             # Already-terminal replay (same verdict redelivered): converge with
@@ -2467,6 +2482,7 @@ def add_api_routes(web_app, application) -> None:
         except Exception:
             logger.warning("发送重抓终态通知失败: request_id=%s",
                            request_id, exc_info=True)
+        await _refresh_refetch_card(review_id)
         try:
             from telepost.observability import audit
             await audit.record_event(
