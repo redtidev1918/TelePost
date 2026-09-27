@@ -208,6 +208,22 @@ async def test_new_intentional_click_after_terminal_creates_new_generation(refet
         attempts = list(await cur.fetchall())
     assert len(attempts) == 1
     first = attempts[0]
+
+    # The remote submission runs in a background task (the click answers
+    # immediately), so let it SETTLE before asserting a terminal. Marking the
+    # attempt failed while the admission is still in flight makes the row's
+    # final state depend on scheduler timing — the lost update the repository
+    # now refuses with a compare-and-swap (``apply_transition_on``).
+    for _ in range(200):
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT state FROM refetch_attempts WHERE request_id=?",
+                (first["request_id"],),
+            )
+            settled = await cur.fetchone()
+        if settled is not None and settled["state"] != "requested":
+            break
+        await asyncio.sleep(0.005)
     await repo.mark_failed(first["request_id"], "network_error")
 
     # New intentional click → NEW attempt, NEW request id, next generation.

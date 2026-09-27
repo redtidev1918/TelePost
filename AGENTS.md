@@ -152,6 +152,14 @@ rejection notification.
   （0/1/2）、仍只有一代 active；因果留痕 `111 --replaced_by--> 222 --replaced_by--> 333`
   （`refetch_seen_candidates.outcome='rejected_by_refetch'`，当前候选 `pending_review`）。
   回归测试：`tests/test_refetch_replacement.py::test_chained_refetch_a_to_b_to_c_keeps_one_active_generation`。
+- **替换被丢弃时必须可见**：迟到或来源过期的替换稿会被交付入口拒绝
+  （`_reserve_replacement` 的两处 400：`refetch attempt is unknown or terminal` /
+  `refetch attempt is cancelled or already terminal`，文案是 PixivFlow 的死信契约，
+  **逐字不可改**）。拒绝**之前**必须：向源审核控制卡通知「重抓未生效：原审核已结束
+  （当前状态：…），替换作品已丢弃，当前稿件保持不变。任务ID：…」，并落一条
+  `review.refetch_dropped_replacement` 审计（`error_class` 为
+  `refetch_attempt_obsolete` / `refetch_attempt_unknown`，request id 在 `detail`）。
+  丢弃允许，静默丢弃不允许——这正是 30 天生产静默的成因之一。
 
 ## 已知待办（本仓库范围）
 
@@ -284,6 +292,46 @@ REQUESTED → SEARCHING → FILTERING → CANDIDATE_FOUND → REPLACED
   request_id / outcome / reason / decided_at / replaced_by——谁被拒、为什么、何时、
   被谁替代；`refetch_events` 是 attempt 的耐久时间线。运行历史与「当前状态」都不许只存在于内存。
 
+### 重抓是一等持久 Job（30 秒心跳，§refetch-job）
+
+- **作业模型**：attempt 即 job，进程内存只是缓存，重启后从库里恢复。新增列：
+  `heartbeat_at`（**本机**轮询心跳，证明我们还在看）、`heartbeat_count`、
+  `remote_heartbeat_at`/`remote_state_at`（**远端** liveness 时钟）、`next_poll_at`（退避）、
+  `poll_failures`、`terminal_notified_at`（终态通知时钟）。`terminal_notified_at` 必须与
+  `last_progress_notified_at` **分开**：两个时钟合成一个，就是生产上「进度播报之后终态静默」的根因
+  （进度提醒吃掉了终态通知的一次性额度）。全部列在 `database/db_manager.py` 里以幂等
+  additive migration 声明（可空/带默认值，历史行照常读），并做一次
+  `terminal_notified_at = COALESCE(finished_at, ...)` 回填**仅限已通知过的行**，
+  历史 `notify_count = 0` 的行永远不回填、不补发。
+- **心跳循环**：`handlers/review.py:poll_refetch_jobs(bot, *, now=None, force=False)`。
+  `main.py` 用 `job_queue.run_repeating(..., interval=REFETCH_POLL_INTERVAL_SECONDS(默认 30), first=5)`
+  注册；300 秒的 `cleanup_runtime_data` 调的是**同一个**函数（`force=True`），
+  绝不出现第二份 watchdog 实现；`monitor_refetch_progress` 只是它的转发别名。
+  单条 attempt 出错只记录日志，绝不中断整轮（一条坏任务不能拖垮其余）。
+- **心跳写路径**：`RefetchRepository.record_poll(...)` 只写心跳/远端时钟/退避/`poll_failures`，
+  **绝不写 `state` 或 `updated_at`**——否则「无进展」会被自己的轮询刷新掩盖，stall 永远看不到。
+  状态迁移仍然只能走 `apply_transition_on`（唯一写入口）。
+- **远端访问只在端口里**：`telepost/application/pixivflow_jobs.py` 是唯一边界，暴露
+  `submit(job_type, idempotency_key, *, correlation_id, params)` 与
+  `get(job_id_or_key, *, job_type, params)`；心跳与状态机只依赖该端口，**不得**直接拼 HTTP 路径。
+  旧路由 `/internal/targets/{id}/refetch` 封装在端口内部（行为不变），将来切到
+  `POST /jobs` / `GET /jobs/{id}` 只改这一个文件，状态机与心跳零改动。
+  事件循环里绝不允许同步远端调用（一律 `asyncio.to_thread` + 可控超时）。
+- **跨边界字段只用不透明关联**：`idempotency_key` / `correlation_id` / `job_id` / `labels`；
+  `slotId` 只作诊断保存，**不得**把远端业务名词（slotId/disposition/「审核群重抓」…）当作
+  状态判定输入——判定只看 status、心跳与时间戳、error.code。
+- **liveness 规则：无进展且无心跳才算停摆**（「无进展且无心跳才算停摆」）。
+  远端状态变化或远端新心跳都会重置停摆时钟；「我们还在轮询」**不算**远端进展。
+- **重启恢复**：`main.py` 启动序列在 `/ready` 之前调用
+  `handlers/review.py:recover_refetch_jobs(bot)`（一次性 sweep，进程内只跑一次，
+  `_refetch_recovery_done` 守卫）：扫描非终态且心跳老于 2 个轮询周期的 attempt，
+  读远端后把**已终态**的远端状态经状态机落库，并记一条
+  `review.refetch_recovered_after_restart`（含扫描/收敛计数）。
+  重启不得因为「本地很久没心跳」就把在途 attempt 判死：`heartbeat_at IS NULL`
+  意味着「本进程还没轮询过」，只能去轮询，不能判失败。
+- **永远有终态**：任何非终态 attempt 都在有限时间内收敛到终态（见
+  §refetch-terminal-notify 的预算），不存在永久 running 的行。
+
 ## Refetch 终态可见性 与 watchdog 不变量（§refetch-terminal-notify）
 
 - **已决审核的重抓终态必须可见**：cancelled（outcome 到达时源审核已被驳回/通过）与
@@ -291,23 +339,64 @@ REQUESTED → SEARCHING → FILTERING → CANDIDATE_FOUND → REPLACED
   不变”），绝不能用无限“仍在处理中”掩盖 silent terminal。replay（已终态重复投递）不重复通知。
 - **进度必须重复播报**：每 `REFETCH_PROGRESS_REMIND_MINUTES`（默认 2）分钟向审核群播报
   一次（阶段中文标签 + 已等待时长 + 任务ID），不是「每个 attempt 只提醒一次」。
-- **阶段停滞必须收敛**：远端仍在 working（或远端状态读不出来）但阶段连续
-  `REFETCH_STAGE_TIMEOUT_MINUTES`（默认 10）分钟没有前进 → `timeout(stalled_no_progress)`；
-  绝不能出现「无限 SEARCHING」。
+- **终态必须恰好通知一次（idempotent by 任务ID）**：成功即审核卡变成替换稿；任何
+  失败/超时都要在卡上显示原因 + 「可以再次重抓」 + 任务ID。一次性额度由
+  `terminal_notified_at` 记录（与进度时钟分开）；直接发送失败时，通知文本进
+  `submitter_notifications`（`kind='refetch_terminal'`，幂等键
+  `refetch:<request_id>:terminal`）由 300 秒任务补发，并发一条
+  `review.refetch_terminal_notify_undelivered` 审计。**发送失败绝不允许被吞掉。**
+  历史行（`notify_count=0` 的 30 天前终态）永不补发、永不回填。
+- **预算表（全部是环境变量开关，默认值如下）**：
+
+  | 开关 | 默认 | 判定 |
+  | --- | --- | --- |
+  | `REFETCH_PROGRESS_REMIND_MINUTES` | 2 | 重复播报间隔 |
+  | `REFETCH_QUEUED_TIMEOUT_MINUTES` | 30 | 远端一直 `pending`（从未被认领）→ `timeout(queued_too_long)` |
+  | `REFETCH_STAGE_TIMEOUT_MINUTES` | 15 | **无远端状态变化且无新远端心跳**超过该时长 → `timeout(stalled_no_progress)` |
+  | `REFETCH_STALE_TIMEOUT_MINUTES` | 20 | **本机**心跳过期（轮询器死了）→ `failed(watchdog_no_heartbeat)`；也是未受理 `requested` 的 admission 超时 |
+  | `REFETCH_HARD_TIMEOUT_MINUTES` | 90 | 自 `created_at` 起的绝对上限 → `timeout(stalled_after_hard_timeout)` |
+  | `REFETCH_WAKE_MINUTES` | 12 | 幂等唤醒间隔 |
+  | `REFETCH_POLL_INTERVAL_SECONDS` | 30 | 心跳轮询间隔 |
+
+- **停滞必须收敛，且 Liveness 优先**：远端仍在 working（或远端状态读不出来）但
+  「无进展且无心跳」连续 `REFETCH_STAGE_TIMEOUT_MINUTES`（默认 15）分钟 →
+  `timeout(stalled_no_progress)`；绝不能出现「无限 SEARCHING」。合法但缓慢的 2–20 分钟
+  （历史上曾排队 10 小时）必须被**远端新心跳或状态迁移**保护：二者任一都重置停滞时钟，
+  「我们还在轮询」**不算**远端进展。停摆时钟锚点是「最后一次远端进展」：
+  `remote_state_at` → `updated_at` → admission/created。
+- **预算优先级**：`pending` 的远端既受排队预算也受停摆预算约束，先到者判定；停摆阈值
+  更短时（默认 15 < 30）先报 `stalled_no_progress`，排队时钟已过期才报
+  `queued_too_long`。两者都是终态、都带 `terminal_reason`、都会通知审核人。
 - **admission 超时只针对未被接受的 requested**：超过
   `REFETCH_STALE_TIMEOUT_MINUTES`（默认 20）分钟仍未被 PixivFlow 接受 →
-  `timeout(admission_timeout)`，且该分支必须 `continue`，不得再落进硬上限分支
-  （否则两个终态会互相覆盖 `failure_code`）。
+  `timeout(admission_timeout)`；该分支在分支顺序中**先于**硬上限与 `watchdog_no_heartbeat`，
+  且必须 `continue`，不得再落进硬上限分支（否则两个终态会互相覆盖 `failure_code`）。
+- **`heartbeat_at IS NULL` 不是「心跳过期」**：它表示「本进程还没轮询过这条 attempt」
+  （历史行或刚重启接管），必须去轮询，绝不能凭它判 `watchdog_no_heartbeat`。
 - **watchdog 对同一 request UUID 可做幂等 wake**：机器不可达且超过
   `REFETCH_WAKE_MINUTES`（默认 12）分钟无进展、**且仍在硬上限内**时，用同一 request UUID
   再调 PixivFlow refetch（Fly Proxy 拉起机器，PixivFlow 恢复既有 manual slot）；
   不得创建第二条 attempt。已过 `REFETCH_HARD_TIMEOUT_MINUTES` 的 attempt 只终止、不唤醒。
-- **硬性 SLA**：超过 `REFETCH_HARD_TIMEOUT_MINUTES`（默认 30）仍无法形成任何 terminal
+- **硬性 SLA**：超过 `REFETCH_HARD_TIMEOUT_MINUTES`（默认 90）仍无法形成任何 terminal
   outcome 时，attempt 必须 `timeout(stalled_after_hard_timeout)` 并通知审核群——accepted
-  重抓绝不永久 running。
+  重抓绝不永久 running。硬上限判定放在远端判定之后，避免掩盖远端给出的真实结论。
+- **交付入口没有静默路径**：`telepost/application/review_queue.py:_reserve_replacement`
+  的两处 `ValueError`（`refetch attempt is unknown or terminal` /
+  `refetch attempt is cancelled or already terminal`）**HTTP 400 文案必须逐字不变**
+  （PixivFlow 按字符串死信），但抛之前必须先向审核群通知「重抓未生效：原审核已结束
+  （当前状态：…），替换作品已丢弃」并记 `review.refetch_dropped_replacement`
+  （`error_class` = `refetch_attempt_obsolete` / `refetch_attempt_unknown`，request id 进
+  `detail`）。丢弃是允许的，静默丢弃不允许。
 - **只读自检**：`python -m telepost.observability.cli doctor`（`--bot/--all-bots/--json/--now`）
   校验 DB 完整性、卡住的 refetch（active >15 分钟 WARN / >30 分钟 CRIT）、
   active partial-index 不变量、孤儿审核、publishing 卡住、delivery outbox、近期 audit；
+  并有 refetch 作业段（`refetch_jobs`），固定输出一行
+  `Refetch: running: N stuck: N failed(last24h): N`：`running` = 非终态 attempt 数，
+  `stuck` = 非终态但本机心跳超过 20 分钟（`CRIT`/exit 1，一眼可见「卡住」），
+  `failed(last24h)` = 24 小时内到达 FAILED/TIMEOUT 的 attempt 数（按 `terminal_reason`/
+  `failure_code` 归类）。同时计数「终态但 `terminal_reason` 为空」：
+  **新代码路径**的行计入不变量（WARN），生产既有 12 行 legacy 历史行只单独计数
+  （`legacy_missing_reason`，informational），不计入 CRIT，保证已部署环境仍 exit 0。
   全部 `mode=ro`，退出码 0/1/2，绝不打印令牌。
 
 ## Editorial Revision 与投稿者通知不变量（§editorial, §notify-submitter）
