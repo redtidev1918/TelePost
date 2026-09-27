@@ -89,7 +89,8 @@ python check_config.py             # 配置自检
 拆分部署下，TelePost 的重抓是**远程服务间工作流**（`split-worker`）：
 
 - TelePost **绝不**在 Bot 容器里 shell-out 或同容器拉起 PixivFlow 来重抓；
-  只调用独立 PixivFlow 的受认证 `POST /internal/targets/{id}/refetch`。
+  只调用独立 PixivFlow 的受认证作业 API（默认 Workflow Protocol v1 `POST /jobs`；
+  回滚开关 `PIXIVFLOW_JOB_TRANSPORT=legacy` 时才走 `POST /internal/targets/{id}/refetch`）。
 - TelePost **绝不**操作 Fly Machines API；唤醒交给 Fly `auto_start_machines` 代理。
 - 每次重抓 attempt 都是 durable 的（`refetch_attempts`）；同一审核链同时最多一个活跃 attempt
   （数据层 partial UNIQUE index 强制）。
@@ -314,8 +315,10 @@ REQUESTED → SEARCHING → FILTERING → CANDIDATE_FOUND → REPLACED
 - **远端访问只在端口里**：`telepost/application/pixivflow_jobs.py` 是唯一边界，暴露
   `submit(job_type, idempotency_key, *, correlation_id, params)` 与
   `get(job_id_or_key, *, job_type, params)`；心跳与状态机只依赖该端口，**不得**直接拼 HTTP 路径。
-  旧路由 `/internal/targets/{id}/refetch` 封装在端口内部（行为不变），将来切到
-  `POST /jobs` / `GET /jobs/{id}` 只改这一个文件，状态机与心跳零改动。
+  Workflow Protocol v1 是默认通道（`POST /jobs`、`GET /jobs?idempotency_key=` 或
+  `GET /jobs/{job_id}`，进入前先 `GET /capabilities` 协商协议版本与 `candidate_search`）；
+  旧路由 `/internal/targets/{id}/refetch` 仍封装在端口内部，用
+  `PIXIVFLOW_JOB_TRANSPORT=legacy` 回滚。切换只改这一个文件，状态机与心跳零改动。
   事件循环里绝不允许同步远端调用（一律 `asyncio.to_thread` + 可控超时）。
 - **跨边界字段只用不透明关联**：`idempotency_key` / `correlation_id` / `job_id` / `labels`；
   `slotId` 只作诊断保存，**不得**把远端业务名词（slotId/disposition/「审核群重抓」…）当作

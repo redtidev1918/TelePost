@@ -23,6 +23,7 @@ from aiohttp import web
 
 from database import db_manager
 from handlers import review
+from telepost.application import pixivflow_jobs as port
 from telepost.storage.sqlite.refetch import RefetchRepository
 
 
@@ -1029,8 +1030,10 @@ async def test_stale_unadmitted_request_fails_without_remote_poll(refetch_db, mo
 
 
 def test_remote_refetch_status_uses_same_authenticated_target(monkeypatch):
+    """``PIXIVFLOW_JOB_TRANSPORT=legacy``: the rollback route is byte-identical."""
     request_id = "6eb50329-20f2-4ea7-b95b-e4676b50d9f1"
     seen = {}
+    monkeypatch.setenv("PIXIVFLOW_JOB_TRANSPORT", "legacy")
     monkeypatch.setenv("PIXIVFLOW_REFETCH_BASE_URL", "https://pixivflow.example")
     monkeypatch.setenv("PIXIVFLOW_REFETCH_TOKEN", "secret")
 
@@ -1240,3 +1243,338 @@ async def test_watchdog_hard_stalls_never_running(refetch_db, monkeypatch):
     assert acted == 1
     assert bot.send_message.await_count == 1
     assert "未完成" in bot.send_message.await_args.kwargs["text"]
+
+
+# ---------------------------------------------------------------------------
+# Workflow Protocol v1 Job API transport (phase C)
+# ---------------------------------------------------------------------------
+# The port is the only module allowed to know a PixivFlow URL, so these tests pin
+# exactly what crosses the boundary: the protocol routes/bodies, the status →
+# remote-state projection the untouched state machine consumes, and the error
+# vocabulary (code + retryability) the callers classify.
+_CAPABILITIES_V1 = {
+    "protocol_versions": ["1"],
+    "job_types": [
+        {
+            "name": "candidate_search",
+            "params_schema": "#/$defs/CandidateSearchParams",
+            "result_schema": "#/$defs/Result_CandidateSearch",
+        }
+    ],
+}
+
+
+def _protocol_job(status, *, job_id="job-13866d8b", key="key-1", error=None,
+                  heartbeat_at=1790481310000):
+    """One protocol ``$defs/Job`` (every timestamp is epoch milliseconds)."""
+    payload = {
+        "protocol_version": "1",
+        "job_id": job_id,
+        "job_type": "candidate_search",
+        "status": status,
+        "idempotency_key": key,
+        "created_at": 1790481174570,
+        "updated_at": 1790481318920,
+        "heartbeat_at": heartbeat_at,
+    }
+    if error is not None:
+        payload["error"] = error
+    return payload
+
+
+def _response(payload, status=200):
+    response = MagicMock()
+    response.__enter__.return_value.status = status
+    response.__enter__.return_value.read.return_value = json.dumps(payload).encode()
+    return response
+
+
+def _http_error(url, status, body=None):
+    import io
+    from urllib.error import HTTPError
+
+    return HTTPError(url, status, "error", {},
+                     io.BytesIO(json.dumps(body or {}).encode()))
+
+
+class _FakeTransport:
+    """``urlopen``-compatible stub: records requests and answers by route."""
+
+    def __init__(self, *, capabilities=None, job=None, job_by_id=None, submit=None,
+                 submit_status=202, error_status=0, error_body=None,
+                 job_error_status=0, job_error_body=None):
+        self.capabilities = _CAPABILITIES_V1 if capabilities is None else capabilities
+        self.job = job
+        self.job_by_id = job_by_id
+        self.submit = submit
+        self.submit_status = submit_status
+        self.error_status = error_status
+        self.error_body = error_body
+        self.job_error_status = job_error_status
+        self.job_error_body = job_error_body
+        self.requests = []
+
+    def __call__(self, request, timeout):
+        self.requests.append(request)
+        url = request.full_url
+        if url.endswith("/capabilities"):
+            return _response(self.capabilities)
+        if request.get_method() == "POST":
+            if self.error_status:
+                raise _http_error(url, self.error_status, self.error_body)
+            payload = self.submit if self.submit is not None else {
+                "job": _protocol_job("queued"),
+            }
+            return _response(payload, self.submit_status)
+        if self.error_status:
+            raise _http_error(url, self.error_status, self.error_body)
+        if "idempotency_key=" in url:
+            return _response({"jobs": [] if self.job is None else [self.job]})
+        if self.job_error_status:
+            raise _http_error(url, self.job_error_status, self.job_error_body)
+        return _response(self.job_by_id if self.job_by_id is not None
+                         else (self.job or {}))
+
+    def urls(self):
+        return [request.full_url for request in self.requests]
+
+
+def _configured(monkeypatch, **env):
+    """Point the port at a fake producer (protocol transport unless overridden)."""
+    monkeypatch.setenv("PIXIVFLOW_REFETCH_BASE_URL", "https://pixivflow.example")
+    monkeypatch.setenv("PIXIVFLOW_REFETCH_TOKEN", "secret")
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+
+def test_protocol_transport_submits_and_reads_the_generic_job_api(monkeypatch):
+    """Default transport: POST /jobs then GET /jobs?idempotency_key=…, no legacy path."""
+    _configured(monkeypatch)
+    request_id = "6eb50329-20f2-4ea7-b95b-e4676b50d9f1"
+    transport = _FakeTransport(submit={"job": _protocol_job("queued", key=request_id)})
+    monkeypatch.setattr(review, "urlopen", transport)
+
+    receipt = review._submit_pixivflow_refetch("target-a", request_id, "chain:99")
+    assert receipt["status"] == "accepted" and receipt["replayed"] is False
+
+    transport.job = _protocol_job("running", key=request_id)
+    assert review._read_pixivflow_refetch_status("target-a", request_id) == "running"
+    detail = review._read_pixivflow_refetch_status("target-a", request_id, detail=True)
+    assert detail["state"] == "running" and detail["job_id"] == "job-13866d8b"
+    assert detail["heartbeat"] == pytest.approx(1790481318.92)
+
+    urls = transport.urls()
+    assert urls[0] == "https://pixivflow.example/capabilities"
+    assert urls[1] == "https://pixivflow.example/jobs"
+    assert f"https://pixivflow.example/jobs?idempotency_key={request_id}" in urls
+    assert not any("/internal/targets/" in url for url in urls)
+    assert json.loads(transport.requests[1].data.decode()) == {
+        "protocol_version": "1",
+        "job_type": "candidate_search",
+        "idempotency_key": request_id,
+        "params": {"target_id": "target-a"},
+        "correlation_id": "chain:99",
+    }
+    assert transport.requests[1].get_header("Authorization") == "Bearer secret"
+    assert transport.requests[1].get_header("Content-type") == "application/json"
+
+
+def test_protocol_capabilities_are_read_once_per_client(monkeypatch):
+    _configured(monkeypatch)
+    transport = _FakeTransport(job=_protocol_job("running", key="key-1"))
+    client = port.HttpPixivFlowJobClient(transport=transport)
+    for _ in range(3):
+        assert client.get("key-1").status == "running"
+    assert transport.urls().count("https://pixivflow.example/capabilities") == 1
+
+
+def test_protocol_submit_receipt_distinguishes_acceptance_from_replay(monkeypatch):
+    """202 is the first acceptance, 200 is an idempotent replay of the SAME Job."""
+    _configured(monkeypatch)
+    for status, accepted, replayed in ((202, True, False), (200, False, True)):
+        transport = _FakeTransport(submit={"job": _protocol_job("queued")},
+                                   submit_status=status)
+        client = port.HttpPixivFlowJobClient(transport=transport)
+        receipt = client.submit("refetch", "key-1", params={"target_id": "target-a"})
+        assert (receipt.accepted, receipt.replayed) == (accepted, replayed)
+        assert receipt.job_id == "job-13866d8b" and receipt.slot_id() == ""
+    assert port.protocol_job_type("refetch") == "candidate_search"
+    assert port.protocol_job_type("") == "candidate_search"
+
+
+@pytest.mark.parametrize(
+    "status,error_code,expected,terminal",
+    [
+        ("queued", "", "pending", False),
+        ("running", "", "running", False),
+        ("succeeded", "", "submitted", True),
+        ("failed", "source_error", "failed", True),
+        ("failed", "no_candidate", "no_candidate", True),
+        ("cancelled", "cancelled_by_consumer", "failed", True),
+        ("expired", "stalled_no_progress", "failed", True),
+        ("something_new", "", "something_new", False),
+    ],
+)
+def test_protocol_status_projects_the_remote_state_vocabulary(status, error_code,
+                                                              expected, terminal):
+    """The state machine reads a remote-state token, never a raw protocol word."""
+    snapshot = port.decode_protocol_job(
+        _protocol_job(status, error={"code": error_code})
+    )
+    assert snapshot.status == expected
+    assert snapshot.is_terminal is terminal
+    assert port.is_terminal_remote_state(expected) is terminal
+
+
+def test_protocol_terminality_never_reads_legacy_labels():
+    """protocol v1 persists no labels: an adapter's flag must not decide a verdict."""
+    snapshot = port.decode_job_snapshot({
+        "requestId": "r-1", "status": "running", "slotId": "slot-1",
+        "labels": {"terminal": "true"},
+    })
+    assert snapshot.labels["slot_id"] == "slot-1"      # diagnostics survive…
+    assert snapshot.status == "running"
+    assert snapshot.is_terminal is False               # …but never decide
+
+
+def test_protocol_error_envelope_sets_code_and_retryability(monkeypatch):
+    """``error.code`` + ``error.retryable`` (falling back to the vendored table)."""
+    _configured(monkeypatch)
+    cases = [
+        (404, None, "not_found", False),
+        (500, {"error": {"code": "internal_error"}}, "remote_error", False),
+        (429, {"error": {"code": "quota_exceeded", "retryable": True}},
+         "remote_error", True),
+        (400, {"error": {"code": "invalid_params", "retryable": False}},
+         "remote_rejected", False),
+        (500, {}, "remote_error", True),
+    ]
+    for status, body, code, retryable in cases:
+        transport = _FakeTransport(job=_protocol_job("running", key="key-1"),
+                                   error_status=status, error_body=body)
+        client = port.HttpPixivFlowJobClient(transport=transport)
+        with pytest.raises(port.PixivFlowJobError) as caught:
+            client.get("key-1")
+        assert (caught.value.code, caught.value.retryable) == (code, retryable), body
+        assert caught.value.status == status
+        assert port.classify_error(caught.value) == code
+
+
+@pytest.mark.parametrize(
+    "capabilities,missing",
+    [
+        ({"protocol_versions": ["2"], "job_types": _CAPABILITIES_V1["job_types"]},
+         "协议版本"),
+        ({"protocol_versions": ["1"], "job_types": [{"name": "publish"}]},
+         "candidate_search"),
+    ],
+)
+def test_protocol_capabilities_negotiation_fails_loudly(monkeypatch, capabilities,
+                                                        missing):
+    """No silent fallback: an undeclared version/job type is a hard failure."""
+    _configured(monkeypatch)
+    transport = _FakeTransport(capabilities=capabilities,
+                               job=_protocol_job("running", key="key-1"))
+    client = port.HttpPixivFlowJobClient(transport=transport)
+    with pytest.raises(port.PixivFlowJobError) as caught:
+        client.get("key-1")
+    assert (caught.value.code, caught.value.retryable) == ("remote_rejected", False)
+    assert missing in str(caught.value)
+    with pytest.raises(port.PixivFlowJobError):
+        client.submit("refetch", "key-1", params={"target_id": "target-a"})
+    # Only the discovery read happened: nothing fell back to the legacy route.
+    assert transport.urls() == ["https://pixivflow.example/capabilities"]
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [(None, "protocol"), ("", "protocol"), ("protocol", "protocol"),
+     ("legacy", "legacy"), (" LEGACY ", "legacy"), ("nonsense", "protocol")],
+)
+def test_job_transport_env_var_has_one_reader(monkeypatch, value, expected):
+    if value is None:
+        monkeypatch.delenv("PIXIVFLOW_JOB_TRANSPORT", raising=False)
+    else:
+        monkeypatch.setenv("PIXIVFLOW_JOB_TRANSPORT", value)
+    assert port.job_transport() == expected
+
+
+def test_legacy_transport_rollback_keeps_the_internal_route(monkeypatch):
+    _configured(monkeypatch, PIXIVFLOW_JOB_TRANSPORT="legacy")
+    request_id = "6eb50329-20f2-4ea7-b95b-e4676b50d9f1"
+    transport = _FakeTransport(
+        submit={"requestId": request_id, "status": "accepted", "slotId": "slot-1"},
+        submit_status=202,
+        job={"requestId": request_id, "state": "delivery_pending", "slotId": "slot-1"},
+    )
+    client = port.HttpPixivFlowJobClient(transport=transport)
+    receipt = client.submit("refetch", request_id, params={"target_id": "target-a"})
+    assert (receipt.accepted, receipt.replayed) == (True, False)
+    assert receipt.slot_id() == "slot-1"
+    snapshot = client.get(request_id, job_type="refetch",
+                          params={"target_id": "target-a"})
+    assert snapshot.status == "delivery_pending" and snapshot.job_id == request_id
+    assert transport.urls() == [
+        "https://pixivflow.example/internal/targets/target-a/refetch",
+        f"https://pixivflow.example/internal/targets/target-a/refetch/{request_id}",
+    ]
+    assert json.loads(transport.requests[0].data.decode()) == {"requestId": request_id}
+
+
+def test_protocol_read_falls_back_to_the_job_id_route(monkeypatch):
+    _configured(monkeypatch)
+    transport = _FakeTransport(
+        job=None,  # the key page is empty → the token was a job_id, not a key
+        job_by_id=_protocol_job("running", job_id="job-9", key="another-key"),
+    )
+    client = port.HttpPixivFlowJobClient(transport=transport)
+    snapshot = client.get("job-9")
+    assert (snapshot.job_id, snapshot.status) == ("job-9", "running")
+    assert transport.urls()[-1] == "https://pixivflow.example/jobs/job-9"
+
+
+def test_protocol_unknown_job_is_a_definitive_not_found(monkeypatch):
+    """An unknown job is a definitive answer — never a retryable failure."""
+    _configured(monkeypatch)
+    transport = _FakeTransport(job=None, job_error_status=404)
+    client = port.HttpPixivFlowJobClient(transport=transport)
+    with pytest.raises(port.PixivFlowJobError) as caught:
+        client.get("ghost-key")
+    assert (caught.value.code, caught.value.retryable) == ("not_found", False)
+    assert port.classify_error(caught.value) == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_protocol_job_api_drives_the_refetch_lifecycle(refetch_db, monkeypatch):
+    """The REAL port drives the untouched state machine over the protocol route."""
+    monkeypatch.delenv("PIXIVFLOW_JOB_TRANSPORT", raising=False)
+    review_id = await _insert_review(pixiv_id="111", target_id="target-a")
+    attempt, refused = await _attempt(chain_id=f"chain-{review_id}",
+                                      source_review_id=review_id, callback_id=9001)
+    assert refused is None
+    request_id = attempt["request_id"]
+    repo = RefetchRepository()
+    await repo.mark_admitted(request_id, "slot-1")
+    bot = AsyncMock()
+    polled_at = time.time()
+
+    transport = _FakeTransport(job=_protocol_job("queued", key=request_id))
+    monkeypatch.setattr(review, "urlopen", transport)
+
+    await review.poll_refetch_jobs(bot, now=polled_at)
+    row = await repo.find_by_request_id(request_id)
+    # queued = admitted but unclaimed: the token arms the QUEUED budget.
+    assert row["last_remote_state"] == "pending" and row["state"] == "searching"
+
+    transport.job = _protocol_job("running", key=request_id)
+    await review.poll_refetch_jobs(bot, now=polled_at + 40)
+    row = await repo.find_by_request_id(request_id)
+    # running = in flight: no invented sub-stage, and never a verdict.
+    assert row["last_remote_state"] == "running" and row["state"] == "searching"
+
+    transport.job = _protocol_job("succeeded", key=request_id)
+    await review.poll_refetch_jobs(bot, now=polled_at + 80)
+    row = await repo.find_by_request_id(request_id)
+    assert row["state"] == "failed"                       # 'submitted' → uncorrelated
+    assert row["failure_code"] == "delivery_uncorrelated"
+    assert row["finished_at"] is not None
