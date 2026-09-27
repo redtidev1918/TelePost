@@ -463,6 +463,50 @@ def test_failed_delivery_ledger_rows_are_warn(tmp_path):
     assert check["details"]["ledger_failed"] == 1
 
 
+def test_published_ledger_history_never_warns_on_age(tmp_path):
+    """The ledger records CONFIRMED posts: old rows are history, not backlog."""
+
+    path = _db_path(tmp_path)
+    conn = _make_db(path)
+    conn.execute(
+        "INSERT INTO delivery_ledger (idempotency_key, status, created_at) "
+        "VALUES ('review:1:old', 'published', ?)",
+        (NOW - 400 * 24 * 3600.0,),
+    )
+    conn.commit()
+    conn.close()
+
+    exit_code, report = run_doctor(db_paths=[path], now=NOW)
+
+    assert exit_code == 0
+    assert report["status"] == "HEALTHY"
+    assert _by_code(report, "delivery_outbox")["level"] == "OK"
+    details = _by_code(report, "delivery_outbox")["details"]
+    assert details["ledger_total"] == 1
+    assert details["ledger_failed"] == 0
+    assert details["ledger_oldest_unresolved_age_seconds"] is None
+
+
+def test_stale_unresolved_ledger_row_is_warn(tmp_path):
+    path = _db_path(tmp_path)
+    conn = _make_db(path)
+    conn.execute(
+        "INSERT INTO delivery_ledger (idempotency_key, status, created_at) "
+        "VALUES ('review:1:stuck', 'failed', ?)",
+        (NOW - 3600.0,),
+    )
+    conn.commit()
+    conn.close()
+
+    exit_code, report = run_doctor(db_paths=[path], now=NOW)
+
+    assert exit_code == 0
+    check = _by_code(report, "delivery_outbox")
+    assert check["level"] == "WARN"
+    assert check["details"]["ledger_oldest_unresolved_age_seconds"] == 3600.0
+    assert "未确认" in check["message"]
+
+
 # ---- check 8: audit activity ----------------------------------------------
 
 

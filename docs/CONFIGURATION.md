@@ -307,7 +307,7 @@ webhook secret / PixivFlow secret），审计事件只统计数量与最新时�
 | `review_queue_orphans` | CRIT/WARN/OK | `pending_reviews.status='pending'` 且 `control_message_id` 为空/NULL：> 15 分钟 WARN，> 60 分钟 CRIT（最多列出 5 个 id） |
 | `review_queue_publishing` | CRIT/OK | `status='publishing'` 超过 `PUBLISHING_STALE_SECONDS`（复用 `services.review_service` 的常量，未改定义）即 CRIT——说明清理任务没有回收它 |
 | `review_queue_counts` | WARN/OK | 按 `status` 分组的计数与 `oldest_pending_age_seconds`；最老 pending > 7 天 WARN |
-| `delivery_outbox` | WARN/OK/SKIP | 投递账本（`delivery_ledger` 及同源 outbox 表）总尝试数、失败数、最老年龄；失败 > 0 或最老 > 30 分钟 WARN，表不存在 SKIP |
+| `delivery_outbox` | WARN/OK/SKIP | 投递账本总尝试数、未确认数、最老**未确认**年龄；未确认 > 0 或最老未确认 > 30 分钟 WARN，表不存在 SKIP。`delivery_ledger` 是「已确认发布」的幂等账本，历史行永远在变老、不代表健康问题，因此年龄只看 `partial`/`uncertain`/`failed`/`error` 这些未确认行（`FAILED_LEDGER_STATUSES`） |
 | `audit_events_recent` | WARN/OK/SKIP | 最近 24 小时 `audit_events` 数量与最新 `review.refetch_*` 事件年龄；存在活跃 attempt 而最新重抓事件 > 2 小时未更新则 WARN |
 
 实现位于 `telepost/observability/doctor.py`（纯函数 `run_doctor(*, db_paths, now)`），
