@@ -387,19 +387,25 @@ class ReviewQueueService:
         # asset-only URL, so it is passed to staging as a presentation extra and
         # never becomes part of the review's media.
         cover_url = novel_cover_preview_url(command)
+        # §review-group-mask: the review group ALWAYS shows unmasked media. The
+        # mask is a CHANNEL publication decision the reviewer takes later, from
+        # the stored row plus the card's 「🔇 遮罩」 button -- not a submitter
+        # setting inherited by the preview. Telegram cannot edit a mask on an
+        # already-sent message, so threading ``command.spoiler`` in here would
+        # hide from the reviewer the exact media they are being asked to judge.
         try:
             # Pass the id list in-out: when staging fails mid-way, ids of
             # already-uploaded previews survive for rollback deletion.
             if is_local:
                 staged_media, staged_documents, preview_ids, media_decisions = \
                     await stager.stage_local(
-                        files, caption=caption, spoiler=command.spoiler,
+                        files, caption=caption, spoiler=False,
                         message_ids=preview_ids, cover_url=cover_url,
                     )
             else:
                 staged_media, staged_documents, preview_ids = await stager.stage_file_ids(
                     media or [], documents or [],
-                    caption=caption, spoiler=command.spoiler,
+                    caption=caption, spoiler=False,
                     message_ids=preview_ids, cover_url=cover_url,
                 )
         except RuntimeError as exc:

@@ -129,6 +129,71 @@ async def test_file_id_submission_is_durable_and_idempotent(review_db):
 
 
 @pytest.mark.asyncio
+async def test_review_group_preview_never_inherits_submitter_mask(
+    review_db, monkeypatch
+):
+    """§review-group-mask: a submitter's mask never reaches the review group.
+
+    The preview must always show unmasked media (the reviewer decides the mask
+    before publishing); the flag stays on the row and keeps driving the channel
+    publication unchanged.
+    """
+    bot = AsyncMock()
+    bot.send_media_group.return_value = [
+        _photo_message(message_id=10, file_id="STAGED_1"),
+        _photo_message(message_id=11, file_id="STAGED_2"),
+    ]
+    control = MagicMock()
+    control.message_id = 20
+    bot.send_message.return_value = control
+
+    queued = await review.queue_review_from_file_ids(
+        bot,
+        [
+            {"type": "photo", "file_id": "ORIGINAL_1"},
+            {"type": "photo", "file_id": "ORIGINAL_2"},
+        ],
+        [],
+        tags="#pixiv",
+        title="Artwork",
+        user_id=7,
+        username="pixivflow",
+        spoiler=True,
+        idempotency_key="pixiv:mask:1",
+    )
+    assert queued["status"] == "pending_review"
+
+    # 1. Review-group staging carries no mask, and never degrades to masked
+    #    single sends as a fallback.
+    group = bot.send_media_group.await_args.kwargs["media"]
+    assert len(group) == 2
+    assert all(item.has_spoiler is False for item in group)
+    assert bot.send_photo.await_count == 0
+    assert bot.send_video.await_count == 0
+    assert bot.send_animation.await_count == 0
+
+    # 2. The submitter's decision is still persisted on the review row.
+    async with db_manager.get_db() as conn:
+        cursor = await conn.execute("SELECT * FROM pending_reviews")
+        row = await cursor.fetchone()
+    assert row["spoiler"] == 1
+
+    # 3. The channel publication value is unchanged: approving without an
+    #    explicit override resolves the mask from the stored row (production
+    #    wiring — handlers.review.publish_from_file_ids is the patch seam).
+    published = {}
+
+    async def fake_publish(*args, **kwargs):
+        published.update(kwargs)
+        return {"message_id": 9001, "link": "https://t.me/c/1/9001"}
+
+    monkeypatch.setattr(review, "publish_from_file_ids", fake_publish)
+    await review.review_service.approve(bot, queued["review_id"], actor=7)
+
+    assert published["spoiler"] is True
+
+
+@pytest.mark.asyncio
 async def test_stale_pending_reviews_expire_and_delete_review_messages(
     review_db, monkeypatch
 ):
