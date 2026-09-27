@@ -145,6 +145,9 @@ class QueueCommand:
     submitter_display_name: str = ""
     actor_kind: str = "user"  # 'user' | 'service'
     actor_subject: str = ""
+    # Data-class marker (§data-class): 'real' (production) or 'test' (fixture).
+    # Only the test-data purge keys on this; never a username pattern.
+    data_class: str = "real"
     # Submission resubmit lineage (§resubmit). Mirrors the refetch replacement
     # columns so a rejected→resubmit new review stays in the SAME logical chain
     # instead of starting an unrelated submission. NULL/0 for originals.
@@ -558,6 +561,7 @@ class ReviewQueueService:
             submitter_display_name=command.submitter_display_name,
             actor_kind=command.actor_kind,
             actor_subject=command.actor_subject,
+            data_class=command.data_class,
         )
         if command.refetch_request_id:
             return await self._reserve_replacement(new_review, stager)
@@ -664,16 +668,29 @@ class ReviewQueueService:
                 # source — a human-owned chain keeps its human submitter, a
                 # service-owned chain stays unowned. Legacy display identity
                 # (user_id/username) follows the chain as well.
-                new_review.user_id = int(source["user_id"] or 0)
-                new_review.username = source["username"] or ""
-                new_review.submitter_user_id = source["submitter_user_id"]
-                new_review.submitter_username = (
-                    source["submitter_username"] or ""
-                )
-                new_review.submitter_display_name = (
-                    source["submitter_display_name"] or ""
-                    if "submitter_display_name" in source.keys() else ""
-                )
+                #
+                # §data-class boundary (B-b): when the SOURCE chain is TEST
+                # typed but the arriving CANDIDATE is REAL, identity inheritance
+                # must NOT carry the test fixture's identity into the real row.
+                # That is exactly how the real artwork #140 inherited the
+                # fixc-verify fixture identity during the 2026-09-28 incident.
+                # In that case the candidate keeps its OWN clean identity (and
+                # the candidate's real data_class), so a real submission is
+                # never labelled 'test' name/username or polluted chain-wide.
+                source_is_test = (
+                    source["data_class"] if "data_class" in source.keys() else "real"
+                ) == "test"
+                if not (source_is_test and new_review.data_class == "real"):
+                    new_review.user_id = int(source["user_id"] or 0)
+                    new_review.username = source["username"] or ""
+                    new_review.submitter_user_id = source["submitter_user_id"]
+                    new_review.submitter_username = (
+                        source["submitter_username"] or ""
+                    )
+                    new_review.submitter_display_name = (
+                        source["submitter_display_name"] or ""
+                        if "submitter_display_name" in source.keys() else ""
+                    )
                 try:
                     review_id = await self._repo.insert_into(conn, new_review)
                 except Exception as exc:
@@ -838,6 +855,7 @@ def _command_from_row(row) -> QueueCommand:
         submitter_display_name=(
             row["submitter_display_name"]
             if "submitter_display_name" in row.keys() else "") or "",
+        data_class=row["data_class"] if "data_class" in row.keys() else "real",
     )
 
 

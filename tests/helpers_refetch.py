@@ -36,7 +36,8 @@ async def insert_review(*, status="pending", pixiv_id="111", target_id="target-a
                         anonymous=False, spoiler=False,
                         media_json="[]", documents_json="[]",
                         title="标题", tags="#t", note="", link="",
-                        control_message_id=None, review_message_ids="[]"):
+                        control_message_id=None, review_message_ids="[]",
+                        data_class="real"):
     """Insert a review row in the production shape (chain bootstrap included)."""
     now = time.time()
     async with db_manager.get_db() as conn:
@@ -48,18 +49,25 @@ async def insert_review(*, status="pending", pixiv_id="111", target_id="target-a
                 anonymous, spoiler, target_id, pixiv_id, work_type,
                 review_chain_id, generation,
                 submitter_user_id, submitter_username,
-                review_message_ids, control_message_id,
+                review_message_ids, control_message_id, data_class,
                 created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'illustration',
-                      ?, ?, ?, ?, ?, ?, ?, ?)
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             ("k%d-%s" % (int(now * 1000), pixiv_id), source, status, user_id, username,
              str(review.REVIEW_CHAT_ID), media_json, documents_json, title, tags, note,
              link, 1 if anonymous else 0, 1 if spoiler else 0, target_id, pixiv_id,
              chain or "", generation, submitter_user_id, submitter_username,
-             str(review_message_ids), control_message_id, now, now),
+             str(review_message_ids), control_message_id, data_class, now, now),
         )
         review_id = cur.lastrowid
+    # Production insert_into auto-assigns a chain when none is supplied.
+    if not chain:
+        chain = "chain-%d" % review_id
+        async with db_manager.get_db() as conn:
+            await conn.execute(
+                "UPDATE pending_reviews SET review_chain_id=? WHERE id=?",
+                (chain, review_id))
     if pixiv_id:
         chain_id = chain or "chain-%d" % review_id
         async with db_manager.get_db() as conn:
