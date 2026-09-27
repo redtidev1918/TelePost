@@ -8,6 +8,15 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.70.0](https://github.com/redtidev1918/TelePost/compare/v2.69.0...v2.70.0) (2026-09-27)
+
+
+### Features
+
+* **miniapp:** 小程序「审核详情」显示重抓任务ID、当前阶段与已等待时长，重抓进行中时按钮保持不可点击（此前只识别旧状态词，进行中的重抓在页面上仍显示为可点击），并显示终止原因 ([3e1950c](https://github.com/redtidev1918/TelePost/commit/3e1950c350042ed90c9679a0a5b442f0dbb81f8d))
+
+---
+
 ## [2.69.0](https://github.com/redtidev1918/TelePost/compare/v2.68.1...v2.69.0) (2026-09-27)
 
 
