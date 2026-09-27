@@ -105,7 +105,7 @@ API（自动化）固定进入审核；Mini App 由 `MINIAPP_REVIEW_REQUIRED` �
 | `PENDING_REVIEW_CLEANUP_BATCH_SIZE` | `100` | 每轮最多过期 1–200 条 |
 | `REVIEW_RETENTION_DAYS` | `30` | 已决审核和 API 通知幂等记录保留天数 |
 | `SUPERSEDED_RETENTION_DAYS` | `30` | 被替换（重抓成功）的旧审核卡保留天数；到期后删除其 Telegram 预览/控制消息与记录，血缘（attempt/seen）保留；`0` 不清理 |
-| `REFETCH_PROGRESS_REMIND_MINUTES` | `5` | 重抓受理后超过该分钟数仍无终态，向审核群最多提醒一次；`0` 关闭提醒 |
+| `REFETCH_PROGRESS_REMIND_MINUTES` | `2` | 重抓受理后超过该分钟数仍无终态，向审核群最多提醒一次（提醒同时把控制卡改写为「重抓中」并带已等待时长）；`0` 关闭提醒 |
 | `REFETCH_WAKE_MINUTES` | `12` | 远端机器不可达且超过该分钟数无进展时，watchdog 用同一 request UUID 幂等唤醒（不创建新 attempt） |
 | `REFETCH_HARD_TIMEOUT_MINUTES` | `90` | 超过该分钟数仍无终态则 attempt 标 `failed(stalled_after_hard_timeout)` 并通知；`0` 关闭硬超时 |
 | `REFETCH_STALE_TIMEOUT_MINUTES` | `45` | 无终态时开始核查 PixivFlow durable slot；未受理请求可判超时，已受理且仍在执行/投递的 attempt 不凭本地时间判失败；`0` 关闭核查 |
@@ -220,9 +220,11 @@ HTTPS 请求时自动唤醒）；审核群重抓使用以下配置：
   `refetch_seen_candidates` 以 (chain, work id) 唯一约束记录该链已展示过的作品。
 - 旧稿（superseded）在保留 `SUPERSEDED_RETENTION_DAYS` 天后由定期维护删除群里的旧卡与
   记录（尝试删消息失败不阻断）；attempt 与候选历史永久保留作审计。
-- 进度可感知：受理后 `REFETCH_PROGRESS_REMIND_MINUTES` 无终态会发「仍在处理中」提醒；
-  `REFETCH_STALE_TIMEOUT_MINUTES` 仍无终态则判定 failed 并通知，用户可再次点击；
-  成功替换、无候选、失败都各有明确群消息，不会看起来卡死。
+- 进度可感知：点击重抓后控制卡立刻切到「重抓中」（发布/拒绝/遮罩隐藏，重抓与查看原链接保留），
+  受理后超过 `REFETCH_PROGRESS_REMIND_MINUTES` 无终态会发「仍在处理中」提醒并在同一张卡上
+  更新已等待时长；`REFETCH_STALE_TIMEOUT_MINUTES` 仍无终态则判定 failed 并通知，用户可再次点击；
+  成功替换、无候选、失败都各有明确群消息并交还正常可操作卡片，不会看起来卡死。
+  源审核**不会**因为点击重抓被提前驳回（那是终态结论，会让自己的替换稿变 `obsolete`）。
 - 不接受 `target_id` 为空、或未配置上面的两个变量；不要用 `PIXIVFLOW_ENABLED=true`
   尝试唤醒独立执行端（那是同容器兼容模式的开关，拆分拓扑不适用）。
 - 内部 token 只在服务间 Bearer 请求头传递，绝不进群消息、日志或审计。

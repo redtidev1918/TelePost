@@ -1,6 +1,9 @@
 """Review-chat UI: inline keyboard + control card text (PTB adapter)."""
 from __future__ import annotations
 
+import json
+from typing import Optional, Tuple
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..application.review_queue import pixiv_id_from_link
@@ -108,3 +111,78 @@ def reused_notice_text(row) -> str:
         f"状态：{labels.get(row['status'], row['status'])}\n"
         "媒体未重复上传，原审核记录仍有效。"
     )
+
+
+def refetch_pending_text(*, review_id: int, minutes: Optional[int] = None) -> str:
+    """Control-card text while a manual replacement (重抓) is running.
+
+    §refetch-card-state: pressing 重抓 means the CURRENT candidate is rejected,
+    so the post the operator clicked must say so immediately instead of staying
+    byte-identical until a replacement lands (or forever, when none is found)."""
+    waited = f"\n已等待约 {minutes} 分钟，仍在查找…" if minutes else ""
+    return (
+        f"🔄 审核 #{review_id} 已提交重抓\n\n"
+        "当前候选已作废（视为已拒绝），不会再被发布。\n"
+        "正在查找新的候选作品…通常 1–3 分钟。\n"
+        "找到后会自动替换进审核队列；没有找到时本卡片会恢复。"
+        + waited
+    )
+
+
+def refetch_pending_keyboard(review_id: int,
+                             link: str = "") -> InlineKeyboardMarkup:
+    """Keyboard while a refetch is running: publish/reject are gone on purpose."""
+    rows = [[InlineKeyboardButton("🔄 重抓/换一张",
+                                  callback_data=f"review_refetch:{review_id}")]]
+    if link:
+        rows.append([InlineKeyboardButton("🔗 查看原链接", url=link)])
+    return InlineKeyboardMarkup(rows)
+
+
+def control_card_from_row(row) -> Tuple[str, InlineKeyboardMarkup]:
+    """Rebuild the NORMAL review card (text + keyboard) from a review row.
+
+    Used to restore a card after a refetch reached a terminal state without a
+    replacement, so the candidate becomes actionable again. Mirrors
+    ``TelegramReviewStager.send_control_message_id``; the row is the source of
+    truth (the card must survive a process restart)."""
+    from ..application.review_queue import command_from_row
+
+    command = command_from_row(row)
+    media = _json_list(row, "media_json")
+    documents = _json_list(row, "documents_json")
+    text = control_text(
+        review_id=int(row["id"]), command=command,
+        media_count=len(media), document_count=len(documents),
+    )
+    markup = review_keyboard(
+        int(row["id"]),
+        command.link,
+        spoiler=bool(command.spoiler),
+        source=command.source,
+        pixiv_id=(command.pixiv_id or pixiv_id_from_link(command.link or "")),
+        failed=(row["status"] == "failed"
+                if "status" in _row_keys(row) else False),
+        submitter_user_id=command.submitter_user_id,
+        actor_kind=command.actor_kind,
+        actor_subject=command.actor_subject,
+    )
+    return text, markup
+
+
+def _row_keys(row) -> list:
+    try:
+        return list(row.keys())
+    except AttributeError:
+        return list(row)
+
+
+def _json_list(row, column: str) -> list:
+    keys = _row_keys(row)
+    if column not in keys:
+        return []
+    try:
+        value = json.loads(row[column] or "[]")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    return value if isinstance(value, list) else []

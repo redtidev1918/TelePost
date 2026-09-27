@@ -770,6 +770,7 @@ def _caption_from_command(command: QueueCommand, media=None, documents=None) -> 
 
 
 def _command_from_row(row) -> QueueCommand:
+    """Rebuild a QueueCommand from a durable review row (private helper)."""
     return QueueCommand(
         user_id=row["user_id"], username=row["username"] or "",
         tags=row["tags"] or "", title=row["title"] or "",
@@ -792,3 +793,9 @@ def _command_from_row(row) -> QueueCommand:
             row["submitter_display_name"]
             if "submitter_display_name" in row.keys() else "") or "",
     )
+
+
+def command_from_row(row) -> QueueCommand:
+    """Public rebuild entry point for the Telegram card renderer
+    (§refetch-card-state): the review row stays the single source of truth."""
+    return _command_from_row(row)
