@@ -337,6 +337,7 @@ async def queue_review_from_file_ids(
     submitter_display_name="",
     actor_kind="user", actor_subject="",
     review_chain_id="", generation=0, supersedes_review_id=None,
+    data_class="real",
     media_assets=None,
 ) -> dict:
     """Stage a file_id submission and create a durable pending review."""
@@ -354,6 +355,7 @@ async def queue_review_from_file_ids(
         actor_kind=actor_kind, actor_subject=actor_subject,
         review_chain_id=review_chain_id, generation=generation,
         supersedes_review_id=supersedes_review_id,
+        data_class=data_class,
         media_assets=tuple(media_assets or ()),
     )
     return await _enqueue_reporting_dropped(
@@ -372,6 +374,7 @@ async def queue_review_from_files(
     refetch_request_id="", submitter_user_id=None, submitter_username="",
     submitter_display_name="",
     actor_kind="user", actor_subject="",
+    data_class="real",
     media_assets=None,
 ) -> dict:
     """Stage multipart API files and create a durable pending review."""
@@ -389,6 +392,7 @@ async def queue_review_from_files(
         submitter_username=submitter_username,
         submitter_display_name=submitter_display_name,
         actor_kind=actor_kind, actor_subject=actor_subject,
+        data_class=data_class,
         media_assets=tuple(media_assets or ()),
     )
     return await _enqueue_reporting_dropped(

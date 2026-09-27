@@ -80,6 +80,10 @@ class NewReview:
     submitter_display_name: str = ""
     actor_kind: str = "user"  # 'user' | 'service'
     actor_subject: str = ""
+    # Data-class marker (§data-class): 'real' (production) or 'test' (fixture).
+    # Defaults to 'real'; the test-data purge keys on this, never on a username
+    # pattern (see ReviewRepository.purge_test_data).
+    data_class: str = "real"
 
 
 class ReviewRepository:
@@ -146,11 +150,11 @@ class ReviewRepository:
                 review_chain_id, generation, supersedes_review_id,
                 refetch_request_id,
                 submitter_user_id, submitter_username, submitter_display_name, actor_kind,
-                actor_subject,
+                actor_subject, data_class,
                 created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?)
+                      ?, ?, ?)
             """,
             (
                 review.idempotency_key, review.source, review.status,
@@ -170,6 +174,7 @@ class ReviewRepository:
                 review.submitter_user_id, review.submitter_username,
                 review.submitter_display_name,
                 review.actor_kind, review.actor_subject,
+                review.data_class or "real",
                 now, now,
             ),
         )
@@ -358,6 +363,57 @@ class ReviewRepository:
         async with db_manager.get_db() as conn:
             await conn.execute("DELETE FROM pending_reviews WHERE id=?",
                                (int(review_id),))
+
+    async def purge_test_data(self, limit: int = 0):
+        """Delete TEST-marked rows, SAFE by construction (§data-class).
+
+        The ONLY delete criterion is the explicit ``data_class='test'`` marker
+        — never a username/title pattern (the fixc-verify LIKE cleanup deleted
+        the real review #140 during the 2026-09-28 incident). A boundary guard
+        additionally asserts a chain is safe BEFORE deleting it: if any sibnbling
+        row sharing ``review_chain_id`` is ``data_class='real'`` (or carries a
+        real pixiv candidate), the whole chain is refused — a real row streamed
+        into a test chain makes that chain undeletable by this sweep, so real
+        data can never be carried off by a test purge.
+
+        Returns a summary dict: ``{"deleted": n, "refused": [chain_ids]}``.
+        ``limit`` caps rows considered (0 = unlimited); refused rows are not
+        counted toward the cap.
+        """
+        async with db_manager.get_db() as conn:
+            rows = []
+            async with conn.execute(
+                "SELECT * FROM pending_reviews WHERE data_class='test' "
+                "ORDER BY id LIMIT ?",
+                (int(limit) if limit else -1,),
+            ) as cur:
+                rows = [dict(r) for r in await cur.fetchall()]
+            deleted = 0
+            refused: set = set()
+            for row in rows:
+                chain_id = row.get("review_chain_id") or ""
+                if chain_id in refused:
+                    continue
+                # Boundary guard: this test row must not share its chain with
+                # ANY real row (or real-typed candidate). Otherwise refuse.
+                # A row with no chain cannot group with anything, so it is
+                # always a safe single-row unit (production always assigns a
+                # chain, but guard defensively).
+                if chain_id:
+                    async with conn.execute(
+                        "SELECT COUNT(*) AS n FROM pending_reviews "
+                        "WHERE review_chain_id=? AND data_class='real'",
+                        (chain_id,),
+                    ) as cur:
+                        cnt = await cur.fetchone()
+                    if int(cnt["n"] or 0) > 0:
+                        refused.add(chain_id)
+                        continue
+                await conn.execute("DELETE FROM pending_reviews WHERE id=?",
+                                   (int(row["id"]),))
+                deleted += 1
+            await conn.commit()
+            return {"deleted": deleted, "refused": sorted(refused)}
 
     async def hide_from_own_history(self, review_id: int,
                                     submitter_user_id: int) -> bool:

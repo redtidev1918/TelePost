@@ -233,6 +233,25 @@ async def init_db():
                 'ON pending_reviews(submitter_user_id, created_at DESC, id DESC) '
                 'WHERE submitter_user_id IS NOT NULL'
             )
+            # Data-class marker (§data-class): explicit, durable classification
+            # of whether a review row carries REAL production data ('real',
+            # default) or TEST/fixture data ('test'). The marker is the ONLY
+            # criterion the test-data purge may use — never a username pattern
+            # (the fixc-verify LIKE cleanup deleted the real review #140 during
+            # the 2026-09-28 incident). A cascade/cleanup must also assert a
+            # chain carries no real row before deleting (see purge_test_data).
+            for column, ddl in (("data_class", "TEXT NOT NULL DEFAULT 'real'"),):
+                try:
+                    await conn.execute(
+                        f"ALTER TABLE pending_reviews ADD COLUMN {column} {ddl}"
+                    )
+                except Exception:
+                    pass  # column already exists
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_pending_reviews_data_class '
+                'ON pending_reviews(data_class, created_at DESC)'
+            )
+
             # User-facing history soft-delete (§my-submissions-delete): 1 hides
             # the whole review chain from the owner's /me history without
             # touching the review queue, published channel messages, or the
