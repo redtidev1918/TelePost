@@ -919,6 +919,152 @@ async def flush_refetch_terminal_notifications(bot, *, limit: int = 20) -> int:
     return delivered
 
 
+async def _apply_remote_terminal(bot, repo, row, remote_state, *,
+                                 request_id: str, review_id: int,
+                                 task_id: str) -> bool:
+    """Apply one remote terminal verdict through the state machine, exactly once.
+
+    The single seam shared by the poll loop AND the §events reconcile loop: both
+    feed a terminal remote-state outcome (``no_candidate`` / ``duplicate`` /
+    ``failed`` / ``submitted``) through :meth:`RefetchRepository.apply_outcome`,
+    whose idempotency bounds the terminal notification to exactly once no matter
+    which channel wins first. This is the "terminal event and the poll agree"
+    guarantee for the 不再永久静默 requirement.
+    """
+    disposition = ("no_alternative" if remote_state in _REFETCH_NO_CANDIDATE
+                   else "failed")
+    reason = ("delivery_uncorrelated" if remote_state == "submitted"
+              else "remote_failed" if remote_state == "failed" else "")
+    _, applied, changed = await repo.apply_outcome(
+        request_id, disposition, reason=reason,
+    )
+    if not changed:
+        return False
+    if applied == "no_alternative":
+        text = (f"📭 审核 #{review_id} 没有找到新的可替换作品，"
+                "当前稿件保持不变，可以再次重抓。")
+    elif applied == "failed":
+        text = (f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，"
+                "可以再次重抓。")
+    else:
+        text = f"ℹ️ 审核 #{review_id} 重抓已结束（{applied}）。"
+    fresh = await repo.find_by_request_id(request_id)
+    await _refetch_terminal_notify(
+        bot, repo, fresh if fresh is not None else row,
+        review_id=review_id, task_id=task_id, text=text,
+    )
+    return True
+
+
+def _persisted_event_document(evt):
+    """Rebuild the persisted Event doc from a normalized protocol Event.
+
+    The raw column stores this verbatim so business handling always decodes from
+    it (someone re-reading the row gets the full event, not a partial view).
+    """
+    return {
+        "event_id": evt.event_id,
+        "job_id": evt.job_id,
+        "type": evt.event_type,
+        "at": evt.at,
+        "correlation_id": evt.correlation_id,
+        "labels": dict(evt.labels or {}),
+        "payload": dict(evt.payload or {}),
+    }
+
+
+async def reconcile_refetch_events(bot, *, now: Optional[float] = None) -> int:
+    """§events consumer heartbeat: pull unacked events for every in-flight job.
+
+    Runs on the same cadence as ``poll_refetch_jobs`` and makes the event stream
+    self-healing — the callback is ACCELERATION, not the only channel. For each
+    in-flight attempt it resolves the remote job id, pulls
+    ``GET /jobs/{job_id}/events?after=<cursor>&unacked=1``, persists each Event
+    (dedup on ``event_id`` so a replay is a no-op), acks the newest durable
+    event_id, and feeds any terminal Event through the shared terminal seam
+    (:func:`_apply_remote_terminal`) so the callback and the poll can never
+    double-notify.
+
+    Returns the number of attempts on which this tick applied a terminal outcome.
+    """
+    if _refetch_heartbeat_disabled():
+        return 0
+    current_time = time.time() if now is None else now
+    from telepost.storage.sqlite.protocol_events import ProtocolEventRepository
+    repo = RefetchRepository()
+    events_repo = ProtocolEventRepository()
+    try:
+        rows = await repo.active_for_poll(current_time)
+    except Exception:
+        logger.warning("事件调和读取活跃任务失败", exc_info=True)
+        return 0
+    acted = 0
+    for row in rows:
+        try:
+            acted += await _reconcile_one_refetch_job(
+                bot, repo, events_repo, row, current_time=current_time,
+            )
+        except Exception:
+            logger.warning(
+                "事件调和单条失败: request_id=%s",
+                str(row["request_id"]), exc_info=True,
+            )
+    return acted
+
+
+async def _reconcile_one_refetch_job(bot, repo, events_repo, row, *,
+                                     current_time: float) -> int:
+    """Pull + persist + ack the unacked event tail of ONE in-flight attempt."""
+    request_id = str(row["request_id"] or "")
+    review_id = int(row["source_review_id"] or 0)
+    created = float(row["created_at"] or current_time)
+    task_id = f"refetch-{review_id}-{int(created)}"
+    client = _refetch_client()
+    # Resolve the remote job id: our submit used request_id as the idempotency
+    # key, so get() finds the same job the poll reads. A remote that is not yet
+    # visible (or is down) returns nothing and this attempt is retried next tick.
+    snapshot = await asyncio.to_thread(client.get, request_id)
+    job_id = str(snapshot.job_id or "")
+    if not job_id:
+        return 0
+    cursor = await events_repo.ack_through(job_id)
+    page = await asyncio.to_thread(
+        client.events, job_id, after=cursor, unacked=True,
+    )
+    if not page.events:
+        return 0
+    new_events = []
+    for evt in page.events:
+        result = await events_repo.persist(_persisted_event_document(evt))
+        if result["inserted"]:
+            new_events.append(evt)
+    # Ack the newest event we durably hold for this job. The producer treats an
+    # older/unknown cursor as a no-op (never an error, never a state change), so
+    # even a stale ack here cannot corrupt the stream.
+    newest = await events_repo.newest_event_id(job_id)
+    if newest and newest != cursor:
+        try:
+            await asyncio.to_thread(
+                client.ackEvents, job_id, ack_through=newest,
+            )
+        except Exception:
+            logger.warning("事件确认失败: job_id=%s", job_id, exc_info=True)
+        await events_repo.set_ack_through(job_id, newest)
+    # Feed terminal Events through the shared outcome seam exactly once.
+    acted = 0
+    for evt in new_events:
+        if not evt.is_terminal:
+            continue
+        remote_state = str(evt.remote_state or "").strip().lower()
+        if remote_state not in _REFETCH_TERMINAL_OUTCOMES:
+            continue
+        if await _apply_remote_terminal(
+                bot, repo, row, remote_state, request_id=request_id,
+                review_id=review_id, task_id=task_id):
+            acted += 1
+    return acted
+
+
 async def poll_refetch_jobs(bot, *, now: Optional[float] = None,
                             force: bool = False) -> int:
     """重抓作业心跳（P0）：每 30 秒轮询一次非终态 attempt 并推进生命周期。
@@ -1177,30 +1323,15 @@ async def _poll_one_refetch_job(bot, repo, row, *, current_time: float,
         )
 
     # 5. Remote business terminal → apply the outcome through the state machine.
+    #    Shared seam (see ``_apply_remote_terminal``): the §events reconcile loop
+    #    feeds the SAME apply_outcome/terminal-notify path, so a terminal Event
+    #    and this poll agree on the verdict and can never double-notify.
     if remote_state in _REFETCH_TERMINAL_OUTCOMES:
-        disposition = ("no_alternative" if remote_state in _REFETCH_NO_CANDIDATE
-                       else "failed")
-        reason = ("delivery_uncorrelated" if remote_state == "submitted"
-                  else "remote_failed" if remote_state == "failed" else "")
-        _, applied, changed = await repo.apply_outcome(
-            request_id, disposition, reason=reason,
-        )
-        if not changed:
-            return 0
-        if applied == "no_alternative":
-            text = (f"📭 审核 #{review_id} 没有找到新的可替换作品，"
-                    "当前稿件保持不变，可以再次重抓。")
-        elif applied == "failed":
-            text = (f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，"
-                    "可以再次重抓。")
-        else:
-            text = f"ℹ️ 审核 #{review_id} 重抓已结束（{applied}）。"
-        fresh = await repo.find_by_request_id(request_id)
-        await _refetch_terminal_notify(
-            bot, repo, fresh if fresh is not None else row,
-            review_id=review_id, task_id=task_id, text=text,
-        )
-        return 1
+        if await _apply_remote_terminal(
+                bot, repo, row, remote_state,
+                request_id=request_id, review_id=review_id, task_id=task_id):
+            return 1
+        return 0
 
     stage = fsm.stage_for_remote_state(remote_state)
     if stage:
