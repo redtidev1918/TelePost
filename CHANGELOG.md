@@ -8,6 +8,27 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.71.0](https://github.com/redtidev1918/TelePost/compare/v2.70.1...v2.71.0) (2026-09-27)
+
+
+### ⚠ Breaking-ish: PixivFlow 协作通道换成 Workflow Protocol v1
+
+审核群「重抓」改走稳定的远程作业 API（`POST /jobs` + 事件回调 +
+调和拉取），取代旧的内部路径。**升级顺序不可交换**：
+先升执行端 PixivFlow 到 3.3.0，再升本服务到 2.71.0。若临时需要切旧通道，
+用 `PIXIVFLOW_JOB_TRANSPORT=legacy` 回滚——旧入口仍保留，但不再默认。
+
+### Features
+
+* **refetch:** 重抓改为持久化作业（心跳、退避、重启可恢复），任何终态
+  （替换稿到达 / 无候选 / 失败 / 超时 / 已取消）都会在审核卡上明确显示原因
+  并允许再次重抓，不再出现「无限处理中」。事件通道到达即更新，无须等待轮询
+  ([a57a7bb](https://github.com/redtidev1918/TelePost/commit/a57a7bb74047c0afaf6b713a3d78ce61f47356ad))
+* **protocol:** 消费执行端作业事件，提供事件入口与调和循环，回调/调和都只
+  应用一次终态、最多发一次终态通知，绝不二次通知 ([0b1b73a](https://github.com/redtidev1918/TelePost/commit/0b1b73a2e80c09875befef511109438b1e877120))
+
+---
+
 ## [2.70.1](https://github.com/redtidev1918/TelePost/compare/v2.70.0...v2.70.1) (2026-09-27)
 
 
