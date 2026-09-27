@@ -116,6 +116,26 @@ flowchart LR
 [PixivFlow](https://github.com/redtidev1918/PixivFlow) 是一个独立的 Pixiv 下载、筛选与自动收集工具；
 它可以把结果交给 TelePost，也可以本地下载或投递到其他接收端。**TelePost 不依赖 PixivFlow。**
 
+#### 面向工作流编排方（Workflow Protocol v1）
+
+当 TelePost 与 PixivFlow 拆分部署时，两者的边界是一个跨服务的工作流契约 **Workflow Protocol v1**
+（权威文档见 [pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy) 的
+`docs/workflow-protocol.md`）。TelePost 在协议里扮演**内容工作流编排方**，
+PixivFlow 只作为**内容获取/处理引擎**，两侧互不触碰对方内部。
+
+- **重抓是远程 Job**：审核群里的「重抓」提交一份持久 Job（`POST /jobs`），
+  TelePost 用 `idempotency_key`/`job_id` 做双向不透明关联，轮询 `GET /jobs/{job_id}` 收敛终态；
+  协议版本与 `candidate_search` 能力在进入前经 `GET /capabilities` 协商。
+- **事件通道自愈**：可选 `callback_url`（仅当配置 `TELEPOST_API_BASE_URL` 时携带）让 PixivFlow
+  推事件到 `POST /api/botN/v1/jobs/events`；TelePost 另有调和循环 `GET /jobs/{job_id}/events`
+  + `ack` 兜底，回调丢失也能补回。事件与轮询汇合到**同一个**幂等终态缝
+  （`event_id` 去重），绝无二次终态通知。
+- **可回滚**：默认走协议通道；`PIXIVFLOW_JOB_TRANSPORT=legacy` 一键切回旧
+  `/internal/targets/{id}/refetch` 路由。
+
+端点、字段与验收见 [HTTP API 文档](docs/API.md) 与
+[Workflow Protocol v1](https://github.com/redtidev1918/pixivflow-telepost-deploy/blob/main/docs/workflow-protocol.md)。
+
 可选的 [MCP sidecar](docs/MCP_REVIEW.md) 允许 AI Agent 读取待审核内容并给出建议；最终发布仍由人类明确确认。
 
 ## 运行与部署
@@ -145,7 +165,7 @@ TelePost 可以运行在本地、VPS、Docker、Fly.io 或其他能够运行 Pyt
 | 下载并开始使用 | [下载](docs/download.md) · [安装与部署](docs/INSTALL.md) |
 | 配置 Bot、审核或多 Bot | [配置参考](docs/CONFIGURATION.md) |
 | 查看 Telegram 命令 | [命令参考](docs/COMMANDS.md) |
-| 接入自动化 | [HTTP API](docs/API.md) |
+| 接入自动化 | [HTTP API](docs/API.md) · [Workflow Protocol v1（PixivFlow 协作）](docs/CONFIGURATION.md) |
 | 启用 Mini App | [Mini App](docs/MINIAPP.md) |
 | 配置 Webhook 或 Fly.io | [Webhook 与 Polling](docs/WEBHOOK_MODE.md) · [Fly.io 部署](docs/FLYIO_DEPLOYMENT.md) |
 | 备份、升级或排查故障 | [运维手册](docs/OPERATIONS.md) · [故障排查](docs/TROUBLESHOOTING.md) |
