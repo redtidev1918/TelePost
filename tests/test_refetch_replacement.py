@@ -330,3 +330,74 @@ async def test_logical_submission_stays_one_item_after_replacement(refetch_db):
         assert int(rows[0]["id"]) != int(review_id)
     else:
         assert len([h for h in heads if h["review_chain_id"] == chain]) == 1
+
+
+@pytest.mark.asyncio
+async def test_chained_refetch_a_to_b_to_c_keeps_one_active_generation(refetch_db):
+    """连续重抓 A→B→C：同一条链、代数递增、只有最新一代 ACTIVE。
+
+    重抓语义 = 拒绝当前候选 + 继续寻找。第二次重抓的源是上一轮的替换结果
+    （generation 1 的 B），因此这里同时验证：
+      * 链不分裂（B 的替换结果仍然挂在 A 的链上）；
+      * 被替换的每一代都是终态历史（superseded），只有 C 是 pending；
+      * 候选生命周期留痕：111 --replaced_by--> 222 --replaced_by--> 333；
+      * 两次 attempt 各自终态为 replaced 且指向自己的结果代。
+    """
+    from telepost.storage.sqlite.reviews import ReviewRepository
+
+    review_a = await _insert_review(pixiv_id="111", target_id="target-a")
+    chain = (await _row(review_a))["review_chain_id"] or f"chain-{review_a}"
+
+    # A --重抓--> B
+    attempt_1 = await _start_attempt(review_a, generation=1, callback_id=9201)
+    result_b, _ = await _replacement_with_attempt(
+        review_a, attempt_1, candidate="222", idempotency_key="repl-1")
+    review_b = result_b["review_id"]
+
+    # B --重抓--> C（源候选是刚装上的 222，不是最初的 111）
+    attempt_2, _refused = await _attempt(
+        chain_id=chain, source_review_id=review_b, generation=2,
+        callback_id=9202, source_candidate_id="222")
+    await RefetchRepository().mark_admitted(attempt_2["request_id"], "slot-2")
+    result_c, _ = await _replacement_with_attempt(
+        review_b, attempt_2, candidate="333", idempotency_key="repl-2")
+    review_c = result_c["review_id"]
+
+    row_a, row_b, row_c = (await _row(review_a), await _row(review_b),
+                           await _row(review_c))
+    assert (row_a["status"], row_b["status"], row_c["status"]) == (
+        "superseded", "superseded", "pending")
+    assert row_b["review_chain_id"] == chain == row_c["review_chain_id"]
+    assert [row_a["generation"], row_b["generation"], row_c["generation"]] == [0, 1, 2]
+    assert row_b["supersedes_review_id"] == review_a
+    assert row_c["supersedes_review_id"] == review_b
+    assert await _active_generations(chain) == 1
+
+    repo = ReviewRepository()
+    assert int((await repo.head_of_chain(chain))["id"]) == int(review_c)
+    assert [int(r["id"]) for r in await repo.chain_rows(chain)] == [
+        review_a, review_b, review_c]
+
+    # 候选生命周期（谁被替换、被谁替换、当前待审的是谁）。
+    async with db_manager.get_db() as conn:
+        cur = await conn.execute(
+            "SELECT candidate_id, outcome, replaced_by FROM refetch_seen_candidates "
+            "WHERE review_chain_id=? ORDER BY generation, candidate_id", (chain,))
+        seen = {r["candidate_id"]: dict(r) for r in await cur.fetchall()}
+    assert seen["111"]["outcome"] == "rejected_by_refetch"
+    assert seen["111"]["replaced_by"] == "222"
+    assert seen["222"]["outcome"] == "rejected_by_refetch"
+    assert seen["222"]["replaced_by"] == "333"
+    assert seen["333"]["outcome"] == "pending_review"
+
+    # 两次重抓都各自终态、各自指向自己的结果代，且时间线可查询。
+    rrepo = RefetchRepository()
+    first = await rrepo.find_by_request_id(attempt_1["request_id"])
+    second = await rrepo.find_by_request_id(attempt_2["request_id"])
+    assert first["state"] == "replaced"
+    assert int(first["result_review_id"]) == int(review_b)
+    assert second["state"] == "replaced"
+    assert int(second["result_review_id"]) == int(review_c)
+    assert len(await rrepo.list_events(attempt_2["request_id"])) >= 2
+    assert (await rrepo.find_latest_by_chain(chain))["request_id"] == \
+        attempt_2["request_id"]

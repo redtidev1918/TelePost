@@ -148,6 +148,10 @@ rejection notification.
 - reject 通知只由 current head 的显式拒绝触发：chat 投稿人发到 user_id，
   human Mini App 投稿人发到 submitter_user_id（service 绝不通知）。
 - superseded 绝不发拒绝通知；superseded ≠ rejected（历史记录，非审核结论）。
+- **连续重抓（A→B→C）**：第二次重抓的源是上一轮的替换结果，链不分裂、代数递增
+  （0/1/2）、仍只有一代 active；因果留痕 `111 --replaced_by--> 222 --replaced_by--> 333`
+  （`refetch_seen_candidates.outcome='rejected_by_refetch'`，当前候选 `pending_review`）。
+  回归测试：`tests/test_refetch_replacement.py::test_chained_refetch_a_to_b_to_c_keeps_one_active_generation`。
 
 ## 已知待办（本仓库范围）
 
