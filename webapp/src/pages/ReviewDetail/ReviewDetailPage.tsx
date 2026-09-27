@@ -37,11 +37,35 @@ const REFETCH_LABELS: Record<string, string> = {
   requested: '正在重抓',
   admitted: '正在重抓',
   running: '正在重抓',
+  searching: '正在重抓：搜索候选',
+  filtering: '正在重抓：筛选候选',
+  candidate_found: '正在重抓：候选已就绪',
   replaced: '已找到新的候选',
   no_alternative: '没有新的可替换作品',
+  no_candidate: '没有新的可替换作品',
+  timeout: '重抓超时（当前稿件不变）',
+  cancelled: '当前稿件已过期',
   failed: '重抓失败',
   obsolete: '当前稿件已过期',
 };
+
+/** Canonical + legacy active states: the button must stay disabled while the
+ * job runs, whichever vocabulary the server reports (§refetch-lifecycle). */
+const ACTIVE_REFETCH_STATES = new Set([
+  'requested',
+  'admitted',
+  'searching',
+  'filtering',
+  'candidate_found',
+]);
+
+/** Elapsed wait, rendered the same way the review card renders it. */
+function formatElapsed(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(total / 60);
+  if (minutes < 1) return `${total} 秒`;
+  return `${minutes} 分 ${total % 60} 秒`;
+}
 
 export function ReviewDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -127,6 +151,11 @@ export function ReviewDetailPage() {
   }
   const item = review.data;
   const attempt: RefetchAttempt | null | undefined = refetchState.data?.attempt;
+  // Canonical vocabulary when the server reports it, legacy otherwise, so an old
+  // bot/AI client keeps working (§refetch-lifecycle, to_legacy on the wire).
+  const refetchStateName = attempt ? (attempt.canonical_state || attempt.state) : '';
+  const refetchActive = ACTIVE_REFETCH_STATES.has(refetchStateName);
+  const refetchFailed = refetchStateName === 'failed' || refetchStateName === 'timeout';
 
   return (
     <div>
@@ -161,14 +190,31 @@ export function ReviewDetailPage() {
         <Cell subtitle={item.spoiler ? '开启' : '关闭'}>剧透</Cell>
       </Section>
 
-      {/* Refetch state (§35-§36) */}
+      {/* Refetch state (§35-§36, §refetch-lifecycle) */}
       {refetchState.data && attempt && (
         <Section header="重抓">
-          <Cell subtitle={REFETCH_LABELS[attempt.state] || attempt.state}>
+          <Cell
+            subtitle={
+              attempt.label
+              || REFETCH_LABELS[refetchStateName]
+              || refetchStateName
+            }
+          >
             Generation {attempt.generation}
           </Cell>
-          {attempt.state === 'failed' && attempt.failure_code && (
+          {(attempt.progress?.task_id || attempt.task_id) && (
+            <Cell subtitle={attempt.progress?.task_id || attempt.task_id}>任务ID</Cell>
+          )}
+          {attempt.progress && refetchActive && (
+            <Cell subtitle={`已等待 ${formatElapsed(attempt.progress.elapsed_seconds)}`}>
+              进度
+            </Cell>
+          )}
+          {refetchFailed && attempt.failure_code && (
             <Cell subtitle={attempt.failure_code}>失败原因</Cell>
+          )}
+          {attempt.terminal_reason && (
+            <Cell subtitle={attempt.terminal_reason}>终止原因</Cell>
           )}
           {refetchState.data.lineage.length > 1 && (
             <Cell subtitle={refetchState.data.lineage.map((l) => `G${l.generation}:${l.candidate_id}`).join(' → ')}>
@@ -222,7 +268,7 @@ export function ReviewDetailPage() {
               size="s"
               mode="bezeled"
               loading={refetch.isPending}
-              disabled={refetch.isPending || refetchState.isPending || refetchState.isError || attempt?.state === 'requested' || attempt?.state === 'admitted'}
+              disabled={refetch.isPending || refetchState.isPending || refetchState.isError || refetchActive}
               onClick={() => void refetch.mutateAsync()}
             >
               🔄 重抓
