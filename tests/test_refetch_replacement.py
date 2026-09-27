@@ -258,7 +258,7 @@ async def test_second_attempt_after_replacement_resolves_obsolete(refetch_db):
     late = {"request_id": "late-r2-uuid", "state": "requested"}
     async with db_manager.get_db() as conn:
         await conn.execute(
-            "UPDATE refetch_attempts SET state='obsolete', finished_at=? "
+            "UPDATE refetch_attempts SET state='cancelled', finished_at=? "
             "WHERE request_id=?",
             (time.time(), late["request_id"]),
         )
@@ -266,7 +266,7 @@ async def test_second_attempt_after_replacement_resolves_obsolete(refetch_db):
 
 
 @pytest.mark.asyncio
-async def test_reject_during_refetch_wins_and_result_is_obsolete(refetch_db):
+async def test_reject_during_refetch_wins_and_result_is_cancelled(refetch_db):
     """Explicit reject of the head wins; the late replacement never revives it."""
     from services.review_service import ReviewService
 
@@ -278,16 +278,16 @@ async def test_reject_during_refetch_wins_and_result_is_obsolete(refetch_db):
     assert (await _row(review_id))["status"] == "rejected"
 
     # The late replacement delivery discovers the decision and resolves the
-    # attempt obsolete instead of creating a second generation.
+    # attempt cancelled instead of creating a second generation.
     try:
         _result, _ = await _replacement_with_attempt(review_id, attempt)
     except ValueError as exc:
-        assert "obsolete" in str(exc)
+        assert "cancelled" in str(exc)
     head = await _row_head(review_id)
     assert head == review_id                      # no new generation installed
     assert (await _row(review_id))["status"] == "rejected"
     assert (await RefetchRepository().find_by_request_id(
-        attempt["request_id"]))["state"] == "obsolete"
+        attempt["request_id"]))["state"] == "cancelled"
 
 
 @pytest.mark.asyncio

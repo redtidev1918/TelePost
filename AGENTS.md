@@ -252,17 +252,59 @@ api token 持有者                     绝不是 submitter
 - Chat 与 Mini App 都收敛到 QueueCommand / ReviewQueueService；Mini App 发 bytes，
   服务端 Telegram staging 才获得 file_id。
 
+## Refetch 生命周期状态机（§refetch-lifecycle）
+
+```text
+REQUESTED → SEARCHING → FILTERING → CANDIDATE_FOUND → REPLACED
+     └──────────┴────────────┴──────────────┴──→ FAILED / TIMEOUT / NO_CANDIDATE / CANCELLED
+```
+
+- **SSOT**：`telepost/domain/refetch_state.py` 是唯一权威（状态常量、`ALLOWED`
+  迁移表、`assert_transition`、`normalize`/`to_legacy`、中文 `label`、
+  `REMOTE_CELL_STAGES`/`stage_for_remote_state`）。DB 与 Mini App 继续导出旧词以兼容
+  旧客户端：`admitted→searching`、`no_alternative→no_candidate`、`obsolete→cancelled`
+  （`timeout` 映射回 legacy `failed`）；`sql_state_list` 让 active/terminal 集合只有一份。
+- **唯一写入口**：所有 attempt 状态变更必须经 `apply_transition_on`
+  （`telepost/storage/sqlite/refetch.py`）。它强制迁移合法性（非法迁移抛
+  `IllegalRefetchTransition`）、写 `updated_at`/`finished_at`/`terminal_reason` 并追加
+  `refetch_events` 时间线。**禁止绕过 repository 直接 `UPDATE refetch_attempts`**
+  （历史上 5 处写入、2 处绕过，是本轮「不一致」根因）。
+- **`failure_code` 只属于失败终态**（FAILED/TIMEOUT）；其他终态把原因写
+  `terminal_reason`，绝不把「迁移原因」混进 `failure_code`。
+- **无进展不算进展**：无状态迁移、无新远端状态、无可变列差异的重复轮询不写
+  `updated_at`，否则 watchdog 永远看不到 stage stall。
+- **终态可查**：审核卡与 Mini App 显示 任务ID `refetch-<source_review_id>-<epoch秒>`
+  + 阶段中文标签 + 已等待秒数；`get_refetch_state` 在无 active attempt 时回落到
+  `find_latest_by_chain`，终态同样可被查询（终态不是「查无此物」）。
+- **候选历史**：`refetch_seen_candidates` 记录 generation / candidate_id / source /
+  request_id / outcome / reason / decided_at / replaced_by——谁被拒、为什么、何时、
+  被谁替代；`refetch_events` 是 attempt 的耐久时间线。运行历史与「当前状态」都不许只存在于内存。
+
 ## Refetch 终态可见性 与 watchdog 不变量（§refetch-terminal-notify）
 
-- **已决审核的重抓终态必须可见**：obsolete（outcome 到达时源审核已被驳回/通过）与
+- **已决审核的重抓终态必须可见**：cancelled（outcome 到达时源审核已被驳回/通过）与
   watchdog 的 `source_review_resolved` 分支都必须向审核群通知一次（“重抓已取消，当前稿件
   不变”），绝不能用无限“仍在处理中”掩盖 silent terminal。replay（已终态重复投递）不重复通知。
+- **进度必须重复播报**：每 `REFETCH_PROGRESS_REMIND_MINUTES`（默认 2）分钟向审核群播报
+  一次（阶段中文标签 + 已等待时长 + 任务ID），不是「每个 attempt 只提醒一次」。
+- **阶段停滞必须收敛**：远端仍在 working（或远端状态读不出来）但阶段连续
+  `REFETCH_STAGE_TIMEOUT_MINUTES`（默认 10）分钟没有前进 → `timeout(stalled_no_progress)`；
+  绝不能出现「无限 SEARCHING」。
+- **admission 超时只针对未被接受的 requested**：超过
+  `REFETCH_STALE_TIMEOUT_MINUTES`（默认 20）分钟仍未被 PixivFlow 接受 →
+  `timeout(admission_timeout)`，且该分支必须 `continue`，不得再落进硬上限分支
+  （否则两个终态会互相覆盖 `failure_code`）。
 - **watchdog 对同一 request UUID 可做幂等 wake**：机器不可达且超过
-  `REFETCH_WAKE_MINUTES` 无进展时，用同一 request UUID 再调 PixivFlow refetch
-  （Fly Proxy 拉起机器，PixivFlow 恢复既有 manual slot）；不得创建第二条 attempt。
-- **硬性 SLA**：超过 `REFETCH_HARD_TIMEOUT_MINUTES` 仍无法形成任何 terminal outcome
-  时，attempt 必须 `failed(stalled_after_hard_timeout)` 并通知审核群——accepted 重抓
-  绝不永久 running。
+  `REFETCH_WAKE_MINUTES`（默认 12）分钟无进展、**且仍在硬上限内**时，用同一 request UUID
+  再调 PixivFlow refetch（Fly Proxy 拉起机器，PixivFlow 恢复既有 manual slot）；
+  不得创建第二条 attempt。已过 `REFETCH_HARD_TIMEOUT_MINUTES` 的 attempt 只终止、不唤醒。
+- **硬性 SLA**：超过 `REFETCH_HARD_TIMEOUT_MINUTES`（默认 30）仍无法形成任何 terminal
+  outcome 时，attempt 必须 `timeout(stalled_after_hard_timeout)` 并通知审核群——accepted
+  重抓绝不永久 running。
+- **只读自检**：`python -m telepost.observability.cli doctor`（`--bot/--all-bots/--json/--now`）
+  校验 DB 完整性、卡住的 refetch（active >15 分钟 WARN / >30 分钟 CRIT）、
+  active partial-index 不变量、孤儿审核、publishing 卡住、delivery outbox、近期 audit；
+  全部 `mode=ro`，退出码 0/1/2，绝不打印令牌。
 
 ## Editorial Revision 与投稿者通知不变量（§editorial, §notify-submitter）
 

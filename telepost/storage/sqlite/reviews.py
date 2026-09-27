@@ -221,10 +221,10 @@ class ReviewRepository:
                 if attempt is None:
                     return False
                 if source is None or source["status"] != "pending":
-                    await conn.execute(
-                        "UPDATE refetch_attempts SET state='obsolete', finished_at=? "
-                        "WHERE request_id=? AND state IN ('requested','admitted')",
-                        (time.time(), refetch_request_id),
+                    # No bypass write: the attempt state machine owns this
+                    # transition (and records the timeline event).
+                    await refetch_repo.mark_cancelled_on(
+                        conn, refetch_request_id, "source_review_resolved"
                     )
                     return False
                 chain_id, _ = await refetch_repo.chain_of_review(conn, source)

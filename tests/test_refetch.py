@@ -231,7 +231,7 @@ async def test_new_intentional_click_after_terminal_creates_new_generation(refet
     assert len(all_rows) == 2
     assert second["request_id"] != first["request_id"]
     assert second["generation"] == first["generation"] + 1
-    assert second["state"] == "admitted"
+    assert second["state"] == "searching"
 
 
 @pytest.mark.asyncio
@@ -335,7 +335,7 @@ async def test_outcome_no_alternative_updates_attempt_and_notifies(refetch_db, m
 
     repo = RefetchRepository()
     updated = await repo.find_by_request_id(attempt["request_id"])
-    assert updated["state"] == "no_alternative"
+    assert updated["state"] == "no_candidate"
     assert updated["scanned"] == 5
     assert updated["skipped_duplicate"] == 4
     # Current review stays untouched.
@@ -409,7 +409,7 @@ async def test_outcome_rejected_after_approve_becomes_obsolete(refetch_db, monke
 
     repo = RefetchRepository()
     updated = await repo.find_by_request_id(attempt["request_id"])
-    assert updated["state"] == "obsolete"
+    assert updated["state"] == "cancelled"
     # Reviewer decision untouched and NOT re-notified.
     async with db_manager.get_db() as conn:
         cur = await conn.execute(
@@ -537,7 +537,7 @@ async def test_replacement_staging_failure_keeps_source_pending(refetch_db):
     async with db_manager.get_db() as conn:
         cur = await conn.execute("SELECT status FROM pending_reviews WHERE id=?", (review_id,))
         assert (await cur.fetchone())["status"] == "pending"
-    assert (await RefetchRepository().find_by_request_id(attempt["request_id"]))["state"] == "admitted"
+    assert (await RefetchRepository().find_by_request_id(attempt["request_id"]))["state"] == "searching"
 
     bot.send_photo.side_effect = None
     bot.send_photo.return_value = _photo_message()
@@ -572,7 +572,7 @@ async def test_replacement_after_approve_race_does_not_supersede(refetch_db, mon
     control.message_id = 11
     bot.send_message.return_value = control
 
-    with pytest.raises(ValueError, match="obsolete"):
+    with pytest.raises(ValueError, match="cancelled"):
         await review.queue_review_from_file_ids(
             bot,
             [{"type": "photo", "file_id": "NEW_ART"}],
@@ -599,11 +599,11 @@ async def test_replacement_after_approve_race_does_not_supersede(refetch_db, mon
     bot.send_photo.assert_not_awaited()
     repo = RefetchRepository()
     updated = await repo.find_by_request_id(attempt["request_id"])
-    assert updated["state"] == "obsolete"
+    assert updated["state"] == "cancelled"
 
 
 @pytest.mark.asyncio
-async def test_replacement_decided_during_staging_is_obsolete(refetch_db):
+async def test_replacement_decided_during_staging_is_cancelled(refetch_db):
     review_id = await _insert_review(pixiv_id="111", target_id="target-a")
     attempt, _ = await _attempt(
         chain_id="chain-%d" % review_id, source_review_id=review_id, callback_id=9001)
@@ -632,7 +632,7 @@ async def test_replacement_decided_during_staging_is_obsolete(refetch_db):
         assert (await cur.fetchone())["status"] == "rejected"
         cur = await conn.execute("SELECT status FROM pending_reviews WHERE pixiv_id='222'")
         assert (await cur.fetchone())["status"] == "failed"
-    assert (await RefetchRepository().find_by_request_id(attempt["request_id"]))["state"] == "obsolete"
+    assert (await RefetchRepository().find_by_request_id(attempt["request_id"]))["state"] == "cancelled"
 
 # ---------------------------------------------------------------------------
 # API plumbing: refetch_request_id rides the submission into the queue service
@@ -795,28 +795,38 @@ async def test_cleanup_superseded_disabled_by_zero(refetch_db, monkeypatch):
 # Progress watchdog: reminders + stale-timeout failure notification
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_progress_watchdog_reminds_then_stale_fails(refetch_db, monkeypatch):
+async def test_progress_watchdog_repeats_reminders_then_hard_timeout(
+    refetch_db, monkeypatch,
+):
+    """§refetch-lifecycle: the operator sees REPEATING progress and no attempt
+    may outlive the hard ceiling."""
     import time as _t
     review_id = await _insert_review(pixiv_id="111")
     attempt, _ = await _attempt(
         chain_id="chain-%d" % review_id, source_review_id=review_id, callback_id=9001)
     await RefetchRepository().mark_admitted(attempt["request_id"], "slot-1")
-    # Age the attempt: 10 minutes old (remind=5, stale=45 → remind window).
+    # 12 minutes into a working stage: past the 5-minute remind window, still
+    # below the 10-minute stage stall and the 30-minute hard ceiling.
     async with db_manager.get_db() as conn:
         await conn.execute(
             "UPDATE refetch_attempts SET created_at=? WHERE id=?",
-            (_t.time() - 10 * 60, attempt["id"]),
+            (_t.time() - 12 * 60, attempt["id"]),
         )
     monkeypatch.setattr(review, "REFETCH_PROGRESS_REMIND_MINUTES", 5)
-    monkeypatch.setattr(review, "REFETCH_STALE_TIMEOUT_MINUTES", 45)
+    monkeypatch.setattr(review, "REFETCH_STAGE_TIMEOUT_MINUTES", 10)
+    monkeypatch.setattr(review, "REFETCH_STALE_TIMEOUT_MINUTES", 20)
+    monkeypatch.setattr(review, "REFETCH_WAKE_MINUTES", 12)
+    monkeypatch.setattr(review, "REFETCH_HARD_TIMEOUT_MINUTES", 30)
     monkeypatch.setattr(review, "_read_pixivflow_refetch_status",
-                        lambda target_id, request_id: "failed")
+                        lambda target_id, request_id: "pending")
     bot = AsyncMock()
 
     acted = await review.monitor_refetch_progress(bot)
     assert acted == 1
     msg = bot.send_message.await_args.kwargs["text"]
     assert "仍在处理中" in msg and str(review_id) in msg
+    # Every progress message carries the diagnosable task id.
+    assert "任务ID：refetch-%d-" % review_id in msg
     first_send_count = bot.send_message.await_count
 
     # Immediate re-run: same remind window → no duplicate reminder.
@@ -824,29 +834,31 @@ async def test_progress_watchdog_reminds_then_stale_fails(refetch_db, monkeypatc
     assert acted == 0
     assert bot.send_message.await_count == first_send_count
 
-    # A long-running attempt gets only one progress message, not one per window.
+    # The reminder REPEATS once the window has elapsed again — silence would
+    # read as "the task died" (§refetch-card-state).
     async with db_manager.get_db() as conn:
         await conn.execute(
-            "UPDATE refetch_attempts SET created_at=? WHERE id=?",
-            (_t.time() - 30 * 60, attempt["id"]),
-        )
-    acted = await review.monitor_refetch_progress(bot)
-    assert acted == 0
-    assert bot.send_message.await_count == first_send_count
-
-    # Age past the stale timeout → attempt fails + user notified.
-    async with db_manager.get_db() as conn:
-        await conn.execute(
-            "UPDATE refetch_attempts SET created_at=? WHERE id=?",
-            (_t.time() - 50 * 60, attempt["id"]),
+            "UPDATE refetch_attempts SET last_progress_notified_at=? WHERE id=?",
+            (_t.time() - 20 * 60, attempt["id"]),
         )
     acted = await review.monitor_refetch_progress(bot)
     assert acted == 1
-    assert "重抓失败" in bot.send_message.await_args.kwargs["text"]
+    assert bot.send_message.await_count == first_send_count + 1
+    assert "仍在处理中" in bot.send_message.await_args.kwargs["text"]
+
+    # Past the hard ceiling the attempt MUST become terminal + notify.
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "UPDATE refetch_attempts SET created_at=? WHERE id=?",
+            (_t.time() - 40 * 60, attempt["id"]),
+        )
+    acted = await review.monitor_refetch_progress(bot)
+    assert acted == 1
+    assert "已自动终止" in bot.send_message.await_args.kwargs["text"]
     repo = RefetchRepository()
     updated = await repo.find_by_request_id(attempt["request_id"])
-    assert updated["state"] == "failed"
-    assert updated["failure_code"] == "remote_failed"
+    assert updated["state"] == "timeout"
+    assert updated["failure_code"] == "stalled_after_hard_timeout"
     # Current review untouched.
     async with db_manager.get_db() as conn:
         cur = await conn.execute(
@@ -854,6 +866,42 @@ async def test_progress_watchdog_reminds_then_stale_fails(refetch_db, monkeypatc
         )
         row = await cur.fetchone()
     assert row["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_stage_stall_becomes_timeout_not_endless_searching(
+    refetch_db, monkeypatch,
+):
+    """§refetch-lifecycle — a stage that stops advancing is a stall, and a
+    longer wait is never a fix: never an endless SEARCHING."""
+    review_id = await _insert_review(pixiv_id="111")
+    attempt, _ = await _attempt(
+        chain_id="chain-%d" % review_id, source_review_id=review_id, callback_id=9001)
+    repo = RefetchRepository()
+    await repo.mark_admitted(attempt["request_id"], "slot-1")
+    # The remote still answers with a working cell, but 15 minutes passed with
+    # no stage advance (stage timeout = 10 minutes).
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "UPDATE refetch_attempts SET created_at=?, updated_at=? WHERE id=?",
+            (time.time() - 15 * 60, time.time() - 15 * 60, attempt["id"]),
+        )
+    monkeypatch.setattr(review, "REFETCH_PROGRESS_REMIND_MINUTES", 5)
+    monkeypatch.setattr(review, "REFETCH_STAGE_TIMEOUT_MINUTES", 10)
+    monkeypatch.setattr(review, "REFETCH_STALE_TIMEOUT_MINUTES", 20)
+    monkeypatch.setattr(review, "REFETCH_WAKE_MINUTES", 12)
+    monkeypatch.setattr(review, "REFETCH_HARD_TIMEOUT_MINUTES", 30)
+    monkeypatch.setattr(review, "_read_pixivflow_refetch_status",
+                        lambda target_id, request_id: "pending")
+    bot = AsyncMock()
+
+    acted = await review.monitor_refetch_progress(bot)
+    assert acted == 1
+    row = await repo.find_by_request_id(attempt["request_id"])
+    assert row["state"] == "timeout"
+    assert row["failure_code"] == "stalled_no_progress"
+    msg = bot.send_message.await_args.kwargs["text"]
+    assert "停留超过" in msg and "任务ID：refetch-%d-" % review_id in msg
 
 
 @pytest.mark.asyncio
@@ -869,19 +917,23 @@ async def test_progress_watchdog_disabled_when_zero(refetch_db, monkeypatch):
             (_t.time() - 50 * 60, attempt["id"]),
         )
     monkeypatch.setattr(review, "REFETCH_PROGRESS_REMIND_MINUTES", 0)
+    monkeypatch.setattr(review, "REFETCH_STAGE_TIMEOUT_MINUTES", 0)
     monkeypatch.setattr(review, "REFETCH_STALE_TIMEOUT_MINUTES", 0)
+    monkeypatch.setattr(review, "REFETCH_WAKE_MINUTES", 0)
+    monkeypatch.setattr(review, "REFETCH_HARD_TIMEOUT_MINUTES", 0)
 
     acted = await review.monitor_refetch_progress(AsyncMock())
     assert acted == 0
     repo = RefetchRepository()
-    assert (await repo.find_by_request_id(attempt["request_id"]))["state"] == "admitted"
+    # Disabled: the watchdog never touches the attempt (still active, canonical).
+    assert (await repo.find_by_request_id(attempt["request_id"]))["state"] == "searching"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "remote_state, expected_state, expected_failure",
-    [("delivery_pending", "admitted", ""),
-     ("no_candidate", "no_alternative", ""),
+    [("delivery_pending", "candidate_found", ""),
+     ("no_candidate", "no_candidate", ""),
      ("submitted", "failed", "delivery_uncorrelated")],
 )
 async def test_stale_watchdog_uses_remote_business_state(
@@ -895,10 +947,13 @@ async def test_stale_watchdog_uses_remote_business_state(
     async with db_manager.get_db() as conn:
         await conn.execute(
             "UPDATE refetch_attempts SET created_at=?, last_progress_notified_at=? WHERE id=?",
-            (time.time() - 60 * 60, time.time() - 30 * 60, attempt["id"]),
+            (time.time() - 15 * 60, time.time() - 30 * 60, attempt["id"]),
         )
     monkeypatch.setattr(review, "REFETCH_PROGRESS_REMIND_MINUTES", 5)
-    monkeypatch.setattr(review, "REFETCH_STALE_TIMEOUT_MINUTES", 45)
+    monkeypatch.setattr(review, "REFETCH_STAGE_TIMEOUT_MINUTES", 10)
+    monkeypatch.setattr(review, "REFETCH_STALE_TIMEOUT_MINUTES", 20)
+    monkeypatch.setattr(review, "REFETCH_WAKE_MINUTES", 12)
+    monkeypatch.setattr(review, "REFETCH_HARD_TIMEOUT_MINUTES", 30)
     monkeypatch.setattr(review, "_read_pixivflow_refetch_status",
                         lambda target_id, request_id: remote_state)
     bot = AsyncMock()
@@ -906,7 +961,8 @@ async def test_stale_watchdog_uses_remote_business_state(
     row = await repo.find_by_request_id(attempt["request_id"])
     assert row["state"] == expected_state
     assert (row["failure_code"] or "") == expected_failure
-    assert bot.send_message.await_count == (0 if remote_state == "delivery_pending" else 1)
+    # A business terminal and a progress reminder are both user-visible events.
+    assert bot.send_message.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -919,17 +975,22 @@ async def test_stale_watchdog_keeps_admitted_on_remote_error(refetch_db, monkeyp
     async with db_manager.get_db() as conn:
         await conn.execute(
             "UPDATE refetch_attempts SET created_at=? WHERE id=?",
-            (time.time() - 60 * 60, attempt["id"]),
+            (time.time() - 7 * 60, attempt["id"]),
         )
     monkeypatch.setattr(review, "REFETCH_PROGRESS_REMIND_MINUTES", 5)
-    monkeypatch.setattr(review, "REFETCH_STALE_TIMEOUT_MINUTES", 45)
+    monkeypatch.setattr(review, "REFETCH_STAGE_TIMEOUT_MINUTES", 10)
+    monkeypatch.setattr(review, "REFETCH_STALE_TIMEOUT_MINUTES", 20)
+    monkeypatch.setattr(review, "REFETCH_WAKE_MINUTES", 12)
+    monkeypatch.setattr(review, "REFETCH_HARD_TIMEOUT_MINUTES", 30)
 
     def unreachable(target_id, request_id):
         raise OSError("remote unavailable")
 
     monkeypatch.setattr(review, "_read_pixivflow_refetch_status", unreachable)
     await review.monitor_refetch_progress(AsyncMock())
-    assert (await repo.find_by_request_id(attempt["request_id"]))["state"] == "admitted"
+    # A transport failure is not a business outcome: the attempt stays active
+    # (the hard ceiling, not the transport, is what ends it).
+    assert (await repo.find_by_request_id(attempt["request_id"]))["state"] == "searching"
 
 
 @pytest.mark.asyncio
@@ -948,7 +1009,7 @@ async def test_stale_unadmitted_request_fails_without_remote_poll(refetch_db, mo
                         lambda *args: pytest.fail("unadmitted request polled remotely"))
     await review.monitor_refetch_progress(AsyncMock())
     row = await RefetchRepository().find_by_request_id(attempt["request_id"])
-    assert row["state"] == "failed" and row["failure_code"] == "admission_timeout"
+    assert row["state"] == "timeout" and row["failure_code"] == "admission_timeout"
 
 
 def test_remote_refetch_status_uses_same_authenticated_target(monkeypatch):
@@ -1090,7 +1151,7 @@ async def test_watchdog_notifies_when_source_review_decided(refetch_db, monkeypa
     bot = AsyncMock()
     acted = await review.monitor_refetch_progress(bot)
     row = await repo.find_by_request_id(attempt["request_id"])
-    assert row["state"] == "obsolete"  # source decided -> obsolete, still terminal
+    assert row["state"] == "cancelled"  # source decided -> cancelled, still terminal
     assert acted == 1
     assert bot.send_message.await_count == 1
     assert "已取消" in bot.send_message.await_args.kwargs["text"]
@@ -1106,8 +1167,9 @@ async def test_watchdog_wakes_stopped_machine_with_same_request_id(refetch_db, m
     await repo.mark_admitted(attempt["request_id"], "slot-3")
     async with db_manager.get_db() as conn:
         await conn.execute(
-            "UPDATE refetch_attempts SET created_at=? WHERE id=?",
-            (time.time() - 60 * 60, attempt["id"]),
+            "UPDATE refetch_attempts SET created_at=?, last_progress_notified_at=? "
+            "WHERE id=?",
+            (time.time() - 60 * 60, time.time(), attempt["id"]),
         )
     monkeypatch.setattr(review, "REFETCH_PROGRESS_REMIND_MINUTES", 5)
     monkeypatch.setattr(review, "REFETCH_STALE_TIMEOUT_MINUTES", 45)
@@ -1126,7 +1188,7 @@ async def test_watchdog_wakes_stopped_machine_with_same_request_id(refetch_db, m
     await review.monitor_refetch_progress(bot)
     assert woken == [attempt["request_id"]]
     row = await repo.find_by_request_id(attempt["request_id"])
-    assert row["state"] == "admitted"  # wake does not terminalize
+    assert row["state"] == "searching"  # wake does not terminalize
     # Second pass: no duplicate wake, still no terminalize.
     await review.monitor_refetch_progress(bot)
     assert woken == [attempt["request_id"]]
@@ -1158,7 +1220,7 @@ async def test_watchdog_hard_stalls_never_running(refetch_db, monkeypatch):
     bot = AsyncMock()
     acted = await review.monitor_refetch_progress(bot)
     row = await repo.find_by_request_id(attempt["request_id"])
-    assert row["state"] == "failed" and row["failure_code"] == "stalled_after_hard_timeout"
+    assert row["state"] == "timeout" and row["failure_code"] == "stalled_after_hard_timeout"
     assert acted == 1
     assert bot.send_message.await_count == 1
     assert "未完成" in bot.send_message.await_args.kwargs["text"]
