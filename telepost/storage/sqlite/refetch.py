@@ -201,6 +201,7 @@ class RefetchRepository:
         self, conn, request_id: str, to_state: str, *,
         reason: str = "", actor: str = "", remote_state: str = "",
         extra: Optional[Dict[str, Any]] = None, event: bool = True,
+        failure_code: str = "",
     ) -> Tuple[bool, str]:
         """Apply ONE legal state change on the caller's connection.
 
@@ -211,6 +212,13 @@ class RefetchRepository:
         is recorded, and the attempt keeps its state (a terminal attempt can
         never be resurrected). Use :func:`telepost.domain.refetch_state
         .assert_transition` when a caller needs to know why.
+
+        ``failure_code`` is the explicit closed-vocabulary code for the
+        ``failure_code`` column. This method is the single choke point for that
+        column, so whatever arrives (explicit kwarg, else ``reason``/``target``)
+        is passed through :func:`~telepost.domain.refetch_state
+        .normalize_failure_code`: the column stays code-shaped BY CONSTRUCTION,
+        even when a remote peer hands us free text.
         """
         cur = await conn.execute(
             "SELECT * FROM refetch_attempts WHERE request_id = ?", (request_id,)
@@ -244,10 +252,15 @@ class RefetchRepository:
         params: list = [now]
         # ``failure_code`` answers "why did it fail", so it is only meaningful on a
         # failure terminal; the transition reason always lives in the event log
-        # (and in terminal_reason for every other terminal).
+        # (and in terminal_reason for every other terminal). This is the ONLY
+        # write of ``failure_code``, so it is also the place that guarantees the
+        # column is a code: local callers already pass code-shaped reasons
+        # (watchdog_no_heartbeat / admission_timeout / classify_error vocabulary)
+        # and are unaffected, while remote free text — a live row held a 220-char
+        # multi-line nginx 502 HTML page — collapses to ``remote_failure``.
         if moved and target in (fsm.FAILED, fsm.TIMEOUT):
             sets.append("failure_code=?")
-            params.append((reason or target)[:400])
+            params.append(fsm.normalize_failure_code(failure_code or reason or target))
         if remote_state:
             sets.append("last_remote_state=?")
             params.append(remote_state[:200])
@@ -255,7 +268,9 @@ class RefetchRepository:
             sets.append("finished_at=?")
             params.append(now)
             sets.append("terminal_reason=?")
-            params.append((reason or target)[:400])
+            # One bounded, single-line business message: never the raw upstream
+            # body, never a stack trace, never a token.
+            params.append(fsm.sanitize_terminal_reason(reason) or target)
         for column, value in extra.items():
             sets.append(f"{column}=?")
             params.append(value)
@@ -663,6 +678,7 @@ class RefetchRepository:
         disposition: str,
         *,
         reason: str = "",
+        reason_code: str = "",
         scanned: int = 0,
         skipped_duplicate: int = 0,
         skipped_invalid: int = 0,
@@ -675,6 +691,13 @@ class RefetchRepository:
         when THIS call moved the attempt (an already-terminal replay returns
         ``changed=False`` so the caller does not re-notify). Never touches a
         review the reviewer already decided.
+
+        ``reason`` is the bounded human business message (it becomes the
+        sanitized ``terminal_reason``); ``reason_code`` is the closed-vocabulary
+        protocol code from a current producer and becomes ``failure_code``. An
+        OLD producer sends no ``reason_code``: the column then falls back to
+        ``reason`` through the single choke point in
+        :meth:`apply_transition_on`, which still yields a code-shaped value.
         """
         async with db_manager.get_db() as conn:
             cur = await conn.execute(
@@ -703,6 +726,8 @@ class RefetchRepository:
             await self.apply_transition_on(
                 conn, request_id, target,
                 reason=(reason or disposition), actor="service:pixivflow",
+                failure_code=(fsm.normalize_failure_code(reason_code)
+                              if reason_code else ""),
                 extra={
                     "scanned": int(scanned),
                     "skipped_duplicate": int(skipped_duplicate),

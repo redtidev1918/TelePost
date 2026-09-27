@@ -2380,14 +2380,24 @@ def add_api_routes(web_app, application) -> None:
         Body (machine-readable, JSON):
           request_id  — the attempt's request UUID (PixivFlow slot identity);
           disposition — 'no_alternative' | 'failed';
+          reasonCode  — the cross-boundary closed-vocabulary protocol error code
+                        (camelCase field, snake_case accepted); optional, so an
+                        OLD producer that sends no code is still accepted;
           reason / scanned / skipped{duplicate,invalid,unavailable} — optional
-          diagnostics.
+          diagnostics. ``reason`` is treated as a bounded human message: the
+          repository sanitizes it, and it can never reach ``failure_code``.
 
         Authentication is the SAME service token as submissions (the per-bot
         SUBMIT_TOKEN PixivFlow already holds); no new credential is introduced.
         Idempotent: an already-terminal attempt answers 200 without re-notifying.
         Stale results (source review no longer pending) become 'obsolete' and
         never overwrite a reviewer decision.
+
+        The terminal notification is NOT sent from here: it goes through
+        :func:`handlers.review.apply_refetch_outcome_and_notify` — the one seam
+        that claims the ``terminal_notified_at`` one-shot clock, appends the
+        任务ID line and falls back to the durable ``submitter_notifications``
+        outbox when the direct send fails.
         """
         token_row = await authenticate(_bearer(request) or "")
         if token_row is None:
@@ -2400,6 +2410,9 @@ def add_api_routes(web_app, application) -> None:
             return _error(400, "invalid_json", "JSON body 必须是对象")
         request_id = str(payload.get("request_id") or "").strip()[:240]
         disposition = str(payload.get("disposition") or "").strip()
+        # A current producer sends the closed-vocabulary code; an old one sends
+        # nothing and the repository's fallback still yields a code.
+        reason_code = payload.get("reasonCode") or payload.get("reason_code") or ""
         if not request_id:
             return _error(400, "missing_request_id", "request_id 必填")
         if disposition not in ("no_alternative", "failed"):
@@ -2420,81 +2433,47 @@ def add_api_routes(web_app, application) -> None:
         from telepost.storage.sqlite.refetch import RefetchRepository
         repo = RefetchRepository()
         attempt = await repo.find_by_request_id(request_id)
-        _, applied, changed = await repo.apply_outcome(
-            request_id, disposition,
-            reason=str(payload.get("reason") or "")[:400],
+        review_id = int(attempt["source_review_id"] or 0) if attempt else 0
+        task_id = (
+            f"refetch-{review_id}-{int(float(attempt['created_at'] or 0))}"
+            if attempt else ""
+        )
+        raw_reason = str(payload.get("reason") or "")[:400]
+        from handlers.review import apply_refetch_outcome_and_notify
+        applied, changed = await apply_refetch_outcome_and_notify(
+            application.bot, repo, attempt,
+            request_id=request_id, disposition=disposition,
+            review_id=review_id, task_id=task_id,
+            reason=raw_reason, reason_code=str(reason_code),
             scanned=scanned, skipped_duplicate=dup,
             skipped_invalid=inv, skipped_unavailable=una,
         )
         if applied == "not_found":
             return _error(404, "unknown_attempt", "attempt 不存在")
-
-        async def _refresh_refetch_card(target_review_id) -> None:
-            """§refetch-card-state: an attempt that ended without a replacement
-            must give the operator a normal, actionable card back."""
-            if not target_review_id:
-                return
-            try:
-                from handlers.review import refresh_refetch_card
-                await refresh_refetch_card(
-                    application.bot, int(target_review_id))
-            except Exception:
-                logger.debug("刷新重抓审核卡失败: review_id=%s",
-                             target_review_id, exc_info=True)
-
         if applied == "obsolete":
             # Source review was decided while the refetch was running: the
-            # verdict is recorded as obsolete, and we never disturb the review.
-            # The attempt IS terminal — the review group must see that instead
-            # of an endless "仍在处理中" (§refetch-terminal-notify).
-            if changed:
-                review_id = attempt["source_review_id"] if attempt else None
-                try:
-                    await application.bot.send_message(
-                        chat_id=REVIEW_CHAT_ID,
-                        text=(
-                            f"🔄 审核 #{review_id} 的重抓已取消：该审核在重抓期间已被"
-                            "处理（驳回/通过），不会产生替换稿，当前稿件保持不变。"
-                        ),
-                    )
-                except Exception as exc:
-                    logger.warning("发送重抓取消通知失败: review_id=%s error=%s",
-                                   review_id, exc)
-                await _refresh_refetch_card(review_id)
-            return _ok({"ok": True, "attempt_state": applied, "notified": bool(changed)})
+            # verdict is recorded as obsolete and the review is never disturbed,
+            # but the attempt IS terminal — the review group must hear that
+            # (through the shared seam) instead of an endless "仍在处理中".
+            return _ok({"ok": True, "attempt_state": applied,
+                        "notified": bool(changed)})
         if not changed:
             # Already-terminal replay (same verdict redelivered): converge with
             # the same state, never re-notify the review group.
             return _ok({"ok": True, "attempt_state": applied, "replayed": True})
-
-        review_id = attempt["source_review_id"] if attempt else None
-        try:
-            if applied == "no_alternative":
-                text = (
-                    f"📭 审核 #{review_id} 没有找到新的可替换作品，当前稿件保持不变。\n"
-                    "稍后有新候选时可以再次重抓。"
-                )
-            else:  # failed
-                text = f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，请稍后重试。"
-            await application.bot.send_message(
-                chat_id=REVIEW_CHAT_ID, text=text
-            )
-        except Exception:
-            logger.warning("发送重抓终态通知失败: request_id=%s",
-                           request_id, exc_info=True)
-        await _refresh_refetch_card(review_id)
         try:
             from telepost.observability import audit
             await audit.record_event(
                 "review.refetch_" + applied,
-                review_id=review_id,
+                review_id=review_id or None,
                 execution_id=request_id,
                 actor="pixivflow_service",
                 error_class=None if applied == "no_alternative" else "remote_outcome",
                 detail={
                     "request_id": request_id,
                     "disposition": applied,
-                    "reason": str(payload.get("reason") or "")[:400],
+                    "reason": raw_reason,
+                    "reason_code": str(reason_code)[:64],
                     "scanned": scanned,
                     "skipped": {"duplicate": dup, "invalid": inv, "unavailable": una},
                 },

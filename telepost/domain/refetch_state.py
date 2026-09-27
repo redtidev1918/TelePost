@@ -36,6 +36,8 @@ Terminal states are final: a terminal attempt never re-enters the normal flow
 """
 from __future__ import annotations
 
+import re
+
 from typing import Dict, Iterable, Tuple
 
 REQUESTED = "requested"
@@ -151,6 +153,66 @@ REMOTE_CELL_STAGES: Dict[str, str] = {
 def stage_for_remote_state(remote_state: str) -> str:
     """Map a PixivFlow cell state to a refetch stage ('' when not a stage)."""
     return REMOTE_CELL_STAGES.get(str(remote_state or "").strip().lower(), "")
+
+
+#: The closed shape of ``refetch_attempts.failure_code``: a lowercase
+#: code-shaped token. The column is a REASON CODE (doctor 24h failure
+#: composition, Mini App state view), never free text — a real production row
+#: held a 220-char multi-line nginx 502 HTML page in it.
+FAILURE_CODE_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
+_FAILURE_CODE_RE = re.compile(FAILURE_CODE_PATTERN)
+
+#: Code written when a remote reason is not code-shaped at all. Chosen so it can
+#: never collide with a local watchdog code or with
+#: ``doctor.LEGACY_REFETCH_FAILURE_CODES``.
+REMOTE_FAILURE_CODE = "remote_failure"
+
+#: ``terminal_reason`` is a bounded, single-line, human-readable message.
+TERMINAL_REASON_LIMIT = 200
+
+_HTML_TAG_RE = re.compile(r"<[^>]*>")
+_WHITESPACE_RUN_RE = re.compile(r"\s+")
+
+
+def sanitize_terminal_reason(raw, *, limit: int = TERMINAL_REASON_LIMIT) -> str:
+    """Bound a free-form reason into a single-line human message (never raises).
+
+    ``terminal_reason`` is read by the Mini App and by support; what reached it
+    in production was the raw upstream HTTP body (HTML, CRLF, hundreds of
+    chars). This strips HTML tags, drops CR/LF, collapses every run of
+    whitespace to one space, strips the ends and truncates to ``limit``.
+
+    Returns ``''`` for anything that is not a non-empty string after cleaning,
+    so the caller can fall back to the machine state name.
+    """
+    if not isinstance(raw, str):
+        return ""
+    text = _WHITESPACE_RUN_RE.sub(" ", _HTML_TAG_RE.sub(" ", raw)).strip()
+    if not text:
+        return ""
+    try:
+        bounded = int(limit)
+    except (TypeError, ValueError):
+        return text
+    if bounded >= 0 and len(text) > bounded:
+        text = text[:bounded].strip()
+    return text
+
+
+def normalize_failure_code(raw) -> str:
+    """Return a code-shaped failure code — never free text, never raises.
+
+    ``failure_code`` is a closed-vocabulary CODE column, but a remote peer (or
+    the legacy PixivFlow shim, which answers errors with a plain human string)
+    can hand us anything. Only a token matching :data:`FAILURE_CODE_PATTERN`
+    survives; everything else (including empty/None) becomes
+    :data:`REMOTE_FAILURE_CODE`.
+    """
+    if isinstance(raw, str):
+        text = raw.strip()
+        if _FAILURE_CODE_RE.match(text):
+            return text
+    return REMOTE_FAILURE_CODE
 
 
 class IllegalRefetchTransition(ValueError):
