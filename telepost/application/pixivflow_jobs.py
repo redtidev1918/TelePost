@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
@@ -53,6 +54,8 @@ from typing import Any, Dict, Optional, Protocol, Tuple
 from urllib.error import HTTPError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
+
+from telepost.domain import refetch_state
 
 # Default per-request network budget (seconds). A poll must never outlive a
 # tick, and 10s was the pre-existing status-read timeout in handlers.review.
@@ -417,6 +420,11 @@ def _first_timestamp(payload: Dict[str, Any]) -> Optional[float]:
     return None
 
 
+#: ``error.code`` is code-shaped by contract; the pattern is the SAME one the
+#: refetch store enforces at its single write choke point (one vocabulary).
+_CODE_SHAPED_RE = re.compile(refetch_state.FAILURE_CODE_PATTERN)
+
+
 def _error_code(payload: Dict[str, Any], status: int) -> str:
     """Extract the protocol ``error.code`` (never a business outcome name)."""
     raw = payload.get("error")
@@ -425,7 +433,14 @@ def _error_code(payload: Dict[str, Any], status: int) -> str:
         if code:
             return code[:120]
     elif isinstance(raw, str) and raw.strip():
-        return raw.strip()[:120]
+        # The legacy shim answers errors with a PLAIN HUMAN STRING, e.g.
+        # ``{"status":"error","error":"requestId must be a UUID"}``. That is not
+        # a code: keep it only when it is already code-shaped and otherwise
+        # collapse it to the opaque ``remote_error``. Defence in depth — the
+        # refetch store normalizes ``failure_code`` at its single write choke
+        # point, so a future caller cannot leak free text into the column.
+        text = raw.strip()
+        return text if _CODE_SHAPED_RE.match(text) else "remote_error"
     for key in ("errorCode", "failureCode", "failure_code"):
         code = str(payload.get(key) or "").strip()
         if code:

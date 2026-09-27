@@ -22,7 +22,7 @@ import uuid
 from urllib.error import HTTPError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
-from typing import Optional
+from typing import Optional, Tuple
 
 from config.settings import ADMIN_IDS, REVIEW_CHAT_ID
 from services.review_service import (
@@ -818,17 +818,14 @@ async def _refetch_recovery_sweep(bot, repo, *, current_time: float) -> int:
                            else "failed")
             reason = ("delivery_uncorrelated" if status == "submitted"
                       else "remote_failed" if status == "failed" else "")
-            _, applied, changed = await repo.apply_outcome(
-                request_id, disposition, reason=reason)
+            _, changed = await apply_refetch_outcome_and_notify(
+                bot, repo, row, request_id=request_id,
+                disposition=disposition, review_id=review_id,
+                task_id=task_id, reason=reason,
+            )
             if changed:
                 moved = True
                 recovered += 1
-                text = ("📭 重抓没有找到新的可替换作品，当前稿件保持不变。"
-                        if applied == "no_alternative"
-                        else "⚠️ 重抓失败，当前稿件未变，请稍后重试。")
-                await _refetch_terminal_notify(
-                    bot, repo, row, review_id=review_id, task_id=task_id,
-                    text=f"审核 #{review_id} {text}")
         elif status:
             stage = fsm.stage_for_remote_state(status)
             if stage and stage != fsm.normalize(row["state"]):
@@ -919,6 +916,67 @@ async def flush_refetch_terminal_notifications(bot, *, limit: int = 20) -> int:
     return delivered
 
 
+async def apply_refetch_outcome_and_notify(
+    bot, repo, row, *, request_id: str, disposition: str, review_id: int,
+    task_id: str, reason: str = "", reason_code: str = "", scanned: int = 0,
+    skipped_duplicate: int = 0, skipped_invalid: int = 0,
+    skipped_unavailable: int = 0, stage_label: str = "",
+) -> Tuple[str, bool]:
+    """Apply a remote refetch verdict AND notify through the ONE terminal seam.
+
+    The single decider of "a terminal verdict was applied ⇒ the review group
+    hears about it exactly once": the poll loop, the §events reconcile loop, the
+    restart recovery sweep and the ``POST /api/v1/refetch/outcomes`` ingress all
+    come through here, so no channel can diverge in wording, idempotency or
+    delivery. The ingress used to call ``repo.apply_outcome`` itself and then
+    hand-roll a ``send_message``: that bypassed the one-shot
+    ``terminal_notified_at`` claim (measured NULL for two live attempts),
+    omitted the 任务ID line and disagreed with the poll path. A verdict that did
+    not move the attempt (already-terminal replay) notifies NOTHING.
+
+    ``reason`` is the bounded human business message (→ ``terminal_reason``);
+    ``reason_code`` is the closed-vocabulary protocol code (→ ``failure_code``).
+
+    Returns ``(applied_state, changed)``.
+    """
+    _, applied, changed = await repo.apply_outcome(
+        request_id, disposition, reason=reason, reason_code=reason_code,
+        scanned=scanned, skipped_duplicate=skipped_duplicate,
+        skipped_invalid=skipped_invalid, skipped_unavailable=skipped_unavailable,
+    )
+    if not changed:
+        # Already terminal: the first path that reached the terminal already
+        # claimed the one-shot clock. Never notify again.
+        return applied, False
+    fresh = await repo.find_by_request_id(request_id)
+    await _refetch_terminal_notify(
+        bot, repo, fresh if fresh is not None else row,
+        review_id=review_id, task_id=task_id,
+        text=_refetch_outcome_text(review_id, applied),
+        stage_label=stage_label,
+    )
+    return applied, True
+
+
+def _refetch_outcome_text(review_id: int, applied: str) -> str:
+    """The ONE mapping from an applied verdict to its user-visible sentence.
+
+    Failure sentences always end with 「可以再次重抓」 (the operable card
+    contract of §refetch-terminal-notify), and the 任务ID line is appended by
+    :func:`_refetch_terminal_notify` rather than by each caller.
+    """
+    if applied == "no_alternative":
+        return (f"📭 审核 #{review_id} 没有找到新的可替换作品，"
+                "当前稿件保持不变，可以再次重抓。")
+    if applied == "obsolete":
+        return (f"🔄 审核 #{review_id} 的重抓已取消：该审核已被处理"
+                "（驳回/通过/过期），不会产生替换稿，当前稿件保持不变。")
+    if applied == "failed":
+        return (f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，"
+                "可以再次重抓。")
+    return f"ℹ️ 审核 #{review_id} 重抓已结束（{applied}）。"
+
+
 async def _apply_remote_terminal(bot, repo, row, remote_state, *,
                                  request_id: str, review_id: int,
                                  task_id: str) -> bool:
@@ -926,34 +984,24 @@ async def _apply_remote_terminal(bot, repo, row, remote_state, *,
 
     The single seam shared by the poll loop AND the §events reconcile loop: both
     feed a terminal remote-state outcome (``no_candidate`` / ``duplicate`` /
-    ``failed`` / ``submitted``) through :meth:`RefetchRepository.apply_outcome`,
-    whose idempotency bounds the terminal notification to exactly once no matter
-    which channel wins first. This is the "terminal event and the poll agree"
-    guarantee for the 不再永久静默 requirement.
+    ``failed`` / ``submitted``) through
+    :func:`apply_refetch_outcome_and_notify`, whose idempotency bounds the
+    terminal notification to exactly once no matter which channel wins first.
+    This is the "terminal event and the poll agree" guarantee for the 不再永久静默
+    requirement. The reasons here are already code-shaped
+    (``delivery_uncorrelated`` / ``remote_failed``), which is why the
+    ``/api/v1/refetch/outcomes`` ingress was the ONLY path that polluted
+    ``failure_code`` with remote free text.
     """
     disposition = ("no_alternative" if remote_state in _REFETCH_NO_CANDIDATE
                    else "failed")
     reason = ("delivery_uncorrelated" if remote_state == "submitted"
               else "remote_failed" if remote_state == "failed" else "")
-    _, applied, changed = await repo.apply_outcome(
-        request_id, disposition, reason=reason,
+    _, changed = await apply_refetch_outcome_and_notify(
+        bot, repo, row, request_id=request_id, disposition=disposition,
+        review_id=review_id, task_id=task_id, reason=reason,
     )
-    if not changed:
-        return False
-    if applied == "no_alternative":
-        text = (f"📭 审核 #{review_id} 没有找到新的可替换作品，"
-                "当前稿件保持不变，可以再次重抓。")
-    elif applied == "failed":
-        text = (f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，"
-                "可以再次重抓。")
-    else:
-        text = f"ℹ️ 审核 #{review_id} 重抓已结束（{applied}）。"
-    fresh = await repo.find_by_request_id(request_id)
-    await _refetch_terminal_notify(
-        bot, repo, fresh if fresh is not None else row,
-        review_id=review_id, task_id=task_id, text=text,
-    )
-    return True
+    return changed
 
 
 def _persisted_event_document(evt):
