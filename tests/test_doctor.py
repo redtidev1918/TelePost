@@ -707,3 +707,175 @@ def test_reviews_inspect_still_works(tmp_path, capsys, monkeypatch):
     assert exit_code == 0
     assert "review.created" in out
     assert "idempotency_key" in out
+
+
+# ---- check 2b: refetch job lifecycle ---------------------------------------
+
+#: Columns the heartbeat job model adds on top of the historical schema.
+_JOB_MODEL_COLUMNS = (
+    ("failure_code", "TEXT NOT NULL DEFAULT ''"),
+    ("terminal_reason", "TEXT NOT NULL DEFAULT ''"),
+    ("notify_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("terminal_notified_at", "REAL"),
+    ("updated_at", "REAL"),
+    ("heartbeat_at", "REAL"),
+    ("heartbeat_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("remote_heartbeat_at", "REAL"),
+    ("remote_state_at", "REAL"),
+    ("next_poll_at", "REAL"),
+    ("poll_failures", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+_SUBMITTER_NOTIFICATIONS_DDL = """
+CREATE TABLE submitter_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_id INTEGER,
+    telegram_user_id INTEGER,
+    idempotency_key TEXT UNIQUE NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'publication',
+    state TEXT NOT NULL DEFAULT 'pending',
+    payload TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    message_id INTEGER,
+    sent_at REAL
+)
+"""
+
+
+def _make_job_db(path, refetch_index=True) -> sqlite3.Connection:
+    """A database migrated to the heartbeat job model (+ the notify outbox)."""
+    conn = _make_db(path, refetch_index=refetch_index)
+    for column, ddl in _JOB_MODEL_COLUMNS:
+        conn.execute(f"ALTER TABLE refetch_attempts ADD COLUMN {column} {ddl}")
+    conn.execute(_SUBMITTER_NOTIFICATIONS_DDL)
+    conn.commit()
+    return conn
+
+
+def _insert_job_attempt(conn, *, chain, state, request_id, review_id=1,
+                        age_seconds=60.0, heartbeat_age_seconds=None,
+                        terminal_reason="", failure_code="",
+                        finished_age_seconds=None, poll_failures=0):
+    conn.execute(
+        "INSERT INTO refetch_attempts (callback_key, request_id, review_chain_id, "
+        "source_review_id, state, created_at, started_at, updated_at, heartbeat_at, "
+        "heartbeat_count, next_poll_at, poll_failures, terminal_reason, failure_code, "
+        "finished_at, notify_count) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            f"cb-{request_id}", request_id, chain, review_id, state,
+            NOW - age_seconds, NOW - age_seconds, NOW - age_seconds,
+            None if heartbeat_age_seconds is None else NOW - heartbeat_age_seconds,
+            0 if heartbeat_age_seconds is None else 3,
+            None, poll_failures, terminal_reason, failure_code,
+            None if finished_age_seconds is None else NOW - finished_age_seconds,
+            1 if terminal_reason else 0,
+        ),
+    )
+
+
+def test_refetch_jobs_legacy_terminals_still_exit_zero(tmp_path):
+    """Production carries 12 silent legacy terminals: doctor must stay green.
+
+    They predate the heartbeat job model, so their empty ``terminal_reason`` is
+    reported (legacy, informational) but never counted into the invariant and
+    never re-notified.
+    """
+    path = _db_path(tmp_path)
+    conn = _make_job_db(path)
+    for index in range(12):
+        state = "timeout" if index < 4 else "cancelled"
+        _insert_job_attempt(
+            conn, chain=f"chain-{index}", state=state, request_id=f"req-{index}",
+            age_seconds=3600.0, finished_age_seconds=3600.0,
+            failure_code=("legacy_refetch_correlation_broken" if index < 4 else ""),
+        )
+    conn.commit()
+    conn.close()
+
+    exit_code, report = run_doctor(db_paths=[path], now=NOW)
+
+    assert exit_code == 0
+    assert report["status"] == "HEALTHY"
+    check = _by_code(report, "refetch_jobs")
+    assert check["level"] == "OK"
+    assert check["details"]["running"] == 0
+    assert check["details"]["stuck"] == 0
+    assert check["details"]["terminal_missing_reason"] == 0
+    assert check["details"]["legacy_missing_reason"] == 12
+    assert check["details"]["failed_24h"] == 4
+    assert check["details"]["summary"] == (
+        "Refetch: running: 0 stuck: 0 failed(last24h): 4")
+    assert check["message"].startswith("[%s] Refetch: running: 0 stuck: 0 "
+                                       "failed(last24h): 4" % path)
+
+
+def test_refetch_jobs_running_stuck_and_failed_mix(tmp_path):
+    path = _db_path(tmp_path)
+    conn = _make_job_db(path)
+    _insert_job_attempt(conn, chain="chain-live", state="searching",
+                        request_id="req-live", heartbeat_age_seconds=30.0)
+    _insert_job_attempt(conn, chain="chain-stuck", state="searching",
+                        request_id="req-stuck", heartbeat_age_seconds=30 * 60)
+    _insert_job_attempt(conn, chain="chain-failed", state="failed",
+                        request_id="req-failed", age_seconds=2 * 3600,
+                        finished_age_seconds=3600.0, terminal_reason="remote_failed",
+                        failure_code="remote_failed")
+    conn.commit()
+    conn.close()
+
+    exit_code, report = run_doctor(db_paths=[path], now=NOW)
+
+    check = _by_code(report, "refetch_jobs")
+    assert check["details"]["running"] == 2
+    assert check["details"]["stuck"] == 1
+    assert check["details"]["failed_24h"] == 1
+    assert check["details"]["failure_breakdown"] == {"remote_failed": 1}
+    assert check["message"].split("｜")[0].endswith(
+        "Refetch: running: 2 stuck: 1 failed(last24h): 1")
+    # 「卡住」 must be impossible to miss: a dead poller is CRIT and exits 1.
+    assert check["level"] == "CRIT"
+    assert exit_code == 1
+
+
+def test_refetch_jobs_missing_reason_on_job_model_row_is_warn(tmp_path):
+    path = _db_path(tmp_path)
+    conn = _make_job_db(path)
+    _insert_job_attempt(conn, chain="chain-1", state="cancelled",
+                        request_id="req-1", age_seconds=600.0,
+                        finished_age_seconds=600.0, heartbeat_age_seconds=500.0)
+    conn.commit()
+    conn.close()
+
+    exit_code, report = run_doctor(db_paths=[path], now=NOW)
+
+    check = _by_code(report, "refetch_jobs")
+    assert check["level"] == "WARN"
+    assert check["details"]["terminal_missing_reason"] == 1
+    assert check["details"]["legacy_missing_reason"] == 0
+    assert exit_code == 0
+    assert report["status"] == "DEGRADED"
+
+
+def test_refetch_jobs_reports_terminal_notify_outbox_backlog(tmp_path):
+    path = _db_path(tmp_path)
+    conn = _make_job_db(path)
+    conn.execute(
+        "INSERT INTO submitter_notifications (review_id, telegram_user_id, "
+        "idempotency_key, kind, state, payload, created_at, attempts) "
+        "VALUES (1, -100123, 'refetch:req-1:terminal', 'refetch_terminal', "
+        "'pending', '{}', ?, 2)", (NOW - 120.0,))
+    conn.commit()
+    conn.close()
+
+    exit_code, report = run_doctor(db_paths=[path], now=NOW)
+
+    check = _by_code(report, "refetch_jobs")
+    assert check["details"]["terminal_notify_pending"] == 1
+    assert check["details"]["terminal_notify_failed"] == 1
+    assert check["level"] == "WARN"
+    assert "终态通知待补发 1" in check["message"]
+    assert exit_code == 0

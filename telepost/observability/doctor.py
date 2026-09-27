@@ -52,6 +52,7 @@ FAILED = "FAILED"
 CHECK_CODES: Tuple[str, ...] = (
     "db_integrity",
     "refetch_stuck",
+    "refetch_jobs",
     "refetch_active_invariant",
     "review_queue_orphans",
     "review_queue_publishing",
@@ -66,6 +67,20 @@ CHECK_CODES: Tuple[str, ...] = (
 REFETCH_WARN_SECONDS = 15 * 60
 #: An active refetch attempt older than this is a failure (SLA breach).
 REFETCH_CRIT_SECONDS = 30 * 60
+
+#: Poll cadence of the refetch job heartbeat loop (mirrors the handler knob).
+REFETCH_POLL_INTERVAL_SECONDS = 30
+#: Our own heartbeat older than this means the poller stopped touching the row.
+REFETCH_HEARTBEAT_STALE_SECONDS = 20 * 60
+#: Absolute per-attempt ceiling; a running row older than this is over budget.
+REFETCH_HARD_TIMEOUT_SECONDS = 90 * 60
+#: The failure_code an older TelePost wrote for a broken correlation (legacy).
+LEGACY_REFETCH_FAILURE_CODES = ("legacy_refetch_correlation_broken",)
+#: Opt-in epoch: rows created at/after it count as job-model rows even when the
+#: heartbeat columns are empty. 0 keeps the discriminator column-based only.
+REFETCH_JOB_MODEL_SINCE = float(
+    os.environ.get("TELEPOST_REFETCH_JOB_MODEL_SINCE", "0") or 0
+)
 
 #: A pending review whose control card was never posted: warn / fail window.
 ORPHAN_WARN_SECONDS = 15 * 60
@@ -389,6 +404,176 @@ def _check_refetch_stuck(
         },
     )
     return True
+
+
+# ---- check 2b: refetch job lifecycle --------------------------------------
+
+
+def _refetch_is_job_model_row(row: Dict[str, Any], columns: Set[str]) -> bool:
+    """True when the new heartbeat job model actually observed this row.
+
+    Production carried 12 terminal rows written by an older TelePost: all of
+    them have ``terminal_reason = ''`` and ``notify_count = 0``, and backfilling
+    or re-notifying them is explicitly forbidden. The discriminator is therefore
+    behavioural, not temporal: the job model always writes at least one heartbeat
+    column before a row can go terminal, so a row with every heartbeat column
+    empty predates the job model and its missing reason is LEGACY (reported,
+    never a critical). ``TELEPOST_REFETCH_JOB_MODEL_SINCE`` can additionally
+    mark rows created at/after a known deploy epoch.
+    """
+    for name in ("heartbeat_at", "next_poll_at", "remote_state_at",
+                 "remote_heartbeat_at"):
+        if name in columns and row[name] is not None:
+            return True
+    for name in ("heartbeat_count", "poll_failures"):
+        if name in columns and int(row[name] or 0) > 0:
+            return True
+    if REFETCH_JOB_MODEL_SINCE > 0:
+        created = row["created_at"] if "created_at" in columns else None
+        if created is not None and float(created or 0) >= REFETCH_JOB_MODEL_SINCE:
+            return True
+    return False
+
+
+def _check_refetch_jobs(
+    db_path: str, conn: sqlite3.Connection, collector: _Collector
+) -> None:
+    """Refetch job-lifecycle section (§6): running / stuck / over-budget / failed."""
+    columns = _table_columns(conn, "refetch_attempts")
+    if not columns:
+        collector.add(
+            "refetch_jobs", SKIP, _prefix(db_path, "refetch_attempts 表不存在，跳过")
+        )
+        return
+    if "state" not in columns:
+        collector.add(
+            "refetch_jobs", SKIP, _prefix(db_path, "refetch_attempts.state 列不存在，跳过")
+        )
+        return
+    if not _active_state_names():
+        collector.add(
+            "refetch_jobs",
+            SKIP,
+            _prefix(db_path, "无法解析重抓状态（refetch_state 不可用），跳过"),
+        )
+        return
+
+    selected = sorted(columns)
+    rows = [dict(r) for r in conn.execute(
+        f"SELECT {', '.join(selected)} FROM refetch_attempts"
+    ).fetchall()]
+
+    def _column(row: Dict[str, Any], name: str, default=None):
+        return row[name] if name in columns else default
+
+    def _time_of(row: Dict[str, Any]) -> Optional[float]:
+        for name in ("created_at", "started_at"):
+            value = float(_column(row, name) or 0)
+            if value:
+                return value
+        return None
+
+    def _finished_of(row: Dict[str, Any]) -> Optional[float]:
+        for name in ("finished_at", "updated_at", "created_at"):
+            value = float(_column(row, name) or 0)
+            if value:
+                return value
+        return None
+
+    running = stuck = over_budget = retrying = 0
+    failed_24h = 0
+    missing_reason = 0
+    legacy_missing_reason = 0
+    failure_breakdown: Dict[str, int] = {}
+    for row in rows:
+        raw_state = row["state"]
+        created = _time_of(row)
+        if _is_active(raw_state):
+            running += 1
+            last_touch = float(_column(row, "heartbeat_at") or 0) or created or 0.0
+            if last_touch and (collector.now - last_touch) > REFETCH_HEARTBEAT_STALE_SECONDS:
+                stuck += 1
+            if created and (collector.now - created) > REFETCH_HARD_TIMEOUT_SECONDS:
+                over_budget += 1
+            if int(_column(row, "poll_failures", 0) or 0) > 0:
+                retrying += 1
+            continue
+        finished = _finished_of(row)
+        canonical = _canonical_state(raw_state)
+        legacy_code = str(_column(row, "failure_code", "") or "")
+        # ``failed(last24h)`` is attributed by the TERMINAL STATE: both TIMEOUT
+        # and FAILED count, whether the attempt ran out of a budget or the remote
+        # reported a search failure.
+        if canonical in ("failed", "timeout") and finished is not None:
+            if (collector.now - finished) <= 24 * 3600:
+                failed_24h += 1
+                code = legacy_code or str(
+                    _column(row, "terminal_reason", "") or "unknown")
+                failure_breakdown[code] = failure_breakdown.get(code, 0) + 1
+        if not str(_column(row, "terminal_reason", "") or "").strip():
+            # The invariant only binds rows the job model owns; legacy rows are
+            # reported separately so a deployed doctor still exits 0.
+            if legacy_code in LEGACY_REFETCH_FAILURE_CODES:
+                legacy_missing_reason += 1
+            elif _refetch_is_job_model_row(row, columns):
+                missing_reason += 1
+            else:
+                legacy_missing_reason += 1
+
+    # Durable fallback queue for terminal notices whose direct send failed.
+    outbox_pending = outbox_failed = 0
+    if _table_columns(conn, "submitter_notifications"):
+        try:
+            outbox_pending = int(conn.execute(
+                "SELECT COUNT(*) FROM submitter_notifications "
+                "WHERE kind = 'refetch_terminal' AND state = 'pending'"
+            ).fetchone()[0])
+            outbox_failed = int(conn.execute(
+                "SELECT COUNT(*) FROM submitter_notifications "
+                "WHERE kind = 'refetch_terminal' AND COALESCE(attempts, 0) > 0 "
+                "AND state = 'pending'"
+            ).fetchone()[0])
+        except sqlite3.Error:
+            outbox_pending = outbox_failed = 0
+
+    summary = f"Refetch: running: {running} stuck: {stuck} failed(last24h): {failed_24h}"
+    details: Dict[str, Any] = {
+        "path": db_path,
+        "running": running,
+        "stuck": stuck,
+        "over_budget": over_budget,
+        "retrying": retrying,
+        "failed_24h": failed_24h,
+        "terminal_missing_reason": missing_reason,
+        "legacy_missing_reason": legacy_missing_reason,
+        "terminal_notify_pending": outbox_pending,
+        "terminal_notify_failed": outbox_failed,
+        "failure_breakdown": dict(sorted(failure_breakdown.items())),
+        "summary": summary,
+        "heartbeat_stale_seconds": REFETCH_HEARTBEAT_STALE_SECONDS,
+        "hard_timeout_seconds": REFETCH_HARD_TIMEOUT_SECONDS,
+    }
+    # 「卡住」必须一眼可见并让 doctor 报红：an ACTIVE attempt whose own heartbeat
+    # stopped (the poller is dead) or that outlived the absolute ceiling means the
+    # job model itself is broken. Legacy rows are all terminal, so they can never
+    # trip this (parent constraint: a deployed doctor still exits 0).
+    if stuck or over_budget:
+        level = CRIT
+    elif missing_reason or outbox_failed:
+        level = WARN
+    else:
+        level = OK
+    breakdown_text = "、".join(
+        f"{code}×{count}" for code, count in sorted(failure_breakdown.items())
+    ) or "-"
+    message = (
+        f"{summary}｜超预算 {over_budget}｜轮询重试中 {retrying}"
+        f"｜终态缺原因（新代码路径）{missing_reason}"
+        f"｜终态缺原因（legacy 历史行，不计入不变量）{legacy_missing_reason}"
+        f"｜24h 失败构成 {breakdown_text}"
+        f"｜终态通知待补发 {outbox_pending}（失败 {outbox_failed}）"
+    )
+    collector.add("refetch_jobs", level, _prefix(db_path, message), details)
 
 
 # ---- check 3: one-active-attempt-per-chain invariant -----------------------
@@ -892,6 +1077,7 @@ def _check_database(db_path: str, collector: _Collector) -> None:
             collector.databases.append(entry)
             return
         has_active = _check_refetch_stuck(db_path, conn, collector)
+        _check_refetch_jobs(db_path, conn, collector)
         _check_refetch_active_invariant(db_path, conn, collector)
         _check_review_queue_orphans(db_path, conn, collector)
         _check_review_queue_publishing(db_path, conn, collector)

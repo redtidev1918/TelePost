@@ -33,6 +33,9 @@ from services.review_service import (
     ReviewService,
     ReviewStateError,
 )
+from telepost.application import pixivflow_jobs as pixivflow_jobs_port
+from telepost.domain import refetch_state as fsm
+from telepost.storage.sqlite.refetch import RefetchRepository
 from telepost.application.review_queue import (
     PUBLISHED_DEDUP_WINDOW_SECONDS,
     QueueCommand,
@@ -89,7 +92,7 @@ REFETCH_PROGRESS_REMIND_MINUTES = max(
     0, int(os.getenv("REFETCH_PROGRESS_REMIND_MINUTES", "2"))
 )
 REFETCH_STAGE_TIMEOUT_MINUTES = max(
-    0, int(os.getenv("REFETCH_STAGE_TIMEOUT_MINUTES", "10"))
+    0, int(os.getenv("REFETCH_STAGE_TIMEOUT_MINUTES", "15"))
 )
 REFETCH_STALE_TIMEOUT_MINUTES = max(
     0, int(os.getenv("REFETCH_STALE_TIMEOUT_MINUTES", "20"))
@@ -102,15 +105,45 @@ REFETCH_WAKE_MINUTES = max(
 )
 # 硬性 SLA：超过 HARD 分钟仍未形成任何 terminal outcome 时，TelePost 必须把
 # attempt 明确标 timeout(stalled_after_hard_timeout) 并通知审核群，绝不永久 running。
-# 现场验收要求 30 分钟内必须自动终止（健康巡检 15 分钟告警）。
+# 生产实测：一个合法重抓槽位可以跑 2–20 分钟（曾排队 10 小时），所以绝对上限必须
+# 宽于任何「阶段」预算（STAGE=15、QUEUED=30），只能作为最后的兜底。
 REFETCH_HARD_TIMEOUT_MINUTES = max(
-    0, int(os.getenv("REFETCH_HARD_TIMEOUT_MINUTES", "30"))
+    0, int(os.getenv("REFETCH_HARD_TIMEOUT_MINUTES", "90"))
 )
 REFETCH_TIMEOUT_SECONDS = 120
+# 作业心跳循环（P0）：refetch 是一等持久 Job，心跳间隔必须远小于最小超时，
+# 300 秒的 cleanup 只作为 force=True 的兜底（同一个实现，绝不出现两个看门狗）。
+REFETCH_POLL_INTERVAL_SECONDS = max(
+    5, int(os.getenv("REFETCH_POLL_INTERVAL_SECONDS", "30"))
+)
+# 远端仍报 pending（从未被 worker 领取）超过该时长 → timeout(queued_too_long)。
+# 生产实测：worker 忙时排队可长达数小时，因此这是「排队」预算，不是「停摆」。
+REFETCH_QUEUED_TIMEOUT_MINUTES = max(
+    0, int(os.getenv("REFETCH_QUEUED_TIMEOUT_MINUTES", "30"))
+)
+# 失败轮询的退避上限（指数退避 base = 轮询间隔，cap = 5 分钟）。
+REFETCH_POLL_BACKOFF_MAX_SECONDS = max(
+    REFETCH_POLL_INTERVAL_SECONDS,
+    int(os.getenv("REFETCH_POLL_BACKOFF_MAX_SECONDS", "300")),
+)
+# 重启恢复时「最多为多久以前的卡片补发终态通知」：更老的历史行（生产上最长
+# 30 天、notify_count=0 的静默终态）只由 doctor 以 WARN 呈现，绝不回头去消息一
+# 张早已失效的审核卡片。
+REFETCH_RECOVERY_NOTIFY_MAX_AGE_SECONDS = max(
+    3600, int(os.getenv("REFETCH_RECOVERY_NOTIFY_MAX_AGE_SECONDS", str(7 * 86400)))
+)
+
+# 远端时间戳「新鲜」窗口：宽于一轮轮询，容忍网络抖动与时钟误差。
+REFETCH_REMOTE_LIVE_SECONDS = max(
+    REFETCH_POLL_INTERVAL_SECONDS * 2,
+    int(os.getenv("REFETCH_REMOTE_LIVE_SECONDS", "90")),
+)
 
 # 进程内幂等护栏：对同一 attempt 最多发一次 wake（restart 后最多再发一次；
 # PixivFlow 端按 request UUID 幂等恢复，重复 wake 无副作用）。
 _wake_pinged: set = set()
+# 重启恢复扫描「每进程一次」的护栏（in-memory，进程重启即失效——这正是它要的）。
+_refetch_recovery_done = False
 
 _PIXIV_ID_RE = re.compile(r"pixiv\.net/(?:artworks/|novel/show\.php\?id=)(\d+)")
 
@@ -376,25 +409,51 @@ async def _enqueue_reporting_dropped(bot, refetch_request_id: str, enqueue):
         return await enqueue()
     except ValueError as exc:
         message = str(exc)
-        if refetch_request_id and ("cancelled" in message or "obsolete" in message):
+        if refetch_request_id and ("cancelled" in message or "obsolete" in message
+                                   or "unknown" in message):
             await _report_dropped_replacement(bot, refetch_request_id)
         raise
 
 
+_REFETCH_SOURCE_STATUS_LABELS = {
+    "pending": "待审核",
+    "approved": "已通过",
+    "rejected": "已拒绝",
+    "expired": "已过期",
+    "published": "已发布",
+    "superseded": "已被替换",
+}
+
+
 async def _report_dropped_replacement(bot, refetch_request_id: str) -> None:
-    """Best-effort notice that a late replacement was discarded (never raises)."""
+    """Best-effort notice that a late replacement was discarded (never raises).
+
+    §refetch-terminal-notify — the delivery intake refuses the replacement with a
+    frozen HTTP 400 body, so this is the ONLY thing the moderator ever sees about
+    it. The attempt's own audit event is written by the application layer
+    (``review_queue._record_dropped_replacement``); this function owns the
+    user-visible half.
+    """
     try:
-        from telepost.storage.sqlite.refetch import RefetchRepository
+        from telepost.storage.sqlite.reviews import ReviewRepository
         attempt = await RefetchRepository().find_by_request_id(refetch_request_id)
         if attempt is None:
             return
-        review_id = attempt["source_review_id"]
+        review_id = int(attempt["source_review_id"] or 0)
         created = attempt["created_at"] or 0
+        status = ""
+        try:
+            row = await ReviewRepository().get(review_id)
+            status = str(row["status"] or "") if row is not None else ""
+        except Exception:
+            logger.debug("读取重抓源审核状态失败: review_id=%s", review_id,
+                         exc_info=True)
+        label = _REFETCH_SOURCE_STATUS_LABELS.get(status, status or "已结束")
         await context_bot_send(
             bot,
-            f"🔄 审核 #{review_id} 的重抓结果到达时该审核已被处理"
-            "（驳回/通过/过期），替换稿已丢弃，当前稿件保持不变。"
-            f"\n任务ID：refetch-{int(review_id)}-{int(created)}",
+            f"🔄 重抓未生效：审核 #{review_id} 已结束（当前状态：{label}），"
+            "替换作品已丢弃，当前稿件保持不变。"
+            f"\n任务ID：refetch-{review_id}-{int(created)}",
         )
         await refresh_refetch_card(bot, review_id)
     except Exception:
@@ -486,232 +545,753 @@ async def cleanup_superseded_reviews(bot, *, now: Optional[float] = None) -> int
     return len(rows)
 
 
-async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
-    """重抓生命周期兜底：进展播报 + 阶段超时 + 幂等唤醒 + 绝对超时。
+_REFETCH_TERMINAL_OUTCOMES = {"no_candidate", "duplicate", "failed", "submitted"}
+_REFETCH_NO_CANDIDATE = {"no_candidate", "duplicate"}
 
-    Every active attempt must reach a business terminal state; the durable
-    ``refetch_attempts`` row plus its ``refetch_events`` timeline is the state
-    machine, this sweep is its crash-only driver (Telegpost never fails an
-    admitted attempt on local time alone — the remote durable cell is consulted
-    first):
 
-    * REMIND_MINUTES → a REPEATING 「仍在处理中」 reminder (stage + elapsed +
-      task id) so the operator always sees movement;
-    * STAGE_TIMEOUT_MINUTES without a stage advance while the remote reports a
-      working cell (or reports nothing usable) → ``timeout(stalled_no_progress)``;
-    * an unadmitted ``requested`` attempt is never polled; it is failed with
-      ``admission_timeout`` after STALE_MINUTES, and re-submitted (same UUID,
-      idempotent) after WAKE_MINUTES because the first submission may have died
-      with its process;
-    * an unreachable remote gets one idempotent WAKE at WAKE_MINUTES, and the
-      absolute HARD_MINUTES ceiling ends every branch;
-    * every terminal path notifies the review group once and restores the card.
+def _refetch_heartbeat_disabled() -> bool:
+    """True only when EVERY lifecycle knob is 0 (the documented kill switch)."""
+    return max(
+        REFETCH_PROGRESS_REMIND_MINUTES, REFETCH_STAGE_TIMEOUT_MINUTES,
+        REFETCH_STALE_TIMEOUT_MINUTES, REFETCH_WAKE_MINUTES,
+        REFETCH_HARD_TIMEOUT_MINUTES, REFETCH_QUEUED_TIMEOUT_MINUTES,
+    ) <= 0
 
-    Returns the number of attempts acted on. Disabled only when every knob is 0.
+
+def _refetch_client():
+    """The PixivFlow job port (env is read per call so tests/deploys can swap).
+
+    The HTTP transport is passed in from HERE (``urlopen`` is this module's
+    global) so the long-standing test/deploy seam ``review.urlopen`` keeps
+    working while the port itself stays the only place that knows URL shapes.
     """
-    from telepost.domain import refetch_state as fsm
-    from telepost.storage.sqlite.refetch import RefetchRepository
+    return pixivflow_jobs_port.HttpPixivFlowJobClient(transport=urlopen)
 
-    if max(REFETCH_PROGRESS_REMIND_MINUTES, REFETCH_STAGE_TIMEOUT_MINUTES,
-           REFETCH_STALE_TIMEOUT_MINUTES, REFETCH_WAKE_MINUTES,
-           REFETCH_HARD_TIMEOUT_MINUTES) <= 0:
-        return 0
-    current_time = time.time() if now is None else now
-    remind_seconds = REFETCH_PROGRESS_REMIND_MINUTES * 60
-    stage_seconds = REFETCH_STAGE_TIMEOUT_MINUTES * 60
-    stale_seconds = REFETCH_STALE_TIMEOUT_MINUTES * 60
-    wake_seconds = REFETCH_WAKE_MINUTES * 60
-    hard_seconds = REFETCH_HARD_TIMEOUT_MINUTES * 60
-    cutoff_remind = current_time - remind_seconds if remind_seconds > 0 else current_time
 
-    repo = RefetchRepository()
-    acted = 0
-    for row, _kind in await repo.active_since(
-        cutoff_remind=cutoff_remind, cutoff_fail=cutoff_remind
-    ):
-        review_id = row["source_review_id"]
-        request_id = row["request_id"]
-        created = row["created_at"] or current_time
-        age = current_time - created
-        minutes = int(age // 60)
-        state = fsm.normalize(row["state"])
-        task_id = f"refetch-{int(review_id)}-{int(created)}"
-        stage_label = fsm.label(state)
+def _refetch_remote_live(remote_heartbeat, now: float) -> bool:
+    """Protocol-only liveness: is the remote timestamp recent enough?"""
+    if remote_heartbeat is None:
+        return False
+    try:
+        return (now - float(remote_heartbeat)) <= REFETCH_REMOTE_LIVE_SECONDS
+    except (TypeError, ValueError):
+        return False
 
-        async def _notify(text: str) -> None:
-            try:
-                await context_bot_send(bot, text)
-            except Exception:
-                logger.debug("发送重抓通知失败: review_id=%s", review_id,
-                             exc_info=True)
 
-        async def _terminate(target: str, reason: str, text: str,
-                             remote: str = "") -> None:
-            nonlocal acted
-            if not await repo.mark_timeout(request_id, reason, remote_state=remote):
-                return
-            acted += 1
-            await _notify(text)
-            await refresh_refetch_card(bot, review_id,
-                                       stage_label=fsm.label(target),
-                                       task_id=task_id)
+def _refetch_backoff_seconds(failures: int) -> float:
+    """Capped exponential backoff (base = poll interval, cap = 5 minutes)."""
+    base = float(REFETCH_POLL_INTERVAL_SECONDS)
+    exponent = max(0, min(int(failures or 1) - 1, 6))
+    return min(base * (2 ** exponent), float(REFETCH_POLL_BACKOFF_MAX_SECONDS))
 
-        # 1. The source review is the owner of the attempt: once it is decided,
-        #    expired or superseded the attempt can only be cancelled.
-        from telepost.storage.sqlite.reviews import ReviewRepository
-        source = await ReviewRepository().get(review_id)
-        if source is None or source["status"] != "pending":
-            if await repo.mark_cancelled(request_id, "source_review_resolved"):
-                acted += 1
-                await _notify(
-                    f"🔄 审核 #{review_id} 的重抓已取消：该审核已被处理"
-                    "（驳回/通过/过期），不会产生替换稿，当前稿件保持不变。"
-                    f"\n任务ID：{task_id}"
-                )
-                await refresh_refetch_card(bot, review_id, task_id=task_id)
-            continue
 
-        # 2. Unadmitted request: never poll or wait forever. The first
-        #    submission may have died with its process, so re-submit the SAME
-        #    request UUID (idempotent on the PixivFlow side) and promote the row
-        #    once the remote confirms acceptance.
-        if state == fsm.REQUESTED:
-            if stale_seconds > 0 and age >= stale_seconds:
-                await _terminate(
-                    fsm.TIMEOUT, "admission_timeout",
-                    f"⚠️ 审核 #{review_id} 重抓请求未被 PixivFlow 接受（已等待约"
-                    f" {minutes} 分钟），当前稿件未变，请重新点击重抓。"
-                    f"\n任务ID：{task_id}",
-                )
-                continue
-            if (wake_seconds > 0 and age >= wake_seconds
-                    and request_id not in _wake_pinged):
-                _wake_pinged.add(request_id)
-                try:
-                    accepted = await asyncio.to_thread(
-                        _submit_pixivflow_refetch, source["target_id"], request_id
-                    )
-                    slot_id = str((accepted or {}).get("slotId")
-                                  or (accepted or {}).get("slot_id") or "")
-                    await repo.mark_admitted(request_id, slot_id,
-                                             actor="watchdog:resubmit")
-                    acted += 1
-                    await _notify(
-                        f"🔄 审核 #{review_id} 重抓任务此前未在 PixivFlow 落地，"
-                        "已用同一任务ID重新提交并开始处理，有新结果会第一时间"
-                        f"在本群通知。\n任务ID：{task_id}"
-                    )
-                except Exception:
-                    logger.warning("重抓重新提交失败: review_id=%s", review_id,
-                                   exc_info=True)
-        else:
-            try:
-                remote_state = await asyncio.to_thread(
-                    _read_pixivflow_refetch_status,
-                    source["target_id"], request_id,
-                )
-            except Exception as exc:
-                # A durable outbox may still be delivering. Transport failure is
-                # not evidence that the work failed; it may also mean the Machine
-                # is stopped, in which case an idempotent wake (same request
-                # UUID) restarts the resume path.
-                logger.warning("重抓远端状态不可用: review_id=%s error=%s",
-                               review_id, type(exc).__name__)
-                remote_state = "unavailable"
+async def _fetch_refetch_snapshot(target_id: str, request_id: str) -> dict:
+    """Read one remote job snapshot through the PORT; return protocol fields.
 
-            if remote_state in {"no_candidate", "duplicate", "failed", "submitted"}:
-                disposition = ("no_alternative" if remote_state in {"no_candidate", "duplicate"}
-                               else "failed")
-                reason = ("delivery_uncorrelated" if remote_state == "submitted"
-                          else "remote_failed" if remote_state == "failed" else "")
-                _, applied, changed = await repo.apply_outcome(
-                    request_id, disposition, reason=reason,
-                )
-                if changed:
-                    acted += 1
-                    if applied == "no_alternative":
-                        message = (f"📭 审核 #{review_id} 没有找到新的可替换作品，"
-                                   "当前稿件保持不变。")
-                    elif applied == "failed":
-                        message = (f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，"
-                                   "请稍后重试。")
-                    else:
-                        message = ""
-                    if message:
-                        await _notify(f"{message}\n任务ID：{task_id}")
-                    await refresh_refetch_card(bot, review_id, task_id=task_id)
-                continue
-
-            if remote_state == "unavailable":
-                # Idempotent wake (same request UUID) — PixivFlow resumes the
-                # existing manual slot; no new business is created. An attempt
-                # already past the absolute ceiling is never woken: step 3 below
-                # terminates it instead.
-                within_ceiling = hard_seconds <= 0 or age < hard_seconds
-                if (within_ceiling and wake_seconds > 0 and age >= wake_seconds
-                        and request_id not in _wake_pinged):
-                    _wake_pinged.add(request_id)
-                    try:
-                        _submit_pixivflow_refetch(source["target_id"], request_id)
-                        acted += 1
-                        await _notify(
-                            f"🔄 审核 #{review_id} 处理时间较长，已自动恢复任务"
-                            "（同一重抓请求），有新结果会第一时间通知。"
-                            f"\n任务ID：{task_id}"
-                        )
-                    except Exception:
-                        logger.warning("重抓自动唤醒失败: review_id=%s", review_id)
-            else:
-                stage = fsm.stage_for_remote_state(str(remote_state or ""))
-                if stage:
-                    await repo.advance_stage(request_id, stage,
-                                             remote_state=str(remote_state),
-                                             reason="remote_progress")
-                    stage_label = fsm.label(stage)
-                    state = stage
-                # A stage that stops advancing (or a remote that reports nothing
-                # usable) is a stall — a longer wait is never a fix.
-                last_progress = row["updated_at"] or created
-                if stage_seconds > 0 and current_time - last_progress >= stage_seconds:
-                    await _terminate(
-                        fsm.TIMEOUT,
-                        "stalled_no_progress" if stage else "remote_state_unknown",
-                        f"❌ 审核 #{review_id} 重抓在阶段「{stage_label}」停留超过"
-                        f" {max(1, int(stage_seconds // 60))} 分钟仍未前进，已判定超时"
-                        "（当前稿件保持不变，可重新点击重抓）。"
-                        f"\n任务ID：{task_id}",
-                        remote=str(remote_state or ""),
-                    )
-                    continue
-
-        # 3. Absolute ceiling: no active attempt may outlive HARD_MINUTES.
-        if hard_seconds > 0 and age >= hard_seconds:
-            await _terminate(
-                fsm.TIMEOUT, "stalled_after_hard_timeout",
-                f"❌ 审核 #{review_id} 重抓超过 {int(hard_seconds // 60)} 分钟仍未完成，"
-                "已自动终止，当前稿件保持不变；请检查 PixivFlow 后重新重抓。"
-                f"\n任务ID：{task_id}",
-                remote=str(row["last_remote_state"] or ""),
+    Only ``state`` plus the liveness timestamps cross this boundary — no
+    PixivFlow business concept (slot/disposition/…) is interpreted here.
+    Raises :class:`PixivFlowJobError` (error.code vocabulary) on failure.
+    """
+    def _read():
+        # The heartbeat loop reads the protocol view (state + liveness stamps).
+        try:
+            result = _read_pixivflow_refetch_status(
+                target_id, request_id, detail=True,
             )
-            continue
+        except TypeError:
+            # A 2-argument seam (tests/deployments patching the old signature)
+            # is honoured: it yields the status string only, i.e. no remote
+            # liveness — the honour-system fallback of this deployment.
+            result = _read_pixivflow_refetch_status(target_id, request_id)
+        if isinstance(result, dict):
+            return {
+                "state": str(result.get("state") or ""),
+                "heartbeat": result.get("heartbeat"),
+                "job_id": str(result.get("job_id") or ""),
+                "error_code": str(result.get("error_code") or ""),
+            }
+        return {"state": str(result or ""), "heartbeat": None}
 
-        # 4. Repeating progress reminder (stage + elapsed + task id).
-        if remind_seconds <= 0:
-            continue
-        last = row["last_progress_notified_at"] or 0
-        if last and current_time - last < remind_seconds:
-            continue
-        await repo.bump_progress_notified(request_id, current_time)
-        acted += 1
-        await _notify(
-            f"🔄 审核 #{review_id} 重抓仍在处理中（当前阶段：{stage_label}，"
-            f"已等待约 {minutes} 分钟），有新结果会第一时间在本群通知。"
-            f"\n任务ID：{task_id}"
-        )
-        # Same progress on the card the operator pressed (§refetch-card-state).
+    return await asyncio.to_thread(_read)
+
+
+async def _refetch_poll_notify(bot, text: str, wakeup=None) -> bool:
+    """Send one moderator-facing message; never raises (a notify is cosmetic).
+
+    Returns True when the message actually left, so the caller can bump the
+    durable ``notify_count`` (the "exactly one user-visible notification"
+    counter the stress test and doctor read).
+    """
+    try:
+        await context_bot_send(bot, text)
+        return True
+    except Exception:
+        logger.debug("发送重抓通知失败", exc_info=True)
+        return False
+
+
+async def _refetch_refresh_card(bot, review_id: int, *, minutes=None,
+                                stage_label: str = "", task_id: str = "") -> None:
+    """Repaint the card; a card that is already gone is not an error."""
+    try:
         await refresh_refetch_card(bot, review_id, minutes=minutes,
                                    stage_label=stage_label, task_id=task_id)
+    except Exception:
+        logger.debug("刷新重抓卡片失败: review_id=%s", review_id, exc_info=True)
+
+
+async def _refetch_terminal_notify(bot, repo, row, *, review_id: int,
+                                   task_id: str, text: str,
+                                   stage_label: str = "") -> bool:
+    """Guarantee the ONE user-visible notification of a terminal transition.
+
+    Idempotent per attempt via the dedicated ``terminal_notified_at`` clock: a
+    state can only become terminal once, so this sends exactly one terminal
+    message and never re-notifies on a later tick, retry or process restart.
+    Progress reminders do NOT consume this claim — otherwise a terminal state
+    arriving after a few reminders would end silently (the production defect).
+    Cards older than the recovery window are never re-messaged: a dead card
+    must stay dead.
+    """
+    if int(row["notify_count"] or 0) > 0 and row["terminal_notified_at"]:
+        return False
+    if not _refetch_card_notifiable(row, task_id=task_id):
+        return False
+    message = f"{text}\n任务ID：{task_id}"
+    sent = await _refetch_poll_notify(bot, message)
+    if not sent:
+        # A swallowed terminal notice IS the production defect. The attempt is
+        # already terminal, so the poller will never revisit it: hand the text
+        # to the durable outbox (flushed by the 300s cleanup job) and leave a
+        # doctor-visible audit trail. Still claim the one-shot clock below so a
+        # concurrent tick cannot enqueue a second copy — the outbox row is the
+        # notification, and its idempotency key makes it exactly-once.
+        await _enqueue_refetch_terminal_notice(
+            row, review_id=review_id, task_id=task_id, text=message,
+        )
+    await repo.bump_terminal_notified(row["request_id"], time.time())
+    await _refetch_refresh_card(bot, review_id, stage_label=stage_label,
+                                task_id=task_id)
+    return sent
+
+
+async def _enqueue_refetch_terminal_notice(row, *, review_id: int,
+                                           task_id: str, text: str) -> bool:
+    """Persist a terminal notice whose direct send failed (§refetch-terminal-notify).
+
+    Never raises: this is itself a best-effort fallback, and the audit event is
+    what makes the failure observable when even the outbox write fails.
+    """
+    from telepost.observability import audit
+    from telepost.storage.sqlite.submitter_notifications import (
+        SubmitterNotificationRepository,
+    )
+
+    request_id = str(row["request_id"] or "")
+    queued = False
+    try:
+        queued = await SubmitterNotificationRepository().enqueue_refetch_terminal(
+            request_id, text, review_id=review_id, task_id=task_id,
+            chat_id=int(REVIEW_CHAT_ID or 0),
+        )
+    except Exception:
+        logger.warning("重抓终态通知落库失败: request_id=%s", request_id, exc_info=True)
+    try:
+        await audit.record_event(
+            "review.refetch_terminal_notify_undelivered",
+            review_id=int(review_id or 0),
+            error_class="notify_send_failed",
+            actor="service:refetch_watchdog",
+            detail={"request_id": request_id, "task_id": task_id,
+                    "queued": bool(queued)},
+        )
+    except Exception:
+        logger.warning("重抓终态通知审计写入失败: request_id=%s", request_id,
+                       exc_info=True)
+    return queued
+
+
+def _refetch_card_notifiable(row, *, task_id: str) -> bool:
+    """False for a historical row whose card is long dead (never re-message).
+
+    Production carried 12 silent terminal rows up to 30 days old; recovering one
+    must never message a 30-day-old review card. Historical rows are reported by
+    the doctor as legacy instead.
+    """
+    created = float(row["created_at"] or 0)
+    if not created:
+        return True
+    age = time.time() - created
+    if age <= REFETCH_RECOVERY_NOTIFY_MAX_AGE_SECONDS:
+        return True
+    logger.info(
+        "重抓终态通知跳过（历史卡片已过期）: request_id=%s 任务ID=%s age_hours=%.1f",
+        row["request_id"], task_id, age / 3600.0,
+    )
+    return False
+
+
+def _refetch_terminal_text(review_id: int, *, state: str, failure_code: str,
+                           task_id: str, minutes: int,
+                           hard_minutes: int) -> str:
+    """The moderator-facing terminal sentence (Chinese, always with 任务ID).
+
+    Failure paths must hand back an operable card, so every failure sentence
+    ends with 「可以再次重抓」 (§refetch-terminal-notify).
+    """
+    if failure_code == "queued_too_long":
+        return (f"⏱ 审核 #{review_id} 重抓排队超时（PixivFlow 未开始执行，已等待约"
+                f" {minutes} 分钟），当前稿件保持不变，可以再次重抓。")
+    if failure_code == "stalled_no_progress":
+        return (f"❌ 审核 #{review_id} 重抓在阶段「{fsm.label(state)}」停留超过"
+                f" {max(1, int(REFETCH_STAGE_TIMEOUT_MINUTES))} 分钟没有进展"
+                "（远端无状态变化也无心跳），已判定超时，当前稿件保持不变，"
+                "可以再次重抓。")
+    if failure_code == "watchdog_no_heartbeat":
+        return (f"⚠️ 审核 #{review_id} 重抓看门狗失去心跳超过"
+                f" {max(1, int(REFETCH_STALE_TIMEOUT_MINUTES))} 分钟"
+                "（本机轮询未再记录到该任务），已标记失败，当前稿件保持不变，"
+                "可以再次重抓。")
+    if failure_code == "stalled_after_hard_timeout":
+        return (f"❌ 审核 #{review_id} 重抓超过 {int(hard_minutes)} 分钟仍未完成，"
+                "已自动终止，当前稿件保持不变；请检查 PixivFlow 后重新重抓。")
+    if failure_code == "admission_timeout":
+        return (f"⚠️ 审核 #{review_id} 重抓请求未被 PixivFlow 接受（已等待约"
+                f" {minutes} 分钟），当前稿件未变，请重新点击重抓。")
+    return (f"⚠️ 审核 #{review_id} 重抓未能完成（{failure_code}），"
+            "当前稿件保持不变，可以再次重抓。")
+
+
+async def _refetch_recovery_sweep(bot, repo, *, current_time: float) -> int:
+    """One recovery pass after a process restart (guarded once per process).
+
+    In-memory state dies with the process; the durable ``refetch_attempts``
+    rows are the only truth. Every non-terminal attempt whose LOCAL heartbeat is
+    older than two poll intervals is polled immediately, and a remote that
+    already reports a terminal state is applied through the state machine.
+    Returns the number of attempts that converged.
+    """
+    global _refetch_recovery_done
+    if _refetch_recovery_done:
+        return 0
+    _refetch_recovery_done = True
+    # Imported HERE on purpose: the recovery sweep is the only place that needs
+    # the review repository before the regular poll path, and a module-level
+    # import would close a cycle (reviews → refetch → handlers).
+    from telepost.storage.sqlite.reviews import ReviewRepository
+    stale_cutoff = current_time - max(1.0, 2.0 * REFETCH_POLL_INTERVAL_SECONDS)
+    recovered = 0
+    try:
+        rows = await repo.heartbeat_stale(stale_cutoff)
+    except Exception:
+        logger.warning("重抓重启恢复扫描失败", exc_info=True)
+        return 0
+    for row in rows:
+        request_id = row["request_id"]
+        review_id = int(row["source_review_id"] or 0)
+        task_id = f"refetch-{review_id}-{int(float(row['created_at'] or 0))}"
+        try:
+            source = await ReviewRepository().get(review_id)
+        except Exception:
+            source = None
+        # NOTE: the repository returns a ``sqlite3.Row`` (no ``.get``), so the
+        # field is read by key with an explicit missing-key guard.
+        try:
+            target_id = str(source["target_id"] or "") if source is not None else ""
+        except (KeyError, IndexError, TypeError):
+            target_id = ""
+        if not target_id:
+            logger.info("重抓重启恢复跳过（无法解析 target）: request_id=%s", request_id)
+            continue
+        try:
+            snapshot = await _fetch_refetch_snapshot(target_id, request_id)
+        except Exception as exc:
+            # The remote may be stopped; the row stays non-terminal and the
+            # regular heartbeat/backoff path will retry it on a later tick.
+            logger.warning("重抓重启恢复读取远端失败: request_id=%s error=%s",
+                           request_id, type(exc).__name__)
+            continue
+        status = str(snapshot.get("state") or "")
+        moved = False
+        if status in _REFETCH_TERMINAL_OUTCOMES:
+            disposition = ("no_alternative" if status in {"no_candidate", "duplicate"}
+                           else "failed")
+            reason = ("delivery_uncorrelated" if status == "submitted"
+                      else "remote_failed" if status == "failed" else "")
+            _, applied, changed = await repo.apply_outcome(
+                request_id, disposition, reason=reason)
+            if changed:
+                moved = True
+                recovered += 1
+                text = ("📭 重抓没有找到新的可替换作品，当前稿件保持不变。"
+                        if applied == "no_alternative"
+                        else "⚠️ 重抓失败，当前稿件未变，请稍后重试。")
+                await _refetch_terminal_notify(
+                    bot, repo, row, review_id=review_id, task_id=task_id,
+                    text=f"审核 #{review_id} {text}")
+        elif status:
+            stage = fsm.stage_for_remote_state(status)
+            if stage and stage != fsm.normalize(row["state"]):
+                if await repo.advance_stage(request_id, stage,
+                                            remote_state=status,
+                                            reason="recovered_after_restart"):
+                    moved = True
+                    recovered += 1
+        if moved and recovered > 0:
+            await _record_refetch_event(
+                "review.refetch_recovered_after_restart", review_id=review_id,
+                request_id=request_id, chain_id=row["review_chain_id"] or "",
+                generation=int(row["generation"] or 0), actor=None,
+                recovered=recovered, via="heartbeat_sweep",
+            )
+    logger.info("重抓重启恢复完成: 扫描=%d 收敛=%d", len(rows), recovered)
+    if recovered:
+        from telepost.observability import audit
+        try:
+            await audit.record_event(
+                "review.refetch_recovered_after_restart",
+                detail={"recovered_count": recovered, "scanned": len(rows)},
+            )
+        except Exception:
+            logger.debug("记录重启恢复审计事件失败", exc_info=True)
+    return recovered
+
+
+async def recover_refetch_jobs(bot, *, now: Optional[float] = None) -> int:
+    """启动即扫（P0）: one recovery sweep on the real startup path.
+
+    Called by ``main.py`` right after ``reconcile_incomplete_reviews`` and
+    BEFORE ``telepost_ready`` flips to True, so a redeploy adopts every
+    in-flight refetch attempt durably (never in-memory) instead of waiting for
+    the first 30 s heartbeat tick. Guarded once per process, therefore the first
+    tick of ``poll_refetch_jobs`` cannot repeat it.
+    """
+    if _refetch_heartbeat_disabled():
+        return 0
+    current_time = time.time() if now is None else now
+    try:
+        return await _refetch_recovery_sweep(
+            bot, RefetchRepository(), current_time=current_time,
+        )
+    except Exception:
+        logger.warning("重抓启动恢复失败", exc_info=True)
+        return 0
+
+
+async def flush_refetch_terminal_notifications(bot, *, limit: int = 20) -> int:
+    """Deliver refetch terminal notices whose direct send failed.
+
+    Durable retry for the one-message guarantee: a terminal attempt is no longer
+    polled, so the poller cannot retry it — the outbox row is the only thing
+    standing between a Telegram hiccup and permanent silence. Never raises;
+    failures stay in the outbox (attempts/last_error) and the doctor reports them.
+    """
+    from telepost.storage.sqlite.submitter_notifications import (
+        SubmitterNotificationRepository,
+    )
+
+    repo = SubmitterNotificationRepository()
+    try:
+        rows = await repo.pending_refetch_terminal(limit=limit)
+    except Exception:
+        logger.warning("读取重抓终态通知队列失败", exc_info=True)
+        return 0
+    delivered = 0
+    for row in rows:
+        try:
+            payload = json.loads(row["payload"] or "{}")
+        except Exception:
+            payload = {}
+        text = str(payload.get("text") or "")
+        chat_id = int(payload.get("chat_id") or 0) or int(REVIEW_CHAT_ID or 0)
+        if not text or not chat_id:
+            await repo.record_error(int(row["id"]), "empty text or chat id")
+            continue
+        try:
+            message = await bot.send_message(chat_id=chat_id, text=text)
+        except Exception as exc:
+            await repo.record_error(int(row["id"]), str(exc))
+            continue
+        await repo.mark_sent(int(row["id"]), int(getattr(message, "message_id", 0) or 0))
+        delivered += 1
+    if delivered:
+        logger.info("重抓终态通知补发完成: %d 条", delivered)
+    return delivered
+
+
+async def poll_refetch_jobs(bot, *, now: Optional[float] = None,
+                            force: bool = False) -> int:
+    """重抓作业心跳（P0）：每 30 秒轮询一次非终态 attempt 并推进生命周期。
+
+    This is the durable-job driver: one tick polls every non-terminal attempt,
+    records OUR heartbeat and the REMOTE liveness clocks, applies the bounded
+    budgets, and guarantees that a terminal state is user-visible exactly once.
+    ``cleanup_runtime_data`` calls it with ``force=True`` so there is exactly
+    one implementation (never a second, divergent watchdog).
+
+    Liveness rule (§refetch-lifecycle): 停摆 = 无进展 **且** 无心跳。A remote that
+    keeps sending a fresh heartbeat, or that changes state, resets the stall
+    clock — a legitimately long (2–20 minute, once 10-hour) PixivFlow slot is
+    never killed for being slow, only for being silent.
+
+    Returns the number of attempts this tick ACTED on (heartbeat written,
+    reminder sent or terminal state reached).
+    """
+    if _refetch_heartbeat_disabled():
+        return 0
+    current_time = time.time() if now is None else now
+    repo = RefetchRepository()
+    await _refetch_recovery_sweep(bot, repo, current_time=current_time)
+    try:
+        rows = await repo.active_for_poll(current_time)
+    except Exception:
+        logger.warning("重抓轮询读取活跃任务失败", exc_info=True)
+        return 0
+    acted = 0
+    for row in rows:
+        try:
+            acted += await _poll_one_refetch_job(
+                bot, repo, row, current_time=current_time, force=force,
+            )
+        except Exception:
+            # One broken attempt must never stop the rest of the loop.
+            logger.warning(
+                "重抓轮询单条失败: request_id=%s", row["request_id"], exc_info=True,
+            )
     return acted
+
+
+async def _poll_one_refetch_job(bot, repo, row, *, current_time: float,
+                                force: bool) -> int:
+    """Poll ONE non-terminal attempt for one tick; returns 0/1 acted."""
+    from telepost.storage.sqlite.reviews import ReviewRepository
+
+    review_id = int(row["source_review_id"] or 0)
+    request_id = row["request_id"]
+    created = float(row["created_at"] or current_time)
+    age = current_time - created
+    minutes = int(age // 60)
+    state = fsm.normalize(row["state"])
+    task_id = f"refetch-{review_id}-{int(created)}"
+    stage_label = fsm.label(state)
+    hard_seconds = REFETCH_HARD_TIMEOUT_MINUTES * 60
+    stale_seconds = REFETCH_STALE_TIMEOUT_MINUTES * 60
+    wake_seconds = REFETCH_WAKE_MINUTES * 60
+
+    async def _terminate(target: str, reason: str, text: str,
+                         remote: str = "") -> int:
+        # The terminal STATE is the state machine's decision, never an artefact
+        # of this helper: FAILED means our own side is at fault (the watchdog
+        # lost the heartbeat), TIMEOUT means the work did not finish within a
+        # budget, CANCELLED means the source review moved on first.
+        if target == fsm.CANCELLED:
+            moved = await repo.mark_cancelled(request_id, reason, remote_state=remote)
+        elif target == fsm.FAILED:
+            moved = await repo.mark_failed(request_id, reason)
+        else:
+            moved = await repo.mark_timeout(request_id, reason, remote_state=remote)
+        if not moved:
+            return 0
+        fresh = await repo.find_by_request_id(request_id)
+        await _refetch_terminal_notify(
+            bot, repo, fresh if fresh is not None else row,
+            review_id=review_id, task_id=task_id, text=text,
+            stage_label=fsm.label(target),
+        )
+        return 1
+
+    # 1. The source review owns the attempt: once decided/expired/superseded the
+    #    attempt can only be cancelled — and the group must be told (§refetch).
+    source = await ReviewRepository().get(review_id)
+    if source is None or source["status"] != "pending":
+        return await _terminate(
+            fsm.CANCELLED, "source_review_resolved",
+            f"🔄 审核 #{review_id} 的重抓已取消：该审核已被处理"
+            "（驳回/通过/过期），不会产生替换稿，当前稿件保持不变。",
+        )
+
+    next_poll = row["next_poll_at"]
+    heartbeat_at = row["heartbeat_at"]
+    poll_due = (force or next_poll is None or float(next_poll) <= current_time)
+
+    if state == fsm.REQUESTED:
+        # 2. Unadmitted request: never polled remotely, never waiting forever.
+        #    This branch comes BEFORE the absolute ceiling on purpose: an
+        #    unadmitted row must be reported as admission_timeout (the documented
+        #    contract) and must never fall through to the hard-ceiling branch,
+        #    which would overwrite failure_code.
+        #    STALE_MINUTES → admission_timeout; WAKE_MINUTES → idempotent
+        #    re-submit with the SAME request UUID (a first submit may have died
+        #    with its process). This branch must win over the watchdog branch
+        #    below: both share STALE_MINUTES, and letting the watchdog shadow it
+        #    would report watchdog_no_heartbeat instead of admission_timeout.
+        if stale_seconds > 0 and age >= stale_seconds:
+            return await _terminate(
+                fsm.TIMEOUT, "admission_timeout",
+                _refetch_terminal_text(review_id, state=state,
+                                       failure_code="admission_timeout",
+                                       task_id=task_id, minutes=minutes,
+                                       hard_minutes=int(hard_seconds // 60)),
+            )
+        if (wake_seconds > 0 and age >= wake_seconds
+                and request_id not in _wake_pinged):
+            _wake_pinged.add(request_id)
+            try:
+                submitted = await asyncio.to_thread(
+                    _submit_pixivflow_refetch, source["target_id"], request_id)
+                await repo.mark_admitted(
+                    request_id, str((submitted or {}).get("slot_id") or ""),
+                    actor="watchdog:resubmit",
+                )
+                await _refetch_poll_notify(
+                    bot,
+                    f"🔄 审核 #{review_id} 重抓任务此前未在 PixivFlow 落地，"
+                    "已用同一任务ID重新提交并开始处理，有新结果会第一时间"
+                    f"在本群通知。\n任务ID：{task_id}",
+                )
+                return 1
+            except Exception:
+                logger.warning("重抓重新提交失败: review_id=%s", review_id,
+                               exc_info=True)
+        if not poll_due:
+            return 0
+        # Still record OUR heartbeat so doctor can tell "queued remotely" from
+        # "the poller itself is dead".
+        await repo.record_poll(
+            request_id, now=current_time,
+            next_poll_at=current_time + REFETCH_POLL_INTERVAL_SECONDS,
+        )
+        return 0
+
+    # 3b. Watchdog heartbeat: OUR poller stopped recording for this attempt.
+    #     Only ADMITTED attempts reach here (REQUESTED was handled above), and
+    #     only a row this process has ACTUALLY polled can be judged — a NULL
+    #     heartbeat_at means "never polled by this process" (a row predating the
+    #     job model, or one adopted after a restart), which must be POLLED, not
+    #     failed. That distinction keeps a redeploy from killing every in-flight
+    #     attempt on its first tick.
+    if (stale_seconds > 0 and heartbeat_at
+            and (current_time - float(heartbeat_at)) >= stale_seconds):
+        return await _terminate(
+            fsm.FAILED, "watchdog_no_heartbeat",
+            _refetch_terminal_text(review_id, state=state,
+                                   failure_code="watchdog_no_heartbeat",
+                                   task_id=task_id, minutes=minutes,
+                                   hard_minutes=int(hard_seconds // 60)),
+        )
+
+    # 4. Read the remote through the port (never a second HTTP client).
+    if not poll_due:
+        return 0
+    remote_state = ""
+    snapshot: Dict[str, Any] = {}
+    poll_failed = False
+    try:
+        snapshot = await _fetch_refetch_snapshot(source["target_id"], request_id)
+        remote_state = str(snapshot.get("state") or "")
+    except Exception as exc:
+        # Transport failure is not evidence the work failed: the remote may be
+        # stopped, and an idempotent wake restarts the resume path.
+        poll_failed = True
+        logger.warning("重抓远端状态不可用: review_id=%s error=%s",
+                       review_id, type(exc).__name__)
+    if poll_failed:
+        failures = int(row["poll_failures"] or 0) + 1
+        interval = _refetch_backoff_seconds(failures)
+        await repo.record_poll(
+            request_id, now=current_time, failure=True,
+            next_poll_at=current_time + interval,
+        )
+        if hard_seconds > 0 and age >= hard_seconds:
+            # Past the absolute ceiling AND unreadable: end it. A remote we
+            # cannot reach may never be able to end an attempt by itself.
+            return await _terminate(
+                fsm.TIMEOUT, "stalled_after_hard_timeout",
+                _refetch_terminal_text(review_id, state=state,
+                                       failure_code="stalled_after_hard_timeout",
+                                       task_id=task_id, minutes=minutes,
+                                       hard_minutes=int(hard_seconds // 60)),
+                remote=str(row["last_remote_state"] or ""),
+            )
+        if (wake_seconds > 0 and age >= wake_seconds
+                and request_id not in _wake_pinged):
+            _wake_pinged.add(request_id)
+            try:
+                await asyncio.to_thread(
+                    _submit_pixivflow_refetch, source["target_id"], request_id)
+                if await _refetch_poll_notify(
+                    bot,
+                    f"🔄 审核 #{review_id} 处理时间较长，已自动恢复任务"
+                    "（同一重抓请求），有新结果会第一时间通知。"
+                    f"\n任务ID：{task_id}",
+                ):
+                    await repo.bump_progress_notified(request_id, current_time)
+                return 1
+            except Exception:
+                logger.warning("重抓自动唤醒失败: review_id=%s", review_id)
+        # A failed read is not progress, but it must NOT be silent either: fall
+        # through to the liveness budgets and the repeating reminder so the
+        # moderator still hears "we are waiting" (and a remote that stays
+        # unreadable long enough still converges to a terminal state).
+        remote_state = ""
+
+    # Protocol-only liveness: a fresh heartbeat/timestamp OR a real state change
+    # resets the stall clock (§refetch-lifecycle). A state change means the
+    # remote DID make progress, so it is activity even when it carries no
+    # timestamp.
+    remote_heartbeat = snapshot.get("heartbeat")
+    state_changed = bool(remote_state) and remote_state != (row["last_remote_state"] or "")
+    protocol_live = state_changed or _refetch_remote_live(remote_heartbeat, current_time)
+    # Liveness as of THIS tick, for the stall budget: 「无进展且无心跳才算停摆」.
+    # A first observation is NOT progress — an empty ``last_remote_state``
+    # turning into ``pending`` must never buy an already-stalled attempt another
+    # full window (that is what let a dead search look alive forever) — while a
+    # real transition or a fresh remote heartbeat is exactly what keeps a
+    # legitimately slow (2–20 minute, once 10 hour) slot safe.
+    remote_live_now = (
+        (state_changed and bool(row["last_remote_state"] or ""))
+        or _refetch_remote_live(remote_heartbeat, current_time)
+    )
+    # Remote-activity clock: an OBSERVED timestamp (heartbeat/timestamp field)
+    # when the remote offers one, otherwise the moment We first observed the
+    # current remote state. It is never advanced just because we keep looking,
+    # so "we are still polling" can never masquerade as remote progress.
+    if remote_heartbeat is not None:
+        remote_state_at = float(remote_heartbeat)
+    elif state_changed:
+        remote_state_at = current_time
+    else:
+        remote_state_at = row["remote_state_at"]
+    # A FAILED read must not be re-recorded as a successful poll: the failure
+    # branch above already wrote OUR heartbeat, incremented poll_failures and
+    # armed the backoff, and a second "success" write would erase all three
+    # (which would hide a permanently unreachable remote from doctor).
+    if not poll_failed:
+        await repo.record_poll(
+            request_id, now=current_time,
+            remote_state=remote_state or None,
+            remote_heartbeat_at=(float(remote_heartbeat)
+                                 if remote_heartbeat is not None else None),
+            remote_state_at=remote_state_at,
+            next_poll_at=current_time + REFETCH_POLL_INTERVAL_SECONDS,
+        )
+
+    # 5. Remote business terminal → apply the outcome through the state machine.
+    if remote_state in _REFETCH_TERMINAL_OUTCOMES:
+        disposition = ("no_alternative" if remote_state in _REFETCH_NO_CANDIDATE
+                       else "failed")
+        reason = ("delivery_uncorrelated" if remote_state == "submitted"
+                  else "remote_failed" if remote_state == "failed" else "")
+        _, applied, changed = await repo.apply_outcome(
+            request_id, disposition, reason=reason,
+        )
+        if not changed:
+            return 0
+        if applied == "no_alternative":
+            text = (f"📭 审核 #{review_id} 没有找到新的可替换作品，"
+                    "当前稿件保持不变，可以再次重抓。")
+        elif applied == "failed":
+            text = (f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，"
+                    "可以再次重抓。")
+        else:
+            text = f"ℹ️ 审核 #{review_id} 重抓已结束（{applied}）。"
+        fresh = await repo.find_by_request_id(request_id)
+        await _refetch_terminal_notify(
+            bot, repo, fresh if fresh is not None else row,
+            review_id=review_id, task_id=task_id, text=text,
+        )
+        return 1
+
+    stage = fsm.stage_for_remote_state(remote_state)
+    if stage:
+        if await repo.advance_stage(request_id, stage,
+                                    remote_state=remote_state,
+                                    reason="remote_progress"):
+            stage_label = fsm.label(stage)
+        state = stage or state
+
+    # 5b. Absolute ceiling: no attempt may outlive HARD_MINUTES. It is judged
+    #     AFTER the remote's own verdict (a remote terminal state is the more
+    #     authoritative answer and must still reach the moderator) and BEFORE
+    #     the local budgets, so the recorded failure_code is unambiguous.
+    if hard_seconds > 0 and age >= hard_seconds:
+        return await _terminate(
+            fsm.TIMEOUT, "stalled_after_hard_timeout",
+            _refetch_terminal_text(review_id, state=state,
+                                   failure_code="stalled_after_hard_timeout",
+                                   task_id=task_id, minutes=minutes,
+                                   hard_minutes=int(hard_seconds // 60)),
+            remote=remote_state or str(row["last_remote_state"] or ""),
+        )
+
+    # 6. Bounded budgets — all tied to liveness, never to silent waiting.
+    #    Two DIFFERENT clocks, because they answer two different questions:
+    #      * queued clock = when the request was made (``created_at``). A remote
+    #        that never claimed the slot is a queue problem, and that wait began
+    #        at creation — a fresh attempt is never judged for a wait predating it.
+    #      * stall clock  = the last REMOTE progress we can see: an observed
+    #        remote timestamp, else the state-transition clock (``updated_at``),
+    #        else admission/creation. "We are still polling" deliberately does NOT
+    #        advance it, so a dead remote cannot be kept alive merely because this
+    #        process keeps looking at it — while a live heartbeat or a real state
+    #        change (both of which advance the clock) keep a slow-but-progressing
+    #        search safe. That is 「无进展且无心跳才算停摆」.
+    stage_seconds = REFETCH_STAGE_TIMEOUT_MINUTES * 60
+    stall_clock = (float(row["remote_state_at"]) if row["remote_state_at"]
+                   else float(row["updated_at"] or 0)
+                   or float(row["started_at"] or created) or created)
+    if remote_state == "pending":
+        queued_seconds = REFETCH_QUEUED_TIMEOUT_MINUTES * 60
+        if queued_seconds > 0 and (current_time - created) >= queued_seconds:
+            return await _terminate(
+                fsm.TIMEOUT, "queued_too_long",
+                _refetch_terminal_text(review_id, state=state,
+                                       failure_code="queued_too_long",
+                                       task_id=task_id, minutes=minutes,
+                                       hard_minutes=int(hard_seconds // 60)),
+                remote=remote_state,
+            )
+    if (stage_seconds > 0 and not remote_live_now
+            and (current_time - stall_clock) >= stage_seconds):
+        return await _terminate(
+            fsm.TIMEOUT, "stalled_no_progress",
+            _refetch_terminal_text(review_id, state=state,
+                                   failure_code="stalled_no_progress",
+                                   task_id=task_id, minutes=minutes,
+                                   hard_minutes=int(hard_seconds // 60)),
+            remote=remote_state,
+        )
+
+    # 6. REPEATING progress reminder (stage + elapsed + 任务ID) — never
+    #    once-only, silence reads as "the task died" (§refetch-terminal-notify).
+    remind_seconds = REFETCH_PROGRESS_REMIND_MINUTES * 60
+    if remind_seconds > 0:
+        last = row["last_progress_notified_at"] or 0
+        if not last or current_time - last >= remind_seconds:
+            await _refetch_poll_notify(
+                bot,
+                f"🔄 审核 #{review_id} 重抓仍在处理中（当前阶段：{stage_label}，"
+                f"已等待约 {minutes} 分钟），有新结果会第一时间在本群通知。"
+                f"\n任务ID：{task_id}",
+            )
+            await repo.bump_progress_notified(request_id, current_time)
+            await _refetch_refresh_card(bot, review_id, minutes=minutes,
+                                        stage_label=stage_label, task_id=task_id)
+            return 1
+    return 0
+
+
+async def monitor_refetch_progress(bot, *, now: Optional[float] = None) -> int:
+    """Deprecated alias: the 300-second cleanup path now calls the heartbeat loop.
+
+    Kept as a thin forwarding wrapper (``force=True``) so exactly ONE
+    implementation exists — a second, divergent watchdog is the historical root
+    cause of the silent refetch failures this change fixes.
+    """
+    return await poll_refetch_jobs(bot, now=now, force=True)
+
+
+
 
 
 async def context_bot_send(bot, text: str) -> None:
@@ -863,46 +1443,53 @@ async def toggle_review_spoiler(update, context):
 
 def _submit_pixivflow_refetch(target_id: str, request_id: str,
                               correlation_id: str = "") -> dict:
-    base = os.environ["PIXIVFLOW_REFETCH_BASE_URL"].rstrip("/")
-    token = os.environ["PIXIVFLOW_REFETCH_TOKEN"]
-    parsed = urlparse(base)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
-        raise ValueError("无效的 PixivFlow 重抓地址")
-    url = f"{base}/internal/targets/{quote(target_id, safe='')}/refetch"
-    body = {"requestId": request_id}
-    if correlation_id:
-        body["correlationId"] = correlation_id
-    request = Request(
-        url,
-        data=json.dumps(body).encode(),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        method="POST",
-    )
+    """Submit through the PixivFlow JOB PORT (no URL building here).
+
+    Kept as a patchable module seam for tests/deployments. The port owns every
+    URL, header and payload decode; this function only adapts the legacy return
+    shape (``slot_id``) that existing callers/tests read.
+    """
+    client = _refetch_client()
     try:
-        with urlopen(request, timeout=REFETCH_TIMEOUT_SECONDS) as response:
-            result = json.load(response)
-            if response.status != 202 or result.get("status") != "accepted":
-                raise RuntimeError(f"PixivFlow 拒绝重抓（HTTP {response.status}）")
-            return result
-    except HTTPError as error:
-        raise RuntimeError(f"PixivFlow 拒绝重抓（HTTP {error.code}）") from error
+        receipt = client.submit(
+            "refetch", request_id, correlation_id=correlation_id,
+            params={"target_id": target_id},
+        )
+    except Exception as exc:
+        code = pixivflow_jobs_port.classify_error(exc)
+        raise RuntimeError(f"PixivFlow 拒绝重抓（{code}）") from exc
+    return {
+        "status": "accepted",
+        "replayed": bool(receipt.replayed),
+        "slotId": receipt.slot_id(),
+        "slot_id": receipt.slot_id(),
+    }
 
 
-def _read_pixivflow_refetch_status(target_id: str, request_id: str) -> str:
-    """Read the durable remote cell before declaring an admitted attempt stale."""
-    base = os.environ["PIXIVFLOW_REFETCH_BASE_URL"].rstrip("/")
-    token = os.environ["PIXIVFLOW_REFETCH_TOKEN"]
-    parsed = urlparse(base)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
-        raise ValueError("无效的 PixivFlow 重抓地址")
-    url = (f"{base}/internal/targets/{quote(target_id, safe='')}/refetch/"
-           f"{quote(request_id, safe='')}")
-    request = Request(url, headers={"Authorization": f"Bearer {token}"}, method="GET")
-    with urlopen(request, timeout=10) as response:
-        result = json.load(response)
-        if response.status != 200 or result.get("requestId") != request_id:
-            raise ValueError("PixivFlow 重抓状态不匹配")
-        return str(result.get("state") or "")
+def _read_pixivflow_refetch_status(target_id: str, request_id: str,
+                                   detail: bool = False):
+    """Read the durable remote job cell through the port.
+
+    ``detail=False`` (default) returns the remote STATUS STRING — the historical
+    contract kept for existing callers/tests. ``detail=True`` returns the
+    protocol view the heartbeat loop needs: ``state`` plus the liveness
+    timestamps and ``error_code``. Both come from the same port read.
+    """
+    client = _refetch_client()
+    snapshot = client.get(request_id, params={"target_id": target_id})
+    state = str(snapshot.status or "")
+    if not detail:
+        return state
+    stamps = [value for value in (
+        snapshot.heartbeat_at, snapshot.updated_at,
+        snapshot.started_at, snapshot.created_at,
+    ) if value is not None]
+    return {
+        "state": state,
+        "heartbeat": max(stamps) if stamps else None,
+        "job_id": str(snapshot.job_id or ""),
+        "error_code": str(snapshot.error_code or ""),
+    }
 
 
 def _classify_refetch_error(exc: Exception) -> str:

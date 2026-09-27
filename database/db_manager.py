@@ -303,7 +303,14 @@ async def init_db():
                     notify_count INTEGER NOT NULL DEFAULT 0,
                     terminal_reason TEXT NOT NULL DEFAULT '',
                     result_review_id INTEGER,
-                    operation_id TEXT NOT NULL DEFAULT ''
+                    operation_id TEXT NOT NULL DEFAULT '',
+                    terminal_notified_at REAL,
+                    heartbeat_at REAL,
+                    heartbeat_count INTEGER NOT NULL DEFAULT 0,
+                    remote_heartbeat_at REAL,
+                    remote_state_at REAL,
+                    next_poll_at REAL,
+                    poll_failures INTEGER NOT NULL DEFAULT 0
                 )
             ''')
             # Older TelePost databases: add every column the CREATE TABLE above
@@ -317,6 +324,22 @@ async def init_db():
                 ("terminal_reason", "TEXT NOT NULL DEFAULT ''"),
                 ("result_review_id", "INTEGER"),
                 ("operation_id", "TEXT NOT NULL DEFAULT ''"),
+                # §refetch-terminal-notify: the TERMINAL-notification clock.
+                # Separate from last_progress_notified_at on purpose — a
+                # progress reminder must never masquerade as the terminal
+                # notice (that was a silent-terminal path), and the "exactly
+                # one terminal message" guarantee stays idempotent per attempt.
+                ("terminal_notified_at", "REAL"),
+                # §refetch-lifecycle job heartbeat: the 30-second poller owns
+                # these clocks. ``heartbeat_at`` proves OUR watchdog is alive;
+                # the ``remote_*`` clocks prove the REMOTE slot is alive. A
+                # stall is only "no state change AND no fresh heartbeat".
+                ("heartbeat_at", "REAL"),
+                ("heartbeat_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("remote_heartbeat_at", "REAL"),
+                ("remote_state_at", "REAL"),
+                ("next_poll_at", "REAL"),
+                ("poll_failures", "INTEGER NOT NULL DEFAULT 0"),
             ):
                 try:
                     await conn.execute(
@@ -324,6 +347,18 @@ async def init_db():
                     )
                 except Exception:
                     pass  # column already exists
+            # Rows that already carried a notification keep their one-shot claim
+            # (a redeploy must never re-message an old card). Rows with
+            # notify_count = 0 are left NULL: they are historical silent
+            # terminals the doctor reports as legacy WARN, never re-notified.
+            await conn.execute(
+                "UPDATE refetch_attempts SET terminal_notified_at = "
+                "COALESCE(finished_at, updated_at, created_at) "
+                "WHERE terminal_notified_at IS NULL "
+                "AND state IN ('replaced','failed','timeout','no_candidate',"
+                "'cancelled','no_alternative','obsolete') "
+                "AND COALESCE(notify_count, 0) > 0"
+            )
             # Backfill the progress clock for rows written before it existed.
             await conn.execute(
                 "UPDATE refetch_attempts SET updated_at = "

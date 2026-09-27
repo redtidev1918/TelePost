@@ -57,10 +57,13 @@ from handlers.botconfig import botconfig, botconfig_callback
 
 # 投稿处理（状态机由 handlers.conversation 构建）
 from handlers.review import (
+    REFETCH_POLL_INTERVAL_SECONDS,
     cleanup_superseded_reviews,
     expire_stale_reviews,
-    monitor_refetch_progress,
+    flush_refetch_terminal_notifications,
+    poll_refetch_jobs,
     reconcile_incomplete_reviews,
+    recover_refetch_jobs,
 )
 
 # 错误处理
@@ -437,6 +440,10 @@ async def main():
     # Review DB is the source of truth. Repair any row left between preview
     # staging and control-message creation before exposing /ready to producers.
     await reconcile_incomplete_reviews(application.bot, stale_seconds=0)
+    # §refetch-lifecycle 启动即扫：重抓是一等持久 Job，重启后台账是唯一真相。
+    # 在 /ready 之前一次性接管所有非终态 attempt（远端已终态的经状态机收敛），
+    # 因此不依赖内存、也不必等第一个 30 秒心跳 tick。进程内只跑一次。
+    await recover_refetch_jobs(application.bot)
     application.bot_data["telepost_ready"] = True
     
     # 命令菜单是非关键 Telegram API 调用，放到上线后后台设置，避免其
@@ -623,6 +630,29 @@ async def shutdown(
             await application.updater.stop()
     except Exception as e:
         logger.warning(f"停止 Updater 失败（可忽略）: {e}")
+    # §refetch-lifecycle 停机：显式停掉 30 秒心跳作业并留下「心跳已停止」的持久
+    # 事实，在途 attempt 保持非终态（重启后由启动即扫接管），绝不静默消失。
+    try:
+        heartbeat_job = application.bot_data.get("refetch_heartbeat_job")
+        if heartbeat_job is not None:
+            heartbeat_job.schedule_removal()
+            logger.info("重抓心跳作业已停止")
+        from telepost.observability import audit as _refetch_audit
+        await _refetch_audit.record_event(
+            "review.refetch_heartbeat_stopped", actor="service:shutdown",
+            detail={"signal": getattr(signal, "name", str(signal))},
+        )
+    except Exception as e:
+        logger.warning(f"停止重抓心跳作业失败（可忽略）: {e}")
+    # 无人监督的 fire-and-forget 重抓提交任务必须在停机时收敛，否则异常会被
+    # 事件循环吞掉（asyncio 默认只打日志），在途 attempt 也无法解释地悬空。
+    try:
+        from telepost.application.refetch import shutdown_refetch_tasks
+        stopped = await shutdown_refetch_tasks()
+        if stopped:
+            logger.info("已等待 %d 个在建重抓任务收敛", stopped)
+    except Exception as e:
+        logger.warning(f"收敛重抓后台任务失败（可忽略）: {e}")
     await application.stop()
     await application.shutdown()
     
@@ -766,6 +796,13 @@ def setup_application(application):
     )
     application.add_handler(CallbackQueryHandler(handle_unknown_callback), group=3)
     
+    # §refetch-lifecycle 作业心跳：重抓是一等持久 Job，30 秒一轮（远小于最小
+    # 超时），独立于 300 秒的清理任务登记；cleanup 仍会以 force=True 调用同一个
+    # 函数（唯一实现，绝不出现第二个看门狗）。首个 tick 在 5 秒后触发，而真正的
+    # 「启动即扫」在 /ready 之前由 recover_refetch_jobs 完成。
+    async def refetch_heartbeat_job(context):
+        await poll_refetch_jobs(context.bot)
+
     # 添加周期性清理任务
     try:
         logger.info("设置定期任务...")
@@ -774,7 +811,7 @@ def setup_application(application):
             await cleanup_old_data()
             await expire_stale_reviews(context.bot)
             await cleanup_superseded_reviews(context.bot)
-            await monitor_refetch_progress(context.bot)
+            await poll_refetch_jobs(context.bot, force=True)
             await reconcile_incomplete_reviews(context.bot)
             from telepost.application.submitter_notify import (
                 flush_manager_notifications,
@@ -782,8 +819,19 @@ def setup_application(application):
             )
             await flush_submitter_notifications(context.bot)
             await flush_manager_notifications(context.bot)
+            # 终态通知兜底：直发失败的重抓终态消息在 outbox 里等待重投，
+            # 否则「终态必通知」会在一次 Telegram 抖动后永久静默。
+            await flush_refetch_terminal_notifications(context.bot)
 
         job_queue.run_repeating(cleanup_runtime_data, interval=300, first=10)
+        # §refetch-lifecycle 30 秒作业心跳：registration 返回的 Job 被引用保存在
+        # bot_data 里，shutdown 时可显式停掉（绝不留下无人监督的后台任务）。
+        application.bot_data["refetch_heartbeat_job"] = job_queue.run_repeating(
+            refetch_heartbeat_job,
+            interval=REFETCH_POLL_INTERVAL_SECONDS,
+            first=5,
+            name="refetch_heartbeat",
+        )
         # Independent supply watchdog: alert when a recognized schedule goes
         # silent for too long instead of waiting for the user to report a miss.
         job_queue.run_repeating(schedule_watchdog_job, interval=1800, first=120)

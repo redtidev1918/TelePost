@@ -83,11 +83,68 @@ class SubmitterNotificationRepository:
             )
             return cur.rowcount == 1
 
+    async def enqueue_refetch_terminal(
+        self,
+        request_id: str,
+        text: str,
+        *,
+        review_id: int = 0,
+        task_id: str = "",
+        chat_id: int = 0,
+        now: Optional[float] = None,
+    ) -> bool:
+        """Durable fallback for a refetch terminal notice (§refetch-terminal-notify).
+
+        The direct send is best-effort; when Telegram refuses it the notice must
+        still be delivered eventually, otherwise the moderator is left with the
+        exact silent failure this job model exists to kill. One row per request
+        (idempotency key ``refetch:<request_id>:terminal``) so a retried tick
+        can never double message.
+        """
+        now = time.time() if now is None else now
+        key = f"refetch:{str(request_id)[:180]}:terminal"[:240]
+        import json as _json
+
+        payload = {
+            "request_id": str(request_id or ""),
+            "review_id": int(review_id or 0),
+            "task_id": str(task_id or ""),
+            "chat_id": int(chat_id or 0),
+            "text": str(text or ""),
+            "source": "refetch_terminal",
+        }
+        async with get_db() as conn:
+            cur = await conn.execute(
+                """
+                INSERT OR IGNORE INTO submitter_notifications (
+                  review_id, telegram_user_id, idempotency_key, kind, state,
+                  payload, created_at, updated_at
+                ) VALUES (?,?,?, 'refetch_terminal', 'pending', ?, ?, ?)
+                """,
+                (
+                    int(review_id or 0) or None,
+                    int(chat_id or 0) or None,
+                    key,
+                    _json.dumps(payload, ensure_ascii=False),
+                    now, now,
+                ),
+            )
+            return cur.rowcount == 1
+
     async def pending(self, limit: int = 20) -> List[Dict[str, Any]]:
         async with get_db() as conn:
             cur = await conn.execute(
                 "SELECT * FROM submitter_notifications WHERE state = 'pending' "
-                "AND kind != 'manager_accepted' "
+                "AND kind NOT IN ('manager_accepted', 'refetch_terminal') "
+                "ORDER BY created_at ASC LIMIT ?", (max(1, min(int(limit), 50)),),
+            )
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def pending_refetch_terminal(self, limit: int = 20) -> List[Dict[str, Any]]:
+        async with get_db() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM submitter_notifications WHERE state = 'pending' "
+                "AND kind = 'refetch_terminal' "
                 "ORDER BY created_at ASC LIMIT ?", (max(1, min(int(limit), 50)),),
             )
             return [dict(r) for r in await cur.fetchall()]

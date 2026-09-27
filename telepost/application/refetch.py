@@ -26,6 +26,50 @@ from telepost.storage.sqlite.reviews import ReviewRepository
 
 logger = logging.getLogger(__name__)
 
+#: Live remote-submit tasks. The submit runs off-path (the click must answer
+#: immediately) but it must never be UNSUPERVISED: a bare create_task keeps no
+#: reference, so an exception inside it is only logged by asyncio and a shutdown
+#: cannot converge it. Registered here, reported by its done callback, and
+#: drained by ``shutdown_refetch_tasks`` on the real shutdown path.
+_refetch_tasks: set = set()
+
+
+def _on_refetch_task_done(task) -> None:
+    _refetch_tasks.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        # The attempt row keeps its own failure_code (mark_failed ran inside),
+        # so this is the observable trail for an otherwise silent death.
+        logger.warning("重抓提交后台任务异常退出: %s", exc, exc_info=exc)
+
+
+def _track_refetch_task(task) -> None:
+    _refetch_tasks.add(task)
+    task.add_done_callback(_on_refetch_task_done)
+
+
+async def shutdown_refetch_tasks(*, timeout: float = 15.0) -> int:
+    """Drain in-flight remote-submit tasks on shutdown; returns how many there were.
+
+    The durable attempt rows stay the truth: a task cancelled here leaves a
+    non-terminal attempt with a stopped heartbeat, which the next process's
+    startup sweep adopts (never a silent disappearance).
+    """
+    pending = [t for t in list(_refetch_tasks) if not t.done()]
+    if not pending:
+        return 0
+    try:
+        await asyncio.wait(pending, timeout=timeout)
+    except Exception:
+        logger.warning("等待重抓后台任务失败", exc_info=True)
+    for task in pending:
+        if not task.done():
+            task.cancel()
+    return len(pending)
+
+
 class RefetchError(Exception):
     """Base class for refetch command failures (user-safe message)."""
 
@@ -208,7 +252,7 @@ async def request_refetch(
                     logger.debug("重抓失败通知发送失败: review_id=%s", review_id,
                                  exc_info=True)
 
-    asyncio.create_task(_do_refetch())
+    _track_refetch_task(asyncio.create_task(_do_refetch()))
 
     return {
         "state": attempt["state"],
@@ -297,6 +341,14 @@ def refetch_task_id(attempt) -> str:
     return f"refetch-{int(attempt['source_review_id'])}-{int(created)}"
 
 
+def _row_get(row, key: str, default=None):
+    """Read a column defensively (pre-migration rows / plain dict callers)."""
+    try:
+        return row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+
+
 def _attempt_dict(attempt) -> dict:
     """Project one attempt row for the API/Mini App.
 
@@ -311,6 +363,15 @@ def _attempt_dict(attempt) -> dict:
     end = float(finished) if finished else time.time()
     elapsed = max(0, int(end - created)) if created else 0
     task_id = refetch_task_id(attempt)
+    # §refetch-lifecycle heartbeat clocks (additive keys, migration-safe): read
+    # through ``_row_get`` so a pre-upgrade row — or a caller that passes a
+    # plain dict — never raises here.
+    heartbeat_at = _row_get(attempt, "heartbeat_at")
+    remote_heartbeat_at = _row_get(attempt, "remote_heartbeat_at")
+    next_poll_at = _row_get(attempt, "next_poll_at")
+    heartbeat_age = None
+    if heartbeat_at:
+        heartbeat_age = max(0, int(end - float(heartbeat_at)))
     data = {
         "request_id": attempt["request_id"],
         "task_id": task_id,
@@ -333,6 +394,11 @@ def _attempt_dict(attempt) -> dict:
         "skipped_unavailable": int(attempt["skipped_unavailable"] or 0),
         "created_at": attempt["created_at"],
         "finished_at": finished,
+        "heartbeat_at": heartbeat_at,
+        "heartbeat_count": int(_row_get(attempt, "heartbeat_count") or 0),
+        "remote_heartbeat_at": remote_heartbeat_at,
+        "next_poll_at": next_poll_at,
+        "poll_failures": int(_row_get(attempt, "poll_failures") or 0),
     }
     data["progress"] = {
         "task_id": task_id,
@@ -342,57 +408,44 @@ def _attempt_dict(attempt) -> dict:
         "notify_count": data["notify_count"],
         "last_remote_state": data["last_remote_state"],
         "terminal_reason": data["terminal_reason"],
+        "heartbeat_at": heartbeat_at,
+        "heartbeat_count": data["heartbeat_count"],
+        "remote_heartbeat_at": remote_heartbeat_at,
+        "heartbeat_age_seconds": heartbeat_age,
     }
     return data
 
 
-import json as _json
-from urllib.error import HTTPError as _HTTPError
-from urllib.parse import quote as _quote, urlparse as _urlparse
-from urllib.request import Request as _Request, urlopen as _urlopen
-
-
 def _default_submit_pixivflow_refetch(target_id: str, request_id: str,
                                       correlation_id: str = "") -> dict:
-    """Default remote submitter (used when handlers.review is not importable).
+    """Fallback remote submitter when ``handlers.review`` is not importable.
 
-    Kept here only as a no-import-cycle fallback; the canonical patchable seam
-    lives in ``handlers.review`` and is preferred.
+    It DELEGATES to the PixivFlow job port instead of assembling a URL: the port
+    (``telepost/application/pixivflow_jobs.py``) is the only module allowed to
+    know the remote route/field shape. Building a second HTTP client here was a
+    boundary violation (Workflow Protocol v1 §boundary discipline) — the port is
+    also where ``PIXIVFLOW_REFETCH_BASE_URL``/``PIXIVFLOW_REFETCH_TOKEN`` are read.
     """
-    base = os.environ["PIXIVFLOW_REFETCH_BASE_URL"].rstrip("/")
-    token = os.environ["PIXIVFLOW_REFETCH_TOKEN"]
-    parsed = _urlparse(base)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
-        raise ValueError("无效的 PixivFlow 重抓地址")
-    url = f"{base}/internal/targets/{_quote(target_id, safe='')}/refetch"
-    body = {"requestId": request_id}
-    if correlation_id:
-        body["correlationId"] = correlation_id
-    request = _Request(
-        url,
-        data=_json.dumps(body).encode(),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        method="POST",
-    )
+    from telepost.application import pixivflow_jobs as pixivflow_jobs_port
+
+    client = pixivflow_jobs_port.default_job_client()
     try:
-        with _urlopen(request, timeout=REFETCH_TIMEOUT_SECONDS) as response:
-            result = _json.load(response)
-            if response.status != 202 or result.get("status") != "accepted":
-                raise RuntimeError(f"PixivFlow 拒绝重抓（HTTP {response.status}）")
-            return result
-    except _HTTPError as error:
-        raise RuntimeError(f"PixivFlow 拒绝重抓（HTTP {error.code}）") from error
+        receipt = client.submit(
+            "refetch", request_id, correlation_id=correlation_id,
+            params={"target_id": target_id},
+        )
+    except Exception as exc:
+        code = pixivflow_jobs_port.classify_error(exc)
+        raise RuntimeError(f"PixivFlow 拒绝重抓（{code}）") from exc
+    return {
+        "status": "accepted",
+        "replayed": bool(receipt.replayed),
+        "slotId": receipt.slot_id(),
+        "slot_id": receipt.slot_id(),
+    }
 
 
 def _default_classify_refetch_error(exc: Exception) -> str:
-    message = str(exc)
-    lowered = message.lower()
-    if "http 401" in lowered or "http 403" in lowered:
-        return "unauthorized"
-    if "http 404" in lowered:
-        return "not_found"
-    if "http 5" in lowered:
-        return "remote_error"
-    if "timed out" in lowered or "timeout" in lowered or "超时" in message:
-        return "timeout"
-    return "network_error"
+    from telepost.application import pixivflow_jobs as pixivflow_jobs_port
+
+    return pixivflow_jobs_port.classify_error(exc)

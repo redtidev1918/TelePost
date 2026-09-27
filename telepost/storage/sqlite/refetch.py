@@ -264,11 +264,28 @@ class RefetchRepository:
             params.append(target)
 
         params.append(request_id)
-        await conn.execute(
+        # Compare-and-swap on the state we READ. ``get_db()`` hands out a fresh
+        # connection per call, so two concurrent transitions (e.g. the async
+        # remote-submit's ``mark_admitted`` racing the watchdog's
+        # ``mark_failed``) can both pass the legality check on the same stale
+        # snapshot. Without the extra predicate the slower UPDATE wins and the
+        # row keeps the loser's columns: production showed ``state='searching'``
+        # together with a stale ``failure_code``/``terminal_reason``/
+        # ``finished_at`` — a half-applied transition that also resurrected an
+        # attempt the watchdog had already terminated. Losing the CAS writes
+        # NOTHING (the winner's row stays self-consistent).
+        params.append(row["state"])
+        cursor = await conn.execute(
             f"UPDATE refetch_attempts SET {', '.join(sets)} "
-            "WHERE request_id=?",
+            "WHERE request_id=? AND state=?",
             params,
         )
+        if not cursor.rowcount:
+            logger.info(
+                "重抓状态迁移被并发写入抢先，放弃本次写入: request_id=%s %s→%s",
+                request_id, current, target,
+            )
+            return False, current
         if moved and event:
             await self._record_event(
                 conn, request_id=request_id, review_id=row["source_review_id"],
@@ -379,6 +396,109 @@ class RefetchRepository:
                 out.append((row, "stale" if row["created_at"] <= cutoff_fail else "remind"))
             return out
 
+    # ---- job heartbeat / polling (the 30-second poller) -----------------
+    async def active_for_poll(self, now: Optional[float] = None) -> list:
+        """Every non-terminal attempt the poll loop still owns, oldest first.
+
+        One query feeds one tick, so the 30-second loop stays O(active) and
+        never walks the whole (unbounded) history. A synthetic row is returned
+        when ``now`` is given and no attempt has ever been polled, so the very
+        first tick still sees legacy/pre-upgrade rows.
+        """
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM refetch_attempts "
+                f"WHERE state IN ({_ACTIVE_IN}) "
+                "ORDER BY created_at ASC, id ASC LIMIT 500",
+            )
+            return await cur.fetchall()
+
+    async def due_for_poll(self, now: float, limit: int = 200) -> list:
+        """Non-terminal attempts whose ``next_poll_at`` is due (or unset)."""
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM refetch_attempts "
+                f"WHERE state IN ({_ACTIVE_IN}) "
+                "AND (next_poll_at IS NULL OR next_poll_at <= ?) "
+                "ORDER BY created_at ASC, id ASC LIMIT ?",
+                (float(now), int(limit)),
+            )
+            return await cur.fetchall()
+
+    async def heartbeat_stale(self, cutoff: float) -> list:
+        """Non-terminal attempts whose OWN heartbeat is older than ``cutoff``.
+
+        Read-only diagnostic used by ``telepost doctor``: a row here means the
+        poller itself is broken/blocked for that attempt (its local heartbeat
+        stopped), which is a different failure from "the remote slot stalled".
+        """
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM refetch_attempts "
+                f"WHERE state IN ({_ACTIVE_IN}) "
+                "AND COALESCE(heartbeat_at, created_at) <= ? "
+                "ORDER BY created_at ASC LIMIT 500",
+                (float(cutoff),),
+            )
+            return await cur.fetchall()
+
+    async def record_poll(
+        self, request_id: str, *, now: float,
+        remote_state: Optional[str] = None,
+        remote_heartbeat_at: Optional[float] = None,
+        remote_state_at: Optional[float] = None,
+        next_poll_at: Optional[float] = None,
+        failure: bool = False,
+    ) -> Tuple[bool, str]:
+        """Record ONE poll observation (the heartbeat write path).
+
+        Only the heartbeat/poll columns are written, and ``state`` is never
+        touched here — state changes stay exclusively in
+        :meth:`apply_transition_on` (the only writer of
+        ``refetch_attempts.state``). ``updated_at`` is deliberately NOT
+        refreshed either: it is the state-transition clock, so a heartbeat must
+        not be able to hide a stalled stage from the watchdog.
+
+        ``failure=True`` means the remote read failed (transport/protocol), so
+        ``poll_failures`` is incremented and the caller backs off; the LOCAL
+        heartbeat is still written because it proves OUR loop is alive.
+
+        Returns ``(changed, current_state)``.
+        """
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM refetch_attempts WHERE request_id = ?",
+                (request_id,),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                return False, ""
+            sets = ["heartbeat_at=?", "heartbeat_count=COALESCE(heartbeat_count, 0) + 1"]
+            params: list = [float(now)]
+            if failure:
+                sets.append("poll_failures=COALESCE(poll_failures, 0) + 1")
+            else:
+                sets.append("poll_failures=0")
+            if next_poll_at is not None:
+                sets.append("next_poll_at=?")
+                params.append(float(next_poll_at))
+            if remote_state is not None:
+                sets.append("last_remote_state=?")
+                params.append(str(remote_state or "")[:200])
+            if remote_heartbeat_at is not None:
+                sets.append("remote_heartbeat_at=?")
+                params.append(float(remote_heartbeat_at))
+            if remote_state_at is not None:
+                sets.append("remote_state_at=?")
+                params.append(float(remote_state_at))
+            params.append(request_id)
+            cur = await conn.execute(
+                f"UPDATE refetch_attempts SET {', '.join(sets)} "
+                "WHERE request_id=?",
+                params,
+            )
+            return cur.rowcount == 1, fsm.normalize(row["state"])
+
     async def bump_progress_notified(self, request_id: str, at: float) -> bool:
         """Record a progress reminder and bump its durable counter.
 
@@ -389,6 +509,23 @@ class RefetchRepository:
         async with db_manager.get_db() as conn:
             cur = await conn.execute(
                 "UPDATE refetch_attempts SET last_progress_notified_at=?, "
+                "notify_count=COALESCE(notify_count, 0) + 1 "
+                "WHERE request_id=?",
+                (at, request_id),
+            )
+            return cur.rowcount == 1
+
+    async def bump_terminal_notified(self, request_id: str, at: float) -> bool:
+        """Claim the ONE terminal notification of an attempt (idempotent).
+
+        Deliberately a separate clock from ``last_progress_notified_at``: a
+        progress reminder must never consume the terminal notice (that is how a
+        terminal state used to end silently), and one attempt may send many
+        progress reminders but exactly one terminal message.
+        """
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "UPDATE refetch_attempts SET terminal_notified_at=?, "
                 "notify_count=COALESCE(notify_count, 0) + 1 "
                 "WHERE request_id=?",
                 (at, request_id),

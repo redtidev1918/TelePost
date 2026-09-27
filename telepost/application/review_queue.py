@@ -71,6 +71,34 @@ async def _record(event: str, command: QueueCommand, **fields) -> None:
                   if v is not None or k in ("review_id", "detail")}
     )
 
+async def _record_dropped_replacement(*, request_id: str, error_class: str,
+                                      source_review_id: int = 0,
+                                      source_status: str = "",
+                                      target_id: str = "") -> None:
+    """Make a REFUSED late replacement visible — the drop must never be silent.
+
+    §refetch-terminal-notify: production shows replacements arriving after the
+    source review was already decided, refused by the refetch state machine, and
+    the moderator never told. That refusal's HTTP body text is a frozen wire
+    contract (PixivFlow dead-letters on it), so visibility is added HERE as one
+    audit event carrying the request id and the error class; the moderator-facing
+    notice is sent by the handler layer that owns the bot
+    (``handlers.review._report_dropped_replacement``).
+    """
+    await audit.record_event(
+        "review.refetch_dropped_replacement",
+        review_id=int(source_review_id or 0) or None,
+        target_id=target_id or None,
+        error_class=error_class,
+        actor="service:review_queue",
+        detail={
+            "request_id": request_id or "",
+            "source_review_id": int(source_review_id or 0),
+            "source_status": source_status or "",
+        },
+    )
+
+
 PUBLISHED_DEDUP_WINDOW_SECONDS = 7 * 86400
 _PIXIV_ID_RE = re.compile(r"pixiv\.net/(?:artworks/|novel/show\.php\?id=)(\d+)")
 
@@ -612,6 +640,14 @@ class ReviewQueueService:
                 conn, new_review.refetch_request_id
             )
             if attempt is None:
+                # Wire text stays byte-identical (PixivFlow dead-letters on it);
+                # the drop itself is made visible through the audit trail.
+                await _record_dropped_replacement(
+                    request_id=new_review.refetch_request_id,
+                    error_class="refetch_attempt_unknown",
+                    source_review_id=int(new_review.supersedes_review_id or 0),
+                    target_id=new_review.target_id or "",
+                )
                 raise ValueError("refetch attempt is unknown or terminal")
             if source is None or source["status"] != "pending":
                 # No bypass write: the attempt state machine owns this
@@ -655,6 +691,15 @@ class ReviewQueueService:
                         self.result_from_row(existing, reused=True), []
                     ) from exc
         if obsolete:
+            # Same frozen wire text; the moderator notice comes from the handler
+            # layer, and the audit event carries the request id either way.
+            await _record_dropped_replacement(
+                request_id=new_review.refetch_request_id,
+                error_class="refetch_attempt_obsolete",
+                source_review_id=int(source["id"] or 0) if source is not None else 0,
+                source_status=str(source["status"] or "") if source is not None else "",
+                target_id=new_review.target_id or "",
+            )
             raise ValueError("refetch attempt is cancelled or already terminal")
         # Telegram preview staging continues with the same row identity.
         return review_id
