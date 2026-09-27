@@ -718,19 +718,24 @@ def _check_delivery_outbox(
             details["ledger_failed"] = failed
             if failed:
                 problems.append(f"delivery_ledger 有 {failed} 条未确认发布")
-        if "created_at" in ledger_columns:
+        if "created_at" in ledger_columns and "status" in ledger_columns:
+            # ``delivery_ledger`` is a *confirmed-post* idempotency ledger: an
+            # ordinary row is a historical success record, so the age of the
+            # oldest row says nothing about health (it only ever grows). Only
+            # rows that never reached a terminal success still need attention.
             row = conn.execute(
-                "SELECT MIN(created_at) AS oldest FROM delivery_ledger"
+                "SELECT MIN(created_at) AS oldest FROM delivery_ledger "
+                f"WHERE status IN ({_sql_in_list(FAILED_LEDGER_STATUSES)})"
             ).fetchone()
-            if row is not None and row["oldest"] is not None:
-                age = _age_seconds(collector.now, row["oldest"])
-                details["ledger_oldest_age_seconds"] = (
-                    None if age is None else round(age, 1)
+            oldest = None if row is None else row["oldest"]
+            age = None if oldest is None else _age_seconds(collector.now, oldest)
+            details["ledger_oldest_unresolved_age_seconds"] = (
+                None if age is None else round(age, 1)
+            )
+            if age is not None and age > DELIVERY_WARN_SECONDS:
+                problems.append(
+                    f"delivery_ledger 最旧未确认记录已 {age / 60.0:.1f} 分钟"
                 )
-                if age is not None and age > DELIVERY_WARN_SECONDS:
-                    problems.append(
-                        f"delivery_ledger 最旧记录已 {age / 60.0:.1f} 分钟"
-                    )
 
     if outbox_columns:
         total = int(
