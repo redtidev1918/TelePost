@@ -8,6 +8,15 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.70.1](https://github.com/redtidev1918/TelePost/compare/v2.70.0...v2.70.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **observability:** 自检不再把「历史投递记录」误报为异常——投递账本记录的是已确认发布，行越老不代表有问题（此前每次自检都会恒定报一条无意义的告警，掩盖真实积压）；现在只检查尚未确认的记录 ([95ddc64](https://github.com/redtidev1918/TelePost/commit/95ddc647b206e4d26d9048a9bcb32e5228278854))
+
+---
+
 ## [2.70.0](https://github.com/redtidev1918/TelePost/compare/v2.69.0...v2.70.0) (2026-09-27)
 
 
