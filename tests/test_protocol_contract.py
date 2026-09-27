@@ -34,6 +34,7 @@ ENTRY_POINTS = {
     "capabilities": "Capabilities",
     "jobpage": "JobPage",
     "eventpage": "EventPage",
+    "ackresult": "AckResult",
     "asset": "Asset",
     "candidate": "Candidate",
 }
