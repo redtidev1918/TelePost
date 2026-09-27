@@ -17,11 +17,24 @@ or read a PixivFlow payload:
 
 The refetch heartbeat loop and the refetch state machine depend only on
 :class:`JobSnapshot` (``status`` / heartbeat / timestamps / ``error_code``).
-Today the concrete :class:`HttpPixivFlowJobClient` still speaks the legacy
-routes ``POST /internal/targets/{target}/refetch`` and ``GET
-/internal/targets/{target}/refetch/{id}``; switching to ``POST /jobs`` +
-``GET /jobs/{id}`` later is a change to this file only, with zero change to the
-state machine or the heartbeat loop.
+
+Transport
+---------
+:class:`HttpPixivFlowJobClient` speaks the generic Workflow Protocol v1 Job API
+(``GET /capabilities``, ``POST /jobs``, ``GET /jobs/{job_id}``,
+``GET /jobs?idempotency_key=…``) and negotiates capabilities before it is used.
+TelePost's logical name for this work is ``refetch``; the protocol job type is
+:data:`PROTOCOL_JOB_TYPE` (``candidate_search``) — that mapping lives HERE so no
+caller outside this module ever names a protocol job type.
+
+``PIXIVFLOW_JOB_TRANSPORT=legacy`` (read in exactly one place,
+:func:`job_transport`) keeps the pre-migration internal route
+``POST /internal/targets/{target}/refetch`` +
+``GET /internal/targets/{target}/refetch/{id}`` working exactly as before, as
+the documented rollback switch. The default is the protocol path, and a
+producer that does not declare the protocol version and job type fails LOUDLY
+during capability negotiation — it is never a silent fallback to the legacy
+route (an operator who wants the old route sets the flag explicitly).
 
 Deliberate non-goals: the snapshot never exposes a PixivFlow business concept
 (``slotId``/``disposition``/…) as a decision input. ``labels`` is an opaque
@@ -33,7 +46,9 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Dict, Optional, Protocol, Tuple
 from urllib.error import HTTPError
 from urllib.parse import quote, urlparse
@@ -54,6 +69,175 @@ _EPOCH_MS_FLOOR = 1e11
 # Trace strings are diagnostics only — they are never compared, only logged.
 _TRACE_LIMIT = 200
 
+#: The Workflow Protocol major version this consumer speaks.
+PROTOCOL_VERSION = "1"
+#: The protocol job type for TelePost's logical ``refetch`` work: the protocol
+#: names the WORK (a candidate search), never TelePost's business flow.
+PROTOCOL_JOB_TYPE = "candidate_search"
+#: TelePost's internal/business name for the same work (legacy route + callers).
+LEGACY_JOB_TYPE = "refetch"
+#: Transport selector values (see :func:`job_transport`). ``protocol`` is the
+#: documented default; ``legacy`` is the rollback switch.
+DEFAULT_JOB_TRANSPORT = "protocol"
+LEGACY_JOB_TRANSPORT = "legacy"
+
+#: Protocol ``Job.status`` -> the remote-state token TelePost's refetch state
+#: machine consumes (``handlers.review._REFETCH_TERMINAL_OUTCOMES`` and
+#: ``refetch_state.stage_for_remote_state``). ``progress.stage`` is display-only
+#: for consumers, so no sub-stage is invented: a claimed job reports ``running``
+#: (no stage claim) instead of guessing searching vs filtering, and only a job
+#: the producer has not claimed (``queued``) leaves the admission budget armed.
+PROTOCOL_STATUS_REMOTE_STATES: Dict[str, str] = {
+    "queued": "pending",
+    "running": "running",
+    "succeeded": "submitted",
+    "failed": "failed",
+    "cancelled": "failed",
+    "expired": "failed",
+}
+#: Projected remote-state tokens that are a reported OUTCOME, not a stage.
+TERMINAL_REMOTE_STATES = frozenset({"no_candidate", "duplicate", "failed", "submitted"})
+#: Vendored protocol SSOT (``protocol/v1/error-mapping.json``): the retryable
+#: default per closed error code.
+_ERROR_MAPPING_PATH = (
+    Path(__file__).resolve().parents[2] / "protocol" / "v1" / "error-mapping.json"
+)
+
+
+def job_transport() -> str:
+    """The configured transport — the ONE reader of ``PIXIVFLOW_JOB_TRANSPORT``.
+
+    ``protocol`` (the documented default) speaks the Workflow Protocol v1 Job
+    API; ``legacy`` keeps the pre-migration internal refetch route. Any other
+    value resolves to the default: there is no third mode and no silent
+    downgrade when the producer does not declare the protocol.
+    """
+    configured = str(os.environ.get("PIXIVFLOW_JOB_TRANSPORT", "") or "").strip().lower()
+    if configured == LEGACY_JOB_TRANSPORT:
+        return LEGACY_JOB_TRANSPORT
+    return DEFAULT_JOB_TRANSPORT
+
+
+def protocol_job_type(job_type: str) -> str:
+    """Map TelePost's logical job name onto the protocol job type."""
+    name = str(job_type or "").strip()
+    if name in ("", LEGACY_JOB_TYPE):
+        return PROTOCOL_JOB_TYPE
+    return name
+
+
+def project_remote_state(status: str, error_code: str = "") -> str:
+    """Project a protocol ``status`` (+ ``error.code``) onto TelePost's vocabulary.
+
+    The caller (``handlers.review``) drives both its state machine and its
+    watchdog budgets from this token, so the projection IS the contract:
+
+    * ``queued`` → ``pending`` (admitted, not claimed yet);
+    * ``running`` → ``running`` (claimed and executing; no sub-stage observed);
+    * ``succeeded`` → ``submitted`` (the producer finished the work);
+    * ``failed`` with ``error.code == 'no_candidate'`` → ``no_candidate``;
+    * ``failed`` / ``cancelled`` / ``expired`` → ``failed``.
+
+    An unknown status is returned unchanged: the caller records it as
+    unavailable instead of guessing progress it cannot observe.
+    """
+    token = str(status or "").strip().lower()
+    projected = PROTOCOL_STATUS_REMOTE_STATES.get(token)
+    if projected is None:
+        return token
+    if projected == "failed" and str(error_code or "").strip().lower() == "no_candidate":
+        return "no_candidate"
+    return projected
+
+
+def is_terminal_remote_state(state: str) -> bool:
+    """True when a projected remote-state token is a reported outcome."""
+    return str(state or "").strip().lower() in TERMINAL_REMOTE_STATES
+
+
+@lru_cache(maxsize=1)
+def protocol_retryable_defaults() -> Dict[str, bool]:
+    """The protocol's own retryable default per error code (vendored SSOT).
+
+    ``protocol/v1/error-mapping.json`` is machine-checked against the schema
+    enum: a payload's own ``Error.retryable`` wins when present, and this table
+    is the default the consumer must fall back to. A missing/unreadable file
+    degrades to ``{}`` (the caller then keeps its status-derived default).
+    """
+    try:
+        document = json.loads(_ERROR_MAPPING_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    codes = document.get("protocol_codes") if isinstance(document, dict) else None
+    if not isinstance(codes, dict):
+        return {}
+    return {
+        str(code): bool(spec["retryable"])
+        for code, spec in codes.items()
+        if isinstance(spec, dict) and isinstance(spec.get("retryable"), bool)
+    }
+
+
+def _is_protocol_v1(version: str) -> bool:
+    """True when a declared protocol version is major version 1."""
+    text = str(version or "").strip()
+    return text == PROTOCOL_VERSION or text.split(".")[0] == PROTOCOL_VERSION
+
+
+def _unwrap_job(payload: Any) -> Dict[str, Any]:
+    """``POST /jobs`` wraps the Job as ``{"job": …}``; every other route is bare."""
+    if isinstance(payload, dict):
+        inner = payload.get("job")
+        if isinstance(inner, dict):
+            return inner
+        return payload
+    return {}
+
+
+def _error_envelope(error: BaseException) -> Dict[str, Any]:
+    """The ``{"error": …}`` body an HTTP failure carries (best effort, never fatal)."""
+    reader = getattr(error, "read", None)
+    if not callable(reader):
+        return {}
+    try:
+        raw = reader()
+    except Exception:
+        return {}
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode("utf-8", "replace")
+    if not isinstance(raw, str) or not raw.strip():
+        return {}
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return {}
+    inner = payload.get("error") if isinstance(payload, dict) else None
+    return inner if isinstance(inner, dict) else {}
+
+
+def _job_from_page(page: Any, *, idempotency_key: str) -> Optional[Dict[str, Any]]:
+    """The ONE job a key query identifies (the protocol allows at most one)."""
+    if not isinstance(page, dict):
+        return None
+    jobs = [item for item in (page.get("jobs") or []) if isinstance(item, dict)]
+    matches = [
+        item for item in jobs
+        if str(item.get("idempotency_key") or "") == str(idempotency_key)
+    ]
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    # Defensive only: a producer must never return two Jobs for one key. If it
+    # ever does, the newest projection wins — never a merge of the two.
+    return max(
+        matches,
+        key=lambda item: (
+            _to_epoch(item.get("updated_at")) or 0.0,
+            _to_epoch(item.get("created_at")) or 0.0,
+        ),
+    )
+
 
 class PixivFlowJobError(RuntimeError):
     """A boundary failure, classified by ``error.code`` vocabulary.
@@ -62,12 +246,20 @@ class PixivFlowJobError(RuntimeError):
     ``timeout`` / ``network_error`` / ``remote_rejected`` — the same opaque
     vocabulary the pre-existing ``_classify_refetch_error`` produced, so callers
     keep their behaviour while no longer parsing HTTP strings themselves.
+
+    ``retryable`` carries the protocol ``Error.retryable`` verdict when the
+    producer stated it (or the vendored default for its code); ``None`` means
+    "unknown" (e.g. a transport failure that never reached the producer). A 404
+    for an unknown job is always ``retryable=False``: it is a definitive answer,
+    not a transient failure.
     """
 
-    def __init__(self, code: str, detail: Any = "", *, status: int = 0):
+    def __init__(self, code: str, detail: Any = "", *, status: int = 0,
+                 retryable: Optional[bool] = None):
         self.code = str(code or "network_error")
         self.detail = str(detail or "")[:400]
         self.status = int(status or 0)
+        self.retryable = None if retryable is None else bool(retryable)
         super().__init__(f"{self.code}: {self.detail}" if self.detail else self.code)
 
 
@@ -75,8 +267,9 @@ class PixivFlowJobError(RuntimeError):
 class JobSnapshot:
     """One normalized view of a job — protocol fields only.
 
-    ``status`` is the remote's own status token, passed through UNTRANSLATED.
-    The caller (refetch state machine) maps it to a stage via
+    ``status`` is the remote's status token PROJECTED onto TelePost's
+    remote-state vocabulary (see :func:`project_remote_state`); the caller
+    (refetch state machine) maps it to a stage via
     ``refetch_state.stage_for_remote_state``; this port never decides business
     meaning. ``labels`` stays opaque and diagnostic.
     """
@@ -92,8 +285,13 @@ class JobSnapshot:
 
     @property
     def is_terminal(self) -> bool:
-        """True only when the remote ADAPTER marks the snapshot finished."""
-        return bool(self.labels.get("terminal"))
+        """True when the protocol ``status`` projects onto a reported outcome.
+
+        Derived from :data:`TERMINAL_REMOTE_STATES` — never from ``labels``:
+        protocol v1 persists no labels, so a label-driven terminality would
+        silently never fire (the attempt would hang until a local budget).
+        """
+        return is_terminal_remote_state(self.status)
 
 
 @dataclass(frozen=True)
@@ -162,15 +360,31 @@ def _to_epoch(value: Any) -> Optional[float]:
     return number
 
 
+def _pick(payload: Dict[str, Any], *keys: str) -> Any:
+    """First non-empty value among equivalent field spellings.
+
+    The same field is spelled ``camelCase`` by the legacy adapter payload and
+    ``snake_case`` by Workflow Protocol v1 (``heartbeatAt`` vs ``heartbeat_at``);
+    a decoder must accept both, and neither spelling may silently win by default.
+    """
+    for key in keys:
+        value = payload.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
 def _first_timestamp(payload: Dict[str, Any]) -> Optional[float]:
     """The newest protocol liveness timestamp the payload offers.
 
-    Fallback chain ``heartbeatAt`` → ``updatedAt`` → ``startedAt`` →
-    ``createdAt`` keeps liveness working on a PixivFlow that does not yet expose
-    explicit heartbeats (deployed 3.2.0 answers with only
-    ``{requestId, slotId, state, slotStatus}``, i.e. no timestamp at all).
+    Fallback chain ``heartbeatAt``/``heartbeat_at`` → ``updatedAt``/``updated_at``
+    → ``startedAt``/``started_at`` → ``createdAt``/``created_at`` keeps liveness
+    working on a PixivFlow that does not yet expose explicit heartbeats
+    (deployed 3.2.0 answers with only ``{requestId, slotId, state, slotStatus}``,
+    i.e. no timestamp at all).
     """
-    for key in ("heartbeatAt", "updatedAt", "startedAt", "createdAt"):
+    for key in ("heartbeatAt", "heartbeat_at", "updatedAt", "updated_at",
+                "startedAt", "started_at", "createdAt", "created_at"):
         stamp = _to_epoch(payload.get(key))
         if stamp is not None:
             return stamp
@@ -198,7 +412,9 @@ def decode_job_snapshot(payload: Any) -> JobSnapshot:
 
     Unknown/opaque extras are parked in ``labels`` (diagnostics) instead of
     being interpreted. A payload missing timestamps and status still yields a
-    valid snapshot — degraded, never fatal.
+    valid snapshot — degraded, never fatal. ``status`` is passed through as the
+    payload spells it (``state`` first, for legacy payloads); use
+    :func:`decode_protocol_job` for a protocol Job, which also projects it.
     """
     if not isinstance(payload, dict):
         return JobSnapshot()
@@ -212,24 +428,34 @@ def decode_job_snapshot(payload: Any) -> JobSnapshot:
     if isinstance(raw_labels, dict):
         for key, value in raw_labels.items():
             labels[str(key)[:60]] = str(value)[:120]
-    raw_state = payload.get("state")
-    if raw_state in (None, ""):
-        raw_state = payload.get("status")
     return JobSnapshot(
-        job_id=str(payload.get("requestId") or payload.get("jobId")
-                   or payload.get("job_id") or ""),
-        status=str(raw_state or ""),
-        heartbeat_at=_to_epoch(payload.get("heartbeatAt")),
-        updated_at=_to_epoch(payload.get("updatedAt")),
-        started_at=_to_epoch(payload.get("startedAt")),
-        created_at=_to_epoch(payload.get("createdAt")),
+        job_id=str(_pick(payload, "requestId", "jobId", "job_id") or ""),
+        status=str(_pick(payload, "state", "status") or ""),
+        heartbeat_at=_to_epoch(_pick(payload, "heartbeatAt", "heartbeat_at")),
+        updated_at=_to_epoch(_pick(payload, "updatedAt", "updated_at")),
+        started_at=_to_epoch(_pick(payload, "startedAt", "started_at")),
+        created_at=_to_epoch(_pick(payload, "createdAt", "created_at")),
         error_code=_error_code(payload, 0),
         labels=labels,
     )
 
 
+def decode_protocol_job(payload: Any) -> JobSnapshot:
+    """Normalize one protocol ``$defs/Job`` (bare, or wrapped as ``{"job": …}``).
+
+    Terminality and outcome come from the protocol ``status`` and
+    ``error.code``, which this function projects onto the remote-state token
+    the caller's state machine already understands.
+    """
+    snapshot = decode_job_snapshot(_unwrap_job(payload))
+    return replace(
+        snapshot,
+        status=project_remote_state(snapshot.status, snapshot.error_code),
+    )
+
+
 def decode_submit_receipt(payload: Any, status: int) -> SubmitReceipt:
-    """Normalize a submit acknowledgement; accepted ⇔ HTTP 202 + status."""
+    """Normalize a legacy submit acknowledgement; accepted ⇔ HTTP 202 + status."""
     if not isinstance(payload, dict):
         payload = {}
     snapshot = decode_job_snapshot(payload)
@@ -237,6 +463,23 @@ def decode_submit_receipt(payload: Any, status: int) -> SubmitReceipt:
         job_id=snapshot.job_id,
         accepted=(status == 202 and str(payload.get("status") or "") == "accepted"),
         replayed=bool(payload.get("replayed") or payload.get("reuse")),
+        labels=dict(snapshot.labels),
+    )
+
+
+def decode_protocol_submit_receipt(payload: Any, status: int) -> SubmitReceipt:
+    """Normalize a ``POST /jobs`` acknowledgement.
+
+    The protocol answers **202** for the first acceptance and **200** for an
+    idempotent replay of the same key; both carry the Job (wrapped as
+    ``{"job": …}``).
+    """
+    snapshot = decode_job_snapshot(_unwrap_job(payload))
+    http_status = int(status or 0)
+    return SubmitReceipt(
+        job_id=snapshot.job_id,
+        accepted=(http_status == 202),
+        replayed=(http_status == 200),
         labels=dict(snapshot.labels),
     )
 
@@ -258,10 +501,11 @@ def classify_error(exc: BaseException) -> str:
 
 
 class HttpPixivFlowJobClient:
-    """The HTTP adapter of the port (legacy refetch routes, unchanged).
+    """The HTTP adapter of the port.
 
     Owns every URL segment, header and payload decode. The rest of TelePost
-    never sees them. ``transport`` is injectable for tests.
+    never sees them. ``transport`` is injectable for tests; the transport itself
+    is selected once per instance by :func:`job_transport`.
     """
 
     def __init__(
@@ -278,6 +522,9 @@ class HttpPixivFlowJobClient:
                        else os.environ.get("PIXIVFLOW_REFETCH_TOKEN", ""))
         self._timeout = float(timeout)
         self._transport = transport or urlopen
+        self._job_transport = job_transport()
+        # ``GET /capabilities`` is read at most once per instance (negotiation).
+        self._capabilities_cache: Optional[Dict[str, Any]] = None
 
     # ---- plumbing -----------------------------------------------------
     def _validated_base(self) -> str:
@@ -310,6 +557,120 @@ class HttpPixivFlowJobClient:
             return "remote_error"
         return "remote_rejected"
 
+    @staticmethod
+    def _status_retryable(status: int) -> bool:
+        """Transport-level retryability, used when the producer states nothing."""
+        return int(status or 0) in (408, 429) or int(status or 0) >= 500
+
+    def _protocol_http_error(self, error: HTTPError, *, action: str) -> PixivFlowJobError:
+        """Classify an HTTP failure, honouring the protocol ``{error}`` envelope."""
+        status = int(getattr(error, "code", 0) or 0)
+        code = self._http_error_code(status)
+        retryable = self._status_retryable(status)
+        envelope = _error_envelope(error)
+        protocol_code = str(envelope.get("code") or "")[:120]
+        if protocol_code:
+            flag = envelope.get("retryable")
+            if isinstance(flag, bool):
+                # A payload's own retryable flag wins (error-mapping.json).
+                retryable = flag
+            else:
+                retryable = protocol_retryable_defaults().get(protocol_code, retryable)
+        if retryable and code == "remote_rejected":
+            # A retryable failure is transient by definition, never a rejection.
+            code = "remote_error"
+        if status == 404:
+            # An unknown job is a definitive answer, never a retryable failure.
+            retryable = False
+        detail = f"PixivFlow {action}（HTTP {status}）"
+        if protocol_code:
+            detail = f"{detail[:-1]}，{protocol_code}）"
+        return PixivFlowJobError(code, detail, status=status, retryable=retryable)
+
+    def _request_json(
+        self,
+        base: str,
+        method: str,
+        path: str,
+        *,
+        body: Optional[Dict[str, Any]] = None,
+        timeout: Optional[float] = None,
+        action: str = "请求失败",
+    ) -> Tuple[Any, int]:
+        """One authenticated protocol request; failures become PixivFlowJobError."""
+        headers = {"Authorization": f"Bearer {self._token}"}
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode()
+            headers["Content-Type"] = "application/json"
+        request = Request(
+            f"{base}{path}", data=data, headers=headers, method=method,
+        )
+        try:
+            with self._transport(
+                request, timeout=self._timeout if timeout is None else timeout
+            ) as response:
+                payload = json.load(response)
+                status = int(getattr(response, "status", 0) or 0)
+        except HTTPError as error:
+            raise self._protocol_http_error(error, action=action) from error
+        except PixivFlowJobError:
+            raise
+        except Exception as error:  # transport/protocol — never a business verdict
+            raise PixivFlowJobError(classify_error(error), error) from error
+        if status not in (200, 202, 0):
+            raise PixivFlowJobError(
+                self._http_error_code(status),
+                f"PixivFlow {action}（HTTP {status}）",
+                status=status,
+                retryable=self._status_retryable(status),
+            )
+        return payload, status
+
+    # ---- capability negotiation ---------------------------------------
+    def _capabilities(self) -> Dict[str, Any]:
+        """``GET /capabilities``, read at most ONCE per client instance."""
+        if self._capabilities_cache is None:
+            base = self._validated_base()
+            payload, _ = self._request_json(
+                base, "GET", "/capabilities", action="能力发现失败",
+            )
+            if not isinstance(payload, dict):
+                raise PixivFlowJobError(
+                    "remote_rejected", "PixivFlow 能力声明不是对象", retryable=False,
+                )
+            self._capabilities_cache = payload
+        return self._capabilities_cache
+
+    def _require_protocol_v1(self) -> None:
+        """Fail LOUDLY unless the producer serves protocol v1 + this job type.
+
+        There is deliberately NO fallback to the legacy route here: an operator
+        who needs it sets ``PIXIVFLOW_JOB_TRANSPORT=legacy`` explicitly, so a
+        half-migrated producer can never be talked to by accident.
+        """
+        capabilities = self._capabilities()
+        versions = [str(item) for item in (capabilities.get("protocol_versions") or [])]
+        if not any(_is_protocol_v1(item) for item in versions):
+            raise PixivFlowJobError(
+                "remote_rejected",
+                f"PixivFlow 未声明协议版本 {PROTOCOL_VERSION}"
+                f"（已声明：{', '.join(versions) or '无'}）",
+                retryable=False,
+            )
+        declared = [
+            str(item.get("name") or "")
+            for item in (capabilities.get("job_types") or [])
+            if isinstance(item, dict)
+        ]
+        if PROTOCOL_JOB_TYPE not in declared:
+            raise PixivFlowJobError(
+                "remote_rejected",
+                f"PixivFlow 未声明作业类型 {PROTOCOL_JOB_TYPE}"
+                f"（已声明：{', '.join(declared) or '无'}）",
+                retryable=False,
+            )
+
     # ---- port ---------------------------------------------------------
     def submit(
         self,
@@ -320,6 +681,101 @@ class HttpPixivFlowJobClient:
         params: Optional[Dict[str, Any]] = None,
     ) -> SubmitReceipt:
         """Start/resume one job. ``job_type`` is 'refetch' for this port today."""
+        if self._job_transport == LEGACY_JOB_TRANSPORT:
+            return self._legacy_submit(
+                job_type, idempotency_key,
+                correlation_id=correlation_id, params=params,
+            )
+        return self._protocol_submit(
+            job_type, idempotency_key,
+            correlation_id=correlation_id, params=params,
+        )
+
+    def get(self, job_id_or_key: str, *, job_type: str = "",
+            params: Optional[Dict[str, Any]] = None) -> JobSnapshot:
+        """Read one job snapshot (no business interpretation).
+
+        Accepts either identity the protocol exposes: the ``idempotency_key``
+        this port submits with, or a real ``job_id``. ``params`` carries the
+        opaque scope (``target_id``) the legacy route needs.
+        """
+        if self._job_transport == LEGACY_JOB_TRANSPORT:
+            return self._legacy_get(job_id_or_key, job_type=job_type, params=params)
+        return self._protocol_get(job_id_or_key, job_type=job_type, params=params)
+
+    # ---- protocol transport (Workflow Protocol v1) --------------------
+    def _protocol_submit(
+        self,
+        job_type: str,
+        idempotency_key: str,
+        *,
+        correlation_id: str = "",
+        params: Optional[Dict[str, Any]] = None,
+    ) -> SubmitReceipt:
+        base = self._validated_base()
+        self._require_protocol_v1()
+        target = self._target_of(params)
+        if not target:
+            raise PixivFlowJobError("remote_rejected", "缺少 target_id", retryable=False)
+        body: Dict[str, Any] = {
+            "protocol_version": PROTOCOL_VERSION,
+            "job_type": protocol_job_type(job_type),
+            "idempotency_key": str(idempotency_key),
+            "params": {"target_id": target},
+        }
+        if correlation_id:
+            body["correlation_id"] = str(correlation_id)
+        payload, status = self._request_json(
+            base, "POST", "/jobs",
+            body=body, timeout=SUBMIT_TIMEOUT_SECONDS, action="拒绝重抓",
+        )
+        receipt = decode_protocol_submit_receipt(payload, status)
+        if not receipt.accepted and not receipt.replayed:
+            raise PixivFlowJobError(
+                self._http_error_code(status),
+                f"PixivFlow 拒绝重抓（HTTP {status}）",
+                status=status,
+                retryable=self._status_retryable(status),
+            )
+        return receipt
+
+    def _protocol_get(self, job_id_or_key: str, *, job_type: str = "",
+                      params: Optional[Dict[str, Any]] = None) -> JobSnapshot:
+        base = self._validated_base()
+        self._require_protocol_v1()
+        token = str(job_id_or_key or "")
+        if not token:
+            raise PixivFlowJobError("remote_rejected", "缺少 job_id", retryable=False)
+        # Primary read: the durable identity this port submits with IS the
+        # idempotency key, so a key lookup is the poll's normal path.
+        page, _ = self._request_json(
+            base, "GET", f"/jobs?idempotency_key={quote(token, safe='')}",
+            action="读取重抓状态失败",
+        )
+        job = _job_from_page(page, idempotency_key=token)
+        if job is None:
+            # Fallback: the caller passed a real job_id (protocol identity).
+            job, _ = self._request_json(
+                base, "GET", f"/jobs/{quote(token, safe='')}",
+                action="读取重抓状态失败",
+            )
+        snapshot = decode_protocol_job(job)
+        if not snapshot.job_id:
+            raise PixivFlowJobError(
+                "remote_rejected", "PixivFlow 作业快照缺少 job_id", retryable=False,
+            )
+        return snapshot
+
+    # ---- legacy transport (rollback switch, unchanged behaviour) ------
+    def _legacy_submit(
+        self,
+        job_type: str,
+        idempotency_key: str,
+        *,
+        correlation_id: str = "",
+        params: Optional[Dict[str, Any]] = None,
+    ) -> SubmitReceipt:
+        """The pre-migration internal route, byte for byte."""
         base = self._validated_base()
         target = self._target_of(params)
         if not target:
@@ -360,14 +816,9 @@ class HttpPixivFlowJobClient:
             )
         return receipt
 
-    def get(self, job_id_or_key: str, *, job_type: str = "",
-            params: Optional[Dict[str, Any]] = None) -> JobSnapshot:
-        """Read one job snapshot (no business interpretation).
-
-        ``params`` carries the opaque scope (``target_id``) the legacy route
-        needs; when PixivFlow exposes ``GET /jobs/{id}`` the scope argument
-        simply stops being needed and only this method changes.
-        """
+    def _legacy_get(self, job_id_or_key: str, *, job_type: str = "",
+                    params: Optional[Dict[str, Any]] = None) -> JobSnapshot:
+        """The pre-migration internal route, byte for byte."""
         base = self._validated_base()
         target = self._target_of(params)
         if not target:
@@ -405,20 +856,34 @@ class HttpPixivFlowJobClient:
             )
         return snapshot
 
+
 def default_job_client() -> HttpPixivFlowJobClient:
     """Build the production client from the environment (fresh env each call)."""
     return HttpPixivFlowJobClient()
 
 
 __all__ = [
+    "DEFAULT_JOB_TRANSPORT",
     "DEFAULT_TIMEOUT_SECONDS",
     "HttpPixivFlowJobClient",
     "JobSnapshot",
+    "LEGACY_JOB_TRANSPORT",
+    "PROTOCOL_JOB_TYPE",
+    "PROTOCOL_STATUS_REMOTE_STATES",
+    "PROTOCOL_VERSION",
     "PixivFlowJobClient",
     "PixivFlowJobError",
     "SubmitReceipt",
+    "TERMINAL_REMOTE_STATES",
     "classify_error",
     "decode_job_snapshot",
+    "decode_protocol_job",
+    "decode_protocol_submit_receipt",
     "decode_submit_receipt",
     "default_job_client",
+    "is_terminal_remote_state",
+    "job_transport",
+    "project_remote_state",
+    "protocol_job_type",
+    "protocol_retryable_defaults",
 ]

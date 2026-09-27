@@ -193,6 +193,14 @@ HTTPS 请求时自动唤醒）；审核群重抓使用以下配置：
 |---|---|
 | `PIXIVFLOW_REFETCH_BASE_URL` | PixivFlow 的 HTTPS 地址，例如 `https://pixivflow-scheduler.fly.dev` |
 | `PIXIVFLOW_REFETCH_TOKEN` | 与 PixivFlow 端同名 Secret 一致的专用 Bearer；与定时触发令牌分离 |
+| `PIXIVFLOW_JOB_TRANSPORT` | 作业通道：`protocol`（默认，Workflow Protocol v1）或 `legacy`（回滚，见下） |
+
+`PIXIVFLOW_JOB_TRANSPORT` 只在 `telepost/application/pixivflow_jobs.py` 一处读取，默认
+`protocol`：提交走 `POST /jobs`（`job_type=candidate_search`、`params.target_id`、以
+requestId 作 `idempotency_key`），读取走 `GET /jobs?idempotency_key=`（必要时回退
+`GET /jobs/{job_id}`），并先用 `GET /capabilities` 协商版本与作业类型；服务端未声明
+协议版本 `1` 或 `candidate_search` 时直接失败，不会静默回退。设成 `legacy` 时使用旧的
+`POST /internal/targets/{targetId}/refetch`，行为与迁移前逐字节一致，用于回滚。
 
 ### 重抓的语义：换一个候选
 
@@ -201,7 +209,8 @@ HTTPS 请求时自动唤醒）；审核群重抓使用以下配置：
 
 ```text
 审核群点「重抓」 → TelePost 持久化一次 attempt（一链同时只允许一个活跃 attempt）
-→ POST /internal/targets/{targetId}/refetch（携带 UUID requestId + 审核链 correlation）
+→ POST /jobs（默认通道；`PIXIVFLOW_JOB_TRANSPORT=legacy` 时仍为
+  POST /internal/targets/{targetId}/refetch，携带 UUID requestId + 审核链 correlation）
 → Fly 代理唤醒已停止的 PixivFlow → 写入 durable manual Slot → 后台执行
 → 找到新候选：新稿预览和控制卡就绪后，同事务提交新稿、旧稿 superseded、attempt replaced
 → 没有新候选：PixivFlow 回报 no_alternative，当前稿件保持不变，之后可再次重抓
