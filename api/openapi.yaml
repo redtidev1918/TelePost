@@ -1077,12 +1077,56 @@ paths:
                         type: [object, 'null']
                         properties:
                           request_id: {type: string}
-                          state: {type: string, enum: [requested, admitted, replaced, no_alternative, failed, obsolete]}
+                          state:
+                            type: string
+                            enum: [requested, admitted, replaced, no_alternative, failed, obsolete]
+                            description: |
+                              Legacy vocabulary, kept on the wire for existing clients. The server
+                              maps the canonical states back onto it: searching/filtering/
+                              candidate_found → admitted, no_candidate → no_alternative,
+                              cancelled → obsolete, timeout → failed.
+                          attempt_state:
+                            type: string
+                            enum: [requested, admitted, replaced, no_alternative, failed, obsolete]
+                          canonical_state:
+                            type: string
+                            enum: [requested, searching, filtering, candidate_found, replaced, failed, timeout, no_candidate, cancelled]
+                          stage: {type: string, description: Canonical stage label key (same as canonical_state)}
+                          label: {type: string, description: Chinese stage label shown on the review card}
+                          task_id: {type: string, description: 'refetch-<source_review_id>-<epoch seconds>'}
                           generation: {type: integer}
                           source_review_id: {type: integer}
                           result_candidate_id: {type: string}
-                          failure_code: {type: string}
+                          failure_code: {type: string, description: Set only for failure terminals (failed / timeout)}
+                          terminal_reason: {type: string}
+                          last_remote_state: {type: string, description: Last PixivFlow slot cell state observed (may be empty)}
+                          notify_count: {type: integer, description: How many progress/terminal messages were sent for this attempt}
                           scanned: {type: integer}
+                          skipped_duplicate: {type: integer}
+                          skipped_invalid: {type: integer}
+                          skipped_unavailable: {type: integer}
+                          created_at: {type: number}
+                          finished_at: {type: [number, 'null']}
+                          progress:
+                            type: object
+                            description: Read-only progress projection; elapsed_seconds is measured server-side
+                            properties:
+                              task_id: {type: string}
+                              stage: {type: string}
+                              label: {type: string}
+                              elapsed_seconds: {type: integer}
+                              notify_count: {type: integer}
+                      events:
+                        type: array
+                        description: Durable per-attempt timeline (§refetch-lifecycle)
+                        items:
+                          type: object
+                          properties:
+                            state: {type: string}
+                            previous_state: {type: [string, 'null']}
+                            reason: {type: string}
+                            actor: {type: string}
+                            created_at: {type: number}
                       lineage:
                         type: array
                         items:
@@ -1091,6 +1135,12 @@ paths:
                             generation: {type: integer}
                             candidate_id: {type: string}
                             source: {type: string}
+                            status: {type: string}
+                            request_id: {type: [string, 'null']}
+                            outcome: {type: string, description: current | kept | replaced (candidate lifecycle)}
+                            reason: {type: string}
+                            decided_at: {type: [number, 'null']}
+                            replaced_by: {type: [string, 'null']}
         '401': {$ref: '#/components/responses/unauthorized'}
         '403': {description: Requires reviewer role}
         '404': {description: Review not found}

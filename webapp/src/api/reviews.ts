@@ -51,10 +51,35 @@ export interface ReviewActionResult {
   link: string | null;
 }
 
+/** The observable progress of an attempt (§refetch-lifecycle).
+ *
+ * `stage` is proven by PixivFlow's durable slot state, never invented here;
+ * `elapsed_seconds` is measured server-side from the attempt row. */
+export interface RefetchProgress {
+  task_id: string;
+  stage: string;
+  label: string;
+  elapsed_seconds: number;
+  notify_count?: number;
+  last_remote_state?: string | null;
+  terminal_reason?: string | null;
+}
+
 export interface RefetchAttempt {
   request_id: string;
+  /** Legacy vocabulary kept for older clients; the server maps canonical states
+   * (searching/filtering/candidate_found/timeout/cancelled) back onto these. */
   state: 'requested' | 'admitted' | 'replaced' | 'no_alternative'
     | 'failed' | 'obsolete';
+  /** Canonical state from the server's single state authority. */
+  canonical_state?: string;
+  stage?: string;
+  label?: string;
+  /** Durable job id, `refetch-<source_review_id>-<epoch秒>`. */
+  task_id?: string;
+  progress?: RefetchProgress;
+  terminal_reason?: string | null;
+  notify_count?: number;
   generation: number;
   source_review_id: number;
   result_candidate_id: string;
@@ -66,6 +91,18 @@ export interface RefetchAttempt {
   skipped_unavailable: number;
   created_at: number;
   finished_at: number | null;
+}
+
+export interface RefetchLineageEntry {
+  generation: number;
+  candidate_id: string;
+  status: string;
+  source?: string | null;
+  request_id?: string | null;
+  outcome?: string | null;
+  reason?: string | null;
+  decided_at?: number | null;
+  replaced_by?: string | null;
 }
 
 export interface ReviewPage {
@@ -130,7 +167,7 @@ export function requestRefetch(id: number | string): Promise<{ request_id: strin
 
 export function fetchRefetchAttempt(
   id: number | string,
-): Promise<{ attempt: RefetchAttempt | null; lineage: { generation: number; candidate_id: string; status: string }[] }> {
+): Promise<{ attempt: RefetchAttempt | null; lineage: RefetchLineageEntry[] }> {
   return apiFetch(`/reviews/${id}/refetch`);
 }
 

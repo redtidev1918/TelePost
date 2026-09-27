@@ -573,6 +573,179 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/posts/hot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Hot publications shared by Bot /hot and the Mini App (HotService SSOT)
+         * @description Requires a Mini App user session (kind=user). Service/API principals are
+         *     rejected. Returns safe public rows only: submitter identity, captions,
+         *     and file_ids never cross the wire. Sorting is the canonical
+         *     heat_score DESC, publish_time DESC, message_id DESC keyset.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    scope?: "all" | "week";
+                    limit?: number;
+                    cursor?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Hot page */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            data?: {
+                                items?: components["schemas"]["PostSummary"][];
+                                next_cursor?: string | null;
+                            };
+                        };
+                    };
+                };
+                400: components["responses"]["unauthorized"];
+                401: components["responses"]["unauthorized"];
+                403: components["responses"]["unauthorized"];
+                /** @description MINIAPP_CONTENT_ENABLED=false */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/posts/{message_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public detail of one published post */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    message_id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Safe public DTO (includes note, never file_ids/identity) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            data?: components["schemas"]["PostDetail"];
+                        };
+                    };
+                };
+                401: components["responses"]["unauthorized"];
+                /** @description Unknown post or MINIAPP_CONTENT_ENABLED=false */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/posts/{message_id}/media/{index}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Authenticated media bytes of a published post
+         * @description Reads only published_posts media (never pending_reviews), proxies the
+         *     Telegram file server-side, and applies the 20MB download budget.
+         *     variant=thumbnail/preview re-encodes with PIL; original passes through.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    variant?: "thumbnail" | "preview" | "original";
+                };
+                header?: never;
+                path: {
+                    message_id: number;
+                    index: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Media bytes (Cache-Control private, max-age=60) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "image/*": string;
+                        "video/*": string;
+                    };
+                };
+                401: components["responses"]["unauthorized"];
+                /** @description Unknown post or media index */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Media type not servable (e.g. document) */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/miniapp/session": {
         parameters: {
             query?: never;
@@ -1315,18 +1488,68 @@ export interface paths {
                                 supersedes_review_id?: number | null;
                                 attempt?: {
                                     request_id?: string;
-                                    /** @enum {string} */
+                                    /**
+                                     * @description Legacy vocabulary, kept on the wire for existing clients. The server
+                                     *     maps the canonical states back onto it: searching/filtering/
+                                     *     candidate_found → admitted, no_candidate → no_alternative,
+                                     *     cancelled → obsolete, timeout → failed.
+                                     * @enum {string}
+                                     */
                                     state?: "requested" | "admitted" | "replaced" | "no_alternative" | "failed" | "obsolete";
+                                    /** @enum {string} */
+                                    attempt_state?: "requested" | "admitted" | "replaced" | "no_alternative" | "failed" | "obsolete";
+                                    /** @enum {string} */
+                                    canonical_state?: "requested" | "searching" | "filtering" | "candidate_found" | "replaced" | "failed" | "timeout" | "no_candidate" | "cancelled";
+                                    /** @description Canonical stage label key (same as canonical_state) */
+                                    stage?: string;
+                                    /** @description Chinese stage label shown on the review card */
+                                    label?: string;
+                                    /** @description refetch-<source_review_id>-<epoch seconds> */
+                                    task_id?: string;
                                     generation?: number;
                                     source_review_id?: number;
                                     result_candidate_id?: string;
+                                    /** @description Set only for failure terminals (failed / timeout) */
                                     failure_code?: string;
+                                    terminal_reason?: string;
+                                    /** @description Last PixivFlow slot cell state observed (may be empty) */
+                                    last_remote_state?: string;
+                                    /** @description How many progress/terminal messages were sent for this attempt */
+                                    notify_count?: number;
                                     scanned?: number;
+                                    skipped_duplicate?: number;
+                                    skipped_invalid?: number;
+                                    skipped_unavailable?: number;
+                                    created_at?: number;
+                                    finished_at?: number | null;
+                                    /** @description Read-only progress projection; elapsed_seconds is measured server-side */
+                                    progress?: {
+                                        task_id?: string;
+                                        stage?: string;
+                                        label?: string;
+                                        elapsed_seconds?: number;
+                                        notify_count?: number;
+                                    };
                                 } | null;
+                                /** @description Durable per-attempt timeline (§refetch-lifecycle) */
+                                events?: {
+                                    state?: string;
+                                    previous_state?: string | null;
+                                    reason?: string;
+                                    actor?: string;
+                                    created_at?: number;
+                                }[];
                                 lineage?: {
                                     generation?: number;
                                     candidate_id?: string;
                                     source?: string;
+                                    status?: string;
+                                    request_id?: string | null;
+                                    /** @description current | kept | replaced (candidate lifecycle) */
+                                    outcome?: string;
+                                    reason?: string;
+                                    decided_at?: number | null;
+                                    replaced_by?: string | null;
                                 }[];
                             };
                         };
@@ -1487,6 +1710,20 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        PostSummary: {
+            message_id: number;
+            title: string;
+            tags: string[];
+            link?: string;
+            publish_time: number;
+            heat_score: number;
+            reactions: number;
+            content_type: string;
+            media_count: number;
+        };
+        PostDetail: components["schemas"]["PostSummary"] & {
+            note?: string;
+        };
         ErrorResponse: {
             /** @constant */
             ok: false;
