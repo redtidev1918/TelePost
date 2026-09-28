@@ -1388,6 +1388,62 @@ def test_protocol_capabilities_are_read_once_per_client(monkeypatch):
     assert transport.urls().count("https://pixivflow.example/capabilities") == 1
 
 
+class _TimeoutRecorder:
+    """``urlopen`` stub that records the budget every hop was charged."""
+
+    def __init__(self, *, jobs=None, submit=None):
+        self.jobs = jobs if jobs is not None else []
+        self.submit = submit if submit is not None else {"job": _protocol_job("queued")}
+        self.seen = []
+
+    def __call__(self, request, timeout):
+        self.seen.append((request.full_url, timeout))
+        if request.full_url.endswith("/capabilities"):
+            return _response(_CAPABILITIES_V1)
+        if request.get_method() == "POST":
+            return _response(self.submit, 202)
+        return _response({"jobs": self.jobs})
+
+    def negotiation_budgets(self):
+        return [budget for url, budget in self.seen if url.endswith("/capabilities")]
+
+
+def test_submit_negotiation_absorbs_a_producer_cold_start(monkeypatch):
+    """Incident 审核 #142 (2026-09-28): a woken producer must not be a timeout.
+
+    PixivFlow sits ``stopped`` by design and the Fly proxy cold start took 6.7s
+    to ``started`` + ~3.5s of app boot = 10.2s, while the capability
+    NEGOTIATION hop was charged to the 10s STATUS-READ budget. It expired 0.3s
+    early, and a legal manual refetch went terminal ``failed/timeout`` without
+    ever reaching the producer (0 hits in its database, no manual slot). The
+    submit path must negotiate with the wake budget instead.
+    """
+    _configured(monkeypatch)
+    transport = _TimeoutRecorder()
+    monkeypatch.setattr(review, "urlopen", transport)
+
+    request_id = "6eb50329-20f2-4ea7-b95b-e4676b50d9f1"
+    receipt = review._submit_pixivflow_refetch("target-a", request_id, "chain:99")
+
+    assert receipt["status"] == "accepted"
+    assert transport.negotiation_budgets() == [port.NEGOTIATION_TIMEOUT_SECONDS]
+    # The wake budget is the generous one, and it is NOT the read budget.
+    assert port.NEGOTIATION_TIMEOUT_SECONDS >= port.SUBMIT_TIMEOUT_SECONDS
+    assert port.NEGOTIATION_TIMEOUT_SECONDS > port.DEFAULT_TIMEOUT_SECONDS
+
+
+def test_status_read_negotiation_keeps_the_tight_read_budget(monkeypatch):
+    """A poll may never wait minutes for a producer nobody asked to wake."""
+    _configured(monkeypatch)
+    transport = _TimeoutRecorder(jobs=[_protocol_job("running", key="key-1")])
+    monkeypatch.setattr(review, "urlopen", transport)
+
+    assert review._read_pixivflow_refetch_status("target-a", "key-1") == "running"
+    assert transport.negotiation_budgets() == [port.DEFAULT_TIMEOUT_SECONDS]
+    client = port.HttpPixivFlowJobClient(transport=transport)
+    assert client._negotiation_timeout == port.DEFAULT_TIMEOUT_SECONDS
+
+
 def test_protocol_submit_receipt_distinguishes_acceptance_from_replay(monkeypatch):
     """202 is the first acceptance, 200 is an idempotent replay of the SAME Job."""
     _configured(monkeypatch)

@@ -67,6 +67,18 @@ SUBMIT_TIMEOUT_SECONDS = max(
     DEFAULT_TIMEOUT_SECONDS,
     float(os.environ.get("PIXIVFLOW_JOB_SUBMIT_TIMEOUT_SECONDS", "120")),
 )
+# Budget for the capability NEGOTIATION hop (``GET /capabilities``). It is the
+# one request that may have to WAKE the producer: PixivFlow is designed to sit
+# stopped, and a Fly-proxy cold start measured 2026-09-28 took 6.7s to ``started``
+# plus ~3.5s of app boot — 10.2s end to end. Charging that to the 10s status-read
+# budget expired 0.3s before the machine answered, and a legal manual refetch was
+# written off as a terminal ``timeout`` (incident #142). Only a caller that is
+# allowed to wake the producer passes this budget; status reads keep ``timeout``.
+NEGOTIATION_TIMEOUT_SECONDS = max(
+    DEFAULT_TIMEOUT_SECONDS,
+    float(os.environ.get("PIXIVFLOW_JOB_NEGOTIATION_TIMEOUT_SECONDS",
+                         str(SUBMIT_TIMEOUT_SECONDS))),
+)
 # Protocol timestamps are epoch seconds; guard against millisecond payloads.
 _EPOCH_MS_FLOOR = 1e11
 # Trace strings are diagnostics only — they are never compared, only logged.
@@ -707,6 +719,7 @@ class HttpPixivFlowJobClient:
         token: Optional[str] = None,
         *,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        negotiation_timeout: Optional[float] = None,
         transport=None,
     ):
         self._base = (base_url if base_url is not None
@@ -714,6 +727,14 @@ class HttpPixivFlowJobClient:
         self._token = (token if token is not None
                        else os.environ.get("PIXIVFLOW_REFETCH_TOKEN", ""))
         self._timeout = float(timeout)
+        # ``GET /capabilities`` may have to WAKE an intentionally-stopped
+        # producer, so a caller that is allowed to wait for the cold start
+        # passes ``negotiation_timeout`` (see NEGOTIATION_TIMEOUT_SECONDS).
+        # Default: the same tight budget as every other read.
+        self._negotiation_timeout = (
+            self._timeout if negotiation_timeout is None
+            else float(negotiation_timeout)
+        )
         self._transport = transport or urlopen
         self._job_transport = job_transport()
         # ``GET /capabilities`` is read at most once per instance (negotiation).
@@ -822,11 +843,15 @@ class HttpPixivFlowJobClient:
 
     # ---- capability negotiation ---------------------------------------
     def _capabilities(self) -> Dict[str, Any]:
-        """``GET /capabilities``, read at most ONCE per client instance."""
+        """``GET /capabilities``, read at most ONCE per client instance.
+
+        Bounded by ``negotiation_timeout``, NOT by the status-read budget: this
+        is the hop that boots a sleeping producer (NEGOTIATION_TIMEOUT_SECONDS)."""
         if self._capabilities_cache is None:
             base = self._validated_base()
             payload, _ = self._request_json(
                 base, "GET", "/capabilities", action="能力发现失败",
+                timeout=self._negotiation_timeout,
             )
             if not isinstance(payload, dict):
                 raise PixivFlowJobError(
@@ -1129,6 +1154,7 @@ __all__ = [
     "HttpPixivFlowJobClient",
     "JobSnapshot",
     "LEGACY_JOB_TRANSPORT",
+    "NEGOTIATION_TIMEOUT_SECONDS",
     "PROTOCOL_JOB_TYPE",
     "PROTOCOL_STATUS_REMOTE_STATES",
     "PROTOCOL_VERSION",

@@ -562,14 +562,28 @@ def _refetch_heartbeat_disabled() -> bool:
     ) <= 0
 
 
-def _refetch_client():
+def _refetch_client(*, wake_producer: bool = False):
     """The PixivFlow job port (env is read per call so tests/deploys can swap).
 
     The HTTP transport is passed in from HERE (``urlopen`` is this module's
     global) so the long-standing test/deploy seam ``review.urlopen`` keeps
     working while the port itself stays the only place that knows URL shapes.
+
+    ``wake_producer`` raises the budget of the capability NEGOTIATION hop ONLY.
+    PixivFlow is designed to sit stopped and cold-start on demand, so the manual
+    refetch submit is the caller that must absorb a Fly-proxy cold start: on
+    2026-09-28 a 10s read budget expired 0.3s before the woken machine answered
+    and a legal refetch was written off as a terminal ``timeout`` (审核 #142).
+    Status reads keep the tight budget, so a poll can never hold a worker thread
+    for minutes waiting on a producer nobody asked to wake.
     """
-    return pixivflow_jobs_port.HttpPixivFlowJobClient(transport=urlopen)
+    return pixivflow_jobs_port.HttpPixivFlowJobClient(
+        transport=urlopen,
+        negotiation_timeout=(
+            pixivflow_jobs_port.NEGOTIATION_TIMEOUT_SECONDS if wake_producer
+            else None
+        ),
+    )
 
 
 def _refetch_remote_live(remote_heartbeat, now: float) -> bool:
@@ -1493,9 +1507,13 @@ async def refresh_refetch_card(bot, review_id: int, *,
     * an ACTIVE attempt → the card becomes 「已提交重抓 / 当前候选已作废」 with the
       publish/reject buttons removed (finding a replacement is the only way
       forward), optionally showing elapsed minutes;
-    * NO active attempt → the normal card is rebuilt from the row, so a refetch
-      that ended without a replacement (no_alternative / failed / timeout /
-      obsolete) leaves the candidate actionable again instead of dead-ending.
+    * NO active attempt AND this review was refetched before → the card stays
+      「已作废（视为已拒绝）」 with only 重抓 + original link, so a refetch that
+      ended without a replacement does NOT resurrect the publish/reject buttons
+      (the operator already rejected this work — the only forward path is a new
+      重抓, which fetches a NEW work and recurses);
+    * NO active attempt AND never refetched → the normal actionable card is
+      rebuilt from the row.
 
     Cosmetic on purpose: never raises, never touches review state.
     """
@@ -1528,7 +1546,21 @@ async def refresh_refetch_card(bot, review_id: int, *,
                 review_id, row["link"] or "",
             )
         else:
-            text, markup = review_keyboard.control_card_from_row(row)
+            # No active attempt. The candidate is only "actionable again" if it
+            # was NEVER refetched; a refetch limb that ended without a
+            # replacement leaves the card voided (rejected) so the operator can
+            # only push 重抓 forward to a new work.
+            latest = await RefetchRepository().find_latest_by_chain(chain)
+            if latest is not None and int(latest["source_review_id"]) == review_id:
+                reason = review_keyboard.refetch_failure_reason(latest)
+                text = review_keyboard.refetch_voided_text(
+                    review_id=review_id, reason=reason, task_id=task_id,
+                )
+                markup = review_keyboard.refetch_voided_keyboard(
+                    review_id, row["link"] or "",
+                )
+            else:
+                text, markup = review_keyboard.control_card_from_row(row)
     except Exception:
         logger.warning("渲染审核卡失败: review_id=%s", review_id, exc_info=True)
         return False
@@ -1632,7 +1664,7 @@ def _submit_pixivflow_refetch(target_id: str, request_id: str,
     URL, header and payload decode; this function only adapts the legacy return
     shape (``slot_id``) that existing callers/tests read.
     """
-    client = _refetch_client()
+    client = _refetch_client(wake_producer=True)
     try:
         receipt = client.submit(
             "refetch", request_id, correlation_id=correlation_id,
