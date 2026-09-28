@@ -148,11 +148,73 @@ def refetch_pending_keyboard(review_id: int,
     return InlineKeyboardMarkup(rows)
 
 
+def refetch_failure_reason(attempt_row) -> str:
+    """A short human-readable reason for a terminally-failed refetch attempt.
+
+    ``attempt_row`` is a ``refetch_attempts`` row (sqlite Row, index access);
+    the terminal state and the optional failure code are combined into a compact
+    label. Never raises on a missing/odd row.
+    """
+    def _get(row, key):
+        try:
+            return row[key] if (key in row.keys()) else None
+        except Exception:
+            return None
+    state = _get(attempt_row, "state")
+    if not state or state == "no_candidate":
+        base = "未找到新的可替换作品"
+    else:
+        label = {
+            "failed": "重抓提交失败",
+            "timeout": "重抓超时",
+            "cancelled": "重抓已取消",
+            "replaced": "已由新作品替代",
+        }.get(state, f"重抓结束（{state}）")
+        base = label
+    code = _get(attempt_row, "failure_code")
+    return f"{base}：{code}" if code else base
+
+
+def refetch_voided_text(*, review_id: int, reason: str = "",
+                        task_id: str = "") -> str:
+    """Control-card text after a refetch ended WITHOUT a replacement.
+
+    §refetch-card-state: pressing 重抓 already rejects the current candidate, so
+    a terminal refetch that found nothing must NOT resurrect the publish/reject
+    buttons — the operator decided to drop this work, and the only way forward
+    is another 重抓 (which fetches a NEW work with an incremented sequence).
+    ``reason``/``task_id`` are the terminal facts surfaced on the card.
+    """
+    detail = ""
+    if reason:
+        detail += f"\n原因：{reason}"
+    if task_id:
+        detail += f"\n任务ID：{task_id}"
+    return (
+        f"🕳️ 审核 #{review_id} 已作废（视为已拒绝）\n\n"
+        f"当前候选不会再被发布。\n"
+        "上次重抓未能找到新的可替换作品。\n"
+        "可再次点击「重抓/换一张」直接抓取一个新作品（序号递增），"
+        "找到后会作为新的审核稿。"
+        + detail
+    )
+
+
+def refetch_voided_keyboard(review_id: int,
+                            link: str = "") -> InlineKeyboardMarkup:
+    """Keyboard for a voided refetch card: keep 重抓 + original link only."""
+    rows = [[InlineKeyboardButton("🔄 重抓/换一张",
+                                  callback_data=f"review_refetch:{review_id}")]]
+    if link:
+        rows.append([InlineKeyboardButton("🔗 查看原链接", url=link)])
+    return InlineKeyboardMarkup(rows)
+
+
 def control_card_from_row(row) -> Tuple[str, InlineKeyboardMarkup]:
     """Rebuild the NORMAL review card (text + keyboard) from a review row.
 
-    Used to restore a card after a refetch reached a terminal state without a
-    replacement, so the candidate becomes actionable again. Mirrors
+    Used to (re)render a card that has never been refetched — a plain pending
+    candidate stays an ordinary, fully-actionable review. Mirrors
     ``TelegramReviewStager.send_control_message_id``; the row is the source of
     truth (the card must survive a process restart)."""
     from ..application.review_queue import command_from_row
