@@ -1607,6 +1607,55 @@ def _row_value(row, key, default=None):
     return default
 
 
+async def _apply_review_group_mask(bot, row, mask_on: bool):
+    """Re-edit every already-sent maskable preview message to flip spoiler.
+
+    Called from :func:`toggle_review_spoiler`: the DB flag and the card button
+    are not enough — the review-group images already on screen only gain/lose
+    their mask when each media message is re-edited with ``has_spoiler``.
+
+    Uses the per-message specs persisted alongside ``review_message_ids``;
+    message kinds that cannot hold a Telegram spoiler (document/audio) and the
+    control card (not in the spec list) are skipped. Per-message failures are
+    logged and never abort the remaining messages.
+    """
+    from telegram import InputMediaAnimation, InputMediaPhoto, InputMediaVideo
+
+    _KIND_INPUT = {
+        "photo": InputMediaPhoto,
+        "video": InputMediaVideo,
+        "animation": InputMediaAnimation,
+    }
+    try:
+        ids = [
+            int(v)
+            for v in json.loads(_row_value(row, "review_message_ids") or "[]")
+        ]
+        specs = json.loads(_row_value(row, "review_message_specs") or "[]")
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        logger.warning("解析审核群遮罩规格失败，跳过即时改掩: %s", error)
+        return
+    chat_id = _row_value(row, "review_chat_id") or REVIEW_CHAT_ID
+    for message_id, spec in zip(ids, specs):
+        if not spec or not isinstance(spec, dict):
+            continue
+        kind = spec.get("kind") or spec.get("type")
+        file_id = spec.get("file_id")
+        input_cls = _KIND_INPUT.get(kind)
+        if input_cls is None or not file_id:
+            continue
+        try:
+            await bot.edit_message_media(
+                chat_id=chat_id,
+                message_id=message_id,
+                media=input_cls(media=file_id, has_spoiler=mask_on),
+            )
+        except Exception as error:
+            logger.debug(
+                "即时改掩失败 message=%s: %s", message_id, error, exc_info=True
+            )
+
+
 # ---- callback handlers ----------------------------------------------------
 async def _answer(query, text=None, **kwargs):
     try:
@@ -1641,6 +1690,12 @@ async def toggle_review_spoiler(update, context):
     row = await _load_review_for_action(query, review_id)
     new_spoiler = bool(row["spoiler"])
     await _answer(query, f"遮罩已{'开启' if new_spoiler else '关闭'}")
+    # §review-group-mask (on-demand): flip the mask on the review-group media
+    # that is already on screen. The DB flag + card button alone never re-masks
+    # the already-sent preview images.
+    bot = context.bot
+    if bot is not None:
+        await _apply_review_group_mask(bot, row, new_spoiler)
     try:
         await query.edit_message_reply_markup(
             reply_markup=_review_keyboard(

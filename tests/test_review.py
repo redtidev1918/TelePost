@@ -1384,3 +1384,103 @@ async def test_new_review_gets_chain_immediately(monkeypatch, tmp_path):
     ))
     row = await ReviewRepository().get(int(review_id))
     assert row["review_chain_id"] == f"chain-{review_id}"
+
+
+async def _insert_pending_spoiler_review(review_db):
+    """Insert a rotatable pending review with maskable preview specs.
+
+    Returns (review_id, bot). The bot is an AsyncMock armed to edit media.
+    """
+    from database import db_manager as db_mod
+    from telepost.storage.sqlite.reviews import NewReview, ReviewRepository
+    review_id = await ReviewRepository().insert(NewReview(
+        idempotency_key="spoiler-key-1",
+        source="api", user_id=123456789, username="pixivflow",
+        title="title", tags="#tag", note="", link="",
+        anonymous=False, spoiler=False, media=[], documents=[],
+        review_chat_id=str(review.REVIEW_CHAT_ID), review_message_ids=[],
+        target_id="target-a", status="pending",
+    ))
+    bot = AsyncMock()
+    async with db_mod.get_db() as conn:
+        await conn.execute(
+            "UPDATE pending_reviews SET "
+            "review_message_ids=?, review_message_specs=?, spoiler=0 "
+            "WHERE id=?",
+            (
+                "[101, 102, 103]",
+                json.dumps([
+                    {"kind": "photo", "file_id": "P1"},
+                    {"kind": "video", "file_id": "V1"},
+                    {"kind": "document", "file_id": "D1"},
+                ]),
+                review_id,
+            ),
+        )
+    return review_id, bot
+
+
+@pytest.mark.asyncio
+async def test_toggle_spoiler_immediately_remasks_already_sent_previews(review_db):
+    """翻动遮罩按钮必须即时重编辑审核群已发送媒体（§review-group-mask on-demand）。"""
+    review_id, bot = await _insert_pending_spoiler_review(review_db)
+    context = MagicMock()
+    context.bot = bot
+    update = _callback_update(f"review_spoiler:{review_id}")
+    update.callback_query.edit_message_reply_markup = AsyncMock()
+
+    await review.toggle_review_spoiler(update, context)
+
+    # 新建遮罩=开：每条可遮罩媒体都用 has_spoiler=True 重编辑，文件 id 复用。
+    assert bot.edit_message_media.await_count == 2
+    calls = bot.edit_message_media.await_args_list
+    media_by_mid = {c.kwargs["message_id"]: c.kwargs["media"] for c in calls}
+    assert 101 in media_by_mid and 102 in media_by_mid and 103 not in media_by_mid
+    assert media_by_mid[101].media == "P1"
+    assert media_by_mid[101].has_spoiler is True
+    assert media_by_mid[102].media == "V1"
+    assert media_by_mid[102].has_spoiler is True
+    assert all(
+        c.kwargs["chat_id"] == str(review.REVIEW_CHAT_ID) for c in calls
+    )
+
+
+@pytest.mark.asyncio
+async def test_toggle_spoiler_off_unmasks_previews(review_db):
+    """再次点遮罩关：同消息以 has_spoiler=False 重编辑以撤下遮罩。"""
+    review_id, bot = await _insert_pending_spoiler_review(review_db)
+    context = MagicMock()
+    context.bot = bot
+    update = _callback_update(f"review_spoiler:{review_id}")
+    update.callback_query.edit_message_reply_markup = AsyncMock()
+    await review.toggle_review_spoiler(update, context)
+    bot.edit_message_media.reset_mock()
+
+    await review.toggle_review_spoiler(update, context)
+
+    assert bot.edit_message_media.await_count == 2
+    for c in bot.edit_message_media.await_args_list:
+        assert c.kwargs["media"].has_spoiler is False
+
+
+@pytest.mark.asyncio
+async def test_toggle_spoiler_survives_bad_specs(review_db):
+    """规格损坏或媒体消息缺失时，即时改掩不抛错、不中断其他动作。"""
+    from database import db_manager as db_mod
+    review_id, bot = await _insert_pending_spoiler_review(review_db)
+    async with db_mod.get_db() as conn:
+        await conn.execute(
+            "UPDATE pending_reviews SET review_message_specs=? WHERE id=?",
+            ("not-json", review_id),
+        )
+    context = MagicMock()
+    context.bot = bot
+    update = _callback_update(f"review_spoiler:{review_id}")
+    update.callback_query.edit_message_reply_markup = AsyncMock()
+    bot.edit_message_media.side_effect = RuntimeError("telegram temp failure")
+
+    await review.toggle_review_spoiler(update, context)
+
+    # 改掩失败不应把键盘刷新也打断
+    update.callback_query.answer.assert_awaited()
+    update.callback_query.edit_message_reply_markup.assert_awaited()
