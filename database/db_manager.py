@@ -105,6 +105,7 @@ async def init_db():
                     documents_json TEXT NOT NULL DEFAULT '[]',
                     review_chat_id TEXT NOT NULL,
                     review_message_ids TEXT NOT NULL DEFAULT '[]',
+                    review_message_specs TEXT NOT NULL DEFAULT '[]',
                     control_message_id INTEGER,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
@@ -251,6 +252,17 @@ async def init_db():
                 'CREATE INDEX IF NOT EXISTS idx_pending_reviews_data_class '
                 'ON pending_reviews(data_class, created_at DESC)'
             )
+            # Per-message media specs (aligned with review_message_ids so the
+            # spoiler toggle can re-edit each already-sent preview message).
+            for column, ddl in (
+                ("review_message_specs", "TEXT NOT NULL DEFAULT '[]'"),
+            ):
+                try:
+                    await conn.execute(
+                        f"ALTER TABLE pending_reviews ADD COLUMN {column} {ddl}"
+                    )
+                except Exception:
+                    pass  # column already exists
 
             # User-facing history soft-delete (§my-submissions-delete): 1 hides
             # the whole review chain from the owner's /me history without

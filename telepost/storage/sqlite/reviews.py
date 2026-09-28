@@ -19,7 +19,7 @@ import html
 import json
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
 import aiosqlite
@@ -58,6 +58,7 @@ class NewReview:
     documents: list
     review_chat_id: str
     review_message_ids: List[int]
+    review_message_specs: List = field(default_factory=list)
     target_id: str = ""
     source_label: str = ""
     source_ref: str = ""
@@ -145,6 +146,7 @@ class ReviewRepository:
                 idempotency_key, source, status, user_id, username, title,
                 tags, note, link, anonymous, spoiler, media_json,
                 documents_json, review_chat_id, review_message_ids,
+                review_message_specs,
                 target_id, source_label, source_ref, scheduled_at,
                 pixiv_id, work_type, delivery_target,
                 review_chain_id, generation, supersedes_review_id,
@@ -154,7 +156,7 @@ class ReviewRepository:
                 created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?, ?)
+                      ?, ?, ?, ?)
             """,
             (
                 review.idempotency_key, review.source, review.status,
@@ -165,6 +167,7 @@ class ReviewRepository:
                 json.dumps(review.media), json.dumps(review.documents),
                 str(review.review_chat_id),
                 json.dumps(review.review_message_ids),
+                json.dumps(review.review_message_specs),
                 review.target_id, review.source_label, review.source_ref,
                 review.scheduled_at, review.pixiv_id, review.work_type,
                 review.delivery_target,
@@ -194,14 +197,17 @@ class ReviewRepository:
         return review_id
 
     async def update_staged(self, review_id: int, *, media: list,
-                            documents: list, preview_message_ids: List[int]) -> bool:
+                            documents: list, preview_message_ids: List[int],
+                            preview_message_specs: Optional[List] = None) -> bool:
         async with db_manager.get_db() as conn:
             cur = await conn.execute(
                 "UPDATE pending_reviews SET media_json=?, documents_json=?, "
-                "review_message_ids=?, updated_at=?, error='' "
-                "WHERE id=? AND status='preparing'",
+                "review_message_ids=?, review_message_specs=?, updated_at=?, "
+                "error='' WHERE id=? AND status='preparing'",
                 (json.dumps(media), json.dumps(documents),
-                 json.dumps(preview_message_ids), time.time(), int(review_id)),
+                 json.dumps(preview_message_ids),
+                 json.dumps(preview_message_specs or []), time.time(),
+                 int(review_id)),
             )
             return cur.rowcount == 1
 

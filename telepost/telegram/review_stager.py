@@ -117,7 +117,8 @@ class TelegramReviewStager:
     # ---- StagingPort ---------------------------------------------------
     async def stage_local(self, files, *, caption: str, spoiler: bool,
                           message_ids: Optional[List[int]] = None,
-                          cover_url: Optional[str] = None
+                          cover_url: Optional[str] = None,
+                          specs: Optional[list] = None
                           ) -> Tuple[list, list, List[int], list]:
         ids: List[int] = message_ids if message_ids is not None else []
         prepared, decisions = reclassify_oversized(
@@ -144,7 +145,7 @@ class TelegramReviewStager:
         staged_items.extend(original_documents)
         try:
             media, documents = await self._stage(
-                staged_items, caption, spoiler, ids, local=True
+                staged_items, caption, spoiler, ids, local=True, specs=specs
             )
             return media, documents, ids, decisions
         finally:
@@ -152,7 +153,8 @@ class TelegramReviewStager:
 
     async def stage_file_ids(self, media, documents, *, caption: str, spoiler: bool,
                              message_ids: Optional[List[int]] = None,
-                             cover_url: Optional[str] = None
+                             cover_url: Optional[str] = None,
+                             specs: Optional[list] = None
                              ) -> Tuple[list, list, List[int]]:
         items = list(_remote_cover_item(cover_url)) + [
             {"kind": item["type"], "type": item["type"], "file_id": item["file_id"]}
@@ -164,7 +166,7 @@ class TelegramReviewStager:
         ]
         ids: List[int] = message_ids if message_ids is not None else []
         staged_media, staged_documents = await self._stage(
-            items, caption, spoiler, ids, local=False
+            items, caption, spoiler, ids, local=False, specs=specs
         )
         return staged_media, staged_documents, ids
 
@@ -595,7 +597,12 @@ class TelegramReviewStager:
         )
 
     # ---- core staging --------------------------------------------------
-    async def _stage(self, items, caption, spoiler, message_ids, *, local):
+    async def _stage(self, items, caption, spoiler, message_ids, *, local,
+                     specs=None):
+        # ``specs`` (optional out-list) is kept parallel to ``message_ids``:
+        # exactly one ``{kind, file_id}`` entry per appended message id, in the
+        # same order. It lets the caller re-edit each already-sent preview
+        # message (e.g. to flip the spoiler mask on demand).
         runs: List[tuple] = []
         for item in items:
             kind = item["kind"] if local else item["type"]
@@ -689,6 +696,8 @@ class TelegramReviewStager:
                 if not fid:
                     raise RuntimeError("审核群预览未返回 Telegram file_id")
                 item_kind = item["kind"] if local else item["type"]
+                if specs is not None:
+                    specs.append({"kind": item_kind, "file_id": fid})
                 if item.get("staging_only"):
                     continue
                 if item_kind == "document":

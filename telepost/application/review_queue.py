@@ -387,26 +387,34 @@ class ReviewQueueService:
         # asset-only URL, so it is passed to staging as a presentation extra and
         # never becomes part of the review's media.
         cover_url = novel_cover_preview_url(command)
-        # §review-group-mask: the review group ALWAYS shows unmasked media. The
-        # mask is a CHANNEL publication decision the reviewer takes later, from
-        # the stored row plus the card's 「🔇 遮罩」 button -- not a submitter
-        # setting inherited by the preview. Telegram cannot edit a mask on an
-        # already-sent message, so threading ``command.spoiler`` in here would
-        # hide from the reviewer the exact media they are being asked to judge.
+        # §review-group-mask: the review group ALWAYS shows unmasked media at
+        # staging time. The mask is a CHANNEL publication decision the reviewer
+        # takes later, from the stored row plus the card's 「🔇 遮罩」 button --
+        # not a submitter setting inherited by the preview. Threading
+        # ``command.spoiler`` in here would hide from the reviewer the exact
+        # media they are being asked to judge. (The reviewer's own on-demand
+        # toggle re-edits the already-sent previews via the persisted
+        # per-message specs — see handlers.review.toggle_review_spoiler.)
         try:
             # Pass the id list in-out: when staging fails mid-way, ids of
-            # already-uploaded previews survive for rollback deletion.
+            # already-uploaded previews survive for rollback deletion. The
+            # parallel ``preview_specs`` list records each preview's kind +
+            # file_id (aligned with preview_ids) so the spoiler toggle can
+            # re-edit every already-sent preview message on demand.
+            preview_specs: list = []
             if is_local:
                 staged_media, staged_documents, preview_ids, media_decisions = \
                     await stager.stage_local(
                         files, caption=caption, spoiler=False,
                         message_ids=preview_ids, cover_url=cover_url,
+                        specs=preview_specs,
                     )
             else:
                 staged_media, staged_documents, preview_ids = await stager.stage_file_ids(
                     media or [], documents or [],
                     caption=caption, spoiler=False,
                     message_ids=preview_ids, cover_url=cover_url,
+                    specs=preview_specs,
                 )
         except RuntimeError as exc:
             message = str(exc)
@@ -446,6 +454,7 @@ class ReviewQueueService:
             staged = await self._repo.update_staged(
                 review_id, media=staged_media, documents=staged_documents,
                 preview_message_ids=preview_ids,
+                preview_message_specs=preview_specs,
             )
             if not staged:
                 raise RuntimeError("审核记录在预览完成前被并发修改")
