@@ -62,7 +62,7 @@ class _Stager:
         self.deadline = deadline
 
     async def stage_local(self, files, *, caption, spoiler, message_ids=None,
-                          cover_url=None):
+                          cover_url=None, specs=None):
         self.stages += 1
         ids = message_ids if message_ids is not None else []
         extra = []
@@ -70,16 +70,20 @@ class _Stager:
             extra = await self._on_stage(ids) or []
         else:
             ids.append(10)
+            if specs is not None:
+                specs.append({"kind": "photo", "file_id": "P"})
         return [{"type": "photo", "file_id": "P"}], [], ids, extra
 
     async def stage_file_ids(self, media, documents, *, caption, spoiler,
-                             message_ids=None, cover_url=None):
+                             message_ids=None, cover_url=None, specs=None):
         self.stages += 1
         ids = message_ids if message_ids is not None else []
         if self._on_stage is not None:
             await self._on_stage(ids)
         else:
             ids.append(10)
+            if specs is not None:
+                specs.append({"kind": "photo", "file_id": "P"})
         return [{"type": "photo", "file_id": "P"}], [], ids
 
     async def delete_preview_messages(self, ids):
