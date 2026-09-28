@@ -8,8 +8,12 @@ The contract these tests pin:
 
   * while an attempt is ACTIVE the card says 「已提交重抓 / 当前候选已作废」 and
     drops 发布·拒绝·遮罩 (a replacement is the only way on);
-  * when the attempt ends WITHOUT a replacement the normal, actionable card
-    comes back, so the candidate never dead-ends;
+  * when the attempt ends WITHOUT a replacement the card STAYS 「已作废（视为已拒
+    绝）」 with only 重抓 + original link — pressing 重抓 means the operator rejected
+    this work, so publish/reject must not resurrect; only a NEW 重抓 (fetching a
+    new work, sequence incremented) moves forward;
+  * a pending review that was NEVER refetched keeps its normal, fully-actionable
+    card;
   * a decided/superseded review, a missing control message and a Telegram error
     are all no-ops: refreshing a card must never break the refetch flow.
 """
@@ -147,11 +151,29 @@ async def test_refresh_card_shows_the_running_refetch(card_db):
 
 
 @pytest.mark.asyncio
-async def test_refresh_card_restores_the_card_when_nothing_is_running(card_db):
+async def test_refresh_card_keeps_voided_card_when_failed_refetch(card_db):
+    """A refetch that already ran must not resurrect publish/reject controls."""
     review_id = await _insert_review()
     attempt = await _active_attempt(review_id)
     repo = RefetchRepository()
     await repo.mark_failed(attempt["request_id"], "remote_failed")
+
+    bot = AsyncMock()
+    assert await review.refresh_refetch_card(bot, review_id) is True
+
+    kwargs = bot.edit_message_text.await_args.kwargs
+    assert "已作废" in kwargs["text"]
+    assert "重抓提交失败" in kwargs["text"]
+    labels = _labels(kwargs["reply_markup"])
+    assert any("重抓" in label for label in labels)
+    assert all("发布" not in label for label in labels)
+    assert all("拒绝" not in label for label in labels)
+
+
+@pytest.mark.asyncio
+async def test_refresh_card_restores_the_card_when_never_refetched(card_db):
+    """A pending review with no refetch history stays a normal actionable card."""
+    review_id = await _insert_review()
 
     bot = AsyncMock()
     assert await review.refresh_refetch_card(bot, review_id) is True
@@ -290,8 +312,8 @@ async def test_progress_reminder_shows_elapsed_time_on_the_card(card_db, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_terminal_no_alternative_gives_the_card_back(card_db, monkeypatch):
-    """A refetch that finds nothing must not leave an unusable card behind."""
+async def test_terminal_no_alternative_keeps_the_card_voided(card_db, monkeypatch):
+    """A refetch that finds nothing leaves the card voided, not actionable."""
     review_id = await _insert_review()
     attempt = await _active_attempt(review_id, admitted=True)
     repo = RefetchRepository()
@@ -311,6 +333,8 @@ async def test_terminal_no_alternative_gives_the_card_back(card_db, monkeypatch)
 
     assert acted == 1
     assert "没有找到" in bot.send_message.await_args.kwargs["text"]
-    assert f"🕵️ 投稿待审核 #{review_id}" in bot.edit_message_text.await_args.kwargs["text"]
-    labels = _labels(bot.edit_message_text.await_args.kwargs["reply_markup"])
-    assert any("发布到频道" in label for label in labels)
+    kwargs = bot.edit_message_text.await_args.kwargs
+    assert "已作废" in kwargs["text"]
+    labels = _labels(kwargs["reply_markup"])
+    assert any("重抓" in label for label in labels)
+    assert all("发布" not in label for label in labels)
