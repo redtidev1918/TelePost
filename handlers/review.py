@@ -1708,7 +1708,23 @@ async def toggle_review_spoiler(update, context):
             )
         )
     except Exception:
-        logger.debug("刷新审核键盘失败（遮罩已入库）: review_id=%s", review_id)
+        # §review-button-refresh: the mask is already in the DB and the
+        # review-group media already re-masked above, so a keyboard refresh
+        # failure must NOT be swallowed silently — otherwise the button label
+        # stays showing the stale spoiler value. Log at warn (with traceback)
+        # and surface a transient, visible alert to the admin via show_alert
+        # (a popup, not a new chat message, so repeated toggles do not spam).
+        logger.warning(
+            "刷新审核键盘失败，审核卡遮罩按钮标签可能已陈旧（遮罩状态已入库生效）: "
+            "review_id=%s",
+            review_id,
+            exc_info=True,
+        )
+        await _answer(
+            query,
+            f"已遮罩，但按钮无法刷新（状态已{'开启' if new_spoiler else '关闭'}）。",
+            show_alert=True,
+        )
 
 
 def _submit_pixivflow_refetch(target_id: str, request_id: str,
