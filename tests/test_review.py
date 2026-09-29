@@ -1484,3 +1484,41 @@ async def test_toggle_spoiler_survives_bad_specs(review_db):
     # 改掩失败不应把键盘刷新也打断
     update.callback_query.answer.assert_awaited()
     update.callback_query.edit_message_reply_markup.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_toggle_spoiler_surfaces_keyboard_refresh_failure(review_db, caplog):
+    """按钮刷新失败不得静默遗留陈旧标签：遮罩仍须立即生效，且对审核人可见。
+
+    §review-button-refresh: DB 遮罩状态与审核群媒体的即时改掩是权威且已生效；
+    edit_message_reply_markup 失败时按钮标签会成为陈旧值，代码必须 warn 级记录
+    并向审核人弹出可见提醒（show_alert），而不是 debug 级吞掉。
+    """
+    import logging as _logging
+
+    review_id, bot = await _insert_pending_spoiler_review(review_db)
+    context = MagicMock()
+    context.bot = bot
+    update = _callback_update(f"review_spoiler:{review_id}")
+    # 让键盘刷新失败——窗帘遮罩改掩成功 + 键盘刷新失败的组合。
+    update.callback_query.edit_message_reply_markup = AsyncMock(
+        side_effect=RuntimeError("message is too old")
+    )
+    bot.edit_message_media = AsyncMock()
+
+    with caplog.at_level(_logging.WARNING, logger="handlers.review"):
+        await review.toggle_review_spoiler(update, context)
+
+    # 遮罩仍被立即应用（改掩未被键盘刷新失败牵连）。
+    assert bot.edit_message_media.await_count == 2
+    for c in bot.edit_message_media.await_args_list:
+        assert c.kwargs["media"].has_spoiler is True
+    # 键盘刷新确实失败并被尝试过。
+    assert update.callback_query.edit_message_reply_markup.await_count == 1
+    # 审核人收到可见的弹窗提醒，而非静默。
+    answers = update.callback_query.answer.await_args_list
+    alert = next(a for a in answers if a.kwargs.get("show_alert"))
+    assert alert.kwargs["show_alert"] is True
+    assert "按钮无法刷新" in alert.kwargs["text"]
+    # 以 warn 级记录，而不是 debug 级吞掉。
+    assert any("刷新审核键盘失败" in r.message for r in caplog.records)
