@@ -111,6 +111,30 @@ collection tool. It can send results to TelePost, save them locally, or deliver 
 The optional [MCP sidecar](docs/MCP_REVIEW.md) lets an AI agent read pending submissions and suggest decisions;
 a human still explicitly confirms publishing.
 
+#### For workflow orchestrators (Workflow Protocol v1)
+
+When TelePost and PixivFlow are deployed separately, the boundary between them is a cross-service
+workflow contract, **Workflow Protocol v1** (authoritative document: `docs/architecture/workflow-protocol.md` in
+[pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy)).
+Under the protocol TelePost plays the **content workflow orchestrator**, while PixivFlow is only the
+**content acquisition / processing engine**; the two sides never touch each other's internals.
+
+- **Refetch is a remote Job:** "refetch" in the review group submits a persistent Job (`POST /jobs`), and
+  TelePost ties them together with `idempotency_key`/`job_id` in both directions, polling
+  `GET /jobs/{job_id}` to converge on a terminal state; the protocol version and the `candidate_search`
+  capability are negotiated via `GET /capabilities` before entering.
+- **Self-healing event channel:** an optional `callback_url` (only carried when `TELEPOST_API_BASE_URL` is
+  set) lets PixivFlow push events to `POST /api/botN/v1/jobs/events`; TelePost also has a reconciliation
+  loop (`GET /jobs/{job_id}/events` + `ack`) as a fallback, so a lost callback can be recovered. Events and
+  polling converge on the **same** idempotent terminal-state seam (`event_id` dedup) — a terminal
+  notification is never sent twice.
+- **Rollback-friendly:** the protocol channel is the default; `PIXIVFLOW_JOB_TRANSPORT=legacy` switches
+  back to the old `/internal/targets/{id}/refetch` route in one step.
+
+See the [HTTP API guide](docs/API.md) and
+[Workflow Protocol v1](https://github.com/redtidev1918/pixivflow-telepost-deploy/blob/main/docs/architecture/workflow-protocol.md)
+for endpoints, fields, and acceptance criteria.
+
 ## Running and deployment
 
 TelePost can run locally, on a VPS, with Docker, on Fly.io, or anywhere else that can run Python or containers:
@@ -139,7 +163,7 @@ optional. See [Install and deployment](docs/INSTALL.md) for general setup and
 | Download and get started | [Download](docs/en/download.md) · [Install and deployment](docs/INSTALL.md) |
 | Configure a bot, review, or multi-bot | [Configuration](docs/CONFIGURATION.md) |
 | Browse Telegram commands | [Command reference](docs/COMMANDS.md) |
-| Connect automation | [HTTP API](docs/API.md) |
+| Connect automation | [HTTP API](docs/API.md) · [Workflow Protocol v1 (PixivFlow collaboration)](https://github.com/redtidev1918/pixivflow-telepost-deploy/blob/main/docs/architecture/workflow-protocol.md) |
 | Enable the Mini App | [Mini App](docs/MINIAPP.md) |
 | Configure Webhook or Fly.io | [Webhook and Polling](docs/WEBHOOK_MODE.md) · [Fly.io deployment](docs/FLYIO_DEPLOYMENT.md) |
 | Back up, upgrade, or troubleshoot | [Operations](docs/OPERATIONS.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) |

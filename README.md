@@ -120,7 +120,7 @@ flowchart LR
 
 当 TelePost 与 PixivFlow 拆分部署时，两者的边界是一个跨服务的工作流契约 **Workflow Protocol v1**
 （权威文档见 [pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy) 的
-`docs/workflow-protocol.md`）。TelePost 在协议里扮演**内容工作流编排方**，
+`docs/architecture/workflow-protocol.md`）。TelePost 在协议里扮演**内容工作流编排方**，
 PixivFlow 只作为**内容获取/处理引擎**，两侧互不触碰对方内部。
 
 - **重抓是远程 Job**：审核群里的「重抓」提交一份持久 Job（`POST /jobs`），
@@ -134,7 +134,7 @@ PixivFlow 只作为**内容获取/处理引擎**，两侧互不触碰对方内�
   `/internal/targets/{id}/refetch` 路由。
 
 端点、字段与验收见 [HTTP API 文档](docs/API.md) 与
-[Workflow Protocol v1](https://github.com/redtidev1918/pixivflow-telepost-deploy/blob/main/docs/workflow-protocol.md)。
+[Workflow Protocol v1](https://github.com/redtidev1918/pixivflow-telepost-deploy/blob/main/docs/architecture/workflow-protocol.md)。
 
 可选的 [MCP sidecar](docs/MCP_REVIEW.md) 允许 AI Agent 读取待审核内容并给出建议；最终发布仍由人类明确确认。
 
@@ -165,7 +165,7 @@ TelePost 可以运行在本地、VPS、Docker、Fly.io 或其他能够运行 Pyt
 | 下载并开始使用 | [下载](docs/download.md) · [安装与部署](docs/INSTALL.md) |
 | 配置 Bot、审核或多 Bot | [配置参考](docs/CONFIGURATION.md) |
 | 查看 Telegram 命令 | [命令参考](docs/COMMANDS.md) |
-| 接入自动化 | [HTTP API](docs/API.md) · [Workflow Protocol v1（PixivFlow 协作）](docs/CONFIGURATION.md) |
+| 接入自动化 | [HTTP API](docs/API.md) · [Workflow Protocol v1（PixivFlow 协作）](https://github.com/redtidev1918/pixivflow-telepost-deploy/blob/main/docs/architecture/workflow-protocol.md) |
 | 启用 Mini App | [Mini App](docs/MINIAPP.md) |
 | 配置 Webhook 或 Fly.io | [Webhook 与 Polling](docs/WEBHOOK_MODE.md) · [Fly.io 部署](docs/FLYIO_DEPLOYMENT.md) |
 | 备份、升级或排查故障 | [运维手册](docs/OPERATIONS.md) · [故障排查](docs/TROUBLESHOOTING.md) |
