@@ -81,6 +81,9 @@ chmod +x telepost-linux-x64
 审核员：  Telegram → Mini App → 审核队列 / 审核详情
 ```
 
+入口：点按 /start 后，在键盘上点「📱 Mini App」按钮即可打开（或频道 footer 直达链接）；
+左侧聊天菜单按钮是默认命令菜单，不挂 Mini App（见 [Mini App 文档](docs/MINIAPP.md)）。
+
 Mini App 复用 Bot 的身份、投稿和审核流程，不是第二套后端；关闭 Mini App 不影响聊天投稿和 HTTP API。
 当前 Mini App 投稿界面按审核流程工作；`MINIAPP_REVIEW_REQUIRED` 内置默认即为 `true`（与 `API_REVIEW_REQUIRED` 相互独立）。
 启用方式、同域托管与安全要求见 [Mini App 文档](docs/MINIAPP.md)。
