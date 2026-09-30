@@ -177,9 +177,16 @@ def test_decode_budget_routes_to_a_reduced_decode_instead_of_document(tmp_path):
 
 
 @pytest.mark.unit
-def test_impossible_case_records_an_explicit_document_fallback_reason(tmp_path):
+def test_impossible_case_records_an_explicit_document_fallback_reason(tmp_path, monkeypatch):
     """A PNG has no reduced-scale decode in Pillow: over the budget *and* over
-    the dimension rule, no compliant photo exists — and the log says exactly why."""
+    the dimension rule, no compliant photo exists — and the log says exactly why.
+
+    Runs without the optional streaming decoder (libvips), which is the path
+    that must still demote to a document instead of risking an OOM. With the
+    streaming decoder present the same image becomes a resized photo (covered by
+    the streaming tests in test_media_preparation.py).
+    """
+    monkeypatch.setattr(preparation, "_load_streaming_decoder", lambda: False)
     path = tmp_path / "huge.png"
     Image.new("RGBA", (6000, 5000), (10, 20, 30, 255)).save(path)
     assert path.stat().st_size < PHOTO_LIMIT
