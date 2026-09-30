@@ -86,7 +86,10 @@ def _remote_cover_item(cover_url: Optional[str]) -> list:
     url = str(cover_url or "").strip()
     if not url:
         return []
-    return [{"kind": "photo", "type": "photo", "url": url, "staging_only": True}]
+    return [{
+        "kind": "photo", "type": "photo", "url": url,
+        "staging_only": True, "presentation_only": True,
+    }]
 
 
 class TelegramReviewStager:
@@ -128,21 +131,36 @@ class TelegramReviewStager:
         # the review group sees the same shape as the channel (§novel-cover):
         # visual root first, TXT document reply after.
         staged_items = list(_remote_cover_item(cover_url))
+        # §original-preservation: a review ships documentary originals only
+        # when at least one image could not be delivered as a plain within-
+        # limits photo (it had to be compressed, previewed or downgraded to a
+        # document). When EVERY image passes through untouched, no original
+        # document is needed. When ANY image is transformed, the whole album
+        # keeps every original as a document so the review card stays a
+        # consistent "N 张照片 + M 份原图" instead of an uneven mix.
+        photo_indexes = [
+            index for index, item in enumerate(prepared)
+            if item.get("kind") in {"photo", "image"}
+        ]
+        needs_originals = any(
+            prepared[index].get("preparation_reason") not in (None, "pass_through")
+            for index in photo_indexes
+        )
         original_documents = []
         for index, item in enumerate(prepared):
-            if item.get("preparation_reason") == "use_preview":
-                preview = dict(item)
-                preview["staging_only"] = True
-                staged_items.append(preview)
-                original_documents.append({
-                    "kind": "document",
-                    "path": item["original_path"],
-                    "filename": files[index].get("filename")
-                    or item.get("filename") or "image",
-                    "original": True,
-                })
-            else:
-                staged_items.append(item)
+            staged_items.append(item)
+            if not needs_originals or item.get("kind") not in {"photo", "image"}:
+                continue
+            original_path = item.get("original_path") or item.get("path")
+            if not original_path:
+                continue
+            original_documents.append({
+                "kind": "document",
+                "path": original_path,
+                "filename": files[index].get("filename")
+                or item.get("filename") or "image",
+                "original": True,
+            })
         staged_items.extend(original_documents)
         try:
             media, documents = await self._stage(
@@ -701,7 +719,12 @@ class TelegramReviewStager:
                     raise RuntimeError("审核群预览未返回 Telegram file_id")
                 item_kind = item["kind"] if local else item["type"]
                 if specs is not None:
-                    specs.append({"kind": item_kind, "file_id": fid})
+                    specs.append({
+                        "kind": item_kind,
+                        "file_id": fid,
+                        "staging_only": bool(item.get("staging_only")),
+                        "presentation_only": bool(item.get("presentation_only")),
+                    })
                 if item.get("staging_only"):
                     continue
                 if item_kind == "document":
