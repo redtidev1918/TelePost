@@ -8,6 +8,14 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.73.2](https://github.com/redtidev1918/TelePost/compare/v2.73.1...v2.73.2) (2026-09-30)
+
+
+### Bug Fixes
+
+* **media:** preserve originals when using supplied previews ([2fb57c3](https://github.com/redtidev1918/TelePost/commit/2fb57c34f9b96aa62207034ed75b8a7e6108cfd2))
+* **media:** preserve originals when using supplied previews ([5490db6](https://github.com/redtidev1918/TelePost/commit/5490db628d8175d2bd0d783b2de79ae56fd83eb5))
+
 ## [2.73.1](https://github.com/redtidev1918/TelePost/compare/v2.73.0...v2.73.1) (2026-09-30)
 
 
