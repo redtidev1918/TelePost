@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.73.1](https://github.com/redtidev1918/TelePost/compare/v2.73.0...v2.73.1) (2026-09-30)
+
+
+### Bug Fixes
+
+* **media:** stream oversized page downscale via libvips to avoid OOM ([#252](https://github.com/redtidev1918/TelePost/issues/252)) ([3fbb1c9](https://github.com/redtidev1918/TelePost/commit/3fbb1c9881c63f73d1b8c336e59644af6cd0dc59))
+
 ## [2.73.0](https://github.com/redtidev1918/TelePost/compare/v2.72.0...v2.73.0) (2026-09-30)
 
 
