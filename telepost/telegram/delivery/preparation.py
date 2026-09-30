@@ -194,6 +194,33 @@ DRAFT_DECODE_FORMATS = frozenset({"JPEG", "MPO"})
 JPEG_QUALITIES = (85, 75, 65, 55)
 #: Long-edge ladder used after the dimension-derived cap.
 PHOTO_EDGE_LADDER = (4096, 3200, 2560, 2048, 1600)
+
+
+#: Lazily-resolved streaming decoder (libvips via pyvips), shared by the
+#: unbounded-decode gate and ``compress_photo``. ``None`` until first call, then
+#: a module or ``False`` when unavailable. libvips streams a downscale so the
+#: peak working set follows the target edge, not the source resolution: a huge
+#: RGBA manga page no longer needs a ~400 MB transient buffer to become a photo.
+_STREAMING_DECODE_READY: Optional[bool] = None
+
+
+def _load_streaming_decoder():
+    """Return the optional ``pyvips`` module, or ``False`` if unavailable.
+
+    Imported lazily so the whole review/publish path still works without
+    libvips. When absent, oversized non-draft sources are demoted to a document
+    (never a full decode) exactly as before — this keeps the 512 MiB box safe.
+    """
+    global _STREAMING_DECODE_READY
+    if _STREAMING_DECODE_READY is None:
+        try:
+            import pyvips  # noqa: PLC0415
+            _STREAMING_DECODE_READY = pyvips
+        except Exception:
+            _STREAMING_DECODE_READY = False
+    return _STREAMING_DECODE_READY
+
+
 #: Marker substrings of the Telegram errors that mean "this photo is not a
 #: legal photo" (dimensions / ratio / size). Only those justify one bounded
 #: re-process; everything else is a real failure.
@@ -539,7 +566,14 @@ class MediaPreparationPolicy:
             return True
         # Image.draft() drops DCT blocks before allocating pixels, so a huge
         # JPEG still decodes inside the budget at a reduced scale.
-        return probe.format.upper() in DRAFT_DECODE_FORMATS
+        if probe.format.upper() in DRAFT_DECODE_FORMATS:
+            return True
+        # libvips streams the downscale: the peak working set follows the target
+        # edge, not the source resolution, so a huge RGBA page is memory-safe
+        # and may become a photo instead of being demoted to a document.
+        if _load_streaming_decoder() is not False:
+            return True
+        return False
 
     def _animated(self, path: str, *, size: int, probe: MediaProbe,
                   estimate: MediaResourceEstimate) -> PreparedMedia:
@@ -695,6 +729,17 @@ def compress_photo(path: str, max_bytes: int, *,
 
     caps = list(dimension_caps) if dimension_caps else photo_dimension_caps(probe, limits)
     directory = os.path.dirname(os.path.abspath(path))
+
+    # Oversized non-draft source (PNG/GIF/WebP… over the decode budget): decode
+    # through the streaming decoder so the peak follows the target edge, never
+    # the source resolution. Without a streaming decoder we must NOT attempt a
+    # full-size Pillow decode on a 512 MiB box — bail to a document instead.
+    if probe is not None and (
+        estimate_resources(probe).estimated_peak_bytes > limits.decode_budget_bytes
+        and probe.format.upper() not in DRAFT_DECODE_FORMATS
+    ):
+        return _streaming_compress_photo(path, caps, directory, limits)
+
     for cap in caps:
         if cap < 1:
             continue
@@ -740,6 +785,49 @@ def compress_photo(path: str, max_bytes: int, *,
                         buffer.close()
         finally:
             source.close()
+    return None
+
+
+def _streaming_compress_photo(path: str, caps: Sequence[int], directory: str,
+                              limits: PhotoLimits) -> Optional[str]:
+    """Streaming (libvips) downscale-to-JPEG ladder for oversized non-draft files.
+
+    Decodes only the pixels needed for the target edge, so the peak working set
+    follows ``cap`` instead of the source resolution — a huge RGBA manga page
+    becomes a photo without a ~400 MB transient buffer. Returns a compliant
+    derivative on the highest acceptable quality/cap, or ``None`` when no
+    compliant JPEG is reachable / the streaming decoder is unavailable (the
+    caller then falls back to a document rather than risking a full decode).
+    """
+    vips = _load_streaming_decoder()
+    if vips is False:
+        return None
+    for cap in caps:
+        if cap < 1:
+            continue
+        fd, derivative = tempfile.mkstemp(
+            prefix="telepost-prepared-", suffix=".jpg", dir=directory
+        )
+        os.close(fd)
+        try:
+            image = vips.Image.thumbnail(path, cap, height=cap, size="down")
+            if image.hasalpha():
+                # JPEG carries no alpha channel: flatten RGBA onto white.
+                image = image.flatten(background=[255, 255, 255])
+            try:
+                image = image.colourspace("srgb")
+            except Exception:
+                pass  # already sRGB / greyscale
+            for quality in JPEG_QUALITIES:
+                image.write_to_file(derivative, Q=quality)
+                if _artifact_is_compliant(derivative, limits):
+                    return derivative
+                _unlink(derivative)
+            return None
+        except Exception as exc:
+            logger.warning("流式缩放失败，回退为文档发送: %s", exc)
+            _unlink(derivative)
+            return None
     return None
 
 

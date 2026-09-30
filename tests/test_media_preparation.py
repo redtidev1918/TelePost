@@ -13,6 +13,17 @@ def _sparse(path, size):
         handle.truncate(size)
 
 
+def _force_no_streaming_decoder(monkeypatch):
+    """Make the optional streaming decoder (libvips) appear unavailable.
+
+    The decode-budget demotion tests exercise the *legacy* OOM-safe path
+    (demote to a document instead of a full decode). CI installs requirements.txt
+    which now includes pyvips, so we pin the decoder off here to keep those
+    assertions deterministic; the streaming path gets its own dedicated tests.
+    """
+    monkeypatch.setattr(preparation, "_load_streaming_decoder", lambda: False)
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize("suffix", ["jpg", "png"])
 def test_normal_photo_passes_without_pillow_decode(tmp_path, suffix):
@@ -26,6 +37,7 @@ def test_normal_photo_passes_without_pillow_decode(tmp_path, suffix):
 
 @pytest.mark.unit
 def test_huge_rgba_never_enters_full_decode(tmp_path, monkeypatch):
+    _force_no_streaming_decoder(monkeypatch)
     source = tmp_path / "huge.png"
     _sparse(source, preparation.PHOTO_MAX_BYTES + 1)
 
@@ -90,6 +102,7 @@ def test_oversized_png_within_hard_budget_attempts_compression(tmp_path, monkeyp
 
 @pytest.mark.unit
 def test_extremely_large_png_stays_document_without_decoding(tmp_path, monkeypatch):
+    _force_no_streaming_decoder(monkeypatch)
     source = tmp_path / "huge.png"
     _sparse(source, preparation.PHOTO_MAX_BYTES + 1)
 
@@ -119,6 +132,7 @@ def test_extremely_large_png_stays_document_without_decoding(tmp_path, monkeypat
 
 @pytest.mark.unit
 def test_small_file_with_oversized_dimensions_falls_back_to_document(tmp_path, monkeypatch):
+    _force_no_streaming_decoder(monkeypatch)
     """A 5-byte PNG stub cannot be decoded, so no compliant photo exists.
 
     The primary violation is still reported (this used to be a blanket
@@ -179,6 +193,7 @@ def test_small_photo_within_dimension_limit_still_passes_through(tmp_path, monke
 
 @pytest.mark.unit
 def test_huge_rgba_uses_optional_preview_without_decoding(tmp_path, monkeypatch):
+    _force_no_streaming_decoder(monkeypatch)
     source = tmp_path / "huge.png"
     preview = tmp_path / "preview.jpg"
     _sparse(source, preparation.PHOTO_MAX_BYTES + 1)
@@ -443,6 +458,7 @@ def test_dimension_exceeded_png_over_budget_still_falls_back_to_document(tmp_pat
     """The OOM backstop stays: when the decode peak really exceeds even the
     capacity-aware budget, the image is demoted to a document (never refunded
     by an unbounded resize that could kill the process)."""
+    _force_no_streaming_decoder(monkeypatch)
     source = tmp_path / "huge.png"
     source.write_bytes(b"small")
 
@@ -475,3 +491,108 @@ def test_dimension_exceeded_png_over_budget_still_falls_back_to_document(tmp_pat
     assert result.kind is preparation.MediaKind.DOCUMENT
     assert result.reason is preparation.PreparationDecision.DOCUMENT_FALLBACK
     assert result.decision["fallback_reason"] == "decode_budget_exceeded"
+
+
+# ---------------------------------------------------------------------------
+# Streaming (libvips) decode path
+# ---------------------------------------------------------------------------
+
+
+def _huge_png_header():
+    """A 4299×6071 RGBA manga page (est. decode peak ~182 MB > decode budget)."""
+
+    class Header:
+        size = (4299, 6071)
+        mode = "RGBA"
+        format = "PNG"
+        n_frames = 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+    return Header
+
+
+def _force_streaming_decoder_present(monkeypatch, fake=None):
+    """Make the optional streaming decoder appear available (any truthy value)."""
+    monkeypatch.setattr(
+        preparation, "_load_streaming_decoder", lambda: (fake if fake is not None else object())
+    )
+
+
+@pytest.mark.unit
+def test_decode_is_bounded_turns_on_with_streaming_decoder(monkeypatch):
+    probe = preparation.MediaProbe(
+        5_000_000, "PNG", 4299, 6071, "RGBA", 1
+    )
+    estimate = preparation.estimate_resources(probe)
+    policy = preparation.MediaPreparationPolicy()
+    # A huge RGBA peak exceeds the decode budget on its own.
+    assert estimate.estimated_peak_bytes > policy.decode_budget_bytes
+    # Without the streaming decoder it is NOT bounded (legacy OOM-safe demote).
+    monkeypatch.setattr(preparation, "_load_streaming_decoder", lambda: False)
+    assert policy._decode_is_bounded(probe, estimate) is False
+    # With it available, the peak is acceptable: libvips streams the downscale.
+    _force_streaming_decoder_present(monkeypatch)
+    assert policy._decode_is_bounded(probe, estimate) is True
+
+
+@pytest.mark.unit
+def test_oversized_png_routes_to_streaming_compress_when_decoder_present(tmp_path, monkeypatch):
+    """With libvips present, a big RGBA page becomes a PHOTO via the streaming
+    branch instead of being demoted to a document (the 158 Bug memory fix)."""
+    from PIL import Image
+    source = tmp_path / "manga.png"
+    source.write_bytes(b"small")
+
+    monkeypatch.setattr(Image, "open", lambda *_a, **_kw: _huge_png_header()())
+    _force_streaming_decoder_present(monkeypatch)
+
+    derivative = tmp_path / "prepared.jpg"
+    derivative.write_bytes(b"jpeg")
+    monkeypatch.setattr(
+        preparation, "_streaming_compress_photo",
+        lambda _path, _caps, _dir, _limits: str(derivative),
+    )
+    monkeypatch.setattr(
+        preparation, "artifact_of",
+        lambda *_a, **_kw: preparation.MediaArtifact(
+            str(derivative), 1, 2900, 4095, "JPEG"  # 2900+4095=6995 <= 10000
+        ),
+    )
+
+    result = preparation.MediaPreparationPolicy().prepare(str(source))
+    assert result.kind is preparation.MediaKind.PHOTO
+    assert result.reason is preparation.PreparationDecision.SAFE_COMPRESS
+    assert result.delivery_source == str(derivative)
+
+
+@pytest.mark.unit
+def test_streaming_compress_photo_produces_compliant_jpeg(tmp_path):
+    """End-to-end against real libvips: a 4299×6071 RGBA page is downscaled to a
+    JPEG that fits the photo constrains (long edge ≤ 4096) without a full-size
+    Pillow buffer in scope."""
+    pytest.importorskip("pyvips")
+    from PIL import Image
+
+    source = tmp_path / "big.png"
+    with open(source, "wb") as handle:
+        # Paint a real image (gradient) so libvips actually decodes something.
+        import io
+        buffer = io.BytesIO()
+        big = Image.new("RGBA", (4299, 6071), (210, 180, 140, 255))
+        big.save(buffer, format="PNG")
+        handle.write(buffer.getvalue())
+
+    limits = preparation.PhotoLimits(max_bytes=preparation.PHOTO_MAX_BYTES)
+    out = preparation._streaming_compress_photo(
+        str(source), [4096, 3200], str(tmp_path), limits
+    )
+    assert out is not None
+    assert os.path.getsize(out) <= preparation.PHOTO_MAX_BYTES
+    with Image.open(out) as img:
+        assert img.format == "JPEG"
+        assert max(img.size) <= 4096
