@@ -284,7 +284,10 @@ def test_compression_failure_uses_preview_then_document(tmp_path, monkeypatch):
 @pytest.mark.unit
 def test_unbounded_decode_budget_is_capacity_aware(monkeypatch):
     monkeypatch.delenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_MB", raising=False)
+    # No container limit AND no detectable physical RAM -> the flat floor.
+    monkeypatch.setattr(preparation, "_physical_memory_bytes", lambda: None)
     assert preparation.default_unbounded_decode_budget_bytes(None) == 128 * 1024 * 1024
+    # Explicit container limit is interpreted as before.
     assert preparation.default_unbounded_decode_budget_bytes(
         512 * 1024 * 1024
     ) == 128 * 1024 * 1024
@@ -297,8 +300,178 @@ def test_unbounded_decode_budget_is_capacity_aware(monkeypatch):
 
 
 @pytest.mark.unit
+def test_unbounded_decode_budget_falls_back_to_physical_ram(monkeypatch):
+    """A 'cgroup unlimited' host still admits a transform that truly fits RAM."""
+    monkeypatch.delenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_MB", raising=False)
+    # ~469 MB MemTotal (a 512 MB box with the 2^63 'unlimited' sentinel): the
+    # budget should climb to 192 MB (capped) instead of the flat 128 MB floor,
+    # so a 182 MB decode peak manga PNG is resized into a photo, not a doc.
+    monkeypatch.setattr(
+        preparation, "_physical_memory_bytes", lambda: 469 * 1024 * 1024
+    )
+    assert preparation.default_unbounded_decode_budget_bytes(None) == 192 * 1024 * 1024
+    # A 240 MB box still caps below the previous demo PNG's 182 MB peak.
+    monkeypatch.setattr(
+        preparation, "_physical_memory_bytes", lambda: 240 * 1024 * 1024
+    )
+    assert preparation.default_unbounded_decode_budget_bytes(None) == 120 * 1024 * 1024
+
+
+@pytest.mark.unit
+def test_unbounded_decode_budget_tunables_are_env_driven(monkeypatch):
+    """The floor/cap/fractions/fallback are all tunable, not code literals."""
+    monkeypatch.delenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_MB", raising=False)
+    monkeypatch.setattr(
+        preparation, "_physical_memory_bytes", lambda: 1000 * 1024 * 1024
+    )
+    # A tighter cap narrows the physical-RAM fallback (was 192 cap -> 192).
+    original_cap = preparation.UNBOUNDED_DECODE_BUDGET_CAP_MB
+    monkeypatch.setattr(
+        preparation, "UNBOUNDED_DECODE_BUDGET_CAP_MB", 150
+    )
+    assert preparation.default_unbounded_decode_budget_bytes(None) == 150 * 1024 * 1024
+    monkeypatch.setattr(
+        preparation, "UNBOUNDED_DECODE_BUDGET_CAP_MB", original_cap
+    )
+    # A raised physical fraction scales the raw fallback (1000 * 0.75 = 750),
+    # provided the cap is lifted above it (cap would otherwise clamp to 192).
+    original_frac = preparation.UNBOUNDED_DECODE_PHYSICAL_FRACTION
+    original_cap = preparation.UNBOUNDED_DECODE_BUDGET_CAP_MB
+    monkeypatch.setattr(
+        preparation, "UNBOUNDED_DECODE_PHYSICAL_FRACTION", 0.75
+    )
+    monkeypatch.setattr(
+        preparation, "UNBOUNDED_DECODE_BUDGET_CAP_MB", 800
+    )
+    assert preparation.default_unbounded_decode_budget_bytes(None) == 750 * 1024 * 1024
+    monkeypatch.setattr(
+        preparation, "UNBOUNDED_DECODE_PHYSICAL_FRACTION", original_frac
+    )
+    monkeypatch.setattr(
+        preparation, "UNBOUNDED_DECODE_BUDGET_CAP_MB", original_cap
+    )
+    # The cgroup fraction is also configurable (512 * 0.5 = 256 capped to 192).
+    original_cgroup = preparation.UNBOUNDED_DECODE_CGROUP_FRACTION
+    monkeypatch.setattr(
+        preparation, "UNBOUNDED_DECODE_CGROUP_FRACTION", 0.5
+    )
+    assert preparation.default_unbounded_decode_budget_bytes(
+        512 * 1024 * 1024
+    ) == 192 * 1024 * 1024
+    monkeypatch.setattr(
+        preparation, "UNBOUNDED_DECODE_CGROUP_FRACTION", original_cgroup
+    )
+    # And the no-info fallback is tunable too.
+    original_fb = preparation.UNBOUNDED_DECODE_BUDGET_FALLBACK_MB
+    monkeypatch.setattr(
+        preparation, "_physical_memory_bytes", lambda: None
+    )
+    monkeypatch.setattr(
+        preparation, "UNBOUNDED_DECODE_BUDGET_FALLBACK_MB", 96
+    )
+    assert preparation.default_unbounded_decode_budget_bytes(None) == 96 * 1024 * 1024
+    monkeypatch.setattr(
+        preparation, "UNBOUNDED_DECODE_BUDGET_FALLBACK_MB", original_fb
+    )
+
+
+@pytest.mark.unit
 def test_unbounded_decode_budget_env_override_wins(monkeypatch):
     monkeypatch.setenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_MB", "80")
     assert preparation.default_unbounded_decode_budget_bytes(
         512 * 1024 * 1024
     ) == 80 * 1024 * 1024
+
+
+@pytest.mark.unit
+def test_dimension_exceeded_png_within_budget_is_resized_not_demoted(tmp_path, monkeypatch):
+    """Primary regression (158 Bug pool): a dimension-too-big PNG whose decode
+    peak fits the (now capacity-aware) budget must become a PHOTO via a bounded
+    resize instead of silently falling back to a duplicated document.
+
+    width + height = 10370 > 10000 so Telegram refuses it as a raw photo, but a
+    downscale produces a legal photo — mirroring the JPEG case that already had
+    a regression (test_high_resolution_small_bytes_jpeg_is_downscaled_to_a_photo).
+    """
+    source = tmp_path / "manga.png"
+    source.write_bytes(b"small")
+
+    class Header:
+        size = (4299, 6071)  # 4299 + 6071 = 10370 > 10000
+        mode = "RGBA"
+        format = "PNG"
+        n_frames = 1
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+
+    from PIL import Image
+    for name in ("load", "convert", "resize", "thumbnail"):
+        monkeypatch.setattr(
+            Image.Image, name,
+            lambda *_a, _name=name, **_kw: (_ for _ in ()).throw(
+                AssertionError(f"real decode must not run in a routing unit test")
+            ),
+        )
+    monkeypatch.setattr(Image, "open", lambda *_a, **_kw: Header())
+
+    derivative = tmp_path / "prepared.jpg"
+    derivative.write_bytes(b"jpeg")
+    monkeypatch.setattr(
+        preparation, "compress_photo", lambda *_a, **_kw: str(derivative)
+    )
+    monkeypatch.setattr(
+        preparation, "artifact_of",
+        lambda *_a, **_kw: preparation.MediaArtifact(
+            str(derivative), 1, 2900, 4095, "JPEG"  # 2900+4095=6995 <= 10000
+        ),
+    )
+
+    # A capacity-aware budget (physical-RAM fallback) admits the ~182 MB peak.
+    monkeypatch.setattr(
+        preparation, "UNBOUNDED_TRANSFORM_DECODE_BUDGET_BYTES", 192 * 1024 * 1024
+    )
+    result = preparation.MediaPreparationPolicy().prepare(str(source))
+    assert result.kind is preparation.MediaKind.PHOTO
+    assert result.reason is preparation.PreparationDecision.SAFE_COMPRESS
+    assert result.decision["violation"] == "photo_dimensions_exceeded"
+    assert result.decision["resized"] is True
+    assert result.delivery_source == str(derivative)
+
+
+@pytest.mark.unit
+def test_dimension_exceeded_png_over_budget_still_falls_back_to_document(tmp_path, monkeypatch):
+    """The OOM backstop stays: when the decode peak really exceeds even the
+    capacity-aware budget, the image is demoted to a document (never refunded
+    by an unbounded resize that could kill the process)."""
+    source = tmp_path / "huge.png"
+    source.write_bytes(b"small")
+
+    class Header:
+        size = (4299, 6071)
+        mode = "RGBA"
+        format = "PNG"
+        n_frames = 1
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+
+    from PIL import Image
+    for name in ("load", "convert", "resize", "thumbnail"):
+        monkeypatch.setattr(
+            Image.Image, name,
+            lambda *_a, _name=name, **_kw: (_ for _ in ()).throw(
+                AssertionError(f"Image.{_name} must not be called")
+            ),
+        )
+    monkeypatch.setattr(Image, "open", lambda *_a, **_kw: Header())
+    monkeypatch.setattr(
+        preparation, "compress_photo", lambda *_a, **_kw: None
+    )
+    # Force an under-budget box so the decode peak does not fit.
+    monkeypatch.setattr(
+        preparation, "UNBOUNDED_TRANSFORM_DECODE_BUDGET_BYTES", 128 * 1024 * 1024
+    )
+
+    result = preparation.MediaPreparationPolicy().prepare(str(source))
+    assert result.kind is preparation.MediaKind.DOCUMENT
+    assert result.reason is preparation.PreparationDecision.DOCUMENT_FALLBACK
+    assert result.decision["fallback_reason"] == "decode_budget_exceeded"
