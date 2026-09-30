@@ -108,7 +108,7 @@ API（自动化）固定进入审核；Mini App 由 `MINIAPP_REVIEW_REQUIRED` �
 | `REFETCH_PROGRESS_REMIND_MINUTES` | `2` | 重抓受理后超过该分钟数仍无终态，向审核群最多提醒一次（提醒同时把控制卡改写为「重抓中」并带已等待时长）；`0` 关闭提醒 |
 | `REFETCH_WAKE_MINUTES` | `12` | 远端机器不可达且超过该分钟数无进展时，watchdog 用同一 request UUID 幂等唤醒（不创建新 attempt） |
 | `REFETCH_HARD_TIMEOUT_MINUTES` | `90` | 超过该分钟数仍无终态则 attempt 标 `failed(stalled_after_hard_timeout)` 并通知；`0` 关闭硬超时 |
-| `REFETCH_STALE_TIMEOUT_MINUTES` | `45` | 无终态时开始核查 PixivFlow durable slot；未受理请求可判超时，已受理且仍在执行/投递的 attempt 不凭本地时间判失败；`0` 关闭核查 |
+| `REFETCH_STALE_TIMEOUT_MINUTES` | `20` | 无终态时开始核查 PixivFlow durable slot；未受理请求可判超时，已受理且仍在执行/投递的 attempt 不凭本地时间判失败；`0` 关闭核查 |
 | `API_MAX_FILES` | `100` | HTTP API 单次投稿文件数上限；父路由只限总字节不数文件 |
 
 Telegram 只保证 Bot 可删除 48 小时内消息；需要自动清理审核群时通常把待审保留设为 1 天。

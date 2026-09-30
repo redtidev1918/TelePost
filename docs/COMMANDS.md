@@ -20,6 +20,8 @@
 | `/myposts [数量]` | 我的投稿 |
 | `/mystats` | 我的投稿统计 |
 | `/settings` | 查看当前公开配置 |
+| `/about` | 关于机器人（版本与简介） |
+| `/status` | 查看最近一次计划终态（公开） |
 | `/help` | 帮助 |
 
 ## Owner 命令
@@ -27,6 +29,7 @@
 | 命令 | 说明 |
 |---|---|
 | `/debug` | 当前 Bot 与运行配置诊断 |
+| `/pin_status` | 查看最近一次计划终态并置顶到当前群/频道 |
 | `/searchuser <用户ID>` | 查询指定用户投稿 |
 | `/delete_posts <ID或范围...>` | 批量软删除，单次最多 50 个 |
 | `/stats` | 全局统计：用户数、帖子数、反应总数（仅 Owner） |
@@ -106,6 +109,7 @@
 | 命令 | 说明 |
 |---|---|
 | `/schedule` | 查看所有任务（含执行/停用/删除按钮） |
+| `/schedule list` | 列出所有任务（同无参数入口） |
 | `/schedule add weekly-hot <星期> <HH:MM> <N>` | 创建每周热榜任务 |
 | `/schedule enable <id>` | 启用任务 |
 | `/schedule disable <id>` | 停用任务 |

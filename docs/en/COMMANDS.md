@@ -23,6 +23,8 @@
 | `/myposts [count]` | Your submissions |
 | `/mystats` | Statistics for your submissions |
 | `/settings` | Show the current public configuration |
+| `/about` | About the bot (version and intro) |
+| `/status` | View the most recent scheduled-run terminal state (public) |
 | `/help` | Help |
 
 ## Owner commands
@@ -30,6 +32,7 @@
 | Command | Description |
 |---|---|
 | `/debug` | Diagnostics for the current bot and runtime configuration |
+| `/pin_status` | View the most recent scheduled-run terminal state and pin it to the current group/channel |
 | `/searchuser <user id>` | Look up a specific user's submissions |
 | `/delete_posts <id or range...>` | Bulk soft delete, at most 50 per call |
 | `/blacklist` | Block-list panel |
@@ -54,7 +57,23 @@ tokens; new tokens can still only be created by the Owner through `/gen_token`.
 | `/optimize_index` | Merge Whoosh index segments |
 
 The approve, reject, spoiler-toggle and Pixiv-refetch buttons in the review group also require
-Admin.
+Admin. Refetch needs `PIXIVFLOW_REFETCH_BASE_URL` and `PIXIVFLOW_REFETCH_TOKEN` and only re-runs the
+original review's `target_id`; once admitted it is confirmed in the review group, and the new work
+still needs manual review.
+
+### What "🔄 Refetch / get another one" means
+
+- **Refetch = get another candidate**: it looks for a new work for the currently pending review
+  that this review chain has not shown yet, and on success **replaces** it into the review queue;
+  it does not re-download the same work.
+- If no new candidate exists, **the current work stays unchanged** and the group is notified; you
+  can tap **refetch again** later once new work is available.
+- Repeated taps while a refetch is in progress do not create parallel jobs ("Refetching, please
+  wait").
+- A successful refetch still requires manual review for the new work; the old work is marked as
+  "superseded" and its buttons are disabled (operate on the latest review work).
+- The split-worker topology does not require PixivFlow and TelePost in the same container:
+  PixivFlow stays stopped and is auto-woken by a refetch request, then stops again when done.
 
 ## `/botconfig` (Owner only)
 
@@ -102,6 +121,7 @@ Example: `/schedule add weekly-hot sunday 20:00 10`
 | Command | Description |
 |---|---|
 | `/schedule` | List all tasks (with run/disable/delete buttons) |
+| `/schedule list` | List all tasks (same as the no-argument entry) |
 | `/schedule add weekly-hot <weekday> <HH:MM> <N>` | Create a weekly hot-list task |
 | `/schedule enable <id>` | Enable a task |
 | `/schedule disable <id>` | Disable a task |
