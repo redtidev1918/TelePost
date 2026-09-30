@@ -82,7 +82,7 @@ reviewer / admin 额外持有审核队列，admin 再额外持有管理面板。
 | `MINIAPP_ENABLED` | 是否启用 Mini App surface（不影响 Bot） | `false`（默认关闭） |
 | `MINIAPP_SESSION_SECRET` | Mini App session 签名密钥（≥32 字符，独立随机） | 生产 secret |
 | `MINIAPP_SESSION_TTL` | session 生命周期秒数（默认 1800，上限 43200） | `1800` |
-| `WEBAPP_BUILD_VERSION` | 可选：健康检查里暴露的 webapp 构建标识 | `1.2.0` |
+| `MINIAPP_PUBLIC_URL` | Mini App 公开 URL（菜单按钮 / keyboard Web App 按钮的入口）；为空回退 `<WEBHOOK_URL>/app/` | `https://telesubmit.example.com/app/` |
 
 `MINIAPP_ENABLED=false` 只关闭 Mini App surface；Bot 与 API 完全不受影响，
 这是上线安全开关（§152-§153）。
@@ -107,13 +107,16 @@ npm run build        # → webapp/dist/
 
 1. 构建 `webapp/dist`。
 2. 确认镜像包含 dist，`/app/` 与 `/api/botN/v1/health` 可访问。
-3. 配置 `MINIAPP_ENABLED=true` + `MINIAPP_SESSION_SECRET` + `MINIAPP_SESSION_TTL`。
+3. 配置 `MINIAPP_ENABLED=true` + `MINIAPP_PUBLIC_URL`（或设 `WEBHOOK_URL` 以使用 `<WEBHOOK_URL>/app/` 回退）+ `MINIAPP_SESSION_SECRET` + `MINIAPP_SESSION_TTL`。
+   `Keyboards._miniapp_url()` 在 `MINIAPP_ENABLED && MINIAPP_PUBLIC_URL` 都成立时才渲染菜单按钮与
+   `/start` 的 keyboard Web App 按钮（`ui/keyboards.py`）；缺 `MINIAPP_PUBLIC_URL` 会静默不出现入口。
 4. 私聊主入口：配置可用时左侧 Telegram 菜单按钮直接打开 Mini App；
    `/start` 的 Reply Keyboard 仍保留 Web App 按钮。命令通过输入 `/` 使用。
 5. 频道 footer：默认 `?startapp=miniapp` 直接打开 Main Mini App。若 BotFather
    配置了 Direct Mini App short name，并设置 `MINIAPP_SHORT_NAME`，可使用
    更专用的直达链接。
-6. 健康检查 `/api/v1/health`（或新增字段）确认 `miniapp_enabled`。
+6. 健康检查 `/api/v1/health` 返回 `miniapp_review_required`（`utils/api_server.py`，不是
+   `miniapp_enabled`）；`miniapp_enabled` 不单独暴露，运行态仅能从 Telegram 真机菜单实际打开确认。
 
 静态资源 HTTP 200 只是传输检查；上线验收需从真实 Telegram 菜单打开，
 确认 session、`/me`、首页、审核队列和一次审核操作。
