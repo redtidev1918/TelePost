@@ -71,6 +71,10 @@ Contributor: Telegram → Mini App → Submit / My submissions
 Moderator:   Telegram → Mini App → Review queue / Review details
 ```
 
+Entry: after `/start`, tap the「📱 Mini App」button in the keyboard to open it (or use a channel
+footer deep link); the chat menu button is a fixed command menu and no longer hosts the Mini App
+(see the [Mini App guide](docs/MINIAPP.md)).
+
 The Mini App reuses the Bot's identity, submission, and moderation workflow; it is not a second backend.
 Disabling it does not affect chat submissions or the HTTP API. The current Mini App submission UI expects
 the review workflow, so it is enabled by `MINIAPP_REVIEW_REQUIRED=true` (independent of the API flag). See the [Mini App guide](docs/MINIAPP.md)
