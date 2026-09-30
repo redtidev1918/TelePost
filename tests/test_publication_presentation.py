@@ -204,6 +204,19 @@ class TestReviewCardIdentity:
                             media_count=2, document_count=0)
         assert "投稿人：alice" in text
 
+    def test_card_labels_original_documents(self):
+        from telepost.telegram.review_keyboard import control_text
+        text = control_text(review_id=9, command=self._command(),
+                            media_count=1, document_count=3, original_count=3)
+        assert "1 个媒体 / 3 个文档（含 3 份原图）" in text
+
+    def test_card_plain_documents_no_original_note(self):
+        from telepost.telegram.review_keyboard import control_text
+        text = control_text(review_id=9, command=self._command(),
+                            media_count=0, document_count=2, original_count=0)
+        assert "2 个文档" in text
+        assert "原图" not in text
+
     def test_review_caption_service_shows_source_not_submitter(self):
         from telepost.application.review_queue import _caption_from_command
         caption = _caption_from_command(self._command(),
@@ -218,6 +231,23 @@ class TestReviewCardIdentity:
             media=[{"type": "photo", "file_id": "a"}])
         assert "投稿人：alice" in caption
         assert "tg://" not in caption
+
+
+class TestOriginalCount:
+    def test_counts_only_flagged_documents(self):
+        from telepost.application.review_queue import _original_count
+        docs = [
+            {"file_id": "a", "filename": "p.png", "original": True},
+            {"file_id": "b", "filename": "normal.txt"},
+            {"file_id": "c", "filename": "q.png", "original": True},
+        ]
+        assert _original_count(docs) == 2
+
+    def test_empty_and_plain_lists(self):
+        from telepost.application.review_queue import _original_count
+        assert _original_count([]) == 0
+        assert _original_count([{"file_id": "x", "filename": "f.txt"}]) == 0
+        assert _original_count(["not-a-dict"]) == 0
 
 
 class TestPublicationServiceKinds:

@@ -60,7 +60,7 @@ def source_label(source: str) -> str:
 
 
 def control_text(*, review_id: int, command, media_count: int,
-                 document_count: int) -> str:
+                 document_count: int, original_count: int = 0) -> str:
     provenance_line = ""
     if command.source_label:
         provenance_line = f"🏷️ {command.source_label}\n"
@@ -77,6 +77,13 @@ def control_text(*, review_id: int, command, media_count: int,
     )
     if display:
         submitter_line = f"投稿人：{display}\n"
+    # 文件行：媒体写真 + 文档；保留的「原图」单独标注，避免用户误以为
+    # 内容重复（例如因分辨率超限而原样保留为文档的原图副本）。
+    documents_bit = f"{document_count} 个文档"
+    if document_count and original_count:
+        documents_bit = (
+            f"{document_count} 个文档（含 {original_count} 份原图）"
+        )
     return (
         f"🕵️ 投稿待审核 #{review_id}\n"
         + provenance_line
@@ -84,7 +91,7 @@ def control_text(*, review_id: int, command, media_count: int,
         + submitter_line
         + f"标题：{command.title or '（无）'}\n"
         f"标签：{command.tags or '（无）'}\n"
-        f"文件：{media_count} 个媒体 / {document_count} 个文档"
+        f"文件：{media_count} 个媒体 / {documents_bit}"
     )
 
 
