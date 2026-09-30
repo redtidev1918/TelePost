@@ -133,6 +133,24 @@ describe('AuthProvider', () => {
     await waitFor(() => expect(lastAuth?.status).toBe('authenticated'));
   });
 
+  it('waits for the bridge to be injected, never locking outside_telegram (menu-bar entry)', async () => {
+    // The menu-bar entry: the Telegram WebView does not have launch data at the
+    // first synchronous read — the native bridge is injected moments later.
+    Object.defineProperty(window, 'Telegram', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    stubAuthSuccess();
+    renderProbe();
+    // While absent, loading (not outside_telegram): the premature lock the bug
+    // caused. Give it a few ticks, then inject the bridge as Telegram would.
+    await new Promise((r) => setTimeout(r, 120));
+    expect(lastAuth?.status).toBe('loading');
+    setBridge('user={"id":42,"first_name":"Test"}&auth_date=1700000000&hash=x&signature=sig');
+    await waitFor(() => expect(lastAuth?.status).toBe('authenticated'));
+  });
+
   it('reports server_unavailable, not outside_telegram, on a 500 session error', async () => {
     sdkLaunchOnly('user={"id":42,"first_name":"Test"}&auth_date=1700000000&hash=x&signature=sig');
     stubAuthFailure(new ApiError(500, 'unknown', '服务器错误'));

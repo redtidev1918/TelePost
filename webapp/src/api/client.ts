@@ -143,6 +143,40 @@ export function getLaunchInitData(): string {
   return tg?.initData || '';
 }
 
+/**
+ * How long to wait for the Telegram WebView to inject its launch context
+ * before we conclude the page was opened outside Telegram.
+ *
+ * Some Telegram clients (notably the bot's chat-menu-bar entry vs. a message
+ * button) deliver the native bridge / launch params slightly after the app's
+ * first synchronous read. A one-shot read that comes up empty must therefore
+ * not immediately lock into "outside_telegram": we give the WebView a short,
+ * bounded window to populate the launch data and only then fall back.
+ */
+export const LAUNCH_CONTEXT_WAIT_MS = 800;
+
+/** Detect interval while waiting for the launch context to appear. */
+const LAUNCH_CONTEXT_POLL_MS = 100;
+
+/**
+ * Resolve the launch initData, waiting (bounded) for an asynchronously
+ * injected Telegram launch context. Returns the first non-empty value found
+ * (SDK launch params preferred, native bridge as fallback), or '' once the
+ * wait window elapses with no launch context at all — i.e. this is a plain
+ * browser and the caller should show the "open in Telegram" notice.
+ */
+export async function waitForLaunchInitData(timeoutMs = LAUNCH_CONTEXT_WAIT_MS): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  // Poll so a bridge that lands just after the first synchronous read still
+  // resolves. First check is free (no artificial delay added).
+  let value = getLaunchInitData();
+  while (!value && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, LAUNCH_CONTEXT_POLL_MS));
+    value = getLaunchInitData();
+  }
+  return value;
+}
+
 async function authenticatedFetch(path: string, init?: RequestInit): Promise<Response> {
   if (!currentSession) {
     throw new ApiError(401, 'invalid_token', '未登录');

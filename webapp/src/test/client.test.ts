@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { mockTelegramEnv } from '@telegram-apps/sdk';
-import { getLaunchInitData } from '../api/client';
+import { getLaunchInitData, waitForLaunchInitData } from '../api/client';
 
 const LAUNCH_KEY = 'tapps/launchParams';
 
@@ -65,5 +65,41 @@ describe('getLaunchInitData (canonical launch-data source)', () => {
       writable: true,
     });
     expect(getLaunchInitData()).toBe('');
+  });
+});
+
+describe('waitForLaunchInitData (bounded async launch-context wait)', () => {
+  it('returns launch data immediately when the bridge is already present', async () => {
+    Object.defineProperty(window, 'Telegram', {
+      value: { WebApp: { initData: 'bridge-only-data' } },
+      configurable: true,
+      writable: true,
+    });
+    await expect(waitForLaunchInitData()).resolves.toBe('bridge-only-data');
+  });
+
+  it('waits for a bridge injected after the first synchronous read', async () => {
+    Object.defineProperty(window, 'Telegram', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    const pending = waitForLaunchInitData(800);
+    await new Promise((r) => setTimeout(r, 120));
+    Object.defineProperty(window, 'Telegram', {
+      value: { WebApp: { initData: 'late-bridge-data' } },
+      configurable: true,
+      writable: true,
+    });
+    await expect(pending).resolves.toBe('late-bridge-data');
+  });
+
+  it('resolves empty after the wait window when no launch context ever arrives', async () => {
+    Object.defineProperty(window, 'Telegram', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    await expect(waitForLaunchInitData(150)).resolves.toBe('');
   });
 });

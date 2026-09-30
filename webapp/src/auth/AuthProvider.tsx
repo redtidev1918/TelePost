@@ -21,6 +21,7 @@ import {
   bootstrapSession,
   clearSession,
   getLaunchInitData,
+  waitForLaunchInitData,
 } from '../api/client';
 import { fetchMe } from '../api/me';
 
@@ -118,15 +119,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   useEffect(() => {
-    // Boot when inside Telegram (SDK launch params or bridge initData present);
-    // otherwise this is a plain browser and we show outside_telegram. Loading
-    // state is kept until we positively know which case this is, so the UI
-    // never flashes a wrong error before Home renders.
-    if (getLaunchInitData()) {
-      void bootstrap();
-    } else {
-      setStatus('outside_telegram');
-    }
+    // Boot when inside Telegram (SDK launch params, or the WebView's injected
+    // bridge initData). The bridge can land just after the first synchronous
+    // read (e.g. the bot's chat-menu-bar entry vs. a message button), so we
+    // wait a short bounded window for the launch context before deciding this
+    // is a plain browser. Only the final ABSENCE of any launch data yields
+    // outside_telegram — never a socket that happens to not be ready yet.
+    let cancelled = false;
+    (async () => {
+      const initData = await waitForLaunchInitData();
+      if (cancelled) {
+        return;
+      }
+      if (initData) {
+        void bootstrap();
+      } else {
+        setStatus('outside_telegram');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [bootstrap]);
 
   const logout = useCallback(() => {
