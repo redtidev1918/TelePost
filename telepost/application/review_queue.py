@@ -205,7 +205,8 @@ class StagingPort(Protocol):
 
     async def send_control_message_id(self, *, review_id: int, command: QueueCommand,
                                       preview_message_ids: List[int],
-                                      media_count: int, document_count: int) -> int: ...
+                                      media_count: int, document_count: int,
+                                      original_count: int = 0) -> int: ...
 
     async def notify_reused(self, row) -> None: ...
 
@@ -474,6 +475,7 @@ class ReviewQueueService:
                 preview_message_ids=preview_ids,
                 media_count=len(staged_media),
                 document_count=len(staged_documents),
+                original_count=_original_count(staged_documents),
             )
             await _record("review.control_created", command,
                           review_id=review_id,
@@ -778,6 +780,7 @@ class ReviewQueueService:
                     review_id=row["id"], command=command,
                     preview_message_ids=preview_ids,
                     media_count=len(media), document_count=len(documents),
+                    original_count=_original_count(documents),
                 )
                 if await self._repo.finalize_control(
                     row["id"], control_id, ready=ready
@@ -819,6 +822,14 @@ def _loads(value) -> list:
         return json.loads(value or "[]")
     except (TypeError, ValueError, json.JSONDecodeError):
         return []
+
+
+def _original_count(documents) -> int:
+    """Number of kept 原图 copies among staged/persisted documents."""
+    return sum(
+        1 for doc in documents
+        if isinstance(doc, dict) and bool(doc.get("original"))
+    )
 
 
 def _caption_from_command(command: QueueCommand, media=None, documents=None) -> str:
