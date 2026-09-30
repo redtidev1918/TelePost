@@ -756,7 +756,11 @@ async def test_review_displays_preview_but_publishes_immutable_original_document
         "caption", False, [],
     )
 
-    assert media == []
+    # §original-preservation (conditional): the oversized image cannot ship as a
+    # plain within-limits photo, so it is previewed as a visible photo AND keeps
+    # its immutable original as a document. The preview is a real countable
+    # media item (not staging_only) per the "any-transformed → all keep 原图" rule.
+    assert media == [{"type": "photo", "file_id": "PREVIEW_PHOTO"}]
     assert documents == [{
         "file_id": "ORIGINAL_DOC", "filename": "huge.png", "original": True,
     }]
