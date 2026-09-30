@@ -139,6 +139,7 @@ class TelegramReviewStager:
                     "path": item["original_path"],
                     "filename": files[index].get("filename")
                     or item.get("filename") or "image",
+                    "original": True,
                 })
             else:
                 staged_items.append(item)
@@ -262,10 +263,12 @@ class TelegramReviewStager:
     async def send_control_message_id(self, *, review_id, command,
                                       preview_message_ids,
                                       media_count: int = 0,
-                                      document_count: int = 0) -> int:
+                                      document_count: int = 0,
+                                      original_count: int = 0) -> int:
         text = review_keyboard.control_text(
             review_id=review_id, command=command,
             media_count=media_count, document_count=document_count,
+            original_count=original_count,
         )
         reply_to = (
             preview_message_ids[-1]
@@ -701,10 +704,13 @@ class TelegramReviewStager:
                 if item.get("staging_only"):
                     continue
                 if item_kind == "document":
-                    staged_documents.append({
+                    staged = {
                         "file_id": fid,
                         "filename": item.get("filename") or "file",
-                    })
+                    }
+                    if item.get("original"):
+                        staged["original"] = True
+                    staged_documents.append(staged)
                 else:
                     staged = {"type": item_kind, "file_id": fid}
                     thumb = _thumbnail_file_id(message)

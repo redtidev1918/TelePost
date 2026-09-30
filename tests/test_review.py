@@ -757,7 +757,9 @@ async def test_review_displays_preview_but_publishes_immutable_original_document
     )
 
     assert media == []
-    assert documents == [{"file_id": "ORIGINAL_DOC", "filename": "huge.png"}]
+    assert documents == [{
+        "file_id": "ORIGINAL_DOC", "filename": "huge.png", "original": True,
+    }]
     assert bot.send_photo.await_args.kwargs["photo"].filename == "preview.jpg"
     assert bot.send_document.await_args.kwargs["document"].filename == "huge.png"
     assert original.read_bytes().startswith(b"original")
