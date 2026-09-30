@@ -162,7 +162,8 @@ class TelegramReviewStager:
             for item in media
         ] + [
             {"kind": "document", "type": "document", "file_id": item["file_id"],
-             "filename": item.get("filename") or "file"}
+             "filename": item.get("filename") or "file",
+             **({"original": True} if item.get("original") else {})}
             for item in documents
         ]
         ids: List[int] = message_ids if message_ids is not None else []

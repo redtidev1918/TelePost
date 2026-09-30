@@ -314,6 +314,25 @@ class ReviewRepository:
             )
             return cur.rowcount == 1
 
+    async def mark_superseded(self, review_id: int) -> bool:
+        """Mark an undecided chain head ``superseded`` (rerender supersede path).
+
+        The rerender service re-stages an old card's stored content as a NEW
+        pending review that supersedes the CURRENT chain head. Unlike refetch
+        (which flips its source inside the replacement transaction), a non-refetch
+        ``insert`` leaves the previous head alone, so the rerender service owns
+        that flip here. Scoped to ``pending``/``preparing`` so it can never
+        overwrite a card a reviewer already decided on (published / approved /
+        rejected / etc.). Returns whether the row was still ours to supersede.
+        """
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "UPDATE pending_reviews SET status='superseded', updated_at=? "
+                "WHERE id=? AND status IN ('pending', 'preparing')",
+                (time.time(), int(review_id)),
+            )
+            return cur.rowcount == 1
+
     async def list_incomplete(self, *, cutoff: float, limit: int = 100) -> list:
         async with db_manager.get_db() as conn:
             cur = await conn.execute(

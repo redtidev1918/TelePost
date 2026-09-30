@@ -695,6 +695,44 @@ class TestDeliveryAssetContract:
             await client.close()
 
     @pytest.mark.asyncio
+    async def test_rerender_endpoint_reviewer_scoped(self, monkeypatch, tmp_path):
+        """POST /api/v1/reviews/{id}/rerender — reviewer RBAC + route wiring."""
+        from database import db_manager
+        monkeypatch.setattr(db_manager, "DB_PATH", str(tmp_path / "rerender_api.db"))
+        await db_manager.init_db()
+        await self._seed_review_row(7, "chain-rerender-api",
+                                    media_json='[{"type":"photo","file_id":"ART"}]')
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW)
+        # Reviewer, not owner — write-scoped RBAC gate is enforced server-side.
+        monkeypatch.setattr(
+            api_server, "_review_auth",
+            AsyncMock(return_value=({"telegram_user_id": 1, "name": "reviewer",
+                                     "scope": "review"}, None)),
+        )
+        request_rerender = AsyncMock(return_value={
+            "outcome": "rerender_success", "new_review_id": 8,
+            "current_review_id": 7, "generation": 1,
+        })
+        monkeypatch.setattr(
+            "telepost.application.rerender.request_rerender", request_rerender)
+        client = await _client(app)
+        try:
+            resp = await client.post(
+                "/api/v1/reviews/7/rerender",
+                headers={"Authorization": "Bearer rt"}, json={"callbackKey": "cb-7"},
+            )
+            assert resp.status == 200
+            data = (await resp.json())["data"]
+            assert data["outcome"] == "rerender_success"
+            request_rerender.assert_awaited_once()
+            args, kwargs = request_rerender.call_args
+            assert args[0] == 7  # review_id is passed positionally
+            assert kwargs["callback_key"] == "cb-7"
+            assert kwargs["bot"] is not None
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
     async def test_multipart_media_assets_invalid_json(self, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)
         app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW)
