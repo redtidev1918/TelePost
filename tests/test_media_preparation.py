@@ -597,3 +597,89 @@ def test_streaming_compress_photo_produces_compliant_jpeg(tmp_path):
     with Image.open(out) as img:
         assert img.format == "JPEG"
         assert max(img.size) <= 4096
+
+
+@pytest.mark.unit
+def test_core_decode_bounded_ignores_streaming_decoder(monkeypatch):
+    """``_decode_core_is_bounded`` is pure header math: the streaming decoder must
+    not make an oversized non-draft source look "bounded" — that gate decides the
+    USE_PREVIEW preference, which must still be reachable for such sources."""
+    _force_streaming_decoder_present(monkeypatch)
+    probe = preparation.MediaProbe(5_000_000, "PNG", 4299, 6071, "RGBA", 1)
+    estimate = preparation.estimate_resources(probe)
+    policy = preparation.MediaPreparationPolicy()
+    assert estimate.estimated_peak_bytes > policy.decode_budget_bytes
+    # Streaming present: the overall gate is bounded (SAFE_COMPRESS is usable)…
+    assert policy._decode_is_bounded(probe, estimate) is True
+    # …but the ORIGINAL is not core-bounded, so USE_PREVIEW still applies.
+    assert policy._decode_core_is_bounded(probe, estimate) is False
+
+
+@pytest.mark.unit
+def test_oversized_with_small_preview_prefers_use_preview_even_with_streaming(tmp_path, monkeypatch):
+    """Regression (vs 2.73.1): the libvips streaming decoder must NOT swallow the
+    USE_PREVIEW route. An oversized source WITH a compliant small preview stays
+    photo-from-preview and keeps the original_path so review_stager retains it as
+    a 原图 (original) document — a streaming photo-only downscale dropped that."""
+    _force_streaming_decoder_present(monkeypatch)
+    source = tmp_path / "big.png"
+    preview = tmp_path / "preview.jpg"
+    source.write_bytes(b"small-source")
+    preview.write_bytes(b"small-preview")
+
+    huge = preparation.MediaProbe(1_000_000, "PNG", 4299, 6071, "RGBA", 1)
+    small = preparation.MediaProbe(8_000, "JPEG", 1280, 720, "RGB", 1)
+    monkeypatch.setattr(
+        preparation, "probe_image",
+        lambda path: huge if str(path) == str(source) else small,
+    )
+    monkeypatch.setattr(
+        preparation, "compress_photo",
+        lambda *_a, **_kw: (_ for _ in ()).throw(
+            AssertionError("compress_photo must not run: a preview should be used")
+        ),
+    )
+    result = preparation.MediaPreparationPolicy().prepare(
+        str(source), preview_path=str(preview)
+    )
+    assert result.reason is preparation.PreparationDecision.USE_PREVIEW
+    assert result.delivery_source == str(preview)
+    assert result.original_source == str(source)
+
+
+@pytest.mark.unit
+def test_preview_not_usable_when_not_compliant(tmp_path, monkeypatch):
+    """An oversized/non-photo preview is not usable — the source falls through to
+    the normal (streaming) path instead of being misclassified."""
+    _force_streaming_decoder_present(monkeypatch)
+    source = tmp_path / "big.png"
+    oversized_preview = tmp_path / "preview.png"
+    source.write_bytes(b"small-source")
+    oversized_preview.write_bytes(b"preview")
+
+    huge = preparation.MediaProbe(1_000_000, "PNG", 4299, 6071, "RGBA", 1)
+    too_big_preview = preparation.MediaProbe(
+        preparation.PHOTO_MAX_BYTES + 10, "PNG", 7000, 5400, "RGBA", 1
+    )
+    monkeypatch.setattr(
+        preparation, "probe_image",
+        lambda path: huge if str(path) == str(source) else too_big_preview,
+    )
+    # SAFE_COMPRESS is fine here (no usable preview).
+    derivative = tmp_path / "prepared.jpg"
+    derivative.write_bytes(b"jpeg")
+    monkeypatch.setattr(
+        preparation, "_streaming_compress_photo",
+        lambda _path, _caps, _dir, _limits: str(derivative),
+    )
+    monkeypatch.setattr(
+        preparation, "artifact_of",
+        lambda *_a, **_kw: preparation.MediaArtifact(
+            str(derivative), 1, 2900, 4095, "JPEG"
+        ),
+    )
+    result = preparation.MediaPreparationPolicy().prepare(
+        str(source), preview_path=str(oversized_preview)
+    )
+    assert result.reason is preparation.PreparationDecision.SAFE_COMPRESS
+    assert result.delivery_source == str(derivative)
