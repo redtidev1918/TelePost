@@ -249,8 +249,8 @@ async def setup_bot_commands(application):
     """
     设置 Telegram 主入口。
 
-    Mini App 是用户主入口：配置可用时菜单按钮直接打开 Web App；命令仍然
-    全量可用，但不再占用主菜单按钮。未启用 Mini App 时回退为默认命令菜单。
+    聊天菜单按钮固定为默认命令菜单（不再挂 Mini App）；Mini App 通过
+    ReplyKeyboard「📱 Mini App」按钮与 /start 进入。命令全量可用。
     """
     user_commands = [
         BotCommand("start", "🚀 启动机器人"),
@@ -297,7 +297,7 @@ async def setup_bot_commands(application):
             user_commands, scope=BotCommandScopeDefault()
         )
         # Per-chat admin scope: admins additionally see admin commands.
-        from utils.blacklist import OWNER_ID, ADMIN_IDS
+        from config.settings import OWNER_ID, ADMIN_IDS
         admin_chat_ids = set(ADMIN_IDS or [])
         if OWNER_ID:
             admin_chat_ids.add(OWNER_ID)
@@ -314,7 +314,7 @@ async def setup_bot_commands(application):
         # 会误弹"请在 Telegram 中打开"，因此从菜单移除（键盘按钮入口仍可用）。
         await application.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
         logger.info("成功设置 %d 个命令；菜单按钮类型=%s",
-                    len(commands), type(MenuButtonDefault()).__name__)
+                    len(user_commands), type(MenuButtonDefault()).__name__)
     except Exception as e:
         logger.error(f"设置命令菜单失败: {e}", exc_info=True)
 
