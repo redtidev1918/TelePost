@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.73.0](https://github.com/redtidev1918/TelePost/compare/v2.72.0...v2.73.0) (2026-09-30)
+
+
+### Features
+
+* **review:** 新增 POST /api/v1/reviews/{id}/rerender 重新渲染审核卡 ([#250](https://github.com/redtidev1918/TelePost/issues/250)) ([ef13777](https://github.com/redtidev1918/TelePost/commit/ef137772e5ba517892da063f8e3738f65a89b83b))
+
 ## [2.72.0](https://github.com/redtidev1918/TelePost/compare/v2.71.5...v2.72.0) (2026-09-30)
 
 
