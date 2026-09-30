@@ -56,6 +56,30 @@ IMAGE_DECODE_BUDGET_BYTES = max(
     1, int(os.getenv("TELEPOST_IMAGE_DECODE_BUDGET_MB", "64"))
 ) * 1024 * 1024
 
+#: Capacity-aware hard peak for the one-shot transform budget. Everything below
+#: is tunable through env so no memory figure is baked into code: the floor
+#: never lets a tiny box starve small edits, the cap never lets a giant box
+#: gamble the whole process on one decode, and the fractions scale the budget
+#: with the container / host that is actually detected.
+UNBOUNDED_DECODE_BUDGET_FLOOR_MB = int(
+    os.getenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_FLOOR_MB", "64")
+)
+UNBOUNDED_DECODE_BUDGET_CAP_MB = int(
+    os.getenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_CAP_MB", "192")
+)
+UNBOUNDED_DECODE_BUDGET_FALLBACK_MB = int(
+    os.getenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_FALLBACK_MB", "128")
+)
+#: Share of a *container* memory limit (cgroup) budgeted for one decode.
+UNBOUNDED_DECODE_CGROUP_FRACTION = float(
+    os.getenv("TELEPOST_UNBOUNDED_DECODE_CGROUP_FRACTION", "0.25")
+)
+#: Share of *physical host RAM* budgeted for one decode when cgroup has none
+#: (e.g. the 2^63 "unlimited" sentinel or "/max").
+UNBOUNDED_DECODE_PHYSICAL_FRACTION = float(
+    os.getenv("TELEPOST_UNBOUNDED_DECODE_PHYSICAL_FRACTION", "0.5")
+)
+
 
 def _container_memory_limit_bytes() -> Optional[int]:
     """Best-effort container memory limit (cgroup v2/v1), not host RAM."""
@@ -81,6 +105,25 @@ def _container_memory_limit_bytes() -> Optional[int]:
     return None
 
 
+def _physical_memory_bytes() -> Optional[int]:
+    """Best-effort host physical RAM from /proc/meminfo (the cgroup fallback).
+
+    Used only when the container exposes no usable memory limit (e.g. '/max'
+    or the 2^63 "unlimited" sentinel), so the routing budget still reflects the
+    memory that is actually available to a single sequential transform instead
+    of assuming one small fixed budget.
+    """
+    try:
+        with open("/proc/meminfo", "r", encoding="ascii") as handle:
+            for line in handle:
+                if line.startswith("MemTotal:"):
+                    kb = int(line.split()[1])
+                    return kb * 1024
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
 def default_unbounded_decode_budget_bytes(
     container_limit_bytes: Optional[int] = None,
 ) -> int:
@@ -93,14 +136,37 @@ def default_unbounded_decode_budget_bytes(
     raw = os.getenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_MB")
     if raw is not None:
         return max(1, int(raw)) * 1024 * 1024
+    floor_bytes = max(1, UNBOUNDED_DECODE_BUDGET_FLOOR_MB) * 1024 * 1024
+    cap_bytes = max(1, UNBOUNDED_DECODE_BUDGET_CAP_MB) * 1024 * 1024
+    fallback_bytes = max(1, UNBOUNDED_DECODE_BUDGET_FALLBACK_MB) * 1024 * 1024
     limit = (
         container_limit_bytes
         if container_limit_bytes is not None
         else _container_memory_limit_bytes()
     )
-    if limit is None:
-        return 128 * 1024 * 1024
-    return min(192 * 1024 * 1024, max(64 * 1024 * 1024, limit // 4))
+    if limit is not None:
+        return min(
+            cap_bytes,
+            max(
+                floor_bytes,
+                int(limit * UNBOUNDED_DECODE_CGROUP_FRACTION),
+            ),
+        )
+    # No usable cgroup limit: fall back to physical RAM so a single
+    # sequential transform is still recounted as feasible when it truly
+    # fits, rather than a flat default that starves real split-page/manga
+    # comics (e.g. a 4.7 MB disk / 182 MB decode PNG was wrongly demoted
+    # to a document because of a too-small floor).
+    physical = _physical_memory_bytes()
+    if physical is not None:
+        return min(
+            cap_bytes,
+            max(
+                floor_bytes,
+                int(physical * UNBOUNDED_DECODE_PHYSICAL_FRACTION),
+            ),
+        )
+    return fallback_bytes
 
 
 #: Formats without ``Image.draft`` cannot decode at a reduced scale. Still give
