@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.73.4](https://github.com/redtidev1918/TelePost/compare/v2.73.3...v2.73.4) (2026-09-30)
+
+
+### Bug Fixes
+
+* **miniapp:** never lock outside_telegram on a delayed Telegram bridge ([1c2dca3](https://github.com/redtidev1918/TelePost/commit/1c2dca32e11e667f19f1ef8066a2824663a8d728))
+
 ## [2.73.3](https://github.com/redtidev1918/TelePost/compare/v2.73.2...v2.73.3) (2026-09-30)
 
 
