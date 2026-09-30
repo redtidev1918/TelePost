@@ -2325,6 +2325,57 @@ def add_api_routes(web_app, application) -> None:
                 return _error(404, exc.code, str(exc))
         return await _run_review_action(action)
 
+    async def rerender_review_api(request):
+        """POST /api/v1/reviews/{id}/rerender — reviewer re-render command.
+
+        Re-stages the review's STORED file_ids (media_json / documents_json) as
+        a fresh pending card under the CURRENTLY RUNNING code, re-rendering it
+        with the live formatter (e.g. the 2.72.0 ``N 个文档（含 M 份原图）`` line).
+        Identical to the application command ``request_rerender``, so any future
+        Telegram-surface button shares one state machine / idempotency / audit
+        trail with this endpoint. Reviewer RBAC is enforced server-side; the
+        rerender keeps the new card pending and supersedes the current
+        undecided chain head (a decided/published chain is refused).
+        """
+        async def action():
+            actor_row, auth_error = await _review_auth(request, write=True)
+            if auth_error:
+                return auth_error
+            try:
+                review_id = int(request.match_info["review_id"])
+            except (TypeError, ValueError):
+                return _error(400, "invalid_review_id", "review_id 必须是整数")
+            from telepost.application.rerender import (
+                RerenderError,
+                RerenderNotFoundError,
+                RerenderStateError,
+                request_rerender,
+            )
+            callback_key = None
+            try:
+                body = await request.json()
+                if isinstance(body, dict) and body.get("callbackKey"):
+                    callback_key = str(body["callbackKey"])[:200]
+            except Exception:
+                body = None
+            try:
+                result = await request_rerender(
+                    review_id,
+                    actor=_action_actor(actor_row),
+                    surface=actor_row.get("scope") or "api",
+                    callback_key=callback_key,
+                    bot=bot,
+                )
+            except RerenderNotFoundError as exc:
+                return _error(404, exc.code, str(exc))
+            except RerenderStateError as exc:
+                return _error(409, exc.code, str(exc))
+            except RerenderError as exc:
+                return _error(getattr(exc, "http_status", 409), exc.code,
+                              str(exc))
+            return _ok(result)
+        return await _run_review_action(action)
+
     async def delivery_lookup(request):
         """Authenticated reconciliation lookup for a downstream work.
         Lets the caller (e.g. PixivFlow doctor) ask 'did target X already
@@ -2510,6 +2561,7 @@ def add_api_routes(web_app, application) -> None:
     web_app.router.add_patch("/api/v1/reviews/{review_id}/spoiler", set_review_spoiler)
     web_app.router.add_post("/api/v1/reviews/{review_id}/refetch", refetch_review_api)
     web_app.router.add_get("/api/v1/reviews/{review_id}/refetch", refetch_review_state)
+    web_app.router.add_post("/api/v1/reviews/{review_id}/rerender", rerender_review_api)
     web_app.router.add_get("/api/v1/health", health)
     web_app.router.add_get("/api/v1/schedule/status", schedule_status)
     web_app.router.add_get("/api/v1/admin/status", admin_status)
