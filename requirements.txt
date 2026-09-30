@@ -17,7 +17,7 @@ psutil==5.9.8
 Pillow>=10.0.0
 # 流式缩放：libvips 在缩放超大图时只解码目标边缘所需的像素，峰值内存随目标
 # 尺寸而非源分辨率（如 4299×6071 RGBA 漫画页无需 ~400MB 缓冲即可成为照片）。
-# pyvips 的 manylinux wheel 自带 libvips，运行时无需系统包。
+# pyvips 是 ctypes 封装，不打包 libvips：运行时镜像与 CI 需装系统包 libvips42。
 pyvips>=2.2.0
 
 # 搜索引擎依赖（从 tg_searcher 集成）

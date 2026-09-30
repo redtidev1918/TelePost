@@ -575,7 +575,8 @@ def test_streaming_compress_photo_produces_compliant_jpeg(tmp_path):
     """End-to-end against real libvips: a 4299×6071 RGBA page is downscaled to a
     JPEG that fits the photo constrains (long edge ≤ 4096) without a full-size
     Pillow buffer in scope."""
-    pytest.importorskip("pyvips")
+    if preparation._load_streaming_decoder() is False:
+        pytest.skip("libvips (pyvips) not available on this interpreter")
     from PIL import Image
 
     source = tmp_path / "big.png"
