@@ -60,6 +60,7 @@ def test_safe_compress_payload_within_decode_budget(tmp_path):
 def test_huge_rgba_document_fallback_payload_no_decode(tmp_path, monkeypatch):
     # Exactly the 7000x5400 RGBA memory-safety case: payload is produced while
     # PIL load/convert/resize/thumbnail must never run.
+    monkeypatch.setattr(p, "_load_streaming_decoder", lambda: False)
     source = tmp_path / "huge.png"
     _sparse(source, p.PHOTO_MAX_BYTES + 1)
 

@@ -48,8 +48,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 # fonts-wqy-microhei (~7 MB): novel fallback cards render CJK titles; without a
 # CJK font every glyph would be a tofu box. Loaded lazily per card render.
+# libvips42: shared library for pyvips streaming decode (requirement.txt's
+# pyvips is a ctypes wrapper and does not bundle libvips).
 RUN apt-get update && apt-get install -y --no-install-recommends tzdata \
     fonts-wqy-microhei \
+    libvips42 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
