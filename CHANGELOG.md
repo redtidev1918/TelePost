@@ -8,6 +8,15 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.72.0](https://github.com/redtidev1918/TelePost/compare/v2.71.5...v2.72.0) (2026-09-30)
+
+
+### Features
+
+* **delivery,review:** 漫画大图不再重复为文档 + 保留原图标注「原图」 ([c533c37](https://github.com/redtidev1918/TelePost/commit/c533c37cee83b86f4a11eb7192bb32bfb21d0c1d))
+* **delivery:** 解码内存预算改为容量感知且完全环境变量可配 ([e885279](https://github.com/redtidev1918/TelePost/commit/e885279b00144d953bc600ee200a7c25060c18e9))
+* **review:** 审核卡标注保留原图并格式化文件计数 ([1debf6b](https://github.com/redtidev1918/TelePost/commit/1debf6bcf95874f4c56a1aca7b64160a0b5f8dec))
+
 ## [2.71.5](https://github.com/redtidev1918/TelePost/compare/v2.71.4...v2.71.5) (2026-09-29)
 
 > 本次只含缺陷修复，两端协议保持兼容，无需强制升级执行端。
@@ -2135,5 +2144,3 @@ main.py (379行)        →  main.py (主入口)
 - 基础投稿功能
 - 简单的管理命令
 - 单文件实现
-
-
