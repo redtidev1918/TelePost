@@ -39,9 +39,10 @@ class MessageFormatter:
 <b>📝 投稿</b>
 /submit 开始投稿
 /done_media 完成上传、打开预览
+/skip_media 跳过媒体，直接进入预览
 /cancel 取消投稿
 
-<b>📊 热榜</b>
+<b>🔥 热榜</b>
 /hot 全部时间热榜 TOP 10
 /hot 20 全部时间热榜 TOP 20
 /hotweek 本周热榜 TOP 10
@@ -49,30 +50,43 @@ class MessageFormatter:
 
 <b>🔍 内容</b>
 /search 关键词
-/tags
+/tags 标签云
 
 <b>📋 我的内容</b>
-/myposts
-/mystats
+/myposts 我的投稿
+/mystats 我的统计
 
 <b>📱 Mini App</b>
-点开机器人的菜单按钮进入小程序
+点击下方键盘的「📱 Mini App」按钮进入小程序
+（或发送 /start 后点「📱 打开投稿」）
 首页即热门内容，可浏览帖子与投稿
 
 <b>ℹ️ 其他</b>
+/status 最近计划状态
+/settings 机器人设置
+/about 关于
 /help 完整帮助
-/settings
-/about
 """
 
         admin_help = """
 👑 <b>管理员</b>
 /schedule 定时任务（发 /schedule 查看引导）
+/stats 全局统计
+/searchuser &lt;ID&gt; 查询用户投稿
 /ban_user &lt;ID&gt; 封禁用户
 /ban_api &lt;编号&gt; 禁用 API
 /blacklist 黑名单管理
-/searchuser &lt;ID&gt; 查询用户投稿
-/stats 全局统计
+/tokens 查看 API Token
+/gen_token 生成 API Token
+/revoke_token 撤销 API Token
+/delete_posts 批量删除投稿
+/pin_status 置顶状态
+/rebuild_index 重建索引
+/sync_index 同步索引
+/index_stats 索引统计
+/optimize_index 优化索引
+/botconfig 机器人配置
+/debug 调试
 """
 
         footer = """💡 投稿支持图片 / 视频 / 压缩包 / PDF。
