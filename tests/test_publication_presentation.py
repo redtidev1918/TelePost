@@ -217,6 +217,25 @@ class TestReviewCardIdentity:
         assert "2 个文档" in text
         assert "原图" not in text
 
+    def test_album_counts_each_visible_image(self):
+        from telepost.application.review_queue import _review_media_count
+        specs = [
+            {"kind": "photo", "file_id": "p1"},
+            {"kind": "photo", "file_id": "p2"},
+            {"kind": "photo", "file_id": "p3"},
+            {"kind": "photo", "file_id": "p4"},
+            {"kind": "document", "file_id": "d1"},
+        ]
+        assert _review_media_count(specs, media=[{"file_id": "album"}]) == 4
+
+    def test_auxiliary_cover_is_not_an_image_item(self):
+        from telepost.application.review_queue import _review_media_count
+        specs = [
+            {"kind": "photo", "file_id": "cover", "presentation_only": True},
+            {"kind": "photo", "file_id": "page"},
+        ]
+        assert _review_media_count(specs, media=[{"file_id": "page"}]) == 1
+
     def test_review_caption_service_shows_source_not_submitter(self):
         from telepost.application.review_queue import _caption_from_command
         caption = _caption_from_command(self._command(),

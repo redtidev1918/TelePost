@@ -110,6 +110,37 @@ def pixiv_id_from_link(link: str) -> str:
     return match.group(1) if match else ""
 
 
+def _review_media_count(row_or_specs, media=None) -> int:
+    """Count visible media items, not Telegram album/container messages.
+
+    ``media_json`` only contains publishable media, so it under-counts an item
+    whose large original is represented in the review chat by a preview photo
+    plus an original document. The persisted preview specs contain one entry
+    per Telegram message and mark presentation-only items so they can be
+    excluded safely.
+    """
+    is_row = isinstance(row_or_specs, dict) or (
+        hasattr(row_or_specs, "keys")
+        and "review_message_specs" in row_or_specs.keys()
+    )
+    if is_row:
+        try:
+            specs = json.loads(row_or_specs["review_message_specs"] or "[]")
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            specs = []
+        fallback = json.loads(row_or_specs["media_json"] or "[]")
+    else:
+        specs = row_or_specs or []
+        fallback = media or []
+    counted = sum(
+        1 for item in specs
+        if isinstance(item, dict)
+        and item.get("kind") != "document"
+        and not item.get("presentation_only")
+    )
+    return counted if specs else len(fallback)
+
+
 def normalize_idempotency_key(user_id: int, value: str, source: str) -> str:
     raw = (value or "").strip()[:240]
     return f"{source}:{user_id}:{raw or uuid.uuid4().hex}"
@@ -293,7 +324,7 @@ class ReviewQueueService:
         result = {
             "status": status,
             "review_id": row["id"],
-            "media_count": len(json.loads(row["media_json"] or "[]")),
+            "media_count": _review_media_count(row),
             "document_count": len(json.loads(row["documents_json"] or "[]")),
             "reused": reused,
         }
@@ -473,7 +504,7 @@ class ReviewQueueService:
             control_id = await stager.send_control_message_id(
                 review_id=review_id, command=command,
                 preview_message_ids=preview_ids,
-                media_count=len(staged_media),
+                media_count=_review_media_count(preview_specs, staged_media),
                 document_count=len(staged_documents),
                 original_count=_original_count(staged_documents),
             )
@@ -538,7 +569,7 @@ class ReviewQueueService:
         return {
             "status": "pending_review",
             "review_id": review_id,
-            "media_count": len(staged_media),
+            "media_count": _review_media_count(preview_specs, staged_media),
             "document_count": len(staged_documents),
             "reused": False,
         }

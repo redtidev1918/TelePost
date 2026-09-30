@@ -540,13 +540,48 @@ async def test_review_group_gallery_is_one_photo_album_in_source_order(tmp_path)
         files, caption="caption", spoiler=False
     )
 
+    assert bot.send_media_group.await_count == 2
+    assert bot.send_document.await_count == 0
+    assert bot.send_photo.await_count == 0
+    assert len(bot.send_media_group.call_args_list[0].kwargs["media"]) == 4
+    assert len(bot.send_media_group.call_args_list[1].kwargs["media"]) == 4
+    assert len(documents) == 4
+    assert all(item["original"] is True for item in documents)
+    assert [m["type"] for m in media] == ["photo"] * 4
+    assert [m["file_id"] for m in media] == ["F0", "F1", "F2", "F3"]
+
+
+@pytest.mark.asyncio
+async def test_review_group_all_fit_ships_photos_without_original_documents(tmp_path):
+    """§original-preservation: when EVERY image is a plain in-limits photo,
+    the review ships photos only and no original documents are attached."""
+    from telepost.telegram.review_stager import TelegramReviewStager
+
+    paths = [
+        _flat_jpeg(tmp_path / "a.jpg", (800, 600)),
+        _flat_jpeg(tmp_path / "b.jpg", (900, 700)),
+    ]
+    files = [{"kind": "photo", "path": str(path), "filename": path.name}
+             for path in paths]
+    bot = AsyncMock()
+
+    async def send_media_group(**kwargs):
+        return [_fake_message(i) for i in range(len(kwargs["media"]))]
+
+    bot.send_media_group = AsyncMock(side_effect=send_media_group)
+    stager = TelegramReviewStager(bot, -100123, sleep=AsyncMock())
+
+    media, documents, _ids, _decisions = await stager.stage_local(
+        files, caption="caption", spoiler=False
+    )
+
     assert bot.send_media_group.await_count == 1
     assert bot.send_document.await_count == 0
     assert bot.send_photo.await_count == 0
-    assert len(bot.send_media_group.call_args.kwargs["media"]) == 4
-    assert documents == []
-    assert [m["type"] for m in media] == ["photo"] * 4
-    assert [m["file_id"] for m in media] == ["F0", "F1", "F2", "F3"]
+    assert len(bot.send_media_group.call_args_list[0].kwargs["media"]) == 2
+    assert len(documents) == 0
+    assert [m["type"] for m in media] == ["photo"] * 2
+    assert [m["file_id"] for m in media] == ["F0", "F1"]
 
 
 @pytest.mark.unit
