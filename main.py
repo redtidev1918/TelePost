@@ -8,7 +8,7 @@ import asyncio
 import platform
 import logging
 import os
-from telegram import MenuButtonWebApp, Update, WebAppInfo, BotCommand, BotCommandScopeChat, BotCommandScopeDefault, MenuButtonDefault
+from telegram import Update, BotCommand, BotCommandScopeChat, BotCommandScopeDefault, MenuButtonDefault
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -309,21 +309,12 @@ async def setup_bot_commands(application):
                 )
             except Exception:
                 logger.debug("无法为 admin %s 设置 chat scope（可能尚未私聊过）", admin_id)
-        menu_button = MenuButtonDefault()
-        try:
-            from config.settings import MINIAPP_ENABLED, MINIAPP_PUBLIC_URL
-            from ui.keyboards import Keyboards
-            if MINIAPP_ENABLED and MINIAPP_PUBLIC_URL:
-                miniapp_url = Keyboards._miniapp_url()
-                if miniapp_url:
-                    menu_button = MenuButtonWebApp(
-                        text="📱 Mini App", web_app=WebAppInfo(url=miniapp_url)
-                    )
-        except Exception:
-            logger.exception("读取 Mini App 菜单配置失败，回退默认命令菜单")
-        await application.bot.set_chat_menu_button(menu_button=menu_button)
+        # Chat 菜单按钮固定为默认命令菜单，不再挂 Mini App：
+        # 菜单栏入口的 WebView 在部分客户端不会可靠注入启动参数，
+        # 会误弹"请在 Telegram 中打开"，因此从菜单移除（键盘按钮入口仍可用）。
+        await application.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
         logger.info("成功设置 %d 个命令；菜单按钮类型=%s",
-                    len(commands), type(menu_button).__name__)
+                    len(commands), type(MenuButtonDefault()).__name__)
     except Exception as e:
         logger.error(f"设置命令菜单失败: {e}", exc_info=True)
 
