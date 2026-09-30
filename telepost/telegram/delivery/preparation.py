@@ -506,6 +506,22 @@ class MediaPreparationPolicy:
             )
 
         # ---- 3. bounded, memory-safe transform ------------------------
+        # A source too big to decode safely at full size can still become a
+        # PHOTO by using a compliant small preview (preview_path); that also
+        # retains the original as a 原图 (original) document via USE_PREVIEW
+        # (deferred to review_stager). Prefer this over streaming a fresh
+        # photo-only downscale whenever the sender already supplied a preview —
+        # it never decodes the oversized original at all.
+        if (
+            preview_path
+            and not self._decode_core_is_bounded(probe, estimate)
+            and self._preview_is_usable(preview_path)
+        ):
+            return self._fallback(
+                path, preview_path, probe=probe, estimate=estimate,
+                reason="decode_budget_exceeded", violation=violation,
+            )
+
         if not self._decode_is_bounded(probe, estimate):
             # PNG and other formats have no reduced-decode API. Give images
             # that still fit the hard transform budget one chance to become a
@@ -560,13 +576,24 @@ class MediaPreparationPolicy:
         )
 
     # ---- helpers -------------------------------------------------------
-    def _decode_is_bounded(self, probe: MediaProbe,
-                           estimate: MediaResourceEstimate) -> bool:
+    def _decode_core_is_bounded(self, probe: MediaProbe,
+                                estimate: MediaResourceEstimate) -> bool:
+        """True when the source itself decodes inside the budget (no streaming
+        decoder assistance). Used both by ``_decode_is_bounded`` and by the
+        USE_PREVIEW preference: a source this big needs the safe/demote path,
+        and if a compliant preview exists it should be preferred over a fresh
+        (photo-only) downscale so the original is retained as a 原图."""
         if estimate.estimated_peak_bytes <= self.decode_budget_bytes:
             return True
         # Image.draft() drops DCT blocks before allocating pixels, so a huge
         # JPEG still decodes inside the budget at a reduced scale.
         if probe.format.upper() in DRAFT_DECODE_FORMATS:
+            return True
+        return False
+
+    def _decode_is_bounded(self, probe: MediaProbe,
+                           estimate: MediaResourceEstimate) -> bool:
+        if self._decode_core_is_bounded(probe, estimate):
             return True
         # libvips streams the downscale: the peak working set follows the target
         # edge, not the source resolution, so a huge RGBA page is memory-safe
@@ -574,6 +601,30 @@ class MediaPreparationPolicy:
         if _load_streaming_decoder() is not False:
             return True
         return False
+
+    def _preview_is_usable(self, preview_path: Optional[str]) -> bool:
+        """True when ``preview_path`` is a small, compliant, still photo that can
+        stand in as the delivered PHOTO while the (oversized) original is kept
+        as a 原图 (original) document. Cheap header probe only — the preview is
+        never fully decoded."""
+        if not preview_path:
+            return False
+        try:
+            size = os.stat(preview_path).st_size
+        except OSError:
+            return False
+        if size > self.max_bytes:
+            return False
+        try:
+            probe = probe_image(preview_path)
+        except Exception:
+            return False
+        if probe is None or probe.frames > 1:
+            return False
+        artifact = MediaArtifact(
+            preview_path, size, probe.width, probe.height, probe.format
+        )
+        return artifact.photo_violation(self.limits) is None
 
     def _animated(self, path: str, *, size: int, probe: MediaProbe,
                   estimate: MediaResourceEstimate) -> PreparedMedia:
