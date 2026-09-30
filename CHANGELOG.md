@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.73.5](https://github.com/redtidev1918/TelePost/compare/v2.73.4...v2.73.5) (2026-09-30)
+
+
+### Bug Fixes
+
+* **main:** import ADMIN_IDS from config.settings so menu button resets ([e8e4d29](https://github.com/redtidev1918/TelePost/commit/e8e4d292c5c4e1b6c921379bde340a3305d57d0b))
+
 ## [2.73.4](https://github.com/redtidev1918/TelePost/compare/v2.73.3...v2.73.4) (2026-09-30)
 
 
