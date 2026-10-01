@@ -2,47 +2,65 @@
 
 **Language / 语言:** [中文](README.md) · English
 
-> **A submission, moderation, and automated publishing platform for Telegram channels.**
+Submission, moderation, and publishing for Telegram channels.
 
-📖 [Full documentation](https://redtidev1918.github.io/TelePost/)
+[Docs](https://redtidev1918.github.io/TelePost/) ·
+[Releases](https://github.com/redtidev1918/TelePost/releases)
 
 [![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Docs](https://img.shields.io/badge/Docs-documentation-6366f1?style=flat-square)](https://redtidev1918.github.io/TelePost/)
 
-People can submit through Telegram chat or a Mini App, moderators can review and manage content,
-and external programs can send submissions through the HTTP API. Every entry point shares the same
-submission, review, search, publishing, and status workflow.
-TelePost only depends on Telegram: a bot and a target channel are enough to publish. The Mini
-App, HTTP API, deployment platforms, and multi-bot mode are optional integrations with their own docs.
+TelePost provides submission, moderation, search, and publishing for a Telegram channel. People can
+submit through the Bot or the Mini App, and external programs can submit through the HTTP API.
 
-## Where it fits
+## Features
 
-| Use case | Flow | Good for |
-| --- | --- | --- |
-| Community channel | Member → Bot / Mini App → direct publish or review → channel | Community submissions, calls for work, UGC channels |
-| Automated content channel | PixivFlow or another tool → HTTP API → review → channel | Automated collection with human oversight |
-| Custom automation | RSS / scraper / CI / your script → HTTP API → channel | Using Telegram as the publishing end of an existing workflow |
+- Submit, preview, edit, and publish through a Telegram Bot
+- Submit and browse content through the Mini App
+- Review queue, edit-before-publish, and spoiler moderation
+- Channel history search, tags, and submission records
+- HTTP API, Bearer tokens, and idempotent submissions
+- Multiple isolated bots
+- Polling, Webhook, and automatic run mode
+- SQLite persistence for long-running use and restart recovery
 
-```mermaid
-flowchart LR
-    Chat["People / Telegram Chat"] --> TP["TelePost"]
-    Mini["Mini App"] --> TP
-    Auto["Automation / HTTP API"] --> TP
-    TP --> Ch["Telegram Channel"]
+## How it works
+
+```text
+Telegram Bot ─────┐
+Telegram Mini App ├──→ TelePost ──→ Telegram Channel
+HTTP API ─────────┘
 ```
 
-Chat, Mini App, and API are not separate systems: they all enter the same TelePost workflow. The Mini App
-is an optional richer interface, and moderation is a configurable policy. Native chat submissions publish
-directly by default; set `CHAT_REVIEW_REQUIRED=true` to send them to the review queue.
+Different entry points share the same submission, moderation, and publishing flow.
 
-## Start in 30 seconds
+Review policy is configurable per entry point. Telegram Chat, Mini App, and HTTP API submissions do not
+have to use the same moderation settings.
 
-1. Create a bot with [@BotFather](https://t.me/BotFather), add it to the target channel, and grant permission to post.
-2. Download the single-file program for your platform from the [latest release](https://github.com/redtidev1918/TelePost/releases/latest).
-3. Run it once and enter the Bot Token, channel ID, and the recommended Owner ID in the setup wizard.
-4. Send `/start` to the bot, then use `/submit` for your first submission.
+## Quick start
+
+### Run a release
+
+Download the build for your platform from the [Releases](https://github.com/redtidev1918/TelePost/releases) page.
+
+On first run, configure:
+
+- Bot Token
+- Target channel ID
+- Owner ID
+
+Then send the Bot:
+
+```text
+/start
+```
+
+And submit with:
+
+```text
+/submit
+```
 
 Linux example:
 
@@ -51,152 +69,97 @@ chmod +x telepost-linux-x64
 ./telepost-linux-x64
 ```
 
-Docker and source installs are also available. See [Install and deployment](docs/INSTALL.md) for downloads,
-platform-specific setup, and upgrades.
+### Docker
 
-## Features
-
-- **Submission and publishing:** images, video, audio, and files, with preview, editing, tags, anonymity, and spoilers.
-- **Source-trust-based moderation:** native Chat submissions publish directly by default (opt-in review via `CHAT_REVIEW_REQUIRED`); API/automation submissions always enter the review queue; Mini App review is controlled independently by `MINIAPP_REVIEW_REQUIRED`. Reviewers can edit before publishing; the original submission stays untouched — see [Editorial revision](docs/CONFIGURATION.md).
-- **Mini App:** contributors submit and track their own posts; moderators work through the review queue and details.
-- **HTTP API:** Bearer tokens, idempotency keys, uploads, and Telegram `file_id` reuse for scripts and services.
-- **Channel management:** search channel history, tags, personal submissions, and a local hot list, plus admin commands.
-- **Multi-bot:** run multiple isolated bots under one supervisor with separate configuration and data directories.
-- **Runtime choices:** Polling, Webhook, or automatic selection, without tying deployment to one cloud provider.
-
-## Telegram Mini App
-
-```text
-Contributor: Telegram → Mini App → Submit / My submissions
-Moderator:   Telegram → Mini App → Review queue / Review details
+```bash
+docker compose up -d
 ```
 
-Entry: after `/start`, tap the「📱 Mini App」button in the keyboard to open it (or use a channel
-footer deep link); the chat menu button is a fixed command menu and no longer hosts the Mini App
-(see the [Mini App guide](docs/MINIAPP.md)).
+See [Install and deployment](docs/INSTALL.md).
+## HTTP API
 
-The Mini App reuses the Bot's identity, submission, and moderation workflow; it is not a second backend.
-Disabling it does not affect chat submissions or the HTTP API. The current Mini App submission UI expects
-the review workflow, so it is enabled by `MINIAPP_REVIEW_REQUIRED=true` (independent of the API flag). See the [Mini App guide](docs/MINIAPP.md)
-for setup, same-origin hosting, and security requirements.
+TelePost exposes an HTTP API for scripts and automation.
 
-## HTTP API and automation
-
-External programs can use TelePost as a Telegram submission, moderation, and publishing backend. First,
-the Owner runs `/gen_token <name>` in the Bot, then sends content:
+Create a token with `/gen_token` in the Bot, then submit content:
 
 ```bash
 curl -X POST 'https://example.com/api/v1/submissions' \
   -H 'Authorization: Bearer tp_xxxx' \
   -F 'files=@image.jpg' \
-  -F 'tags=illustration,featured' \
+  -F 'tags=illustration' \
   -F 'title=Example' \
-  -F 'idempotency_key=my-source:123'
+  -F 'idempotency_key=example:123'
 ```
 
-See the [HTTP API guide](docs/API.md) for multi-bot paths, moderation policy, response semantics, and all fields.
+See the [HTTP API guide](docs/API.md) for the full endpoint and field reference.
 
-### Working with other tools
+TelePost does not depend on any specific upstream program. RSS, scrapers, CI, custom scripts, and
+tools such as PixivFlow can all integrate through the HTTP API.
 
-TelePost runs on its own and can accept submissions from any upstream system that can call an HTTP API:
+## Mini App
 
-```mermaid
-flowchart LR
-    PixivFlow["PixivFlow"] --> TelePost["TelePost"]
-    RSS["RSS / scrapers"] --> TelePost
-    CI["Scripts / CI"] --> TelePost
-    TelePost --> TG["Telegram"]
-```
+The Mini App is an optional front end for TelePost.
 
-[PixivFlow](https://github.com/redtidev1918/PixivFlow) is an independent Pixiv downloading, filtering, and
-collection tool. It can send results to TelePost, save them locally, or deliver them elsewhere.
-**TelePost does not depend on PixivFlow.**
+Regular users can submit content and view their own submissions; moderators and admins use the
+corresponding moderation and admin features.
 
-The optional [MCP sidecar](docs/MCP_REVIEW.md) lets an AI agent read pending submissions and suggest decisions;
-a human still explicitly confirms publishing.
+The Mini App reuses the TelePost backend and business flow and does not maintain a separate data or
+moderation system.
 
-#### For workflow orchestrators (Workflow Protocol v1)
+See [Mini App](docs/MINIAPP.md) for setup and deployment.
 
-When TelePost and PixivFlow are deployed separately, the boundary between them is a cross-service
-workflow contract, **Workflow Protocol v1** (authoritative document: `docs/architecture/workflow-protocol.md` in
-[pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy)).
-Under the protocol TelePost plays the **content workflow orchestrator**, while PixivFlow is only the
-**content acquisition / processing engine**; the two sides never touch each other's internals.
+## Multi-bot
 
-- **Refetch is a remote Job:** "refetch" in the review group submits a persistent Job (`POST /jobs`), and
-  TelePost ties them together with `idempotency_key`/`job_id` in both directions, polling
-  `GET /jobs/{job_id}` to converge on a terminal state; the protocol version and the `candidate_search`
-  capability are negotiated via `GET /capabilities` before entering.
-- **Self-healing event channel:** an optional `callback_url` (only carried when `TELEPOST_API_BASE_URL` is
-  set) lets PixivFlow push events to `POST /api/botN/v1/jobs/events`; TelePost also has a reconciliation
-  loop (`GET /jobs/{job_id}/events` + `ack`) as a fallback, so a lost callback can be recovered. Events and
-  polling converge on the **same** idempotent terminal-state seam (`event_id` dedup) — a terminal
-  notification is never sent twice.
-- **Rollback-friendly:** the protocol channel is the default; `PIXIVFLOW_JOB_TRANSPORT=legacy` switches
-  back to the old `/internal/targets/{id}/refetch` route in one step.
+TelePost can run multiple isolated bots in one process.
 
-See the [HTTP API guide](docs/API.md) and
-[Workflow Protocol v1](https://github.com/redtidev1918/pixivflow-telepost-deploy/blob/main/docs/architecture/workflow-protocol.md)
-for endpoints, fields, and acceptance criteria.
+Each bot uses its own configuration, data directory, and Telegram entry point.
 
-## Running and deployment
+## Deployment
 
-TelePost can run locally, on a VPS, with Docker, on Fly.io, or anywhere else that can run Python or containers:
+TelePost can run on:
 
-| Environment | Suggested entry point |
-| --- | --- |
-| Local or no public HTTPS | `RUN_MODE=POLLING` |
-| VPS / container platform | Polling, or Webhook behind public HTTPS |
-| Fly.io | Pinned image, persistent volume, and Webhook |
+- Local servers
+- VPS
+- Docker
+- Fly.io
+- Other environments that support Python or containers
 
-A single bot is the simplest starting point. Mini App, multi-bot, Webhook, and PixivFlow integration are all
-optional. See [Install and deployment](docs/INSTALL.md) for general setup and
-[Fly.io deployment](docs/FLYIO_DEPLOYMENT.md) for platform-specific details.
+Use Polling when there is no public HTTPS endpoint.
 
-## Built for long-running use
+Use Webhook mode when you need to receive Telegram Webhooks.
 
-- Submission and publishing use idempotent semantics, so retries do not silently duplicate content.
-- Review state, sessions, and runtime policy persist and recover across restarts.
-- `/live`, `/ready`, and `/health` provide layered health checks.
-- Image processing enforces a resource budget and safely falls back to previews or documents.
+See:
 
-## Documentation
-
-| What you want to do | Guide |
-| --- | --- |
-| Download and get started | [Download](docs/en/download.md) · [Install and deployment](docs/INSTALL.md) |
-| Configure a bot, review, or multi-bot | [Configuration](docs/CONFIGURATION.md) |
-| Browse Telegram commands | [Command reference](docs/COMMANDS.md) |
-| Connect automation | [HTTP API](docs/API.md) · [Workflow Protocol v1 (PixivFlow collaboration)](https://github.com/redtidev1918/pixivflow-telepost-deploy/blob/main/docs/architecture/workflow-protocol.md) |
-| Enable the Mini App | [Mini App](docs/MINIAPP.md) |
-| Configure Webhook or Fly.io | [Webhook and Polling](docs/WEBHOOK_MODE.md) · [Fly.io deployment](docs/FLYIO_DEPLOYMENT.md) |
-| Back up, upgrade, or troubleshoot | [Operations](docs/OPERATIONS.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) |
-| Contribute | [Contributing](CONTRIBUTING.md) · [Full documentation index](docs/en/README.md) |
-
-Detailed guides are currently written mainly in Chinese; commands, paths, and configuration names are identical.
+- [Install and deployment](docs/INSTALL.md)
+- [Configuration](docs/CONFIGURATION.md)
+- [Webhook / Polling](docs/WEBHOOK_MODE.md)
+- [Fly.io deployment](docs/FLYIO_DEPLOYMENT.md)
 
 ## Related projects
 
-- [PixivFlow](https://github.com/redtidev1918/PixivFlow): Pixiv downloading, filtering, scheduling, and HTTP delivery.
-- [pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy): deployment and operations toolkit for combining PixivFlow and TelePost across Docker, VPS, and cloud environments.
+[PixivFlow](https://github.com/redtidev1918/PixivFlow) is an independent Pixiv downloading and processing
+tool that can deliver content through the TelePost HTTP API.
 
-## Acknowledgements
+[pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy) provides combined
+deployment and workflow configuration for PixivFlow and TelePost. Workflow collaboration between the two
+is described by Workflow Protocol v1, documented in that repository.
 
-TelePost builds on:
+These projects are not runtime dependencies of TelePost.
 
-- [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot): the bot framework behind both Polling and Webhook modes.
-- [aiohttp](https://github.com/aio-libs/aiohttp): the server for Webhook, Polling, and the Mini App API.
-- [aiosqlite](https://github.com/omnilib/aiosqlite) · [Whoosh](https://github.com/mchaput/whoosh) · [jieba](https://github.com/fxsjy/jieba): storage and full-text search (CJK tokenization is optional).
-- [Pillow](https://github.com/python-pillow/Pillow) · [psutil](https://github.com/giampaolo/psutil): compressing oversized originals and runtime memory analysis.
-- [init-data-py](https://github.com/nimaxin/init-data-py): Mini App `initData` validation.
-- Mini App front end: [React](https://react.dev) · [@telegram-apps/sdk](https://github.com/telegram-mini-apps-dev/telegram-apps) · [Telegram UI](https://github.com/telegram-mini-apps-dev/TelegramUI) · [Uppy](https://uppy.io).
-- [tg_searcher](https://github.com/SharzyL/tg_searcher) (MIT): the original implementation our full-text search was integrated from.
-- [TelePress](https://github.com/redtidev1918/TelePress): the optional Telegraph preview for TXT novels; rendering and pagination stay in TelePress.
-- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk): the optional AI review sidecar.
+## Documentation
 
-Interfaces and conventions: [Telegram Bot API](https://core.telegram.org/bots/api) · [Telegram Mini Apps](https://core.telegram.org/bots/webapps) · [Telegraph API](https://telegra.ph/api) · [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · [Semantic Versioning](https://semver.org/).
+| What you want to do        | Guide                                    |
+| --------------------------- | ---------------------------------------- |
+| Install and upgrade         | [Install and deployment](docs/INSTALL.md) |
+| Configuration               | [Configuration](docs/CONFIGURATION.md)     |
+| Telegram commands           | [Command reference](docs/COMMANDS.md)      |
+| HTTP API                    | [API guide](docs/API.md)                   |
+| Mini App                    | [Mini App](docs/MINIAPP.md)                |
+| Webhook / Polling           | [Run modes](docs/WEBHOOK_MODE.md)          |
+| Operations                  | [Operations](docs/OPERATIONS.md)           |
+| Troubleshooting             | [Troubleshooting](docs/TROUBLESHOOTING.md)  |
+| Development and contributing | [Contributing](CONTRIBUTING.md)           |
 
-## Contributing and license
+## License
 
-Please report problems in [GitHub Issues](https://github.com/redtidev1918/TelePost/issues) and see
-[CONTRIBUTING.md](CONTRIBUTING.md) for code contributions. TelePost is available under the [MIT License](LICENSE).
+[MIT License](LICENSE)

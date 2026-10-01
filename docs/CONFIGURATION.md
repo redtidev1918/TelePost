@@ -22,7 +22,7 @@
 | `CHANNEL_FOOTER_LINK` | 空 | **正式发布到频道**时，在 caption 最下方追加文本导航 footer（`✉️ TG 投稿` → `https://t.me/<bot>?start=submit`；Mini App 开启时再加 `📱 Mini App` → `?start=miniapp`；配置 `MINIAPP_SHORT_NAME` 后为 Direct Mini App `?startapp=submit`）。空 = 关闭。审核预览/排队**不**带 footer |
 | `MINIAPP_SUBMIT_CTA` | `false` | 频道 footer 额外追加 Mini App 导航项；默认回退到 `?start=miniapp`，由 Bot 在私聊发送 Web App 按钮。未启用/链接缺失时省略，绝不生成坏链接 |
 | `MINIAPP_SHORT_NAME` | 空 | BotFather Direct Mini App short name；配置后频道 footer 使用 `https://t.me/<bot>/<short_name>?startapp=submit` 直接打开应用 |
-| `MINIAPP_PUBLIC_URL` | 空 | 私聊键盘 Web App URL；留空时从 `WEBHOOK_URL` 推导 `<公网根地址>/app/` |
+| `MINIAPP_PUBLIC_URL` | 空 | 私聊 chat 菜单按钮与 Inline Web App 按钮的入口 URL；留空时从 `WEBHOOK_URL` 推导 `<公网根地址>/app/` |
 | `MEDIA_PROXY_BASE_URL` | 空 | 公网媒体反代根地址；DeliveryPlanner 只重写 `MEDIA_PROXY_HOSTS` 内的精确主机。空时 remote URL 原样交给 Telegram |
 | `MEDIA_PROXY_HOSTS` | 空 | 逗号分隔的精确主机 allowlist，例如 `i.pximg.net`；不配置主机时不重写任何 URL |
 | `SUBMIT_LIMIT_PER_HOUR` | `10` | 每用户每小时投稿次数；`0` 关闭 |
