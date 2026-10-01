@@ -2,7 +2,7 @@
 python-telegram-bot[job-queue]==21.10
 
 # Webhook 支持（用于 Webhook 模式）
-aiohttp>=3.9.0
+aiohttp>=3.14.3
 
 # 配置管理（configparser 已由 Python 标准库提供）
 python-dotenv==1.2.3
