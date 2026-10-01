@@ -282,12 +282,18 @@ MINIAPP_SUBMIT_CTA = str(
     or 'false'
 ).strip().lower() in {'1', 'true', 'yes', 'on'}
 
-# Mini App surface gate. Mirrors the deployment switch; false disables the
-# private-chat Web App buttons but never affects chat/API publishing.
-MINIAPP_ENABLED = str(
-    get_env_or_config('MINIAPP_ENABLED', 'BOT', 'MINIAPP_ENABLED', fallback='false')
-    or 'false'
-).strip().lower() in {'1', 'true', 'yes', 'on'}
+# Mini App surface gate. Enabled by default (matches the Mini App session/auth
+# gate in telepost/miniapp/auth.init_data_enabled); set explicitly to
+# 'false'/'0'/'no'/'off' to disable the private-chat Web App buttons. It never
+# affects chat/API publishing. A disabled-by-absence split previously made the
+# chat-side capability report "Mini App not enabled" while the session endpoint
+# stayed enabled, so Bot-side capability and actual Mini App availability
+# disagreed; both now share one default-on-unless-explicitly-disabled contract.
+_miniapp_enabled_raw = str(
+    get_env_or_config('MINIAPP_ENABLED', 'BOT', 'MINIAPP_ENABLED', fallback='true')
+    or 'true'
+).strip().lower()
+MINIAPP_ENABLED = _miniapp_enabled_raw not in {'false', '0', 'no', 'off'}
 
 # Mini App optional content browsing (Hot / post detail / post media). It is
 # independent from the core submission pipeline and can be disabled without

@@ -127,6 +127,16 @@ export function fetchReview(id: number | string): Promise<ReviewDetail> {
   return apiFetch<ReviewDetail>(`/reviews/${id}`);
 }
 
+/** Reviewer review history (terminal states), keyset-paged (§history). */
+export function fetchReviewHistory(
+  cursor?: string | null,
+): Promise<ReviewPage> {
+  const params = new URLSearchParams();
+  if (cursor) params.set('cursor', cursor);
+  const qs = params.toString();
+  return apiFetch<ReviewPage>(`/reviews/history${qs ? `?${qs}` : ''}`);
+}
+
 export function approveReview(
   id: number | string,
   spoiler?: boolean,

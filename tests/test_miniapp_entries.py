@@ -112,3 +112,61 @@ async def test_handle_menu_shortcuts_renders_inline_for_miniapp_text(enabled, mo
     btn = _all_buttons(kw["reply_markup"])[0]
     assert btn.web_app is not None
     assert btn.web_app.url == "https://telesubmit.test/app?bot=bot2"
+
+def test_miniapp_enabled_default_matches_session_gate():
+    """P0-2 regression: Bot-side capability and the Mini App session gate must
+    share ONE default-on-unless-explicitly-disabled contract.
+
+    config.settings.MINIAPP_ENABLED previously defaulted to False while
+    telepost.miniapp.auth.init_data_enabled() defaulted to True, so production
+    (no MINIAPP_ENABLED env) reported "Mini App 尚未启用" on the Bot entry while
+    the Mini App itself was actually served and its session endpoint stayed
+    enabled. The default is now True in BOTH gates.
+    """
+    import subprocess
+    import sys
+    import textwrap
+
+    def read_enabled(extra_env):
+        code = textwrap.dedent(
+            """
+            import os
+            os.environ.setdefault("TOKEN", "test-token")
+            os.environ.setdefault("CHANNEL_ID", "@test")
+            from config import settings
+            print(settings.MINIAPP_ENABLED)
+            """
+        )
+        env = {**os.environ, "TOKEN": "test-token", "CHANNEL_ID": "@test",
+               **extra_env}
+        env.pop("MINIAPP_ENABLED", None) if "MINIAPP_ENABLED" not in extra_env else None
+        out = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, env=env,
+            cwd=os.getcwd(),
+        )
+        assert out.returncode == 0, out.stderr
+        return out.stdout.strip() == "True"
+
+    # Unset: enabled by default (matches init_data_enabled()).
+    assert read_enabled({}) is True
+    # Explicitly disabled: off in every accepted spelling.
+    for value in ("false", "0", "no", "off"):
+        assert read_enabled({"MINIAPP_ENABLED": value}) is False
+
+
+def test_auth_gate_default_matches_settings_default():
+    """telepost.miniapp.auth.init_data_enabled mirrors the Bot-side default."""
+    import os as _os
+    saved = _os.environ.pop("MINIAPP_ENABLED", None)
+    try:
+        from telepost.miniapp.auth import init_data_enabled
+        assert init_data_enabled() is True
+        for value in ("false", "0", "no", "off"):
+            _os.environ["MINIAPP_ENABLED"] = value
+            assert init_data_enabled() is False
+        _os.environ["MINIAPP_ENABLED"] = "true"
+        assert init_data_enabled() is True
+    finally:
+        _os.environ.pop("MINIAPP_ENABLED", None)
+        if saved is not None:
+            _os.environ["MINIAPP_ENABLED"] = saved

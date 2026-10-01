@@ -354,6 +354,21 @@ paths:
       responses:
         '200': {description: Markdown policy}
         '401': {description: Invalid token}
+  /reviews/history:
+    get:
+      summary: List terminal review history (reviewer/admin)
+      operationId: listReviewHistory
+      description: |
+        Reviewer-facing review history: terminal outcomes
+        (published/rejected/failed/expired/superseded), newest decision first,
+        keyset-paged on updated_at. Same ReviewService / persisted review
+        state as the pending queue — never a second store.
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {name: cursor, in: query, schema: {type: string}}
+      responses:
+        '200': {description: Terminal review summaries}
+        '401': {description: Invalid token}
   /reviews/{review_id}:
     get:
       summary: Get one review

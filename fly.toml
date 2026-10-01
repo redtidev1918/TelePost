@@ -68,6 +68,12 @@ primary_region = ""
   PENDING_REVIEW_RETENTION_DAYS = "1"
   PENDING_REVIEW_CLEANUP_BATCH_SIZE = "20"
 
+  # Telegram Mini App surface。显式启用，避免缺席默认值与 Bot 侧 capability
+  # 判断分叉（P0：bot 私聊入口误报「Mini App 尚未启用」）。公开 URL 不必写死：
+  # 代码从 MINIAPP_PUBLIC_URL 或 WEBHOOK_URL 派生 <WEBHOOK_URL>/app/；
+  # MINIAPP_SESSION_SECRET 是独立 Secret（≥32 字符，绝不写进版本库）。
+  MINIAPP_ENABLED = "true"
+
 [http_service]
   internal_port = 8080
   # force_https=false 保留自拆分前的生产配置：独立 PixivFlow App 通过 Flycast

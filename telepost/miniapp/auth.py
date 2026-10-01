@@ -120,9 +120,18 @@ def validate_init_data(init_data: str) -> dict:
 
 
 def init_data_enabled() -> bool:
-    """Mini App auth is on when MINIAPP_ENABLED is not literally 'false'."""
+    """Mini App auth is on unless MINIAPP_ENABLED is explicitly disabled.
+
+    This shares ONE capability contract with the Bot-side entry gate
+    (``config.settings.MINIAPP_ENABLED`` / ``ui.keyboards``): both default to
+    enabled and are disabled only by an explicit ``false``/``0``/``no``/``off``.
+    Keeping the two gates on the same default prevents the production split
+    where the session endpoint stayed enabled but the Bot's own Mini App entry
+    reported "not enabled" (or vice versa).
+    """
     return os.getenv("MINIAPP_ENABLED", "true").strip().lower() not in {
         "false",
         "0",
         "no",
+        "off",
     }
