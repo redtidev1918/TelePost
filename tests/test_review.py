@@ -1397,6 +1397,8 @@ async def _insert_pending_spoiler_review(review_db):
 
     Returns (review_id, bot). The bot is an AsyncMock armed to edit media.
     """
+    # Keep the paced preview re-edit instant in tests (§review-group-mask-pacing).
+    review._MASK_EDIT_PACE_SECONDS = 0
     from database import db_manager as db_mod
     from telepost.storage.sqlite.reviews import NewReview, ReviewRepository
     review_id = await ReviewRepository().insert(NewReview(
@@ -1490,6 +1492,43 @@ async def test_toggle_spoiler_survives_bad_specs(review_db):
     # 改掩失败不应把键盘刷新也打断
     update.callback_query.answer.assert_awaited()
     update.callback_query.edit_message_reply_markup.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_apply_review_group_mask_paces_edits_to_avoid_flood(monkeypatch):
+    """§review-group-mask-pacing: 逐条重编辑必须留间隔，防止 Telegram 洪控丢弃后续预览。
+
+    一次翻动按钮就连续 12 条 edit_message_media 会被 "Flood control exceeded"
+    掐断，导致预览大多没被重上遮罩——这正是线上 "切换遮罩不生效" 的根因。
+    这里断言连续编辑之间确实 await 了间隔（total-1 次、每次等于配置值）。
+    """
+    import asyncio as _asyncio
+
+    sleep_calls = []
+
+    async def _capture_sleep(seconds):
+        sleep_calls.append(seconds)
+
+    monkeypatch.setattr(review, "_MASK_EDIT_PACE_SECONDS", 0.001)
+    monkeypatch.setattr(review.asyncio, "sleep", _capture_sleep)
+    bot = AsyncMock()
+    row = {
+        "id": 9001,
+        "review_message_ids": "[101, 102, 103, 104]",
+        "review_message_specs": json.dumps([
+            {"kind": "photo", "file_id": "P1"},
+            {"kind": "photo", "file_id": "P2"},
+            {"kind": "photo", "file_id": "P3"},
+            {"kind": "video", "file_id": "V1"},
+        ]),
+        "review_chat_id": str(review.REVIEW_CHAT_ID),
+    }
+    await review._apply_review_group_mask(bot, row, True)
+
+    assert bot.edit_message_media.await_count == 4
+    # 4 条媒体在改掩之间应间隔 3 次，且每次用配置的步长（而非 0）。
+    assert len(sleep_calls) == 3
+    assert all(s == 0.001 for s in sleep_calls)
 
 
 @pytest.mark.asyncio
