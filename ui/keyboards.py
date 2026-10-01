@@ -17,6 +17,11 @@ from telegram import (
 class Keyboards:
     """键盘布局管理器"""
     
+    #: Reply Keyboard 文案按钮：点击后由状态机回复一个 Inline Web App 按钮，
+    #: 再由此进入 authenticated Mini App。绝不用 KeyboardButton.web_app——
+    #: Reply Keyboard 的 Simple WebView 不携带 Telegram 用户身份，无法建 session。
+    MINI_APP_INVITE_TEXT = "📱 Mini App"
+
     @staticmethod
     def _miniapp_url():
         """Same-origin Web App URL for the owning Bot, or None when unavailable."""
@@ -29,7 +34,15 @@ class Keyboards:
 
     @staticmethod
     def main_menu():
-        """主菜单键盘；有配置时保留一个常驻 Mini App 快捷入口。"""
+        """主菜单键盘；有配置时保留一个常驻 Mini App 快捷入口。
+
+        这里的「📱 Mini App」是**普通文本按钮**，不是 web_app 按钮：
+        Reply Keyboard 的 web_app 走 ``keyboardButtonSimpleWebView``，不向
+        Mini App 传递 Telegram 用户身份，无法通过 AuthProvider 的 launch
+        initData 校验。点击文本后由 ``handle_menu_shortcuts`` 回复一个 Inline
+        Web App 按钮（``miniapp_launch``），再由用户点击进入 authenticated
+        Mini App。
+        """
         keyboard = [
             [
                 KeyboardButton("📝 开始投稿"),
@@ -48,11 +61,8 @@ class Keyboards:
                 KeyboardButton("ℹ️ 关于")
             ]
         ]
-        miniapp_url = Keyboards._miniapp_url()
-        if miniapp_url:
-            keyboard.append([
-                KeyboardButton("📱 Mini App", web_app=WebAppInfo(url=miniapp_url))
-            ])
+        if Keyboards._miniapp_url():
+            keyboard.append([KeyboardButton(Keyboards.MINI_APP_INVITE_TEXT)])
         return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
     @staticmethod

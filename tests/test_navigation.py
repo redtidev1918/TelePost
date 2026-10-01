@@ -276,7 +276,14 @@ async def test_superseded_notice_clears_all_buttons_when_no_cta(monkeypatch):
     assert not kwargs["reply_markup"].inline_keyboard
 
 
-def test_private_keyboard_uses_webapp_when_enabled(monkeypatch):
+def test_private_keyboard_miniapp_is_plain_text_not_webapp(monkeypatch):
+    """Reply Keyboard 的 Mini App 入口必须是**普通文本按钮**，绝不能带 web_app。
+
+    回归背景（生产 m16459）：Reply Keyboard 的 web_app 走 keyboardButtonSimpleWebView，
+    不向 Mini App 传递 Telegram 用户身份，前端 AuthProvider 的 initData 校验必然失败，
+    显示"请在 Telegram 中打开"。点击该文本后由 handle_menu_shortcuts 回复 Inline Web App
+    按钮（Keyboards.miniapp_launch），再进入 authenticated Mini App。
+    """
     from config import settings
     from ui.keyboards import Keyboards
 
@@ -286,4 +293,12 @@ def test_private_keyboard_uses_webapp_when_enabled(monkeypatch):
 
     markup = Keyboards.main_menu()
     button = markup.keyboard[-1][0]
-    assert button.web_app.url == "https://telepost.example/app?bot=bot2"
+    assert button.text == Keyboards.MINI_APP_INVITE_TEXT
+    assert getattr(button, "web_app", None) is None, \
+        "Reply Keyboard Mini App 按钮不能挂 web_app（Simple WebView 不带用户身份）"
+
+    # authenticated 入口由 Inline Web App 按钮承担，URL 带正确的 ?bot=botN。
+    inline = Keyboards.miniapp_launch()
+    assert inline is not None
+    entry = inline.inline_keyboard[0][0]
+    assert entry.web_app.url == "https://telepost.example/app?bot=bot2"

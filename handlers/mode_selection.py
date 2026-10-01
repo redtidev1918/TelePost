@@ -104,7 +104,7 @@ async def start(update: Update, context: CallbackContext) -> int:
         "/mystats 我的统计 · /myposts 我的投稿\n"
         "/hot 热门排行 · /tags 标签云\n"
         "/help 完整帮助 · /cancel 取消投稿\n\n"
-        "📱 <b>Mini App</b>：点击下方键盘的「📱 Mini App」按钮即可打开。\n\n"
+        "📱 <b>Mini App</b>：点击键盘的「📱 Mini App」，再点按钮即可打开。\n\n"
         "💡 <i>更多指令见 /help。</i>"
     )
     try:

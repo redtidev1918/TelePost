@@ -82,11 +82,35 @@ reviewer / admin 额外持有审核队列，admin 再额外持有管理面板。
 | `MINIAPP_ENABLED` | 是否启用 Mini App surface（不影响 Bot） | `false`（默认关闭） |
 | `MINIAPP_SESSION_SECRET` | Mini App session 签名密钥（≥32 字符，独立随机） | 生产 secret |
 | `MINIAPP_SESSION_TTL` | session 生命周期秒数（默认 1800，上限 43200） | `1800` |
-| `MINIAPP_PUBLIC_URL` | Mini App 公开 URL（`/start` keyboard Web App 按钮 / 频道 footer 的入口；chat 菜单按钮已不挂 Mini App）；为空回退 `<WEBHOOK_URL>/app/` | `https://telesubmit.example.com/app/` |
+| `MINIAPP_PUBLIC_URL` | Mini App 公开 URL（chat 菜单按钮 / Inline Web App 按钮 / 频道 footer 的入口）；为空回退 `<WEBHOOK_URL>/app/` | `https://telesubmit.example.com/app/` |
 
 `MINIAPP_ENABLED=false` 只关闭 Mini App surface；Bot 与 API 完全不受影响，
 这是上线安全开关（§152-§153）。
 当前投稿界面按审核流程工作；`MINIAPP_REVIEW_REQUIRED` 内置默认即为 `true`，且与 API 审核开关相互独立。
+
+### 入口模型（§miniapp-entries，生产回归 m16459 后）
+
+Mini App 的**认证需求**决定了入口类型：前端必须在 launch `initData` 里拿到
+Telegram 用户身份才能创建 session，而不同的 Telegram 入口传递身份的能力不同：
+
+1. **chat 菜单按钮（MenuButtonWebApp）—— 认证可靠入口之一**。
+   它是 Bot API 的菜单按钮类型之一；菜单按钮的 WebView 会向 Mini App 注入 launch
+   `initData`，前端可据此建 session。`main.py` 的 `setup_bot_commands()` 在
+   `MINIAPP_ENABLED && MINIAPP_PUBLIC_URL` 时挂
+   `MenuButtonWebApp(text='📱 Mini App', web_app=WebAppInfo(url=_miniapp_url()))`；
+   未启用或缺 URL 时回退 `MenuButtonDefault`。
+   **边界**：`setChatMenuButton(MenuButtonWebApp)` **并不**创建 Telegram 的
+   "Main Mini App"。`t.me/<bot>?startapp=` Deep Link 能否直接启动 app 取决于
+   BotFather 单独配置的 Main Mini App（见下节），与本调用无关。
+2. **Inline Web App 按钮（键盘按钮 → 回复 / `?start=miniapp`）—— 认证可靠**。
+   Inline 消息的 `web_app` 按钮会向 Mini App 注入用户身份。
+   私聊主入口这样实现：Reply Keyboard 显示一个**普通文本**「📱 Mini App」按钮
+   （`Keyboards.main_menu()`，绝不用 `KeyboardButton.web_app`），点击后由
+   `handle_menu_shortcuts` 回复 `Keyboards.miniapp_launch()`（Inline Web App 按钮）。
+3. **Reply Keyboard 的 web_app 按钮 —— 禁止用于认证入口**。Reply Keyboard 的
+   WebApp 走 `keyboardButtonSimpleWebView`，**不向 Mini App 传递 Telegram 用户身份**，
+   前端 `initData` 校验必然失败并显示「请在 Telegram 中打开」。永远不要把
+   `KeyboardButton(..., web_app=...)` 作为认证入口。
 
 ## 构建
 
@@ -109,15 +133,21 @@ npm run build        # → webapp/dist/
 2. 确认镜像包含 dist，`/app/` 与 `/api/botN/v1/health` 可访问。
 3. 配置 `MINIAPP_ENABLED=true` + `MINIAPP_PUBLIC_URL`（或设 `WEBHOOK_URL` 以使用 `<WEBHOOK_URL>/app/` 回退）+ `MINIAPP_SESSION_SECRET` + `MINIAPP_SESSION_TTL`。
    `Keyboards._miniapp_url()` 在 `MINIAPP_ENABLED && MINIAPP_PUBLIC_URL` 都成立时才渲染
-   `/start` 的 keyboard Web App 按钮（`ui/keyboards.py`）；缺 `MINIAPP_PUBLIC_URL` 会静默不出现入口。
-4. 私聊主入口：`/start` 的 Reply Keyboard 里的 Web App 按钮直接打开 Mini App（命令通过输入 `/` 使用）。
-   注意：左侧 Telegram 私聊菜单按钮（chat menu button）固定为默认命令菜单，不再挂 Mini App ——
-   菜单栏 WebView 在部分客户端不会可靠注入启动参数，会误弹"请在 Telegram 中打开"，
-   故从菜单移除，保留键盘按钮入口（`main.py` 内 `setup_bot_commands`）。
+   入口（`ui/keyboards.py`）；缺 `MINIAPP_PUBLIC_URL` 会静默不出现入口。
+4. 私聊主入口：Reply Keyboard 的「📱 Mini App」是**普通文本按钮**（简单 WebView
+   不携带用户身份），点击后 Bot 回复一个 Inline Web App 按钮进入 authenticated
+   Mini App；命令通过输入 `/` 使用。chat 菜单按钮在启用 Mini App 时挂
+   `MenuButtonWebApp`（一个认证可靠的菜单入口，`main.py` 内 `setup_bot_commands`）。
+   如需 `?startapp=` 深链直接启动 app，必须在 BotFather 单独配置 Main Mini App。
 5. 频道 footer：默认 `?startapp=miniapp` 直接打开 Main Mini App。若 BotFather
    配置了 Direct Mini App short name，并设置 `MINIAPP_SHORT_NAME`，可使用
    更专用的直达链接。
-6. 健康检查 `/api/v1/health` 返回 `miniapp_review_required`（`utils/api_server.py`，不是
+6. **Main Mini App（Deep Link 前提）**：`t.me/<bot>?startapp=` 只在 BotFather
+   为该 bot 配置了 **Main Mini App** 时才直接启动 app。对 `vorePost_bot` 应在
+   BotFather（`/mybots → vorePost_bot → Mini App/Bot Settings`）把 Main Mini App
+   指向 `https://telesubmit-multi-bot.fly.dev/app/?bot=bot2`（`xgdPost_bot` 对应
+   `?bot=bot1`）。这只是导航/启动入口，不含任何会话凭据。
+7. 健康检查 `/api/v1/health` 返回 `miniapp_review_required`（`utils/api_server.py`，不是
    `miniapp_enabled`）；`miniapp_enabled` 不单独暴露，运行态仅能从 Telegram 真机菜单实际打开确认。
 
 静态资源 HTTP 200 只是传输检查；上线验收需从真实 Telegram 菜单打开，
