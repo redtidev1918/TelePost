@@ -28,6 +28,7 @@ import { SubmissionDetailPage } from '../pages/SubmissionDetail/SubmissionDetail
 import { ReviewEditPage } from '../pages/ReviewEdit/ReviewEditPage';
 import { EditorialHistoryPage } from '../pages/EditorialHistory/EditorialHistoryPage';
 import { ReviewQueuePage } from '../pages/ReviewQueue/ReviewQueuePage';
+import { ReviewHistoryPage } from '../pages/ReviewHistory/ReviewHistoryPage';
 import { ReviewDetailPage } from '../pages/ReviewDetail/ReviewDetailPage';
 import { AdminPage } from '../pages/Admin/AdminPage';
 
@@ -44,7 +45,9 @@ export function navigationForSpace(isReviewer: boolean, isAdmin = false): NavIte
     { path: '/submit', label: '投稿' },
     { path: '/mine', label: '我的投稿' },
   ];
-  const reviewerNav = isReviewer ? [...userNav, { path: '/review', label: '审核队列' }] : userNav;
+  const reviewerNav = isReviewer
+    ? [...userNav, { path: '/review', label: '审核队列' }, { path: '/review/history', label: '审核历史' }]
+    : userNav;
   return isAdmin ? [...reviewerNav, { path: '/admin', label: '管理' }] : reviewerNav;
 }
 
@@ -164,6 +167,7 @@ function Shell() {
           {isReviewer && (
             <>
               <Route path="/review" element={<ReviewQueuePage />} />
+              <Route path="/review/history" element={<ReviewHistoryPage />} />
               <Route path="/review/:id" element={<ReviewDetailPage />} />
               <Route path="/review/:id/edit" element={<ReviewEditPage />} />
             </>
@@ -178,7 +182,15 @@ function Shell() {
             <Tabbar.Item
               key={item.path}
               text={item.label}
-              selected={item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)}
+              selected={
+                item.path === '/'
+                  ? location.pathname === '/'
+                  : item.path === '/review'
+                    ? location.pathname === '/review'
+                      || (location.pathname.startsWith('/review/')
+                          && !location.pathname.startsWith('/review/history'))
+                    : location.pathname.startsWith(item.path)
+              }
               onClick={() => navigate(item.path)}
             />
           ))}

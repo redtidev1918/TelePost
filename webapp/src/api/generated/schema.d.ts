@@ -297,6 +297,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reviews/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List terminal review history (reviewer/admin)
+         * @description Reviewer-facing review history: terminal outcomes
+         *     (published/rejected/failed/expired/superseded), newest decision first,
+         *     keyset-paged on updated_at. Same ReviewService / persisted review
+         *     state as the pending queue — never a second store.
+         */
+        get: operations["listReviewHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reviews/{review_id}": {
         parameters: {
             query?: never;
@@ -1878,6 +1901,34 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Markdown policy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listReviewHistory: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Terminal review summaries */
             200: {
                 headers: {
                     [name: string]: unknown;

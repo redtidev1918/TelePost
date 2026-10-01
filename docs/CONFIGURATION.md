@@ -54,7 +54,7 @@
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `MINIAPP_ENABLED` | `false` | 是否启用 Mini App surface。`false` 只关闭小程序入口，**不影响** Bot 与 HTTP API（上线安全开关） |
+| `MINIAPP_ENABLED` | `true` | 是否启用 Mini App surface。默认启用，与 Mini App session 认证开关（`telepost/miniapp/auth.py`）共用同一份「默认启用、仅显式关闭」契约；仅当显式设为 `false`/`0`/`no`/`off` 时关闭小程序入口，**不影响** Bot 与 HTTP API（上线安全开关） |
 | `MINIAPP_CONTENT_ENABLED` | `true` | Mini App 公开内容浏览（热门列表 / 帖子详情 / 已发布媒体代理）。关闭只影响内容 API（`/api/v1/posts/*`），不影响投稿与审核 |
 | `MINIAPP_SESSION_SECRET` | （无） | Mini App session 签名密钥（≥32 字符，独立随机 secret）。未配置时 `POST /miniapp/session` 直接 fail-closed |
 | `MINIAPP_SESSION_TTL` | `1800` | Session 生命周期秒数（60–43200） |

@@ -1937,6 +1937,25 @@ def add_api_routes(web_app, application) -> None:
             return _ok(data)
         return await _run_review_action(action)
 
+    async def list_review_history(request):
+        """GET /api/v1/reviews/history — reviewer review history (terminal states).
+
+        Companion of the pending queue: same ReviewService / persisted review
+        state, never a second store. Reviewer/admin RBAC only, same as the queue.
+        """
+        async def action():
+            _, error = await _review_auth(request, write=False)
+            if error:
+                return error
+            try:
+                limit = int(request.query.get("limit", "20"))
+            except (TypeError, ValueError):
+                return _error(400, "invalid_limit", "limit 必须是整数")
+            cursor = request.query.get("cursor") or None
+            data = await review_service.list_history(limit=limit, cursor=cursor)
+            return _ok(data)
+        return await _run_review_action(action)
+
     async def get_review(request):
         async def action():
             _, error = await _review_auth(request, write=False)
@@ -2551,6 +2570,9 @@ def add_api_routes(web_app, application) -> None:
     web_app.router.add_post("/api/v1/submissions/preview", submission_preview)
     web_app.router.add_get("/api/v1/reviews/policy", review_policy)
     web_app.router.add_get("/api/v1/reviews", list_reviews)
+    # Literal path before the {review_id} template: /reviews/history is the
+    # reviewer history list, never a review id (aiohttp matches in order).
+    web_app.router.add_get("/api/v1/reviews/history", list_review_history)
     web_app.router.add_get("/api/v1/reviews/{review_id}", get_review)
     web_app.router.add_get("/api/v1/reviews/{review_id}/delivery-plan", get_review_delivery_plan)
     web_app.router.add_get(

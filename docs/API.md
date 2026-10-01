@@ -329,6 +329,9 @@ MCP sidecar 推荐设置 `TELEPOST_MCP_REVIEW_TOKEN`，并可通过
 不受该开关限制——那是明确的人工动作，仍受 RBAC 约束。完整配置见 [MCP 投稿审核](MCP_REVIEW.md)。
 
 - `GET /api/v1/reviews`：待审核摘要列表，支持 `limit`、`cursor`
+- `GET /api/v1/reviews/history`：审核历史（终态：published/rejected/failed/expired/superseded），
+  按决定时间倒序、`updated_at` keyset 分页（`limit`、`cursor`）；与待审核队列共用同一个
+  `ReviewService` 与持久化审核状态，仅供 reviewer/admin（Mini App「审核历史」页走同一路由）
 - `GET /api/v1/reviews/{id}`：完整文本元数据和媒体索引
 - `GET /api/v1/reviews/{id}/media/{index}?variant=preview`：受限图片预览
 - `GET /api/v1/reviews/{id}/delivery-plan`：只读投递计划（Step 11：TelePost 自定媒体源策略）

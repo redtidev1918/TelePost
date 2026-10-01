@@ -641,6 +641,35 @@ class ReviewRepository:
                 )
             return list(await cur.fetchall())
 
+    async def list_terminal(self, *, limit: int,
+                            updated_cursor: Optional[float] = None,
+                            id_cursor: Optional[int] = None) -> list:
+        """Reviewer review history: TERMINAL rows, newest decision first.
+
+        Terminal states (published/rejected/failed/expired/superseded) are
+        immutable review outcomes — they never re-enter the pending queue, and
+        this list is the reviewer-facing mirror of ``/me/submissions`` (which is
+        strictly the owner's own scope). Keyset-paged on ``updated_at`` so a
+        decision already shown is never repeated while new outcomes append.
+        """
+        statuses = ("published", "rejected", "failed", "expired", "superseded")
+        placeholders = ",".join("?" for _ in statuses)
+        async with db_manager.get_db() as conn:
+            if updated_cursor is None:
+                cur = await conn.execute(
+                    f"SELECT * FROM pending_reviews WHERE status IN ({placeholders}) "
+                    "ORDER BY updated_at DESC, id DESC LIMIT ?",
+                    (*statuses, limit),
+                )
+            else:
+                cur = await conn.execute(
+                    f"SELECT * FROM pending_reviews WHERE status IN ({placeholders}) "
+                    "AND (updated_at, id) < (?, ?) "
+                    "ORDER BY updated_at DESC, id DESC LIMIT ?",
+                    (*statuses, updated_cursor, id_cursor, limit),
+                )
+            return list(await cur.fetchall())
+
     async def list_by_user(self, user_id: int, *, limit: int,
                            created_cursor: Optional[float] = None,
                            id_cursor: Optional[int] = None) -> list:

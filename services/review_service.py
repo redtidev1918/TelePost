@@ -165,6 +165,9 @@ class ReviewSummary:
     source_label: Optional[str]
     created_at: str
     status: str
+    # Decision/update timestamp; only meaningful for the reviewer history list
+    # (kept empty on the pending queue to preserve its wire contract).
+    updated_at: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -706,6 +709,49 @@ class ReviewService:
         next_cursor = None
         if has_more and rows:
             next_cursor = f"{rows[-1]['created_at']}:{rows[-1]['id']}"
+        return {"items": items, "next_cursor": next_cursor}
+
+    async def list_history(self, *, limit: int = 20, cursor: Optional[str] = None) -> Dict[str, Any]:
+        """Reviewer review history (terminal states), keyset-paged.
+
+        This is the reviewer-facing companion of the pending queue: it never
+        includes ``pending``/``preparing`` rows (those belong to the queue) and
+        never mutates state — ReviewService / persisted review state stays the
+        single source of truth (§history)."""
+        limit = max(1, min(int(limit or 20), 100))
+        updated_cursor: Optional[float] = None
+        id_cursor: Optional[int] = None
+        if cursor:
+            match = re.fullmatch(r"(\d+(?:\.\d+)?):(\d+)", cursor)
+            if not match:
+                raise ReviewError("invalid cursor", details={"cursor": cursor})
+            updated_cursor, id_cursor = float(match.group(1)), int(match.group(2))
+
+        rows = await self._repo.list_terminal(
+            limit=limit + 1,
+            updated_cursor=updated_cursor,
+            id_cursor=id_cursor,
+        )
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        items = [
+            ReviewSummary(
+                review_id=row["id"],
+                title=row["title"] or "",
+                tags=_tags(row["tags"] or ""),
+                media_count=len(json.loads(row["media_json"] or "[]")),
+                document_count=len(json.loads(row["documents_json"] or "[]")),
+                spoiler=bool(row["spoiler"]),
+                source_label=row["source_label"] or None,
+                created_at=_iso(row["created_at"]) or "",
+                updated_at=_iso(row["updated_at"]) or "",
+                status=row["status"],
+            ).to_dict()
+            for row in rows
+        ]
+        next_cursor = None
+        if has_more and rows:
+            next_cursor = f"{rows[-1]['updated_at']}:{rows[-1]['id']}"
         return {"items": items, "next_cursor": next_cursor}
 
     async def get_row(self, review_id: int):

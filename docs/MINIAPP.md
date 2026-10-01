@@ -34,8 +34,8 @@ reviewer / admin 额外持有审核队列，admin 再额外持有管理面板。
 
 - **普通用户**（submitter）：Tabbar 为「首页 / 热门 / 投稿 / 我的投稿」，路由只有内容浏览
   （`/hot`、`/hotweek`、`/post/:id`）、投稿三件套与各自的详情/编辑历史；不注册审核路径。
-- **reviewer / admin**：在用户三件套之上额外显示「审核队列」，并注册
-  `/review`、`/review/:id`、`/review/:id/edit`；同时保留了投稿与「我的投稿」全部能力，
+- **reviewer / admin**：在用户三件套之上额外显示「审核队列」「审核历史」，并注册
+  `/review`、`/review/history`、`/review/:id`、`/review/:id/edit`；同时保留了投稿与「我的投稿」全部能力，
   与后端 RBAC 一致（`roles` 始终包含 `submitter`）。
 - **admin**：再额外显示「管理」面板（`/admin`），四个分区对应 `/api/v1/admin/*`：
   运行状态（`GET /admin/status`，30 秒轮询）、运行策略（`PATCH /admin/policy`，仅
@@ -79,13 +79,17 @@ reviewer / admin 额外持有审核队列，admin 再额外持有管理面板。
 
 | 变量 | 说明 | 示例 |
 | --- | --- | --- |
-| `MINIAPP_ENABLED` | 是否启用 Mini App surface（不影响 Bot） | `false`（默认关闭） |
+| `MINIAPP_ENABLED` | 是否启用 Mini App surface（不影响 Bot） | `true`（默认启用；仅显式 `false`/`0`/`no`/`off` 关闭） |
 | `MINIAPP_SESSION_SECRET` | Mini App session 签名密钥（≥32 字符，独立随机） | 生产 secret |
 | `MINIAPP_SESSION_TTL` | session 生命周期秒数（默认 1800，上限 43200） | `1800` |
 | `MINIAPP_PUBLIC_URL` | Mini App 公开 URL（chat 菜单按钮 / Inline Web App 按钮 / 频道 footer 的入口）；为空回退 `<WEBHOOK_URL>/app/` | `https://telesubmit.example.com/app/` |
 
-`MINIAPP_ENABLED=false` 只关闭 Mini App surface；Bot 与 API 完全不受影响，
+显式 `MINIAPP_ENABLED=false` 只关闭 Mini App surface；Bot 与 API 完全不受影响，
 这是上线安全开关（§152-§153）。
+注意：Bot 侧入口开关（`config/settings.MINIAPP_ENABLED`）与 session 认证开关
+（`telepost/miniapp/auth.init_data_enabled()`）共用同一份契约——**默认启用，仅显式关闭**。
+生产回归（v2.73.9）：此前 Bot 侧默认 `false` 而认证侧默认 `true`，两份默认值分叉导致
+Bot 私聊入口误报「Mini App 尚未启用」、同时小程序实际可用；现在两侧默认一致，不再分叉。
 当前投稿界面按审核流程工作；`MINIAPP_REVIEW_REQUIRED` 内置默认即为 `true`，且与 API 审核开关相互独立。
 
 ### 入口模型（§miniapp-entries，生产回归 m16459 后）
