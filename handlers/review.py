@@ -1607,6 +1607,17 @@ def _row_value(row, key, default=None):
     return default
 
 
+# §review-group-mask-pacing — Telegram enforces a per-chat edit budget. Firing
+# a whole album's `edit_message_media` calls back-to-back trips "Flood control
+# exceeded" and leaves most review-group previews unmasked — the root cause of
+# the reported “切换遮罩不生效”. Pace consecutive edits and serialize concurrent
+# toggles so every preview actually gains/loses its mask. Overridable for tests.
+_MASK_EDIT_PACE_SECONDS = float(
+    os.getenv("REVIEW_MASK_EDIT_PACE_SECONDS", "1.5")
+)
+_MASK_EDIT_LOCK = asyncio.Lock()
+
+
 async def _apply_review_group_mask(bot, row, mask_on: bool):
     """Re-edit every already-sent maskable preview message to flip spoiler.
 
@@ -1636,28 +1647,34 @@ async def _apply_review_group_mask(bot, row, mask_on: bool):
         logger.warning("解析审核群遮罩规格失败，跳过即时改掩: %s", error)
         return
     chat_id = _row_value(row, "review_chat_id") or REVIEW_CHAT_ID
-    for message_id, spec in zip(ids, specs):
-        if not spec or not isinstance(spec, dict):
-            continue
-        kind = spec.get("kind") or spec.get("type")
-        file_id = spec.get("file_id")
-        input_cls = _KIND_INPUT.get(kind)
-        if input_cls is None or not file_id:
-            continue
-        try:
-            await bot.edit_message_media(
-                chat_id=chat_id,
-                message_id=message_id,
-                media=input_cls(media=file_id, has_spoiler=mask_on),
-            )
-        except Exception as error:
-            # Production visibility: when the review-group previews never change
-            # on toggle, this is the line that tells us why (invalid message id,
-            # media no longer editable, album member restriction, permission…).
-            logger.warning(
-                "即时改掩失败 review_id=%s message=%s kind=%s: %s",
-                _row_value(row, "id"), message_id, kind, error, exc_info=True,
-            )
+    async with _MASK_EDIT_LOCK:
+        total = len(ids)
+        for index, (message_id, spec) in enumerate(zip(ids, specs)):
+            if not spec or not isinstance(spec, dict):
+                continue
+            kind = spec.get("kind") or spec.get("type")
+            file_id = spec.get("file_id")
+            input_cls = _KIND_INPUT.get(kind)
+            if input_cls is None or not file_id:
+                continue
+            try:
+                await bot.edit_message_media(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    media=input_cls(media=file_id, has_spoiler=mask_on),
+                )
+            except Exception as error:
+                # Production visibility: when the review-group previews never change
+                # on toggle, this is the line that tells us why (invalid message id,
+                # media no longer editable, album member restriction, permission…).
+                logger.warning(
+                    "即时改掩失败 review_id=%s message=%s kind=%s: %s",
+                    _row_value(row, "id"), message_id, kind, error, exc_info=True,
+                )
+            # Space edits so the flood controller does not drop later messages;
+            # the control-card refresh after this loop then runs cleanly too.
+            if index < total - 1 and _MASK_EDIT_PACE_SECONDS > 0:
+                await asyncio.sleep(_MASK_EDIT_PACE_SECONDS)
     if ids and not specs:
         logger.warning(
             "审核群无可改掩规格 review_id=%s messages=%d specs=0（预览可能未随遮罩变化）",
