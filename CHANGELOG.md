@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.73.10](https://github.com/redtidev1918/TelePost/compare/v2.73.9...v2.73.10) (2026-10-01)
+
+
+### Bug Fixes
+
+* **miniapp:** restore Bot entry capability and reviewer history surface ([654d76e](https://github.com/redtidev1918/TelePost/commit/654d76e61f16933acdc7c90779d7b32326509612))
+
 ## [2.73.9](https://github.com/redtidev1918/TelePost/compare/v2.73.8...v2.73.9) (2026-10-01)
 
 
