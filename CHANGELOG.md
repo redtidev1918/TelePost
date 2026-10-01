@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.73.7](https://github.com/redtidev1918/TelePost/compare/v2.73.6...v2.73.7) (2026-10-01)
+
+
+### Bug Fixes
+
+* **miniapp:** restore authenticated Mini App entry architecture ([6356221](https://github.com/redtidev1918/TelePost/commit/63562218e338be749775ad2e374af4c9e301c9a9))
+
 ## [2.73.4](https://github.com/redtidev1918/TelePost/compare/v2.73.3...v2.73.4) (2026-09-30)
 
 
