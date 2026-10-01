@@ -2,29 +2,26 @@
 
 **语言 / Language:** 中文 · [English](README.en.md)
 
-Telegram 频道投稿、审核与发布平台。
-
-[文档](https://redtidev1918.github.io/TelePost/) ·
-[Releases](https://github.com/redtidev1918/TelePost/releases)
-
 [![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
 
-TelePost 为 Telegram 频道提供投稿、审核、搜索和发布能力。用户可以通过 Bot 或 Mini App 投稿，外部程序可以通过 HTTP API 投递内容。
+> Telegram 频道投稿、审核与发布平台。
 
-## 功能
+用户可以从 **Bot** 或 **Mini App** 投稿，外部程序可以通过 **HTTP API** 投递内容；不同入口共用同一套流程。
 
-- Telegram Bot 投稿、预览、编辑和发布
-- Mini App 投稿、内容浏览和审核
-- 审核队列、编辑后发布、剧透等审核功能
-- 频道历史搜索、标签和投稿记录
-- HTTP API、Bearer Token 和幂等提交
-- 多 Bot 隔离运行
-- Polling、Webhook 和自动运行模式
-- SQLite 持久化，支持长期运行和重启恢复
+## ✨ 功能
 
-## 工作方式
+- **Bot 投稿** — 预览、编辑、发布，支持图片、视频、音频与文件
+- **Mini App** — 投稿、浏览内容、审核与后台管理
+- **审核队列** — 审核、编辑后发布、剧透等
+- **频道搜索** — 历史搜索、标签、投稿记录
+- **HTTP API** — Bearer Token、幂等提交，方便脚本与自动化
+- **多 Bot 隔离** — 一个进程运行多个互不干扰的 Bot
+- **灵活运行** — Polling / Webhook / 自动模式
+- **SQLite 持久化** — 长期稳定运行，重启可恢复
+
+## 🔁 工作方式
 
 ```text
 Telegram Bot ─────┐
@@ -32,56 +29,37 @@ Telegram Mini App ├──→ TelePost ──→ Telegram Channel
 HTTP API ─────────┘
 ```
 
-不同入口共用同一套投稿、审核和发布流程。
+投稿、审核和发布共用同一套流程；审核策略可按入口（Chat / Mini App / HTTP API）分别配置。
 
-审核策略可以分别配置。Telegram Chat 投稿、Mini App 投稿和 HTTP API 投稿不要求使用相同的审核设置。
+## 🚀 快速开始
 
-## 快速开始
+**四步跑起来：**
 
-### 运行 Release
+1. 用 [@BotFather](https://t.me/BotFather) 创建（或已有）一个 Bot
+2. 把 Bot 加进目标频道，并授予发帖权限
+3. 从 [Releases](https://github.com/redtidev1918/TelePost/releases) 下载对应平台版本
+4. 运行一次，按向导填写 **Bot Token**、**频道 ID**、**Owner ID**
 
-从 [Releases](https://github.com/redtidev1918/TelePost/releases) 下载对应平台版本。
-
-首次运行后配置：
-
-- Bot Token
-- 目标频道 ID
-- Owner ID
-
-然后向 Bot 发送：
-
-```text
-/start
-```
-
-使用：
-
-```text
-/submit
-```
-
-开始投稿。
-
-Linux 示例：
+Linux 首次启动：
 
 ```bash
 chmod +x telepost-linux-x64
 ./telepost-linux-x64
 ```
 
-### Docker
+启动后，向 Bot 发送 `/start`，再用 `/submit` 发布第一条投稿。
+
+**或使用 Docker：**
 
 ```bash
 docker compose up -d
 ```
 
-详细配置见[安装与部署](docs/INSTALL.md)。
+> 完整的安装、配置与升级步骤见 [安装与部署](docs/INSTALL.md)。
 
-## HTTP API
+## 🌐 HTTP API
 
-TelePost 提供 HTTP API 用于脚本和自动化服务。
-
-先在 Bot 中使用 `/gen_token` 创建 API Token，然后提交内容：
+方便脚本与自动化：先在 Bot 中用 `/gen_token` 生成 Token，再提交内容：
 
 ```bash
 curl -X POST 'https://example.com/api/v1/submissions' \
@@ -92,69 +70,45 @@ curl -X POST 'https://example.com/api/v1/submissions' \
   -F 'idempotency_key=example:123'
 ```
 
-完整接口和字段说明见 [HTTP API](docs/API.md)。
+完整接口与字段见 [HTTP API](docs/API.md)。
 
-TelePost 不依赖特定的上游程序。RSS、爬虫、CI、自有脚本，以及 PixivFlow 等工具都可以通过 HTTP API 接入。
+TelePost 不依赖特定上游程序。RSS、爬虫、CI、自有脚本，以及 PixivFlow 等工具都能通过 HTTP API 接入。
 
-## Mini App
+## 📱 Mini App
 
-Mini App 是 TelePost 的可选前端。
+Mini App 是可选前端：普通用户投稿、查看自己的投稿；审核员和管理员使用对应的审核与管理功能。
 
-普通用户可以使用 Mini App 投稿和查看自己的投稿；审核员和管理员可以使用对应的审核和管理功能。
+它与 Bot 共用 TelePost 后端和业务流程，不维护独立的数据或审核系统。配置见 [Mini App](docs/MINIAPP.md)。
 
-Mini App 与 Bot 共用 TelePost 后端和业务流程，不维护独立的数据或审核系统。
+## 🏢 多 Bot 与部署
 
-配置和部署方式见 [Mini App](docs/MINIAPP.md)。
+- **多 Bot**：一个进程运行多个相互隔离的 Bot，各自拥有独立的配置、数据目录与 Telegram 入口。
+- **部署环境**：本地服务器、VPS、Docker、Fly.io 或任何支持 Python / 容器的环境。
+- **运行模式**：没有公网 HTTPS 时用 **Polling**；需要接收 Webhook 时用 **Webhook** 模式。
 
-## 多 Bot
+详见 [安装与部署](docs/INSTALL.md) · [配置参考](docs/CONFIGURATION.md) · [Webhook](docs/WEBHOOK_MODE.md) · [Fly.io 部署](docs/FLYIO_DEPLOYMENT.md)。
 
-TelePost 支持在一个进程中运行多个相互隔离的 Bot。
+## 📚 文档
 
-每个 Bot 使用独立的配置、数据目录和 Telegram 入口。
+| 内容            | 文档                               |
+| ---------------- | ---------------------------------- |
+| 安装和升级       | [安装与部署](docs/INSTALL.md)          |
+| 配置             | [配置参考](docs/CONFIGURATION.md)      |
+| Telegram 命令    | [命令参考](docs/COMMANDS.md)           |
+| HTTP API         | [API 文档](docs/API.md)               |
+| Mini App         | [Mini App](docs/MINIAPP.md)           |
+| Webhook / Polling | [运行模式](docs/WEBHOOK_MODE.md)      |
+| 运维             | [运维手册](docs/OPERATIONS.md)         |
+| 故障排查          | [故障排查](docs/TROUBLESHOOTING.md)     |
+| 开发贡献          | [贡献指南](CONTRIBUTING.md)            |
 
-## 部署
+## 🔗 相关项目
 
-TelePost 可以运行在：
+- [PixivFlow](https://github.com/redtidev1918/PixivFlow) —— 独立的 Pixiv 内容下载与处理工具，可通过 TelePost HTTP API 投递内容。
+- [pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy) —— PixivFlow 与 TelePost 的组合部署与工作流配置。
 
-- 本地服务器
-- VPS
-- Docker
-- Fly.io
-- 其他支持 Python 或容器的环境
+以上均为可选集成，不是 TelePost 的运行依赖。
 
-没有公网 HTTPS 时可以使用 Polling。
-
-需要接收 Telegram Webhook 时使用 Webhook 模式。
-
-详见：
-
-- [安装与部署](docs/INSTALL.md)
-- [配置参考](docs/CONFIGURATION.md)
-- [Webhook](docs/WEBHOOK_MODE.md)
-- [Fly.io 部署](docs/FLYIO_DEPLOYMENT.md)
-
-## 相关项目
-
-[PixivFlow](https://github.com/redtidev1918/PixivFlow) 是独立的 Pixiv 内容下载与处理工具，可以通过 TelePost HTTP API 投递内容。
-
-[pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy) 提供 PixivFlow 与 TelePost 的组合部署和工作流配置。
-
-这些项目不是 TelePost 的运行依赖。
-
-## 文档
-
-| 内容            | 文档                          |
-| ---------------- | ----------------------------- |
-| 安装和升级       | [安装与部署](docs/INSTALL.md)     |
-| 配置             | [配置参考](docs/CONFIGURATION.md) |
-| Telegram 命令    | [命令参考](docs/COMMANDS.md)      |
-| HTTP API       | [API 文档](docs/API.md)          |
-| Mini App       | [Mini App](docs/MINIAPP.md)      |
-| Webhook / Polling | [运行模式](docs/WEBHOOK_MODE.md)  |
-| 运维              | [运维手册](docs/OPERATIONS.md)    |
-| 故障排查           | [故障排查](docs/TROUBLESHOOTING.md) |
-| 开发贡献           | [贡献指南](CONTRIBUTING.md)        |
-
-## 许可证
+## 📄 许可证
 
 [MIT License](LICENSE)
