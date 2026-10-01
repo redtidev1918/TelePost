@@ -8,7 +8,7 @@ import asyncio
 import platform
 import logging
 import os
-from telegram import Update, BotCommand, BotCommandScopeChat, BotCommandScopeDefault, MenuButtonDefault
+from telegram import Update, BotCommand, BotCommandScopeChat, BotCommandScopeDefault, MenuButtonDefault, MenuButtonWebApp, WebAppInfo
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -309,12 +309,35 @@ async def setup_bot_commands(application):
                 )
             except Exception:
                 logger.debug("无法为 admin %s 设置 chat scope（可能尚未私聊过）", admin_id)
-        # Chat 菜单按钮固定为默认命令菜单，不再挂 Mini App：
-        # 菜单栏入口的 WebView 在部分客户端不会可靠注入启动参数，
-        # 会误弹"请在 Telegram 中打开"，因此从菜单移除（键盘按钮入口仍可用）。
-        await application.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
-        logger.info("成功设置 %d 个命令；菜单按钮类型=%s",
-                    len(user_commands), type(MenuButtonDefault()).__name__)
+        # Chat 菜单按钮：Mini App 启用且可用时挂 MenuButtonWebApp，作为一个
+        # 可靠的 WebApp 启动入口（菜单按钮的 WebView 会注入 launch initData，
+        # 前端可据此建 session）。未启用 Mini App 或缺少公开 URL 时回退为
+        # 默认命令菜单。
+        # 注意（边界）：MenuButtonWebApp 只是 chat 菜单入口，**并不**等于
+        # Telegram 的 "Main Mini App"。`t.me/<bot>?startapp=` Deep Link 能否
+        # 直接启动 app 取决于 BotFather 单独配置的 Main Mini App，与本调用无关。
+        # Reply Keyboard 的 web_app 按钮（keyboardButtonSimpleWebView）不携带
+        # Telegram 用户身份，无法满足 AuthProvider 的 initData 校验，因此键盘
+        # 入口是普通文本按钮 → 回复 Inline Web App 按钮（见
+        # handlers.command_handlers.handle_menu_shortcuts）。
+        miniapp_url = None
+        try:
+            from ui.keyboards import Keyboards
+            miniapp_url = Keyboards._miniapp_url()
+        except Exception:
+            logger.debug("读取 Mini App URL 失败，菜单按钮回退默认命令菜单", exc_info=True)
+        if miniapp_url:
+            menu_button = MenuButtonWebApp(
+                text="📱 Mini App",
+                web_app=WebAppInfo(url=miniapp_url),
+            )
+            logger.info("成功设置 %d 个命令；菜单按钮=MenuButtonWebApp(%s)",
+                        len(user_commands), miniapp_url)
+        else:
+            menu_button = MenuButtonDefault()
+            logger.info("成功设置 %d 个命令；菜单按钮类型=MenuButtonDefault",
+                        len(user_commands))
+        await application.bot.set_chat_menu_button(menu_button=menu_button)
     except Exception as e:
         logger.error(f"设置命令菜单失败: {e}", exc_info=True)
 

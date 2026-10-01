@@ -25,12 +25,19 @@ async def test_shutdown_completes_without_stopping_event_loop():
     application.shutdown.assert_awaited_once()
 
 
-async def test_setup_bot_commands_sets_default_menu_button():
-    """Regression: setup_bot_commands must run to completion and set the
-    default (non-Mini App) chat menu button. It previously aborted on
-    `from utils.blacklist import ADMIN_IDS` (ADMIN_IDS lives in
-    config.settings), so set_chat_menu_button was never reached and the old
-    Mini App web_app button persisted in production."""
+async def test_setup_bot_commands_menu_button_state(monkeypatch):
+    """Regression: setup_bot_commands must run to completion and set the chat
+    menu button to a WebApp URL whenever the Mini App is configured, so that
+    ``t.me/<bot>?startapp=`` Deep Links keep their Main Mini App association.
+
+    It previously aborted on `from utils.blacklist import ADMIN_IDS` (ADMIN_IDS
+    lives in config.settings), so set_chat_menu_button was never reached. When
+    later reached with a hard-coded MenuButtonDefault, it stripped the platform
+    WebApp association, breaking ?startapp and WebView launch-param injection.
+
+    Two states must hold:
+      * MINIAPP_ENABLED=True + public URL  -> MenuButtonWebApp (restores Mini App)
+      * MINIAPP_ENABLED=False               -> MenuButtonDefault"""
     set_my_commands = AsyncMock()
     set_chat_menu_button = AsyncMock()
     application = SimpleNamespace(
@@ -45,9 +52,30 @@ async def test_setup_bot_commands_sets_default_menu_button():
         mp.setattr("config.settings.OWNER_ID", 123456789)
         mp.setattr("config.settings.ADMIN_IDS", [123456789, 987654321])
 
+        # State 1: Mini App enabled -> MenuButtonWebApp with bot=bot1 URL
+        # (default TELEPOST_BOT_INDEX is "1").
+        mp.setattr("config.settings.MINIAPP_ENABLED", True)
+        mp.setattr("config.settings.MINIAPP_PUBLIC_URL",
+                   "https://telesubmit.test/app/")
+
         await main.setup_bot_commands(application)
 
     assert set_my_commands.await_count >= 2  # default scope + at least 1 admin chat
     set_chat_menu_button.assert_awaited_once()
     kwargs = set_chat_menu_button.call_args.kwargs
-    assert isinstance(kwargs.get("menu_button"), main.MenuButtonDefault)
+    btn = kwargs.get("menu_button")
+    assert isinstance(btn, main.MenuButtonWebApp)
+    assert btn.web_app.url == "https://telesubmit.test/app?bot=bot1"
+
+    # State 2: Mini App disabled -> plain default command menu.
+    set_chat_menu_button.reset_mock()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("config.settings.OWNER_ID", 123456789)
+        mp.setattr("config.settings.ADMIN_IDS", [123456789, 987654321])
+        mp.setattr("config.settings.MINIAPP_ENABLED", False)
+        mp.setattr("config.settings.MINIAPP_PUBLIC_URL",
+                   "https://telesubmit.test/app/")
+        await main.setup_bot_commands(application)
+    set_chat_menu_button.assert_awaited_once()
+    assert isinstance(set_chat_menu_button.call_args.kwargs.get("menu_button"),
+                     main.MenuButtonDefault)

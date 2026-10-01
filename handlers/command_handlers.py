@@ -151,6 +151,28 @@ async def handle_menu_shortcuts(update: Update, context: CallbackContext) -> Non
         elif text.endswith("帮助"):
             await help_command(update, context)
             handled = True
+        # Mini App：Reply Keyboard 的「📱 Mini App」是普通文本按钮，点击后
+        # 回复一个 Inline Web App 按钮，再由此进入 authenticated Mini App。
+        # 绝不直接挂 KeyboardButton.web_app（Simple WebView 不带用户身份）。
+        elif text.endswith("Mini App"):
+            markup = None
+            try:
+                markup = Keyboards.miniapp_launch()
+            except Exception:
+                logger.exception("生成 Mini App 入口失败")
+            if markup is not None:
+                await update.message.reply_text(
+                    "📱 点击下方按钮打开 Mini App 投稿。",
+                    parse_mode="HTML",
+                    reply_markup=markup,
+                )
+                handled = True
+            else:
+                await update.message.reply_text(
+                    "ℹ️ Mini App 尚未启用，请用 /submit 或直接发送内容投稿。",
+                    parse_mode="HTML",
+                )
+                handled = True
         # 关于
         elif text.endswith("关于"):
             await update.message.reply_text(MessageFormatter.about_message(), parse_mode="HTML")
