@@ -960,6 +960,12 @@ class _LegacyDeliveryPort:
             return result
 
         fallback_chat = getattr(getattr(raw_main, "chat", None), "id", None)
+        logger.info(
+            "[delivery] spoiler=%s items=%d sent_messages=%d first_message_id=%s",
+            request.spoiler, len(list(request.items)),
+            len(raw_messages),
+            raw_messages[0].message_id if raw_messages else None,
+        )
         messages = [
             DeliveredMessage(
                 chat_id=getattr(getattr(m, "chat", None), "id", None) or fallback_chat

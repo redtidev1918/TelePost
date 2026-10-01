@@ -1651,9 +1651,18 @@ async def _apply_review_group_mask(bot, row, mask_on: bool):
                 media=input_cls(media=file_id, has_spoiler=mask_on),
             )
         except Exception as error:
-            logger.debug(
-                "即时改掩失败 message=%s: %s", message_id, error, exc_info=True
+            # Production visibility: when the review-group previews never change
+            # on toggle, this is the line that tells us why (invalid message id,
+            # media no longer editable, album member restriction, permission…).
+            logger.warning(
+                "即时改掩失败 review_id=%s message=%s kind=%s: %s",
+                _row_value(row, "id"), message_id, kind, error, exc_info=True,
             )
+    if ids and not specs:
+        logger.warning(
+            "审核群无可改掩规格 review_id=%s messages=%d specs=0（预览可能未随遮罩变化）",
+            _row_value(row, "id"), len(ids),
+        )
 
 
 # ---- callback handlers ----------------------------------------------------

@@ -344,6 +344,33 @@ def _schedule_durable_audit(action: str, review_id: int, actor: Any,
         pass
 
 
+def _as_list(raw) -> list:
+    """Parse a JSON array column (media_json/documents_json) leniently."""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return raw
+    try:
+        value = json.loads(raw)
+        return value if isinstance(value, list) else []
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+
+
+async def _channel_link(message_id) -> str:
+    """Channel t.me link for a published review message (mirrors the publish
+    adapter's ``_link_of``). Empty message id → empty link (callers `or ''` it).
+    """
+    if not message_id:
+        return ""
+    from config.settings import CHANNEL_ID
+
+    channel = str(CHANNEL_ID)
+    if channel.startswith("@"):
+        return f"https://t.me/{channel.lstrip('@')}/{int(message_id)}"
+    return f"https://t.me/c/{channel.replace('-100', '')}/{int(message_id)}"
+
+
 async def _record_review_event(event: str, row, actor: Any, *,
                                error_class: Optional[str] = None,
                                detail: Optional[Dict[str, Any]] = None) -> None:
@@ -816,9 +843,16 @@ class ReviewService:
                     "publish.duplicate_suppressed", row, actor,
                     detail={"reuse_reason": "already_published"},
                 )
+                # Late/duplicate approve click: the channel message already
+                # exists. Surface a real publish link (from the recorded channel
+                # message id) instead of a link-less "✅ 已发布" — a previous
+                # attempt may have delivered the album while its callback reply
+                # was lost, and the reviewer only ever sees this idempotent
+                # echo of the publish.
                 return ActionResult(
                     review_id, "published", True,
-                    row["published_message_id"], None,
+                    row["published_message_id"],
+                    await _channel_link(row["published_message_id"]),
                 )
             if row["status"] == "publishing":
                 raise ReviewBusyError(
@@ -831,6 +865,11 @@ class ReviewService:
             raise ReviewStateError(f"该投稿当前状态：{row['status']}")
 
         current_spoiler = bool(row["spoiler"]) if spoiler is None else bool(spoiler)
+        logger.info(
+            "[review:publish] claim id=%s claimed=%s spoiler=%s media=%d docs=%d",
+            review_id, True, current_spoiler,
+            len(_as_list(row["media_json"])), len(_as_list(row["documents_json"])),
+        )
         if on_claim is not None:
             try:
                 await on_claim(row)
@@ -856,6 +895,11 @@ class ReviewService:
                 retry_hint=self.failure_hint(error),
                 original=error,
             )
+
+        logger.info(
+            "[review:publish] done id=%s message_id=%s link=%r",
+            review_id, result.get("message_id"), result.get("link"),
+        )
 
         # Guarded terminal transition: a stale reclaim racing this late writer
         # cannot be clobbered – if we no longer own the claim, the row was

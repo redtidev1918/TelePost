@@ -128,6 +128,27 @@ async def test_publish_failure_marks_failed_and_is_retryable(service_db):
 
 
 @pytest.mark.asyncio
+async def test_approve_already_published_returns_channel_link(service_db, monkeypatch):
+    """A duplicate approve click on an already-published review must echo a real
+    channel link (the album may already be live while the original callback
+    reply was lost), never a link-less success."""
+    await _insert_review(review_id=2, status="published")
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "UPDATE pending_reviews SET published_message_id=? WHERE id=?",
+            (3146, 2),
+        )
+    monkeypatch.setattr("config.settings.CHANNEL_ID", "@xgdShare")
+    service = ReviewService()
+
+    result = await service.approve(AsyncMock(), 2, actor=1)
+
+    assert result.status == "published"
+    assert result.message_id == 3146
+    assert result.link == "https://t.me/xgdShare/3146"
+
+
+@pytest.mark.asyncio
 async def test_reject_spoiler_and_invalid_transitions(service_db):
     await _insert_review()
     bot = AsyncMock()
