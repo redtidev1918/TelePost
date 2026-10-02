@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.73.12](https://github.com/redtidev1918/TelePost/compare/v2.73.11...v2.73.12) (2026-10-02)
+
+
+### Bug Fixes
+
+* **preview:** bridge TelePost media-proxy config into in-process TelePress ([#269](https://github.com/redtidev1918/TelePost/issues/269)) ([588a1fa](https://github.com/redtidev1918/TelePost/commit/588a1faf2954157624eab20d452f4cdb422d1d17))
+
 ## [2.73.11](https://github.com/redtidev1918/TelePost/compare/v2.73.10...v2.73.11) (2026-10-02)
 
 
