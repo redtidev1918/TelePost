@@ -127,6 +127,9 @@ curl -X POST 'https://example.com/api/bot1/v1/submissions' \
 | `spoiler` | no | Same as above |
 | `idempotency_key` | strongly recommended | Up to 240; prevents duplicate queueing in review mode and duplicate posting in direct mode (safe retry on ACK loss) |
 | `target_id` | no | Up to 120; identifies the automation source in review mode, for targeted refetch |
+| `work_type` | no | `illustration` / `novel` / empty; work type, participates in same-work dedup |
+| `work_id` | no | Up to 32; source-neutral work identifier (canonical), participates in same-work dedup; wins when both fields are sent |
+| `pixiv_id` | no | Deprecated: compatibility alias of `work_id`, kept for legacy callers |
 | `source_label` | no | Up to 80; human-readable source label (e.g. `PixivFlow · 每日推荐`). Shown on the review control card; TelePost does not parse its meaning; hidden by default |
 | `source_ref` | no | Up to 160; machine-readable, stable source reference (e.g. upstream job/execution id). For archival/troubleshooting only; TelePost does not interpret its structure |
 | `scheduled_at` | no | Up to 40; scheduled time (ISO-8601). For source display/troubleshooting only; TelePost does not schedule based on it |
@@ -299,7 +302,7 @@ a second channel message; the response is HTTP 200 with:
 | reuse_reason | Meaning |
 |---|---|
 | `idempotent_replay` | A retry with the same `idempotency_key` (typical: ACK lost). The returned `message_id` is the one from the first publish; there is only one message in the channel. |
-| `duplicate_existing` | A different `idempotency_key` (new slot/trigger), but the same work (target+type+pixiv_id) was already published within the dedup window by **another intent**. No new message is created; `matched_idempotency_key` points to the earlier one. |
+| `duplicate_existing` | A different `idempotency_key` (new slot/trigger), but the same work (target + work_type + work_id, formerly pixiv_id) was already published within the dedup window by **another intent**. No new message is created; `matched_idempotency_key` points to the earlier one. |
 
 ### Review mode (fixed for API tokens; Mini App with `MINIAPP_REVIEW_REQUIRED=true`)
 
