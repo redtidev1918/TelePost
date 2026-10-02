@@ -7,8 +7,9 @@ One business command, two presentation surfaces:
 
 Both call :func:`request_refetch`, which owns the full durable workflow:
 review-state gate, chain/generation resolution, one-active-attempt admission
-(data-layer enforced), remote PixivFlow submission, and remote-accepted
-transition. This module never touches PTB or aiohttp.
+(data-layer enforced), remote producer submission (today: PixivFlow via the
+``pixivflow_jobs`` port), and remote-accepted transition. This module never
+touches PTB or aiohttp.
 """
 from __future__ import annotations
 
@@ -201,7 +202,7 @@ async def request_refetch(
     )
 
     # Remote submission is async: the endpoint answers once the attempt is
-    # DURABLE (requested), not once PixivFlow accepts (may be sleeping).
+    # DURABLE (requested), not once the producer accepts (may be sleeping).
     async def _do_refetch():
         # The remote submitter is the *handlers.review* module-level seam
         # (kept patchable: tests/deployments replace
@@ -420,11 +421,12 @@ def _default_submit_pixivflow_refetch(target_id: str, request_id: str,
                                       correlation_id: str = "") -> dict:
     """Fallback remote submitter when ``handlers.review`` is not importable.
 
-    It DELEGATES to the PixivFlow job port instead of assembling a URL: the port
-    (``telepost/application/pixivflow_jobs.py``) is the only module allowed to
-    know the remote route/field shape. Building a second HTTP client here was a
-    boundary violation (Workflow Protocol v1 §boundary discipline) — the port is
-    also where ``PIXIVFLOW_REFETCH_BASE_URL``/``PIXIVFLOW_REFETCH_TOKEN`` are read.
+    It DELEGATES to the producer job port instead of assembling a URL: the port
+    (``telepost/application/pixivflow_jobs.py`` — name frozen for compatibility)
+    is the only module allowed to know the remote route/field shape. Building a
+    second HTTP client here was a boundary violation (Workflow Protocol v1
+    §boundary discipline) — the port is also where
+    ``PIXIVFLOW_REFETCH_BASE_URL``/``PIXIVFLOW_REFETCH_TOKEN`` are read.
     """
     from telepost.application import pixivflow_jobs as pixivflow_jobs_port
 
