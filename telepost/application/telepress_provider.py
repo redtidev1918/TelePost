@@ -124,6 +124,29 @@ def telepress_available() -> bool:
     return True
 
 
+def _project_media_proxy_env() -> None:
+    """Mirror TelePost's media-proxy config into the in-process TelePress library.
+
+    TelePress reads ``TELEPRESS_MEDIA_PROXY_BASE`` / ``TELEPRESS_MEDIA_PROXY_HOSTS``
+    from the environment at publish time, while TelePost's single source of truth
+    is ``MEDIA_PROXY_BASE_URL`` / ``MEDIA_PROXY_HOSTS`` (shared with the delivery
+    planner). Projecting them here keeps one config source so the embedded
+    library can never silently skip the proxy rewrite again (production incident:
+    rich novel previews published without any image). An explicit
+    ``TELEPRESS_MEDIA_PROXY_*`` env always wins over the projection.
+    """
+    try:
+        from config.settings import MEDIA_PROXY_BASE_URL, MEDIA_PROXY_HOSTS
+    except Exception:  # config unavailable — keep the library defaults
+        return
+    base = str(MEDIA_PROXY_BASE_URL or "").strip()
+    if base and not os.getenv("TELEPRESS_MEDIA_PROXY_BASE", "").strip():
+        os.environ["TELEPRESS_MEDIA_PROXY_BASE"] = base
+    hosts = sorted(h for h in (MEDIA_PROXY_HOSTS or ()) if h)
+    if hosts and not os.getenv("TELEPRESS_MEDIA_PROXY_HOSTS", "").strip():
+        os.environ["TELEPRESS_MEDIA_PROXY_HOSTS"] = ",".join(hosts)
+
+
 def build_telepress_provider(token: str,
                              *, client_factory: Optional[_PublisherFactory] = None
                              ) -> Optional[TelePressNovelPreviewPublisher]:
@@ -138,5 +161,6 @@ def build_telepress_provider(token: str,
     if client_factory is None and not telepress_available():
         logger.info("novel preview disabled: telepress is not installed")
         return None
+    _project_media_proxy_env()
     return TelePressNovelPreviewPublisher(str(token).strip(),
                                           client_factory=client_factory)
