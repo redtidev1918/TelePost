@@ -775,3 +775,67 @@ def test_provider_builder_is_disabled_without_a_token():
 
     assert build_telepress_provider("") is None
     assert build_telepress_provider("   ") is None
+
+
+# ---- media-proxy env bridge (TelePost config -> in-process TelePress) ------
+# Regression guard: production configured only MEDIA_PROXY_BASE_URL /
+# MEDIA_PROXY_HOSTS while the TelePress library reads TELEPRESS_MEDIA_PROXY_*,
+# so proxy rewriting was silently skipped and Telegraph dropped every inline
+# image (text-only 在线阅读 pages). The bridge must map once, never override,
+# and never crash the enrichment path.
+
+def test_bridge_maps_telepost_config_into_telepress_env(monkeypatch):
+    import os
+    import config.settings as settings
+    from telepost.application.telepress_provider import _bridge_media_proxy_env
+
+    monkeypatch.delenv("TELEPRESS_MEDIA_PROXY_BASE", raising=False)
+    monkeypatch.delenv("TELEPRESS_MEDIA_PROXY_HOSTS", raising=False)
+    monkeypatch.setattr(settings, "MEDIA_PROXY_BASE_URL", "https://media.example.com")
+    monkeypatch.setattr(settings, "MEDIA_PROXY_HOSTS", frozenset({"b.example.com", "i.pximg.net"}))
+
+    _bridge_media_proxy_env()
+
+    assert os.environ["TELEPRESS_MEDIA_PROXY_BASE"] == "https://media.example.com"
+    assert os.environ["TELEPRESS_MEDIA_PROXY_HOSTS"] == "b.example.com,i.pximg.net"
+
+
+def test_bridge_never_overrides_explicit_telepress_env(monkeypatch):
+    import os
+    import config.settings as settings
+    from telepost.application.telepress_provider import _bridge_media_proxy_env
+
+    monkeypatch.setenv("TELEPRESS_MEDIA_PROXY_BASE", "https://explicit.example.com")
+    monkeypatch.setenv("TELEPRESS_MEDIA_PROXY_HOSTS", "explicit.example.com")
+    monkeypatch.setattr(settings, "MEDIA_PROXY_BASE_URL", "https://media.example.com")
+    monkeypatch.setattr(settings, "MEDIA_PROXY_HOSTS", frozenset({"i.pximg.net"}))
+
+    _bridge_media_proxy_env()
+
+    assert os.environ["TELEPRESS_MEDIA_PROXY_BASE"] == "https://explicit.example.com"
+    assert os.environ["TELEPRESS_MEDIA_PROXY_HOSTS"] == "explicit.example.com"
+
+
+def test_bridge_is_noop_without_telepost_config(monkeypatch):
+    import os
+    import config.settings as settings
+    from telepost.application.telepress_provider import _bridge_media_proxy_env
+
+    monkeypatch.delenv("TELEPRESS_MEDIA_PROXY_BASE", raising=False)
+    monkeypatch.delenv("TELEPRESS_MEDIA_PROXY_HOSTS", raising=False)
+    monkeypatch.setattr(settings, "MEDIA_PROXY_BASE_URL", "")
+    monkeypatch.setattr(settings, "MEDIA_PROXY_HOSTS", frozenset())
+
+    _bridge_media_proxy_env()
+
+    assert "TELEPRESS_MEDIA_PROXY_BASE" not in os.environ
+    assert "TELEPRESS_MEDIA_PROXY_HOSTS" not in os.environ
+
+
+def test_bridge_survives_unreadable_config(monkeypatch):
+    import sys
+    from telepost.application.telepress_provider import _bridge_media_proxy_env
+
+    monkeypatch.setitem(sys.modules, "config.settings", None)  # import raises
+
+    _bridge_media_proxy_env()  # must not raise — enrichment stays best-effort
