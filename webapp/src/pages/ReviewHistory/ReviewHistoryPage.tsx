@@ -1,16 +1,8 @@
 import { useBotNavigate } from '../../lib/useBotNavigate';
+import { reviewStatusLabel } from '../../lib/reviewStatus';
 import { Cell, Section, Spinner } from '@telegram-apps/telegram-ui';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { fetchReviewHistory, ReviewSummary } from '../../api/reviews';
-
-/** User-facing review outcome labels; DB states never leak verbatim. */
-const HISTORY_LABELS: Record<string, string> = {
-  published: '已发布',
-  rejected: '已拒绝',
-  failed: '失败',
-  expired: '已过期',
-  superseded: '已被替换',
-};
 
 /**
  * 审核历史 (§history): the reviewer's read-only history of terminal review
@@ -50,7 +42,7 @@ export function ReviewHistoryPage() {
           onClick={() => navigate(`/review/${item.review_id}`)}
           subtitle={
             <>
-              {(HISTORY_LABELS[item.status] || item.status)}
+              {reviewStatusLabel(item.status)}
               {item.tags.length ? ` · ${item.tags.slice(0, 3).join(' ')}` : ''}
               {item.media_count ? ` · 📎 ${item.media_count}` : ''}
               {item.spoiler ? ' · 🫥' : ''}
