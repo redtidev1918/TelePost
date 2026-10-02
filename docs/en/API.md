@@ -56,7 +56,7 @@ Each botN subprocess reports **its own** bot identity and real release identity 
   "data": {
     "bot": "bot1",
     "service": "telepost",
-    "version": "2.76.1",
+    "version": "2.76.2",
     "commit": "…",
     "build_date": "…"
   }
