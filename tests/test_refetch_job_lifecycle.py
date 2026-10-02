@@ -580,14 +580,14 @@ async def test_thousand_attempts_all_reach_a_reported_terminal_state(
     # One bounded injected clock: T, T+5s, T+16min, T+31min, then two more
     # ticks that must NOT notify anybody a second time.
     ticks = [0, 5, 16 * 60, 31 * 60, 32 * 60, 33 * 60]
-    started = time.time()
     for offset in ticks:
         await review.poll_refetch_jobs(bot, now=base + offset)
-    elapsed = time.time() - started
-    # Gross hanging-guard only, not a perf benchmark: the 1000 machine rows and
-    # the injected-clock poll run in ~11s on a quiet machine but public CI
-    # runners are often CPU-starved (observed 58-75s) while still correct.
-    assert elapsed < 120, f"stress run took {elapsed:.1f}s (target < 120s)"
+    # Deterministic by construction: the lifecycle clock is injected
+    # (``now=base + offset``), so correctness is proven by the state
+    # assertions below, never by wall-clock timing. The previous stopwatch
+    # guard (``elapsed < 30``, later ``< 120``) flaked on CPU-starved CI
+    # runners while the run was still correct; hang protection belongs to
+    # the CI job-level timeout, not an in-test stopwatch.
 
     async with db_manager.get_db() as conn:
         cur = await conn.execute("SELECT request_id, state, terminal_reason, "
