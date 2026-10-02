@@ -13,8 +13,10 @@ People can submit from the **Bot** or the **Mini App**, and external programs ca
 ## ✨ Features
 
 - **Bot submissions** — preview, edit, publish; images, video, audio, and files
-- **Mini App** — submit, browse content, moderate, and manage
+- **Mini App** — submit, browse content, moderate, and manage; the empty review queue links to recently processed items and review history
 - **Review queue** — review, edit-before-publish, and spoiler moderation
+- **Novel online reading** — TXT novels can optionally ship a Telegraph reading page, and the channel post carries an Instant View preview card for one-tap reading
+- **Media proxy rewriting** — restricted image-host URLs can be rewritten through a self-hosted public reverse proxy before delivery
 - **Channel search** — history search, tags, and submission records
 - **HTTP API** — Bearer tokens and idempotent submissions for scripts and automation
 - **Multi-bot isolation** — run multiple independent bots in one process
