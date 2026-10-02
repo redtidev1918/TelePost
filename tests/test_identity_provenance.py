@@ -87,7 +87,7 @@ async def _queue_replacement(bot, request_id, pixiv_id="222", key="repl-key"):
         tags="#pixiv", title="New candidate",
         link=f"https://www.pixiv.net/artworks/{pixiv_id}",
         user_id=7, username="pixivflow",
-        target_id="target-a", work_type="illustration", pixiv_id=pixiv_id,
+        target_id="target-a", work_type="illustration", work_id=pixiv_id,
         idempotency_key=key, source="api",
         refetch_request_id=request_id,
         submitter_user_id=None, submitter_username="",
@@ -112,7 +112,7 @@ async def test_service_submission_never_owned(monkeypatch, tmp_path):
         user_id=5073758941, username="pixivflow",  # token-bound admin as ACTOR
         idempotency_key="svc-1", source="api",
         target_id="bot1-illust-botefuku", work_type="illustration",
-        pixiv_id="149000001",
+        work_id="149000001",
         submitter_user_id=None, submitter_username="",
         actor_kind="service", actor_subject="api_token:1",
     )

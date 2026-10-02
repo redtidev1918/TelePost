@@ -94,7 +94,10 @@ class PublishCommand:
     idempotency_key: str = ""
     target_id: str = ""
     work_type: str = ""
-    pixiv_id: str = ""
+    # Source-neutral work identifier (wire field ``work_id``; legacy
+    # ``pixiv_id`` payloads are mapped by the API layer). Storage keeps the
+    # ``pixiv_id`` column — see telepost/storage/sqlite/columns.py.
+    work_id: str = ""
     reply_mode: object = None         # domain ReplyMode; default CHAIN
     reply_to_message_id: Optional[int] = None
     album_size: int = MEDIA_GROUP_CAPACITY
@@ -175,7 +178,7 @@ class PublicationService:
         from ..domain.delivery import ReplyMode
         from ..telegram.delivery.planner import plan_delivery
 
-        pid = (command.pixiv_id or "").strip()
+        pid = (command.work_id or "").strip()
         event_fields = self._event_fields(command, key)
         # Review-approved publishes use review:<id>:<original> keys. Their
         # publish.* audit is owned by ReviewService (which keeps the durable
@@ -453,7 +456,9 @@ class PublicationService:
             review_id = int(parts[1])
         return {
             "review_id": review_id,
-            "pixiv_id": (command.pixiv_id or "").strip() or None,
+            # Audit payloads keep the historical pixiv_id key (persisted
+            # schema); the value is the source-neutral work_id.
+            "pixiv_id": (command.work_id or "").strip() or None,
             "work_type": command.work_type or None,
             "target_id": command.target_id or None,
             "idempotency_key": key or None,

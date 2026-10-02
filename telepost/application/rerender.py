@@ -216,7 +216,7 @@ async def request_rerender(
             source_ref=target.get("source_ref") or "",
             scheduled_at=target.get("scheduled_at") or "",
             work_type=target.get("work_type") or "",
-            pixiv_id=target.get("pixiv_id") or "",
+            work_id=target.get("pixiv_id") or "",
             submitter_user_id=int(target.get("submitter_user_id") or 0) or None,
             submitter_username=target.get("submitter_username") or "",
             submitter_display_name=target.get("submitter_display_name") or "",

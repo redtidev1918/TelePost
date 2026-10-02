@@ -178,7 +178,7 @@ def _command(items, key="pixivflow:bot1:novel:1:slot:t1", *, title="原稿标题
         idempotency_key=key,
         target_id="bot1-novel",
         work_type="novel",
-        pixiv_id="12345",
+        work_id="12345",
     )
 
 

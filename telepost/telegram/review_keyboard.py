@@ -6,13 +6,13 @@ from typing import Optional, Tuple
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from ..application.review_queue import pixiv_id_from_link
+from ..application.review_queue import work_id_from_link
 from ..domain.presentation import submitter_display
 
 
 def review_keyboard(review_id: int, link: str = "", *,
                     spoiler: bool = False, source: str = "api",
-                    pixiv_id: str = "", failed: bool = False,
+                    work_id: str = "", failed: bool = False,
                     submitter_user_id=None, actor_kind: str = "user",
                     actor_subject: str = "") -> InlineKeyboardMarkup:
     approve_label = "🔄 重试发布" if failed else "✅ 发布到频道"
@@ -26,7 +26,7 @@ def review_keyboard(review_id: int, link: str = "", *,
             callback_data=f"review_spoiler:{review_id}",
         ),
     ])
-    if source == "api" and pixiv_id:
+    if source == "api" and work_id:
         rows[-1].append(
             InlineKeyboardButton(
                 "🔄 重抓/换一张",
@@ -238,7 +238,7 @@ def control_card_from_row(row) -> Tuple[str, InlineKeyboardMarkup]:
         command.link,
         spoiler=bool(command.spoiler),
         source=command.source,
-        pixiv_id=(command.pixiv_id or pixiv_id_from_link(command.link or "")),
+        work_id=(command.work_id or work_id_from_link(command.link or "")),
         failed=(row["status"] == "failed"
                 if "status" in _row_keys(row) else False),
         submitter_user_id=command.submitter_user_id,

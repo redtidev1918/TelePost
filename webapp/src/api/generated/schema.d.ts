@@ -186,6 +186,12 @@ export interface paths {
                         idempotency_key?: string;
                         target_id?: string;
                         work_type?: string;
+                        /** @description Source-neutral work id (canonical) */
+                        work_id?: string;
+                        /**
+                         * @deprecated
+                         * @description Deprecated alias of work_id
+                         */
                         pixiv_id?: string;
                         /** Format: uuid */
                         refetch_request_id?: string;
@@ -275,7 +281,13 @@ export interface paths {
                 query: {
                     target?: string;
                     work_type: "illustration" | "novel";
-                    pixiv_id: string;
+                    /** @description Canonical work id. Either work_id or pixiv_id is required. */
+                    work_id?: string;
+                    /**
+                     * @deprecated
+                     * @description Deprecated alias of work_id; used when work_id is absent.
+                     */
+                    pixiv_id?: string;
                 };
                 header?: never;
                 path?: never;
@@ -295,7 +307,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Missing work_type/pixiv_id */
+                /** @description Missing work_type or work id (work_id/pixiv_id) */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -1856,6 +1868,12 @@ export interface components {
             target_id?: string;
             /** @enum {string} */
             work_type?: "illustration" | "novel" | "";
+            /** @description Source-neutral work identifier (canonical). Wins when both fields are sent. */
+            work_id?: string;
+            /**
+             * @deprecated
+             * @description Deprecated alias of work_id; kept for legacy producers.
+             */
             pixiv_id?: string;
             source_label?: string;
             source_ref?: string;
@@ -1873,6 +1891,13 @@ export interface components {
         DeliveryLookup: {
             /** @enum {string} */
             source?: "review" | "direct_publish" | "none";
+            /** @description Canonical source-neutral work id */
+            work_id?: string;
+            /**
+             * @deprecated
+             * @description Same value as work_id; kept for legacy callers
+             */
+            pixiv_id?: string;
             message_id?: number | null;
             idempotency_key?: string | null;
             decided_at?: number | null;

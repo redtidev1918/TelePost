@@ -103,7 +103,7 @@ async def test_case1_real_cover_root_and_txt_reply(monkeypatch, tmp_path, isolat
         bot, [], TXT_DOC,
         media_assets=[COVER_ASSET],
         tags="tag1 tag2", title="封面小说",
-        user_id=7, username="u", work_type="novel", pixiv_id="9",
+        user_id=7, username="u", work_type="novel", work_id="9",
     )
     assert bot.send_photo.await_count == 1, "cover must be the visual root"
     assert bot.send_document.await_count == 1, "TXT ships as the document reply"
@@ -127,7 +127,7 @@ async def test_case2_fallback_card_root_and_temp_cleaned(monkeypatch, tmp_path, 
         bot, [], TXT_DOC,
         media_assets=[*INLINE_ASSETS[:3]],
         tags="tag1", title="无封面小说",
-        user_id=7, username="u", work_type="novel", pixiv_id="9",
+        user_id=7, username="u", work_type="novel", work_id="9",
     )
     assert bot.send_photo.await_count == 1, "fallback card is the root"
     assert bot.send_document.await_count == 1
@@ -147,7 +147,7 @@ async def test_case3_fallback_disabled_keeps_text_only_root(monkeypatch, tmp_pat
         bot, [], TXT_DOC,
         media_assets=[*INLINE_ASSETS[:3]],
         title="无封面小说", user_id=7, username="u",
-        work_type="novel", pixiv_id="9",
+        work_type="novel", work_id="9",
     )
     assert bot.send_photo.await_count == 0
     assert bot.send_document.await_count == 1
@@ -160,7 +160,7 @@ async def test_case4_cover_plus_inline_only_sends_cover(monkeypatch, tmp_path, i
         bot, [], TXT_DOC,
         media_assets=[COVER_ASSET] + INLINE_ASSETS,
         title="带插图小说", user_id=7, username="u",
-        work_type="novel", pixiv_id="9",
+        work_type="novel", work_id="9",
     )
     assert bot.send_photo.await_count == 1, "inline images never join the channel"
     assert bot.send_document.await_count == 1
@@ -174,7 +174,7 @@ async def test_case5_card_failure_degrades_to_text_root(monkeypatch, tmp_path, i
         bot, [], TXT_DOC,
         media_assets=[*INLINE_ASSETS[:3]],
         title="卡片失败小说", user_id=7, username="u",
-        work_type="novel", pixiv_id="9",
+        work_type="novel", work_id="9",
     )
     assert bot.send_photo.await_count == 0, "failed card must not fail delivery"
     assert bot.send_document.await_count == 1
@@ -187,7 +187,7 @@ async def test_case6_txt_only_is_never_empty(monkeypatch, tmp_path, isolated_db)
     result = await publish.publish_from_file_ids(
         bot, [], TXT_DOC,
         title="纯文本小说", user_id=7, username="u",
-        work_type="novel", pixiv_id="9",
+        work_type="novel", work_id="9",
     )
     assert result.get("message_id"), "TXT-only delivery must still publish"
     assert bot.send_document.await_count == 1
@@ -201,7 +201,7 @@ async def test_case7_fifty_inline_images_never_become_cover(monkeypatch, tmp_pat
         bot, [], TXT_DOC,
         media_assets=list(INLINE_ASSETS),
         title="多插图小说", user_id=7, username="u",
-        work_type="novel", pixiv_id="9",
+        work_type="novel", work_id="9",
     )
     assert bot.send_photo.await_count == 0
     assert bot.send_document.await_count == 1

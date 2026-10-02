@@ -211,7 +211,7 @@ async def request_resubmit(
             source_ref=head.get("source_ref") or "",
             scheduled_at=head.get("scheduled_at") or "",
             work_type=head.get("work_type") or "",
-            pixiv_id=head.get("pixiv_id") or "",
+            work_id=head.get("pixiv_id") or "",
             submitter_user_id=int(head.get("submitter_user_id") or 0) or None,
             submitter_username=head.get("submitter_username") or "",
             submitter_display_name=head.get("submitter_display_name") or "",

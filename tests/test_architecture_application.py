@@ -53,7 +53,7 @@ def _command(key="k-1", *, target="", work="", pixiv=""):
         idempotency_key=key,
         target_id=target,
         work_type=work,
-        pixiv_id=pixiv,
+        work_id=pixiv,
     )
 
 
