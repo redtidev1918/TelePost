@@ -215,6 +215,32 @@ paths:
                       bot_version: {type: string}
                       api_review_required: {type: boolean}
                       chat_review_required: {type: boolean}
+  /version:
+    get:
+      security: []
+      summary: Per-bot release identity (dual-bot version matrix)
+      description: |
+        Each botN subprocess reports its own bot identity plus the real
+        release identity (`telepost.build_info.release_info()`), so a dual-bot
+        deployment can prove which release each bot process actually runs.
+        Publicly `/api/botN/v1/version` via the parent router.
+      responses:
+        '200':
+          description: Release identity of this bot process
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  data:
+                    type: object
+                    properties:
+                      bot: {type: string, example: bot1}
+                      service: {type: string}
+                      version: {type: string}
+                      commit: {type: string}
+                      build_date: {type: string}
   /me:
     get:
       summary: Token identity and current rate-limit usage

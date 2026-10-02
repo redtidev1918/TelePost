@@ -36,7 +36,32 @@ Authorization: Bearer tp_xxxxxxxx
 GET /api/v1/health
 ```
 
-无需认证，返回 API 版本、Bot 版本和两类审核开关。
+无需认证，返回 API 版本、Bot 版本（真实 release 版本）和两类审核开关。
+
+## 版本诊断（只读，无需认证）
+
+```http
+GET /api/v1/version                  # 单 Bot
+GET /api/bot1/v1/version             # 多 Bot 父路由：bot1
+GET /api/bot2/v1/version             # 多 Bot 父路由：bot2
+```
+
+每个 botN 子进程报告**自己的** bot 标识与真实 release 身份（与父路由
+`/version`、`/health` 同源的 `release_info()`），用于双 Bot 生产的版本一致性
+验收（Bot Version Matrix）：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "bot": "bot1",
+    "service": "telepost",
+    "version": "2.73.11",
+    "commit": "…",
+    "build_date": "…"
+  }
+}
+```
 
 ## 计划状态（只读，无需认证）
 
