@@ -15,7 +15,7 @@ People can submit from the **Bot** or the **Mini App**, and external programs ca
 - **Bot submissions** — preview, edit, publish; images, video, audio, and files
 - **Mini App** — submit, browse content, moderate, and manage; the empty review queue links to recently processed items and review history
 - **Review queue** — review, edit-before-publish, and spoiler moderation
-- **Novel online reading** — TXT novels can optionally ship a Telegraph reading page; the channel root keeps the full title/summary/tags, and the read-online entrance is a single non-duplicated visual card
+- **Novel online reading** — TXT novels can optionally ship a Telegraph reading page; the channel root keeps the full title/summary/tags, and the read-online entrance is a single non-duplicated visual card; with TelePost 2.76.2 pinned to TelePress 0.16.4, long-form pages target ~20,000 source characters for fewer reading interruptions
 - **Media proxy rewriting** — restricted image-host URLs can be rewritten through a self-hosted public reverse proxy before delivery
 - **Channel search** — history search, tags, and submission records
 - **HTTP API** — Bearer tokens and idempotent submissions for scripts and automation
