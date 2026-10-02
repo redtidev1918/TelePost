@@ -128,7 +128,7 @@ async def test_refetch_replacement_end_to_end(refetch_db, monkeypatch):
         tags="#pixiv", title="candidate 222",
         link="https://www.pixiv.net/artworks/222",
         user_id=7, username="pixivflow", target_id="target-a",
-        work_type="illustration", pixiv_id="222",
+        work_type="illustration", work_id="222",
         idempotency_key="repl-1", source="api",
         refetch_request_id=attempt["request_id"],
     )

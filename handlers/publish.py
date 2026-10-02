@@ -601,9 +601,13 @@ async def save_published_post(user_id, message_id, data, media_list, doc_list,
 # ---------------------------------------------------------------------------
 # API direct publish (publication service seam)
 # ---------------------------------------------------------------------------
-def _pixiv_id_from_link(link: str) -> str:
-    from handlers.review import _pixiv_id_from_link as _impl
+def _work_id_from_link(link: str) -> str:
+    from handlers.review import _work_id_from_link as _impl
     return _impl(link)
+
+
+# Back-compat alias for older patch seams/tests.
+_pixiv_id_from_link = _work_id_from_link
 
 
 def _link_of(message_id: int) -> str:
@@ -616,7 +620,7 @@ def _link_of(message_id: int) -> str:
 async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
                              anonymous=False, spoiler=False, user_id, username="",
                              idempotency_key="", target_id="", work_type="",
-                             pixiv_id="", submitter_user_id=None,
+                             work_id="", submitter_user_id=None,
                              submitter_username="", submitter_display_name="",
                              source="") -> dict:
     """API 本地文件直投核心：不经 Telegram 会话，直接发频道。"""
@@ -626,7 +630,7 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
     )
 
     key = idempotency_key.strip()[:240]
-    pid = (pixiv_id or _pixiv_id_from_link(link or "")).strip()
+    pid = (work_id or _work_id_from_link(link or "")).strip()
 
     items = _items_from_dicts(
         [{"kind": f["kind"], "path": f["path"], "filename": f["filename"],
@@ -657,7 +661,7 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
         idempotency_key=key,
         target_id=target_id,
         work_type=work_type,
-        pixiv_id=pid,
+        work_id=pid,
         album_size=CHANNEL_ALBUM_SIZE,
         reply_mode=_reply_mode_from(None),
     )
@@ -673,7 +677,7 @@ async def publish_from_files(bot, files, *, tags="", title="", note="", link="",
 async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
                                 note="", link="", anonymous=False, spoiler=False,
                                 user_id, username="", idempotency_key="",
-                                target_id="", work_type="", pixiv_id="",
+                                target_id="", work_type="", work_id="",
                                 submitter_user_id=None, submitter_username="",
                                 submitter_display_name="", source="",
                                 media_assets=None, review_chain_id="") -> dict:
@@ -693,7 +697,7 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
     from telepost.domain.media import MediaAsset
 
     key = idempotency_key.strip()[:240]
-    pid = (pixiv_id or _pixiv_id_from_link(link or "")).strip()
+    pid = (work_id or _work_id_from_link(link or "")).strip()
     assets = [MediaAsset.coerce(a) for a in (media_assets or [])]
 
     if assets:
@@ -780,7 +784,7 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
         idempotency_key=key,
         target_id=target_id,
         work_type=work_type,
-        pixiv_id=pid,
+        work_id=pid,
         album_size=CHANNEL_ALBUM_SIZE,
         reply_mode=_reply_mode_from(None),
     )

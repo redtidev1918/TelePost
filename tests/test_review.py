@@ -1301,7 +1301,7 @@ def test_review_keyboard_refetch_only_for_pixiv_api_submissions():
     # HTTP API + Pixiv link -> refetch button present
     api = review._review_keyboard(
         2, "https://www.pixiv.net/novel/show.php?id=999",
-        source="api", pixiv_id="999",
+        source="api", work_id="999",
     )
     assert any(b.callback_data == "review_refetch:2" for b in _keyboard_buttons(api))
     # chat source -> no refetch

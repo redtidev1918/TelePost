@@ -651,8 +651,17 @@ def _fields_work_type(payload) -> str:
     return value if value in ("illustration", "novel") else ""
 
 
-def _fields_pixiv_id(payload) -> str:
-    return str(payload.get("pixiv_id", "")).strip()[:32]
+def _fields_work_id(payload) -> str:
+    """Source-neutral work id: ``work_id`` wins; legacy ``pixiv_id`` is the
+    deprecated alias (wire compatibility, both map to the same value)."""
+    value = payload.get("work_id")
+    if value is None or str(value).strip() == "":
+        value = payload.get("pixiv_id", "")
+    return str(value or "").strip()[:32]
+
+
+# Deprecated alias kept for any external/importer references.
+_fields_pixiv_id = _fields_work_id
 
 
 def _clean_provenance_text(value, limit: int) -> str:
@@ -1642,7 +1651,8 @@ def add_api_routes(web_app, application) -> None:
                     "idempotency_key": _fields_idempotency_key(payload),
                     "target_id": _fields_target_id(payload),
                     "work_type": _fields_work_type(payload),
-                    "pixiv_id": _fields_pixiv_id(payload),
+                    # work_id wins over the deprecated pixiv_id alias.
+                    "work_id": _fields_work_id(payload),
                 }
                 if api_review:
                     from handlers.review import queue_review_from_file_ids
@@ -1688,7 +1698,7 @@ def add_api_routes(web_app, application) -> None:
                     source=source),
                 target_id=provenance.get("target_id", ""),
                 work_type=provenance.get("work_type", ""),
-                pixiv_id=provenance.get("pixiv_id", ""),
+                pixiv_id=provenance.get("work_id", ""),
                 source_ref=_fields_source_ref(payload),
                 actor_kind=actor_kind, actor_subject=actor_subject,
             )
@@ -1825,7 +1835,8 @@ def add_api_routes(web_app, application) -> None:
                 ("idempotency_key", _fields_idempotency_key(fields)),
                 ("target_id", _fields_target_id(fields)),
                 ("work_type", _fields_work_type(fields)),
-                ("pixiv_id", _fields_pixiv_id(fields)),
+                # work_id wins over the deprecated pixiv_id alias.
+                ("work_id", _fields_work_id(fields)),
             ):
                 if _value:
                     provenance[_name] = _value
@@ -1869,7 +1880,7 @@ def add_api_routes(web_app, application) -> None:
                 source=source),
             target_id=provenance.get("target_id", ""),
             work_type=provenance.get("work_type", ""),
-            pixiv_id=provenance.get("pixiv_id", ""),
+            pixiv_id=provenance.get("work_id", ""),
             source_ref=_fields_source_ref(fields),
             actor_kind=actor_kind, actor_subject=actor_subject,
         )
@@ -2425,39 +2436,46 @@ def add_api_routes(web_app, application) -> None:
         q = request.query
         target = (q.get("target") or "").strip()[:120]
         work_type = (q.get("work_type") or "").strip().lower()
-        pixiv_id = (q.get("pixiv_id") or "").strip()[:32]
-        if work_type not in ("illustration", "novel") or not pixiv_id:
-            return _error(400, "invalid_query", "work_type (illustration|novel) 与 pixiv_id 必填")
+        # work_id wins over the deprecated pixiv_id alias (same value either way).
+        work_id = (q.get("work_id") or q.get("pixiv_id") or "").strip()[:32]
+        if work_type not in ("illustration", "novel") or not work_id:
+            return _error(400, "invalid_query", "work_type (illustration|novel) 与 work_id（或旧名 pixiv_id）必填")
         from database.db_manager import get_db
+        from telepost.storage.sqlite.columns import WORK_ID_COLUMN
+        col = WORK_ID_COLUMN  # storage column name, never renamed ("pixiv_id")
         cutoff = time.time() - (7 * 24 * 3600)
-        params = [pixiv_id, work_type] + ([target] if target else []) + [cutoff]
+        params = [work_id, work_type] + ([target] if target else []) + [cutoff]
         async with get_db() as conn:
             cursor = await conn.execute(
                 "SELECT id, status, idempotency_key, target_id, published_message_id AS message_id, "
-                "pixiv_id, work_type, decided_at FROM pending_reviews "
-                "WHERE pixiv_id=? AND work_type=? "
+                f"{col} AS work_id_col, work_type, decided_at FROM pending_reviews "
+                f"WHERE {col}=? AND work_type=? "
                 + ("AND target_id=? " if target else "")
                 + "AND status='published' AND decided_at >= ? ORDER BY decided_at DESC LIMIT 1",
                 params,
             )
             review_row = await cursor.fetchone()
             cursor = await conn.execute(
-                "SELECT id, status, idempotency_key, target_id, message_id, pixiv_id, work_type, created_at "
-                "FROM delivery_ledger WHERE pixiv_id=? AND work_type=? "
+                "SELECT id, status, idempotency_key, target_id, message_id, "
+                f"{col} AS work_id_col, work_type, created_at "
+                f"FROM delivery_ledger WHERE {col}=? AND work_type=? "
                 + ("AND target_id=? " if target else "")
                 + "AND status='published' AND created_at >= ? ORDER BY created_at DESC LIMIT 1",
-                ([pixiv_id, work_type, target, cutoff] if target else [pixiv_id, work_type, cutoff]),
+                ([work_id, work_type, target, cutoff] if target else [work_id, work_type, cutoff]),
             )
             ledger_row = await cursor.fetchone()
 
         match = review_row or ledger_row
         if match is None:
-            return _ok({"found": False, "target": target, "work_type": work_type, "pixiv_id": pixiv_id})
+            return _ok({"found": False, "target": target, "work_type": work_type,
+                        "work_id": work_id, "pixiv_id": work_id})
         return _ok({
             "found": True,
             "target": target,
             "work_type": work_type,
-            "pixiv_id": pixiv_id,
+            # Additive: work_id is canonical; pixiv_id kept for old callers.
+            "work_id": work_id,
+            "pixiv_id": work_id,
             "delivery_status": match["status"],
             "message_id": match["message_id"],
             "matched_idempotency_key": match["idempotency_key"],

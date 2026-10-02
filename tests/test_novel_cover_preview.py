@@ -223,7 +223,7 @@ async def test_multipart_novel_submission_shows_the_cover_in_the_review_group(
         username="pixivflow",
         idempotency_key="pixiv:novel:123",
         work_type="novel",
-        pixiv_id="123",
+        work_id="123",
         media_assets=[
             {"asset_id": "pixiv:123:novelcover", "kind": "image",
              "source_url": COVER_URL},

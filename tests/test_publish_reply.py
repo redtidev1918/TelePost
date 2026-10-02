@@ -225,7 +225,7 @@ async def test_publication_commands_use_channel_album_reply(monkeypatch, tmp_pat
         [{"type": "photo", "file_id": "P1"}],
         [],
         tags="#tag", user_id=1, idempotency_key="k",
-        work_type="illust", pixiv_id="123",
+        work_type="illust", work_id="123",
     )
     local = tmp_path / "a.jpg"
     local.write_bytes(b"fake")
@@ -233,7 +233,7 @@ async def test_publication_commands_use_channel_album_reply(monkeypatch, tmp_pat
         AsyncMock(),
         [{"kind": "photo", "path": str(local), "filename": "a.jpg"}],
         tags="#tag", user_id=1, idempotency_key="k2",
-        work_type="illust", pixiv_id="456",
+        work_type="illust", work_id="456",
     )
 
     assert publish._reply_mode_from(None) is ReplyMode.DISCUSSION

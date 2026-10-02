@@ -437,7 +437,9 @@ class ReviewService:
         for column in ("target_id", "work_type", "pixiv_id"):
             try:
                 if row[column]:
-                    kwargs[column] = row[column]
+                    # Boundary mapping: storage ``pixiv_id`` column feeds the
+                    # domain-level ``work_id`` kwarg (columns never renamed).
+                    kwargs["work_id" if column == "pixiv_id" else column] = row[column]
             except (IndexError, KeyError):
                 pass
         # Step 11/12/13 adoption: pass canonical media refs so the publisher can
@@ -600,7 +602,9 @@ class ReviewService:
         for column in ("target_id", "work_type", "pixiv_id"):
             try:
                 if row[column]:
-                    kwargs[column] = row[column]
+                    # Boundary mapping: storage ``pixiv_id`` column feeds the
+                    # domain-level ``work_id`` kwarg (columns never renamed).
+                    kwargs["work_id" if column == "pixiv_id" else column] = row[column]
             except (IndexError, KeyError):
                 pass
         return await publisher(bot, media, documents, **kwargs)
