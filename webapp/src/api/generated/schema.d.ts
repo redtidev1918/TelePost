@@ -49,6 +49,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-bot release identity (dual-bot version matrix)
+         * @description Each botN subprocess reports its own bot identity plus the real
+         *     release identity (`telepost.build_info.release_info()`), so a dual-bot
+         *     deployment can prove which release each bot process actually runs.
+         *     Publicly `/api/botN/v1/version` via the parent router.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Release identity of this bot process */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            data?: {
+                                /** @example bot1 */
+                                bot?: string;
+                                service?: string;
+                                version?: string;
+                                commit?: string;
+                                build_date?: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me": {
         parameters: {
             query?: never;

@@ -1053,13 +1053,33 @@ def add_api_routes(web_app, application) -> None:
         return None
 
     async def health(request):
-        import utils.helper_functions as hf
+        from telepost import build_info
         return _ok({"service": "telepost-api", "api_version": API_VERSION,
-                    "bot_version": hf.CONFIG.get("VERSION", ""),
+                    "bot_version": build_info.release_info()["version"],
                     "review_required": True,
                     "api_review_required": True,
                     "miniapp_review_required": MINIAPP_REVIEW_REQUIRED,
                     "chat_review_required": CHAT_REVIEW_REQUIRED})
+
+    async def version(request):
+        """GET /api/v1/version — per-bot release identity (dual-bot diagnostics).
+
+        Publicly ``/api/botN/v1/version`` via the run.py relay. Each botN
+        subprocess reports ITS OWN bot identity plus the real release identity
+        from ``telepost.build_info.release_info()`` — the same SSOT as the
+        router's ``/version`` and ``/health`` — so production can prove which
+        release each bot process actually runs (§version-matrix).
+        """
+        from telepost import build_info
+        bot_index = (os.environ.get("TELEPOST_BOT_INDEX", "1") or "1").strip() or "1"
+        data = build_info.release_info()
+        return _ok({
+            "bot": f"bot{bot_index}",
+            "service": data["service"],
+            "version": data["version"],
+            "commit": data["commit"],
+            "build_date": data["build_date"],
+        })
 
     async def schedule_status(request):
         """Read-only status: last terminal schedule outcome per schedule.
@@ -2585,6 +2605,7 @@ def add_api_routes(web_app, application) -> None:
     web_app.router.add_get("/api/v1/reviews/{review_id}/refetch", refetch_review_state)
     web_app.router.add_post("/api/v1/reviews/{review_id}/rerender", rerender_review_api)
     web_app.router.add_get("/api/v1/health", health)
+    web_app.router.add_get("/api/v1/version", version)
     web_app.router.add_get("/api/v1/schedule/status", schedule_status)
     web_app.router.add_get("/api/v1/admin/status", admin_status)
     web_app.router.add_get("/api/v1/admin/policy", admin_policy_get)
