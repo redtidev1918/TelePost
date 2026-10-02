@@ -83,7 +83,8 @@ async def _record_dropped_replacement(*, request_id: str, error_class: str,
     §refetch-terminal-notify: production shows replacements arriving after the
     source review was already decided, refused by the refetch state machine, and
     the moderator never told. That refusal's HTTP body text is a frozen wire
-    contract (PixivFlow dead-letters on it), so visibility is added HERE as one
+    contract (the producer — today PixivFlow — dead-letters on it), so
+    visibility is added HERE as one
     audit event carrying the request id and the error class; the moderator-facing
     notice is sent by the handler layer that owns the bot
     (``handlers.review._report_dropped_replacement``).
@@ -202,8 +203,8 @@ class QueueCommand:
     generation: int = 0
     supersedes_review_id: Optional[int] = None
     # Canonical media-asset sidecar of this submission (§novel-cover). A novel's
-    # REAL cover is an asset-only ``pixiv:<id>:novelcover`` reference that
-    # PixivFlow never materializes locally, so the review-group preview can only
+    # REAL cover is an asset-only ``pixiv:<id>:novelcover`` reference that the
+    # producer never materializes locally, so the review-group preview can only
     # show it by URL — it is never part of the staged media.
     media_assets: tuple = ()
 
@@ -710,7 +711,8 @@ class ReviewQueueService:
                 conn, new_review.refetch_request_id
             )
             if attempt is None:
-                # Wire text stays byte-identical (PixivFlow dead-letters on it);
+                # Wire text stays byte-identical (the producer — today
+                # PixivFlow — dead-letters on it);
                 # the drop itself is made visible through the audit trail.
                 await _record_dropped_replacement(
                     request_id=new_review.refetch_request_id,

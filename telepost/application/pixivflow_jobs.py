@@ -1,4 +1,11 @@
-"""PixivFlow Job port — the ONE boundary between TelePost and PixivFlow.
+"""PixivFlow Job port — the ONE boundary between TelePost and the content producer.
+
+.. note::
+   The module name (``pixivflow_jobs``) and the ``PIXIVFLOW_*`` environment
+   variables are frozen for compatibility. Conceptually this is the
+   *producer job port*: TelePost's domain model is source-neutral
+   (``work_id``), and a second content source would get its own adapter
+   behind the same port shape instead of edits here.
 
 Rationale (Workflow Protocol v1)
 --------------------------------
