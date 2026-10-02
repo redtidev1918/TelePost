@@ -264,3 +264,34 @@ async def test_delivery_lookup_not_found_echoes_both_keys(refetch_db, monkeypatc
         assert data["pixiv_id"] == "000"
     finally:
         await client.close()
+
+
+# ---------------------------------------------------------------------------
+# asset-id namespace: prefixes other than ``pixiv:`` are opaque and valid
+# ---------------------------------------------------------------------------
+
+def test_foreign_namespace_cover_asset_still_detected():
+    """Cover detection keys on the ``:novelcover`` suffix, never the prefix —
+    a second source's namespace must behave exactly like ``pixiv:``."""
+    from telepost.application.review_queue import (
+        QueueCommand, novel_cover_preview_url,
+    )
+    from telepost.domain.media import is_novel_cover_asset
+
+    url = "https://cdn.example/covers/42.png"
+    for asset_id in ("pixiv:42:novelcover", "other:42:novelcover"):
+        asset = {"asset_id": asset_id, "kind": "image", "source_url": url}
+        assert is_novel_cover_asset(asset) is True
+        command = QueueCommand(
+            user_id=7, username="u", tags="", title="", note="", link="",
+            anonymous=False, spoiler=False,
+            media_assets=(asset,),
+        )
+        preview = novel_cover_preview_url(command)
+        assert preview and "covers/42.png" in preview
+
+
+def test_foreign_namespace_body_asset_is_not_cover():
+    from telepost.domain.media import is_novel_cover_asset
+    assert is_novel_cover_asset(
+        {"asset_id": "other:42:illust", "kind": "image"}) is False
