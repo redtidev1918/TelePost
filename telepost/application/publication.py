@@ -233,30 +233,38 @@ class PublicationService:
                 # Enrichment must never break the TXT publication path.
                 logger.warning("novel preview enrichment skipped: %s",
                                type(exc).__name__)
-        caption = self._caption(command, preview_url=preview_url)
-        ordered_items = base_items
-        # A multi-document submission's caption is submission metadata. Send it as
-        # the final message instead of attaching it to the first document, so
+        link_preview_url = preview_url if readonline_link_preview_enabled() else ""
+        caption = self._caption(
+            command,
+            preview_url=preview_url,
+            suppress_readonline_footer=bool(link_preview_url),
+        )
+        ordered_items = list(base_items)
+        # A multi-document submission's caption is submission metadata. Send it
+        # as the final message instead of attaching it to the first document, so
         # readers do not mistake it for that one file's label. Visual media
         # keeps the existing root-caption UX. A novel with a Telegraph "read
-        # online" page ALSO forces the trailing text form (even for a single
-        # TXT document): Telegram only builds a link preview / Instant View
-        # card for a bare URL inside a TEXT message, never for a media
-        # caption. Without a preview URL the form is byte-identical to before.
-        link_preview_url = preview_url if readonline_link_preview_enabled() else ""
-        text_as_caption = bool(caption and (
-            (len(base_items) > 1 and all(
-                item.kind is MediaKind.DOCUMENT for item in base_items
-            )) or link_preview_url
+        # online" page additionally gains a SEPARATE two-line bare-link trailing
+        # message: Telegram only builds a link preview / Instant View card for
+        # a bare URL inside a TEXT message, never for a media caption. Keeping
+        # the bare link separate preserves the single-document root caption
+        # (2.75.0 form) and avoids a duplicate read-online entry in the footer.
+        text_as_caption = bool(caption and len(base_items) > 1 and all(
+            item.kind is MediaKind.DOCUMENT for item in base_items
         ))
         if text_as_caption:
-            ordered_items = base_items + [MediaItem(
+            ordered_items.append(MediaItem(
+                MediaKind.TEXT,
+                SubmissionText(caption),
+            ))
+        if link_preview_url:
+            ordered_items.append(MediaItem(
                 MediaKind.TEXT,
                 SubmissionText(
-                    with_readonline_preview(caption, link_preview_url),
-                    link_preview_url=link_preview_url or None,
+                    readonline_bare_link_text(link_preview_url),
+                    link_preview_url=link_preview_url,
                 ),
-            )]
+            ))
         plan = plan_delivery(
             ordered_items,
             album_size=command.album_size,
@@ -510,7 +518,8 @@ class PublicationService:
         )
 
     @staticmethod
-    def _caption(command, preview_url: str = "") -> str:
+    def _caption(command, preview_url: str = "",
+                 *, suppress_readonline_footer: bool = False) -> str:
         """Channel caption. Attachment kinds come from the REAL delivery items,
         so the media presentation (the spoiler "点击查看" hint) always reflects
         what is actually published — a multi-document publication never
@@ -526,23 +535,39 @@ class PublicationService:
             )
         if preview_url:
             data["novel_preview_url"] = preview_url
-        return channel_caption(data)
+        return channel_caption(
+            data,
+            include_readonline_footer=not suppress_readonline_footer,
+        )
 
 
-def with_readonline_preview(caption_text: str, preview_url: str) -> str:
-    """Append the bare read-online block to a trailing channel text message.
+def readonline_bare_link_text(preview_url: str) -> str:
+    """Return the fixed two-line bare read-online block, or ``""`` without URL.
 
-    Telegram only generates a link preview / Instant View card for a bare URL
-    inside a TEXT message — never for a media caption — so the Telegraph page
-    URL is repeated here outside any ``<a>`` tag (the navigation footer's
-    inline READ_ONLINE link stays as-is). No-op without a URL, which keeps
-    preview-less publications byte-identical to the old behavior. Pure
-    function shared by the new publication chain and the legacy chat path.
+    The bare URL (not wrapped in an ``<a>`` tag) is what Telegram expands into
+    a link preview / Instant View card. The block is intentionally *only* these
+    two lines: `📖 在线阅读` + URL. The visual body of the entrance is supplied
+    by the IV card itself; no long caption text is duplicated here.
     """
     url = (preview_url or "").strip()
     if not url:
+        return ""
+    return f"📖 在线阅读\n{url}"
+
+
+def with_readonline_preview(caption_text: str, preview_url: str) -> str:
+    """Append the bare read-online block to arbitrary caption text.
+
+    Kept as a pure helper for callers that genuinely want one message combining
+    a caption and the bare-link tail. The real publication chain no longer uses
+    this form: it keeps the root caption on the file and sends a separate
+    two-line bare-link message, so the caption footer and the IV card never
+    compete visually. No-op without a URL.
+    """
+    block = readonline_bare_link_text(preview_url)
+    if not block:
         return caption_text
-    return f"{caption_text}\n\n📖 在线阅读\n{url}"
+    return f"{caption_text}\n\n{block}"
 
 
 def readonline_link_preview_enabled() -> bool:
@@ -554,7 +579,8 @@ def readonline_link_preview_enabled() -> bool:
         return True
 
 
-def channel_caption(caption_data: dict) -> str:
+def channel_caption(caption_data: dict, *,
+                      include_readonline_footer: bool = True) -> str:
     """Shared channel caption builder for REAL publication: body + navigation footer.
 
     ONE implementation for every publication path (chat direct, API direct,
@@ -565,10 +591,17 @@ def channel_caption(caption_data: dict) -> str:
     (`?start=submit`) and MINI_APP_SUBMIT (`?startapp=submit`) when the owning
     bot enables it. Caption budgeting stays here so the footer can never
     overflow Telegram's limit.
+
+    ``include_readonline_footer=False`` is for the real publication chain when
+    a separate bare-link message will carry the read-online entrance. The
+    default remains True: review/preview surfaces keep the READ_ONLINE footer.
     """
     from utils.helper_functions import build_caption
     footer_html = ""
-    items = _publication_navigation(data := dict(caption_data or {}))
+    items = _publication_navigation(
+        data := dict(caption_data or {}),
+        include_readonline_footer=include_readonline_footer,
+    )
     if items:
         import html as _html
         footer_html = "\n\n" + " | ".join(
@@ -577,22 +610,29 @@ def channel_caption(caption_data: dict) -> str:
             for item in items
         )
     body_data = dict(data)
-    if footer_html and body_data.get("novel_preview_url"):
+    if body_data.get("novel_preview_url") and (
+        footer_html or not include_readonline_footer
+    ):
         # READ_ONLINE lives in the navigation footer once; no duplicate body
         # block on real publications (review/preview surfaces keep the old
-        # `🔗 在线阅读` line via build_caption directly).
+        # `🔗 在线阅读` line via build_caption directly). When the footer
+        # intentionally suppresses READ_ONLINE because a separate bare-link
+        # message owns the entrance, suppress the body block here as well so
+        # the root caption never visually repeats that entrance.
         body_data["novel_preview_url"] = ""
     max_length = 1024 - len(footer_html) if footer_html else 1024
     return build_caption(body_data, max_length=max_length) + footer_html
 
 
-def _publication_navigation(caption_data: dict):
+def _publication_navigation(caption_data: dict, *,
+                                include_readonline_footer: bool = True):
     """Typed footer actions for the OWNING bot, or ``[]`` when unconfigured.
 
     Reads bot/runtime config (CHANNEL_FOOTER_LINK + MINIAPP_SUBMIT_CTA):
     * BOT_SUBMIT       always when a valid owning-bot link is configured;
     * MINI_APP_SUBMIT  additionally when ``MINIAPP_SUBMIT_CTA`` is enabled;
-    * READ_ONLINE      when this publication has a Telegraph ``novel_preview_url``.
+    * READ_ONLINE      when this publication has a Telegraph ``novel_preview_url``
+      and ``include_readonline_footer`` is True.
     Missing/invalid config never produces a malformed link.
     """
     from telepost.domain.navigation import (
@@ -620,9 +660,10 @@ def _publication_navigation(caption_data: dict):
 
     data = dict(caption_data or {})
     items = []
-    preview_url = data.get("novel_preview_url")
-    if preview_url and str(preview_url).startswith(("http://", "https://")):
-        items.append(NavigationItem(READ_ONLINE_ACTION, READ_ONLINE_LABEL, str(preview_url)))
+    if include_readonline_footer:
+        preview_url = data.get("novel_preview_url")
+        if preview_url and str(preview_url).startswith(("http://", "https://")):
+            items.append(NavigationItem(READ_ONLINE_ACTION, READ_ONLINE_LABEL, str(preview_url)))
     bot_url = bot_submission_url(link)
     if bot_url:
         items.append(NavigationItem(BOT_SUBMIT_ACTION, BOT_SUBMIT_LABEL, bot_url))

@@ -183,11 +183,12 @@ def _command(items, key="pixivflow:bot1:novel:1:slot:t1", *, title="原稿标题
 
 
 def _trailing_text(request: DeliveryRequest):
-    """A preview-carrying publication moves its caption onto one trailing
-    TEXT message (bare URL → Instant View); the request caption stays empty."""
-    assert request.caption is None
+    """A single-document preview-carrying publication keeps its caption on the
+    document and adds exactly one two-line bare-link TEXT message for the
+    Instant View card."""
     text_items = [i for i in request.items if i.kind is MediaKind.TEXT]
     assert len(text_items) == 1
+    assert text_items[0].source.text == f"📖 在线阅读\n{PREVIEW_URL}"
     return text_items[0].source
 
 
@@ -381,12 +382,12 @@ async def test_published_txt_publication_carries_preview_url_and_document(
     outcome = await service.publish(_command([_document_item(_txt_file(tmp_path))]))
 
     assert outcome.status == "published"
-    # The caption migrates to a trailing TEXT message so the bare read-online
-    # URL earns the Telegram link preview / Instant View card.
+    # The caption stays on the TXT document; one separate two-line bare-link
+    # message carries the Telegram link preview / Instant View card.
     trailing = _trailing_text(delivery.last)
-    assert "在线阅读" in trailing.text
-    assert trailing.text.endswith(f"📖 在线阅读\n{PREVIEW_URL}")
     assert trailing.link_preview_url == PREVIEW_URL
+    assert delivery.last.caption is not None
+    assert PREVIEW_URL not in delivery.last.caption
     # The authoritative artifact is still the TXT document.
     assert [i.kind for i in delivery.last.items] == [
         MediaKind.DOCUMENT, MediaKind.TEXT,
@@ -484,7 +485,7 @@ async def test_retry_reuses_preview_and_retries_txt_delivery_independently(
     assert delivery.calls == 2, "TXT delivery retry stays independent"
     assert provider.calls == 1, "the retry must reuse the existing preview"
     trailing = _trailing_text(delivery.last)
-    assert PREVIEW_URL in trailing.text
+    assert delivery.last.caption is not None
     assert [i.kind for i in delivery.last.items] == [
         MediaKind.DOCUMENT, MediaKind.TEXT,
     ]
@@ -533,7 +534,7 @@ async def test_editorial_title_is_the_preview_title(ledger, tmp_path):
     ))
 
     assert provider.snapshots[0].title == "审核员改过的标题"
-    assert "审核员改过的标题" in _trailing_text(delivery.last).text
+    assert "审核员改过的标题" in delivery.last.caption
 
 
 @pytest.mark.asyncio
@@ -559,8 +560,8 @@ async def test_anonymous_publication_never_leaks_identity_to_provider(
     assert "alice" not in rendered.lower()
     assert "424242" not in rendered
     assert "Alice" not in rendered
-    # ... while the channel trailing text still hides the anonymous submitter.
-    assert "投稿人" not in _trailing_text(delivery.last).text
+    # ... while the root caption still hides the anonymous submitter.
+    assert "投稿人" not in delivery.last.caption
 
 
 @pytest.mark.asyncio
