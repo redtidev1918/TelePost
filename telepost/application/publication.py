@@ -238,13 +238,24 @@ class PublicationService:
         # A multi-document submission's caption is submission metadata. Send it as
         # the final message instead of attaching it to the first document, so
         # readers do not mistake it for that one file's label. Visual media
-        # keeps the existing root-caption UX.
-        text_as_caption = bool(caption and len(base_items) > 1 and all(
-            item.kind is MediaKind.DOCUMENT for item in base_items
+        # keeps the existing root-caption UX. A novel with a Telegraph "read
+        # online" page ALSO forces the trailing text form (even for a single
+        # TXT document): Telegram only builds a link preview / Instant View
+        # card for a bare URL inside a TEXT message, never for a media
+        # caption. Without a preview URL the form is byte-identical to before.
+        link_preview_url = preview_url if readonline_link_preview_enabled() else ""
+        text_as_caption = bool(caption and (
+            (len(base_items) > 1 and all(
+                item.kind is MediaKind.DOCUMENT for item in base_items
+            )) or link_preview_url
         ))
         if text_as_caption:
             ordered_items = base_items + [MediaItem(
-                MediaKind.TEXT, SubmissionText(caption)
+                MediaKind.TEXT,
+                SubmissionText(
+                    with_readonline_preview(caption, link_preview_url),
+                    link_preview_url=link_preview_url or None,
+                ),
             )]
         plan = plan_delivery(
             ordered_items,
@@ -516,6 +527,31 @@ class PublicationService:
         if preview_url:
             data["novel_preview_url"] = preview_url
         return channel_caption(data)
+
+
+def with_readonline_preview(caption_text: str, preview_url: str) -> str:
+    """Append the bare read-online block to a trailing channel text message.
+
+    Telegram only generates a link preview / Instant View card for a bare URL
+    inside a TEXT message — never for a media caption — so the Telegraph page
+    URL is repeated here outside any ``<a>`` tag (the navigation footer's
+    inline READ_ONLINE link stays as-is). No-op without a URL, which keeps
+    preview-less publications byte-identical to the old behavior. Pure
+    function shared by the new publication chain and the legacy chat path.
+    """
+    url = (preview_url or "").strip()
+    if not url:
+        return caption_text
+    return f"{caption_text}\n\n📖 在线阅读\n{url}"
+
+
+def readonline_link_preview_enabled() -> bool:
+    """READONLINE_LINK_PREVIEW switch (default on); off restores old behavior."""
+    try:
+        from config.settings import READONLINE_LINK_PREVIEW
+        return bool(READONLINE_LINK_PREVIEW)
+    except Exception:
+        return True
 
 
 def channel_caption(caption_data: dict) -> str:

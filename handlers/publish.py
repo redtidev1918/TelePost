@@ -308,6 +308,28 @@ def novel_cover_asset_ids(assets) -> set:
     }
 
 
+def _chat_delivery_with_readonline(chat_items, caption, preview_url):
+    """Legacy chat direct-publish: a novel with a Telegraph "read online" page
+    moves its caption onto a trailing TEXT message whose bare URL triggers the
+    Instant View link preview (media captions never get one). Returns
+    ``(items, caption)`` for :func:`deliver_items_to_chat`; without a preview
+    URL — or with READONLINE_LINK_PREVIEW off — both pass through unchanged.
+    """
+    if not caption or not preview_url:
+        return chat_items, caption
+    from telepost.application.publication import (
+        readonline_link_preview_enabled,
+        with_readonline_preview,
+    )
+    if not readonline_link_preview_enabled():
+        return chat_items, caption
+    return chat_items + [{
+        "kind": "text",
+        "text": with_readonline_preview(caption, preview_url),
+        "link_preview_url": preview_url,
+    }], None
+
+
 def _items_from_dicts(items):
     out = []
     for it in items:
@@ -322,7 +344,7 @@ def _items_from_dicts(items):
         elif it.get("url"):
             source = RemoteUrl(it["url"], it.get("filename"))
         elif it.get("text") is not None:
-            source = SubmissionText(it["text"])
+            source = SubmissionText(it["text"], it.get("link_preview_url") or None)
         elif it.get("file_id") is not None:
             source = TelegramFileId(it["file_id"], it.get("filename"))
         else:
@@ -342,6 +364,8 @@ def _item_to_dict(item: MediaItem) -> dict:
     out = {"kind": item.kind.value, "spoiler": item.spoiler}
     if item.is_submission_text:
         out["text"] = item.source.text
+        if getattr(item.source, "link_preview_url", None):
+            out["link_preview_url"] = item.source.link_preview_url
     elif item.is_local:
         out["path"] = item.source.path
         out["filename"] = item.source.filename
@@ -1242,13 +1266,19 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
             caption = channel_caption({**caption_data, "novel_preview_url": preview_url})
 
         chat_items = _normalize_chat_items(media_list, doc_list)
+        # A novel with a Telegraph preview page moves its caption onto a
+        # trailing TEXT message so the bare read-online URL earns the Instant
+        # View link preview; everything else keeps caption-on-first-media.
+        chat_items, deliver_caption = _chat_delivery_with_readonline(
+            chat_items, caption, preview_url,
+        )
         sent_message = None
         all_message_ids = []
         if chat_items:
             try:
                 sent_messages, sent_message = await deliver_items_to_chat(
                     context.bot, CHANNEL_ID, chat_items,
-                    caption=caption, spoiler=spoiler_flag,
+                    caption=deliver_caption, spoiler=spoiler_flag,
                 )
                 all_message_ids = _channel_message_ids(sent_messages, sent_message)
             except Exception as exc:
