@@ -48,7 +48,7 @@ GET /api/bot2/v1/version             # 多 Bot 父路由：bot2
 
 每个 botN 子进程报告**自己的** bot 标识与真实 release 身份（与父路由
 `/version`、`/health` 同源的 `release_info()`），用于双 Bot 生产的版本一致性
-验收（Bot Version Matrix）：
+验收（Bot Version Matrix）（示例响应，版本号以最新 release 为准）：
 
 ```json
 {
@@ -56,7 +56,7 @@ GET /api/bot2/v1/version             # 多 Bot 父路由：bot2
   "data": {
     "bot": "bot1",
     "service": "telepost",
-    "version": "2.73.11",
+    "version": "2.76.0",
     "commit": "…",
     "build_date": "…"
   }
@@ -127,6 +127,9 @@ curl -X POST 'https://example.com/api/bot1/v1/submissions' \
 | `spoiler` | 否 | 同上 |
 | `idempotency_key` | 强烈建议 | 最长 240；审核模式防重复入队，直发模式防重复发帖（ACK 丢失重试安全） |
 | `target_id` | 否 | 最长 120；审核模式标识自动化来源，供定向重抓 |
+| `work_type` | 否 | `illustration` / `novel` / 空；作品类型，参与同作品去重 |
+| `work_id` | 否 | 最长 32；来源中立的作品 ID（规范字段），参与同作品去重；两字段同发时以它为准 |
+| `pixiv_id` | 否 | 已废弃：`work_id` 的兼容别名，仅为旧调用方保留 |
 | `source_label` | 否 | 最长 80；人类可读来源标签（如 `PixivFlow · 每日推荐`）。审核控制卡上展示；TelePost 不解析其含义，缺省不显示 |
 | `source_ref` | 否 | 最长 160；机器可读、稳定的来源引用（如上游 job/execution id）。仅存档/排查，TelePost 不解释其结构 |
 | `scheduled_at` | 否 | 最长 40；计划时间（ISO-8601）。仅来源展示/排查，TelePost 不据此调度 |
@@ -299,7 +302,7 @@ curl -X POST 'https://example.com/api/bot1/v1/notifications' \
 | reuse_reason | 含义 |
 |---|---|
 | `idempotent_replay` | 同一个 `idempotency_key` 的重试（典型：ACK 丢失）。返回的 `message_id` 就是第一次发布的那条，频道里只有一条消息。 |
-| `duplicate_existing` | `idempotency_key` 不同（新的 slot/触发），但同一作品（target+type+pixiv_id）在去重窗口内已由**另一次意图**发布过。不创建新消息，`matched_idempotency_key` 指向先发布的那条。 |
+| `duplicate_existing` | `idempotency_key` 不同（新的 slot/触发），但同一作品（target + work_type + work_id，即原 pixiv_id）在去重窗口内已由**另一次意图**发布过。不创建新消息，`matched_idempotency_key` 指向先发布的那条。 |
 
 ### 审核模式（API token 固定；Mini App 在 `MINIAPP_REVIEW_REQUIRED=true`）
 
