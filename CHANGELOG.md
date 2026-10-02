@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.74.0](https://github.com/redtidev1918/TelePost/compare/v2.73.12...v2.74.0) (2026-10-02)
+
+
+### Features
+
+* **miniapp:** explain empty review queue with recent terminal records ([#273](https://github.com/redtidev1918/TelePost/issues/273)) ([5a74282](https://github.com/redtidev1918/TelePost/commit/5a74282264feb9ddbc2a3a151d8a67c503f64a80))
+
 ## [2.73.12](https://github.com/redtidev1918/TelePost/compare/v2.73.11...v2.73.12) (2026-10-02)
 
 
