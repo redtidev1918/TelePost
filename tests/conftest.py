@@ -141,3 +141,38 @@ async def refetch_db(monkeypatch, tmp_path):
     monkeypatch.setenv("PIXIVFLOW_REFETCH_TOKEN", "secret")
     await db_manager.init_db()
     return db_path
+
+
+def _force_stop_leaked_aiosqlite_threads():
+    """Stop aiosqlite Connection threads leaked by tests under run.
+
+    ``aiosqlite.Connection`` is a non-daemon ``Thread`` that polls its work
+    queue until ``close()`` flips ``_running``. Some code paths under test
+    open connections without closing them, and a single leaked worker then
+    blocks interpreter exit (``threading._shutdown``) after the whole suite
+    has already passed — the "1236 passed then hang" symptom. Test-infra
+    hygiene must not touch business code, so this finalizer flips each
+    leaked worker's ``_running`` flag directly: the worker loop re-checks
+    it every 100 ms and exits on its own, then we join with a small
+    timeout. Runs at session finish, after every test is done, so no live
+    connection is affected.
+    """
+    import threading
+
+    try:
+        import aiosqlite
+    except ImportError:
+        return
+    leaked = [
+        t
+        for t in threading.enumerate()
+        if isinstance(t, aiosqlite.Connection) and t.is_alive()
+    ]
+    for conn in leaked:
+        conn._running = False
+    for conn in leaked:
+        conn.join(timeout=2.0)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    _force_stop_leaked_aiosqlite_threads()
