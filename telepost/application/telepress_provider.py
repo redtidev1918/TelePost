@@ -124,6 +124,33 @@ def telepress_available() -> bool:
     return True
 
 
+def _bridge_media_proxy_env() -> None:
+    """Hand the in-process TelePress library the operator's media-proxy config.
+
+    TelePress reads ``TELEPRESS_MEDIA_PROXY_BASE`` / ``TELEPRESS_MEDIA_PROXY_HOSTS``
+    while TelePost's own delivery layer reads ``MEDIA_PROXY_BASE_URL`` /
+    ``MEDIA_PROXY_HOSTS``. Production configured only the TelePost pair, so the
+    library silently skipped proxy rewriting: rich-novel markdown kept its
+    relative ``images/…`` refs, and Telegraph silently dropped every inline
+    image (root cause of the text-only 在线阅读 pages). Bridge explicitly, once:
+    a TelePress-specific value always wins (operator override); otherwise map
+    from TelePost's single source of truth.
+    """
+    try:
+        from config.settings import MEDIA_PROXY_BASE_URL, MEDIA_PROXY_HOSTS
+    except Exception:  # config layer unavailable — keep enrichment best-effort
+        logger.warning("media proxy bridge: config.settings unreadable", exc_info=True)
+        return
+    if not os.environ.get("TELEPRESS_MEDIA_PROXY_BASE", "").strip():
+        if MEDIA_PROXY_BASE_URL:
+            os.environ["TELEPRESS_MEDIA_PROXY_BASE"] = MEDIA_PROXY_BASE_URL
+            logger.info("media proxy bridge: TELEPRESS_MEDIA_PROXY_BASE <- MEDIA_PROXY_BASE_URL")
+    if not os.environ.get("TELEPRESS_MEDIA_PROXY_HOSTS", "").strip():
+        if MEDIA_PROXY_HOSTS:
+            os.environ["TELEPRESS_MEDIA_PROXY_HOSTS"] = ",".join(sorted(MEDIA_PROXY_HOSTS))
+            logger.info("media proxy bridge: TELEPRESS_MEDIA_PROXY_HOSTS <- MEDIA_PROXY_HOSTS")
+
+
 def build_telepress_provider(token: str,
                              *, client_factory: Optional[_PublisherFactory] = None
                              ) -> Optional[TelePressNovelPreviewPublisher]:
@@ -132,6 +159,7 @@ def build_telepress_provider(token: str,
     ``None`` (no configured Telegraph token, or the library is not installed in
     this image) disables the enrichment instead of failing publications.
     """
+    _bridge_media_proxy_env()
     if not str(token or "").strip():
         logger.info("novel preview disabled: no Telegraph access token configured")
         return None
