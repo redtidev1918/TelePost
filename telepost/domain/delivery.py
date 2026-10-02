@@ -69,6 +69,11 @@ class RemoteUrl:
 class SubmissionText:
     """Submission-level text, deliberately not an asset or Telegram file."""
     text: str
+    #: Bare "read online" URL the send layer should surface as a Telegram link
+    #: preview (telegra.ph Instant View). Pure data — the PTB
+    #: ``LinkPreviewOptions`` object is constructed only in the telegram send
+    #: layer; ``None`` keeps the preview suppressed exactly as before.
+    link_preview_url: Optional[str] = None
 
 
 MediaSource = Union[TelegramFileId, LocalFile, RemoteUrl, SubmissionText]
