@@ -1,5 +1,5 @@
 # Telegram Bot 核心
-python-telegram-bot[job-queue]==21.10
+python-telegram-bot[job-queue]==22.8
 
 # Webhook 支持（用于 Webhook 模式）
 aiohttp>=3.14.3
