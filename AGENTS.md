@@ -586,6 +586,25 @@ Each action appears EXACTLY ONCE in the footer.
   `https://t.me/None...` 或坏链接。
 - CTA 进入既有 caption 预算（`channel_caption` 预留 footer 宽度），不得让
   Publication 因加 footer 超出 Telegram 上限。
+
+### 频道小说帖「在线阅读」Instant View 预览（§readonline-iv）
+
+- 机制：有 Telegraph 预览页（novel preview enrichment 产出 `preview_url`）的
+  小说频道帖，caption 迁移为**尾随文本消息**（单 TXT 也强制此形态），文本
+  末尾追加裸链块 `\n\n📖 在线阅读\n<url>`，发送层对该 TEXT 消息显式下发
+  `LinkPreviewOptions(url=…, prefer_large_media=True)` 触发 IV 卡片。
+  Telegram 只对文本消息里的裸 URL 生成链接预览 / Instant View，媒体 caption
+  永远不会有——这是形态迁移的唯一原因。
+- 边界：`with_readonline_preview()`（纯函数，publication.py）只被两条真实
+  频道发布链路调用（`PublicationService.publish` 与 handlers/publish.py 的
+  chat 直发 `_chat_delivery_with_readonline`）；`channel_caption()` 本体不改，
+  审核/预览面（preview_handlers、/submissions/preview）零变化。域层只携带
+  纯 URL 字符串（`SubmissionText.link_preview_url`），`LinkPreviewOptions`
+  只在 `telepost/telegram/delivery/sender.py` TEXT 分支构造。
+- 与 footer 关系：footer 的内嵌 `📖 在线阅读` 超链接保留不变；裸链块是
+  预览触发器，两者共存互不替代。
+- 开关：`READONLINE_LINK_PREVIEW`（config/settings.py，默认 true）；置 false
+  全链路退回改动前行为。
 - Telegram 主菜单契约：Mini App 配置可用时主菜单是 `MenuButtonWebApp`；
   `/commands` 仍全量可用但不再抢主菜单按钮。未配置 Mini App 时回退默认命令菜单。
 - 热度契约：views/forwards 是 Telegram Bot API 不提供的字段，禁止在用户界面

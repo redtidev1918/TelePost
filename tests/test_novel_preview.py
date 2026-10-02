@@ -182,6 +182,15 @@ def _command(items, key="pixivflow:bot1:novel:1:slot:t1", *, title="原稿标题
     )
 
 
+def _trailing_text(request: DeliveryRequest):
+    """A preview-carrying publication moves its caption onto one trailing
+    TEXT message (bare URL → Instant View); the request caption stays empty."""
+    assert request.caption is None
+    text_items = [i for i in request.items if i.kind is MediaKind.TEXT]
+    assert len(text_items) == 1
+    return text_items[0].source
+
+
 # ---- eligibility (final snapshot) ---------------------------------------
 
 def test_first_novel_txt_selects_only_txt_documents():
@@ -372,10 +381,16 @@ async def test_published_txt_publication_carries_preview_url_and_document(
     outcome = await service.publish(_command([_document_item(_txt_file(tmp_path))]))
 
     assert outcome.status == "published"
-    assert "🔗 在线阅读" in delivery.last.caption
-    assert PREVIEW_URL in delivery.last.caption
+    # The caption migrates to a trailing TEXT message so the bare read-online
+    # URL earns the Telegram link preview / Instant View card.
+    trailing = _trailing_text(delivery.last)
+    assert "在线阅读" in trailing.text
+    assert trailing.text.endswith(f"📖 在线阅读\n{PREVIEW_URL}")
+    assert trailing.link_preview_url == PREVIEW_URL
     # The authoritative artifact is still the TXT document.
-    assert [i.kind for i in delivery.last.items] == [MediaKind.DOCUMENT]
+    assert [i.kind for i in delivery.last.items] == [
+        MediaKind.DOCUMENT, MediaKind.TEXT,
+    ]
     assert provider.calls == 1
 
 
@@ -468,8 +483,11 @@ async def test_retry_reuses_preview_and_retries_txt_delivery_independently(
     assert second.status == "published"
     assert delivery.calls == 2, "TXT delivery retry stays independent"
     assert provider.calls == 1, "the retry must reuse the existing preview"
-    assert PREVIEW_URL in delivery.last.caption
-    assert [i.kind for i in delivery.last.items] == [MediaKind.DOCUMENT]
+    trailing = _trailing_text(delivery.last)
+    assert PREVIEW_URL in trailing.text
+    assert [i.kind for i in delivery.last.items] == [
+        MediaKind.DOCUMENT, MediaKind.TEXT,
+    ]
 
 
 @pytest.mark.asyncio
@@ -486,7 +504,7 @@ async def test_file_id_txt_is_fetched_through_adapter_and_previewed(ledger):
 
     assert outcome.status == "published"
     assert provider.snapshots[0].content == "正文来自 Telegram 下载"
-    assert PREVIEW_URL in delivery.last.caption
+    assert PREVIEW_URL in _trailing_text(delivery.last).text
 
 
 @pytest.mark.asyncio
@@ -515,7 +533,7 @@ async def test_editorial_title_is_the_preview_title(ledger, tmp_path):
     ))
 
     assert provider.snapshots[0].title == "审核员改过的标题"
-    assert "审核员改过的标题" in delivery.last.caption
+    assert "审核员改过的标题" in _trailing_text(delivery.last).text
 
 
 @pytest.mark.asyncio
@@ -541,8 +559,8 @@ async def test_anonymous_publication_never_leaks_identity_to_provider(
     assert "alice" not in rendered.lower()
     assert "424242" not in rendered
     assert "Alice" not in rendered
-    # ... while the channel caption still hides the anonymous submitter.
-    assert "投稿人" not in delivery.last.caption
+    # ... while the channel trailing text still hides the anonymous submitter.
+    assert "投稿人" not in _trailing_text(delivery.last).text
 
 
 @pytest.mark.asyncio

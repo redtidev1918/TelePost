@@ -149,6 +149,21 @@ class PTBSender:
     def _single_kwargs(self, item: MediaItem, caption: Optional[str]) -> dict:
         if item.kind is MediaKind.TEXT:
             text = caption or item.source.text
+            preview_url = getattr(item.source, "link_preview_url", None)
+            if preview_url:
+                # Channel novel trailing text: surface the bare read-online URL
+                # as a Telegram link preview (telegra.ph Instant View). The
+                # domain layer carries the plain URL only; the PTB options
+                # object is built here, the only PTB-aware layer.
+                from telegram import LinkPreviewOptions
+                return {
+                    "method": "send_message",
+                    "text": text,
+                    "parse_mode": "HTML" if text else None,
+                    "link_preview_options": LinkPreviewOptions(
+                        url=preview_url, prefer_large_media=True,
+                    ),
+                }
             return {
                 "method": "send_message",
                 "text": text,
