@@ -48,7 +48,7 @@ GET /api/bot2/v1/version             # 多 Bot 父路由：bot2
 
 每个 botN 子进程报告**自己的** bot 标识与真实 release 身份（与父路由
 `/version`、`/health` 同源的 `release_info()`），用于双 Bot 生产的版本一致性
-验收（Bot Version Matrix）：
+验收（Bot Version Matrix）（示例响应，版本号以最新 release 为准）：
 
 ```json
 {
@@ -56,7 +56,7 @@ GET /api/bot2/v1/version             # 多 Bot 父路由：bot2
   "data": {
     "bot": "bot1",
     "service": "telepost",
-    "version": "2.73.11",
+    "version": "2.76.0",
     "commit": "…",
     "build_date": "…"
   }
