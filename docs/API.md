@@ -56,7 +56,7 @@ GET /api/bot2/v1/version             # 多 Bot 父路由：bot2
   "data": {
     "bot": "bot1",
     "service": "telepost",
-    "version": "2.76.0",
+    "version": "2.76.1",
     "commit": "…",
     "build_date": "…"
   }

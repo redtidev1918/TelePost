@@ -75,7 +75,7 @@ docker compose logs -f telepost
 
 `docker-compose.yml` uses `ghcr.io/redtidev1918/telepost:latest` by default and mounts
 `./data` and `./logs` into the container. Pin an explicit version in production, for example
-`2.76.0` (example only — always use the latest release), and back up `data/` before upgrading.
+`2.76.1` (example only — always use the latest release), and back up `data/` before upgrading.
 
 If you need webhooks, map 8080 yourself and put a public HTTPS reverse proxy in front. Without
 a public address, keep `RUN_MODE=AUTO` or `POLLING`.
