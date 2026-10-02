@@ -498,7 +498,7 @@ async def test_replacement_submission_supersedes_only_after_new_review(refetch_d
         tags="#pixiv", title="New candidate",
         link="https://www.pixiv.net/artworks/222",
         user_id=7, username="pixivflow",
-        target_id="target-a", work_type="illustration", pixiv_id="222",
+        target_id="target-a", work_type="illustration", work_id="222",
         idempotency_key="repl-1", source="api",
         refetch_request_id=attempt["request_id"],
     )
@@ -547,7 +547,7 @@ async def test_replacement_staging_failure_keeps_source_pending(refetch_db):
         await review.queue_review_from_file_ids(
             bot, [{"type": "photo", "file_id": "NEW_ART"}], [],
             tags="#pixiv", title="New candidate", user_id=7, username="pixivflow",
-            target_id="target-a", work_type="illustration", pixiv_id="222",
+            target_id="target-a", work_type="illustration", work_id="222",
             idempotency_key="repl-failed", source="api",
             refetch_request_id=attempt["request_id"],
         )
@@ -562,7 +562,7 @@ async def test_replacement_staging_failure_keeps_source_pending(refetch_db):
     result = await review.queue_review_from_file_ids(
         bot, [{"type": "photo", "file_id": "NEW_ART"}], [],
         tags="#pixiv", title="New candidate", user_id=7, username="pixivflow",
-        target_id="target-a", work_type="illustration", pixiv_id="222",
+        target_id="target-a", work_type="illustration", work_id="222",
         idempotency_key="repl-failed", source="api",
         refetch_request_id=attempt["request_id"],
     )
@@ -597,7 +597,7 @@ async def test_replacement_after_approve_race_does_not_supersede(refetch_db, mon
             tags="#pixiv", title="Late candidate",
             link="https://www.pixiv.net/artworks/333",
             user_id=7, username="pixivflow",
-            target_id="target-a", work_type="illustration", pixiv_id="333",
+            target_id="target-a", work_type="illustration", work_id="333",
             idempotency_key="repl-2", source="api",
             refetch_request_id=attempt["request_id"],
         )
@@ -640,7 +640,7 @@ async def test_replacement_decided_during_staging_is_cancelled(refetch_db):
         await review.queue_review_from_file_ids(
             bot, [{"type": "photo", "file_id": "NEW_ART"}], [],
             tags="#pixiv", title="Late candidate", user_id=7, username="pixivflow",
-            target_id="target-a", work_type="illustration", pixiv_id="222",
+            target_id="target-a", work_type="illustration", work_id="222",
             idempotency_key="repl-raced", source="api",
             refetch_request_id=attempt["request_id"],
         )

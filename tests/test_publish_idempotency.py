@@ -45,7 +45,7 @@ async def test_direct_publish_idempotent_replay_then_historical_duplicate(monkey
     first = await publish.publish_from_file_ids(
         None, media, [],
         idempotency_key="pixivflow:bot1:illustration:55:slot-a:t1",
-        target_id="bot1", work_type="illustration", pixiv_id="55",
+        target_id="bot1", work_type="illustration", work_id="55",
         **common,
     )
     assert first["status"] == "published"
@@ -55,7 +55,7 @@ async def test_direct_publish_idempotent_replay_then_historical_duplicate(monkey
     replay = await publish.publish_from_file_ids(
         None, media, [],
         idempotency_key="pixivflow:bot1:illustration:55:slot-a:t1",
-        target_id="bot1", work_type="illustration", pixiv_id="55",
+        target_id="bot1", work_type="illustration", work_id="55",
         **common,
     )
     assert replay["reused"] is True
@@ -68,7 +68,7 @@ async def test_direct_publish_idempotent_replay_then_historical_duplicate(monkey
     historical = await publish.publish_from_file_ids(
         None, media, [],
         idempotency_key="pixivflow:bot1:illustration:55:slot-b:t1",
-        target_id="bot1", work_type="illustration", pixiv_id="55",
+        target_id="bot1", work_type="illustration", work_id="55",
         **common,
     )
     assert historical["reused"] is True

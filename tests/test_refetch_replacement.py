@@ -58,7 +58,7 @@ async def _replacement_with_attempt(review_id, attempt, *, candidate="222",
         tags="#pixiv", title=f"candidate {candidate}",
         link=f"https://www.pixiv.net/artworks/{candidate}",
         user_id=7, username="pixivflow",
-        target_id="target-a", work_type="illustration", pixiv_id=candidate,
+        target_id="target-a", work_type="illustration", work_id=candidate,
         idempotency_key=idempotency_key, source="api",
         refetch_request_id=attempt["request_id"],
     ), bot

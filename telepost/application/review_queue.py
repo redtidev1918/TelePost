@@ -59,7 +59,10 @@ def _common(command: "QueueCommand") -> dict:
         "actor": _actor(command),
         "target_id": command.target_id or None,
         "work_type": command.work_type or None,
-        "pixiv_id": command.pixiv_id or None,
+        # Audit payloads keep the historical pixiv_id key (persisted schema,
+        # see telepost/storage/sqlite/columns.py); the value is the domain
+        # source-neutral work_id.
+        "pixiv_id": command.work_id or None,
     }
 
 
@@ -103,11 +106,21 @@ PUBLISHED_DEDUP_WINDOW_SECONDS = 7 * 86400
 _PIXIV_ID_RE = re.compile(r"pixiv\.net/(?:artworks/|novel/show\.php\?id=)(\d+)")
 
 
-def pixiv_id_from_link(link: str) -> str:
+def work_id_from_link(link: str) -> str:
+    """Derive the source-neutral work id from a work URL.
+
+    Currently only the pixiv.net URL format is recognised
+    (``artworks/<id>`` / ``novel/show.php?id=<id>``); other sources simply
+    yield "" until their own format is taught here.
+    """
     if not link:
         return ""
     match = _PIXIV_ID_RE.search(link)
     return match.group(1) if match else ""
+
+
+#: Deprecated alias of :func:`work_id_from_link` (pre-generalization name).
+pixiv_id_from_link = work_id_from_link
 
 
 def _review_media_count(row_or_specs, media=None) -> int:
@@ -160,7 +173,10 @@ class QueueCommand:
     idempotency_key: str = ""
     target_id: str = ""
     work_type: str = ""
-    pixiv_id: str = ""
+    # Source-neutral work identifier (wire field ``work_id``; legacy producers
+    # may still send ``pixiv_id``, which the API layer maps onto this). Storage
+    # keeps the ``pixiv_id`` column — see telepost/storage/sqlite/columns.py.
+    work_id: str = ""
     source_label: str = ""
     source_ref: str = ""
     scheduled_at: str = ""
@@ -370,10 +386,10 @@ class ReviewQueueService:
                 if is_local:
                     await stager.cleanup_files(files)
 
-        pixiv_id = command.pixiv_id or pixiv_id_from_link(command.link)
-        if pixiv_id:
+        work_id = command.work_id or work_id_from_link(command.link)
+        if work_id:
             historical = await self._repo.find_published_work(
-                command.target_id, command.work_type, pixiv_id, self._dedup_window
+                command.target_id, command.work_type, work_id, self._dedup_window
             )
             if historical is not None and historical["idempotency_key"] != key:
                 try:
@@ -388,7 +404,7 @@ class ReviewQueueService:
         preview_ids: List[int] = []
         try:
             review_id = await self._reserve(
-                command, pixiv_id=pixiv_id, stager=stager
+                command, work_id=work_id, stager=stager
             )
         except ReusedReview as reused:
             if is_local:
@@ -574,7 +590,7 @@ class ReviewQueueService:
             "reused": False,
         }
 
-    async def _reserve(self, command: QueueCommand, *, pixiv_id: str,
+    async def _reserve(self, command: QueueCommand, *, work_id: str,
                        stager: StagingPort) -> int:
         """Persist the source of truth before any Telegram preview is sent."""
         new_review = NewReview(
@@ -596,7 +612,9 @@ class ReviewQueueService:
             source_label=command.source_label,
             source_ref=command.source_ref,
             scheduled_at=command.scheduled_at,
-            pixiv_id=pixiv_id,
+            # Boundary mapping: domain ``work_id`` → storage ``pixiv_id`` column
+            # (see telepost/storage/sqlite/columns.py; column never renamed).
+            pixiv_id=work_id,
             work_type=command.work_type,
             delivery_target=command.target_id,
             status="preparing",
@@ -660,7 +678,7 @@ class ReviewQueueService:
         # The DB-driven migration bootstrap only covers rows existing at
         # init_db time, so freshly created originals seed here in the same
         # connection that reserved them.
-        if pixiv_id:
+        if work_id:
             try:
                 from telepost.storage.sqlite.refetch import RefetchRepository
                 async with db_manager.get_db() as conn:
@@ -899,7 +917,9 @@ def _command_from_row(row) -> QueueCommand:
         source=row["source"] or "api",
         idempotency_key=row["idempotency_key"] or "",
         target_id=row["target_id"] or "", work_type=row["work_type"] or "",
-        pixiv_id=row["pixiv_id"] or "", source_label=row["source_label"] or "",
+        # Boundary mapping: storage ``pixiv_id`` column → domain ``work_id``
+        # (see telepost/storage/sqlite/columns.py).
+        work_id=row["pixiv_id"] or "", source_label=row["source_label"] or "",
         source_ref=row["source_ref"] or "", scheduled_at=row["scheduled_at"] or "",
         review_chat_id=str(row["review_chat_id"] or ""),
         refetch_request_id=row["refetch_request_id"] or "",

@@ -431,7 +431,7 @@ class TestFileIdDirect:
             # an ACK loss / retry cannot re-post to the channel.
             assert kwargs["target_id"] == ""
             assert kwargs["work_type"] == ""
-            assert kwargs["pixiv_id"] == ""
+            assert kwargs["work_id"] == ""
             assert file_id_mock.call_args.args[1][0]["file_id"] == "AAA"
         finally:
             await client.close()
@@ -460,7 +460,8 @@ class TestFileIdDirect:
             assert kwargs["idempotency_key"] == "pixivflow:bot1:illustration:55:slot:t1"
             assert kwargs["target_id"] == "bot1"
             assert kwargs["work_type"] == "illustration"
-            assert kwargs["pixiv_id"] == "55"
+            # Legacy wire field pixiv_id still maps onto the domain work_id.
+            assert kwargs["work_id"] == "55"
         finally:
             await client.close()
 

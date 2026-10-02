@@ -24,7 +24,7 @@ from telegram import (
 )
 from telegram.error import RetryAfter
 
-from ..application.review_queue import pixiv_id_from_link
+from ..application.review_queue import work_id_from_link
 from .delivery.preparation import (
     PHOTO_MAX_BYTES,
     cleanup_prepared_dicts,
@@ -302,8 +302,8 @@ class TelegramReviewStager:
                 command.link,
                 spoiler=bool(command.spoiler),
                 source=command.source,
-                pixiv_id=(command.pixiv_id
-                          or pixiv_id_from_link(command.link or "")),
+                work_id=(command.work_id
+                         or work_id_from_link(command.link or "")),
                 submitter_user_id=command.submitter_user_id,
                 actor_kind=command.actor_kind,
                 actor_subject=command.actor_subject,

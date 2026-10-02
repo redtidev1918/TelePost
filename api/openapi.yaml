@@ -153,7 +153,15 @@ components:
         work_type:
           type: string
           enum: [illustration, novel, ""]
-        pixiv_id: {type: string, maxLength: 32}
+        work_id:
+          type: string
+          maxLength: 32
+          description: Source-neutral work identifier (canonical). Wins when both fields are sent.
+        pixiv_id:
+          type: string
+          maxLength: 32
+          deprecated: true
+          description: Deprecated alias of work_id; kept for legacy producers.
         source_label: {type: string, maxLength: 120}
         source_ref: {type: string, maxLength: 255}
         scheduled_at: {type: string, maxLength: 64}
@@ -173,6 +181,8 @@ components:
         source:
           type: string
           enum: [review, direct_publish, none]
+        work_id: {type: string, description: Canonical source-neutral work id}
+        pixiv_id: {type: string, deprecated: true, description: Same value as work_id; kept for legacy callers}
         message_id: {type: [integer, 'null']}
         idempotency_key: {type: [string, 'null']}
         decided_at: {type: [number, 'null']}
@@ -294,7 +304,8 @@ paths:
                 idempotency_key: {type: string}
                 target_id: {type: string}
                 work_type: {type: string}
-                pixiv_id: {type: string}
+                work_id: {type: string, description: Source-neutral work id (canonical)}
+                pixiv_id: {type: string, deprecated: true, description: Deprecated alias of work_id}
                 refetch_request_id: {type: string, format: uuid}
       responses:
         '201':
@@ -346,7 +357,17 @@ paths:
         - {in: query, name: target, required: false, schema: {type: string}}
         - {in: query, name: work_type, required: true,
            schema: {type: string, enum: [illustration, novel]}}
-        - {in: query, name: pixiv_id, required: true, schema: {type: string}}
+        - in: query
+          name: work_id
+          required: false
+          schema: {type: string}
+          description: Canonical work id. Either work_id or pixiv_id is required.
+        - in: query
+          name: pixiv_id
+          required: false
+          schema: {type: string}
+          description: Deprecated alias of work_id; used when work_id is absent.
+          deprecated: true
       responses:
         '200':
           description: Reconciliation result across review queue and direct ledger
@@ -358,7 +379,7 @@ paths:
                   ok: {type: boolean}
                   data: {$ref: '#/components/schemas/DeliveryLookup'}
         '400':
-          description: Missing work_type/pixiv_id
+          description: Missing work_type or work id (work_id/pixiv_id)
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}

@@ -41,7 +41,7 @@ from telepost.application.review_queue import (
     QueueCommand,
     ReviewQueueService,
     normalize_idempotency_key,
-    pixiv_id_from_link as _pixiv_id_impl,
+    work_id_from_link as _work_id_impl,
 )
 from telepost.telegram.delivery.preparation import PHOTO_MAX_BYTES
 from telepost.telegram.delivery.sender import file_id_of as _file_id_of
@@ -148,8 +148,12 @@ _refetch_recovery_done = False
 _PIXIV_ID_RE = re.compile(r"pixiv\.net/(?:artworks/|novel/show\.php\?id=)(\d+)")
 
 
-def _pixiv_id_from_link(link: str) -> str:
-    return _pixiv_id_impl(link)
+def _work_id_from_link(link: str) -> str:
+    return _work_id_impl(link)
+
+
+# Back-compat alias for older patch seams/tests.
+_pixiv_id_from_link = _work_id_from_link
 
 
 # ---- service singletons ---------------------------------------------------
@@ -193,13 +197,13 @@ def _stager(bot) -> TelegramReviewStager:
 
 # ---- back-compat UI names -------------------------------------------------
 def _review_keyboard(review_id, link="", *, spoiler=False, source="api",
-                     pixiv_id="", failed=False, submitter_user_id=None,
+                     work_id="", failed=False, submitter_user_id=None,
                      actor_kind="user", actor_subject=""):
     # §submission-entrypoint: review/staging cards never expose the public
     # submission acquisition CTA (it belongs only to final Channel Publications).
     return review_keyboard.review_keyboard(
         review_id, link, spoiler=spoiler, source=source,
-        pixiv_id=pixiv_id, failed=failed,
+        work_id=work_id, failed=failed,
         submitter_user_id=submitter_user_id, actor_kind=actor_kind,
         actor_subject=actor_subject,
     )
@@ -332,7 +336,7 @@ async def queue_review_from_file_ids(
     bot, media, documents, *, tags="", title="", note="", link="",
     anonymous=False, spoiler=False, user_id, username="",
     idempotency_key="", source="api", target_id="", source_label="",
-    source_ref="", scheduled_at="", work_type="", pixiv_id="",
+    source_ref="", scheduled_at="", work_type="", work_id="",
     refetch_request_id="", submitter_user_id=None, submitter_username="",
     submitter_display_name="",
     actor_kind="user", actor_subject="",
@@ -346,7 +350,7 @@ async def queue_review_from_file_ids(
         user_id=user_id, username=username, tags=tags, title=title, note=note,
         link=link, anonymous=anonymous, spoiler=spoiler, source=source,
         idempotency_key=key, target_id=target_id, work_type=work_type,
-        pixiv_id=pixiv_id, source_label=source_label, source_ref=source_ref,
+        work_id=work_id, source_label=source_label, source_ref=source_ref,
         scheduled_at=scheduled_at, review_chat_id=str(REVIEW_CHAT_ID),
         refetch_request_id=refetch_request_id,
         submitter_user_id=submitter_user_id,
@@ -370,7 +374,7 @@ async def queue_review_from_files(
     bot, files, *, tags="", title="", note="", link="",
     anonymous=False, spoiler=False, user_id, username="",
     idempotency_key="", source="api", target_id="", source_label="",
-    source_ref="", scheduled_at="", work_type="", pixiv_id="",
+    source_ref="", scheduled_at="", work_type="", work_id="",
     refetch_request_id="", submitter_user_id=None, submitter_username="",
     submitter_display_name="",
     actor_kind="user", actor_subject="",
@@ -379,12 +383,12 @@ async def queue_review_from_files(
 ) -> dict:
     """Stage multipart API files and create a durable pending review."""
     key = normalize_idempotency_key(user_id, idempotency_key, source)
-    resolved_pixiv = pixiv_id or _pixiv_id_from_link(link or "")
+    resolved_work_id = work_id or _work_id_from_link(link or "")
     command = QueueCommand(
         user_id=user_id, username=username, tags=tags, title=title, note=note,
         link=link, anonymous=anonymous, spoiler=spoiler, source=source,
         idempotency_key=key, target_id=target_id, work_type=work_type,
-        pixiv_id=resolved_pixiv, source_label=source_label,
+        work_id=resolved_work_id, source_label=source_label,
         source_ref=source_ref, scheduled_at=scheduled_at,
         review_chat_id=str(REVIEW_CHAT_ID),
         refetch_request_id=refetch_request_id,
@@ -472,10 +476,10 @@ async def _find_review(idempotency_key: str):
     )
 
 
-async def _find_published_work(target_id, work_type, pixiv_id):
+async def _find_published_work(target_id, work_type, work_id):
     from telepost.storage.sqlite.reviews import ReviewRepository
     return await ReviewRepository().find_published_work(
-        target_id, work_type, pixiv_id, PUBLISHED_DEDUP_WINDOW_SECONDS
+        target_id, work_type, work_id, PUBLISHED_DEDUP_WINDOW_SECONDS
     )
 
 
@@ -1727,7 +1731,7 @@ async def toggle_review_spoiler(update, context):
             reply_markup=_review_keyboard(
                 review_id, row["link"], spoiler=new_spoiler,
                 source=row["source"],
-                pixiv_id=_pixiv_id_from_link(row["link"] or ""),
+                work_id=_work_id_from_link(row["link"] or ""),
                 submitter_user_id=_row_value(row, "submitter_user_id"),
                 actor_kind=_row_value(row, "actor_kind") or "user",
                 actor_subject=_row_value(row, "actor_subject") or "",
@@ -1980,7 +1984,7 @@ async def approve_review(update, context):
             reply_markup=_review_keyboard(
                 review_id, row["link"],
                 spoiler=bool(row["spoiler"]), source=row["source"],
-                pixiv_id=_pixiv_id_from_link(row["link"] or ""),
+                work_id=_work_id_from_link(row["link"] or ""),
                 failed=True,
                 submitter_user_id=_row_value(row, "submitter_user_id"),
                 actor_kind=_row_value(row, "actor_kind") or "user",

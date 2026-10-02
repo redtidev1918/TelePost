@@ -210,7 +210,7 @@ def test_review_keyboard_has_no_submission_cta_and_keeps_moderation():
     the owning bot's submission entrypoints are configured (§review-cta)."""
     from telepost.telegram.review_keyboard import review_keyboard
     kb = review_keyboard(
-        55, "https://www.pixiv.net/artworks/1", source="api", pixiv_id="1",
+        55, "https://www.pixiv.net/artworks/1", source="api", work_id="1",
     )
     rows = _keyboard_to_tuples(kb)
     # Moderation controls unchanged.

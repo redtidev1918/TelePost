@@ -118,7 +118,7 @@ async def test_review_keyboard_shows_moderation_buttons_for_expected_subjects(mo
 
     kb = review_keyboard(
         55, "https://www.pixiv.net/artworks/1", source="api",
-        pixiv_id="1", submitter_user_id=42, actor_kind="service",
+        work_id="1", submitter_user_id=42, actor_kind="service",
     )
     texts = [b.text for row in kb.inline_keyboard for b in row]
     assert "🚫 封禁投稿人" in texts
