@@ -18,6 +18,10 @@ HTTP 投稿接口、幂等键、审核队列、批准/驳回、发布与发布�
   也是**唯一能发布到频道**的服务。
 - 它**不决定要抓哪些 Pixiv 作品**——那是 PixivFlow。本仓库里没有 Pixiv refresh token，
   也不应该出现调度 cron / occurrence / 槽位。
+- **命名已来源中立化**：投稿 wire 字段是 `work_id`（`pixiv_id` 为 deprecated 别名），
+  域层一律用 `work_id`；`pixivflow_jobs.py` 模块名、`PIXIVFLOW_*` 环境变量与
+  `pixiv:` 资产 ID 前缀为兼容而冻结。PixivFlow 是当前的 producer，未来第二来源
+  走同一端口形状新增适配器，不改这里。
 
 ## 目录职责
 
