@@ -68,7 +68,7 @@ docker compose logs -f telepost
 ```
 
 `docker-compose.yml` 默认使用 `ghcr.io/redtidev1918/telepost:latest`，并把 `./data`、
-`./logs` 挂载到容器。生产环境建议固定版本，例如 `2.76.1`（示例，以最新 release 为准），升级前备份 `data/`。
+`./logs` 挂载到容器。生产环境建议固定版本，例如 `2.76.2`（示例，以最新 release 为准），升级前备份 `data/`。
 
 需要 Webhook 时自行映射 8080 并提供公网 HTTPS 反向代理；无公网地址保持
 `RUN_MODE=AUTO` 或 `POLLING`。
