@@ -130,9 +130,11 @@ export function fetchReview(id: number | string): Promise<ReviewDetail> {
 /** Reviewer review history (terminal states), keyset-paged (§history). */
 export function fetchReviewHistory(
   cursor?: string | null,
+  limit?: number,
 ): Promise<ReviewPage> {
   const params = new URLSearchParams();
   if (cursor) params.set('cursor', cursor);
+  if (limit) params.set('limit', String(limit));
   const qs = params.toString();
   return apiFetch<ReviewPage>(`/reviews/history${qs ? `?${qs}` : ''}`);
 }
