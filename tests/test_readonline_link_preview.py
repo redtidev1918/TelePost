@@ -14,6 +14,7 @@ Covered here:
 * ``channel_caption``（审核/预览面共用）永不出现裸链块。
 """
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -30,6 +31,7 @@ from telepost.domain.delivery import (
     DeliveredMessage,
     MediaItem,
     MediaKind,
+    ReplyMode,
     SubmissionText,
 )
 from telepost.storage.sqlite.ledger import DeliveryLedgerRepository
@@ -124,7 +126,7 @@ def test_with_readonline_preview_without_url_is_noop():
 # ---- application layer: compat matrix --------------------------------------
 
 @pytest.mark.asyncio
-async def test_single_txt_with_preview_moves_caption_to_trailing_text(
+async def test_single_txt_with_preview_keeps_caption_on_document_plus_bare_link(
         ledger, tmp_path):
     delivery = _RecordingDelivery()
     service = _service(delivery, ledger, _Enricher())
@@ -133,16 +135,19 @@ async def test_single_txt_with_preview_moves_caption_to_trailing_text(
 
     assert outcome.status == "published"
     request = delivery.last
-    assert request.caption is None
     assert [i.kind for i in request.items] == [MediaKind.DOCUMENT, MediaKind.TEXT]
     source = _text_items(request)[0].source
     assert isinstance(source, SubmissionText)
-    assert source.text.endswith(f"📖 在线阅读\n{PREVIEW_URL}")
+    assert source.text == f"📖 在线阅读\n{PREVIEW_URL}"
     assert source.link_preview_url == PREVIEW_URL
+    # Root caption stays on the file, 2.75.0 form preserved.
+    assert request.caption is not None
+    assert PREVIEW_URL not in request.caption
+    assert "在线阅读" not in request.caption
 
 
 @pytest.mark.asyncio
-async def test_multi_document_with_preview_keeps_trailing_form_plus_bare_link(
+async def test_multi_document_with_preview_tails_caption_then_bare_link(
         ledger, tmp_path):
     delivery = _RecordingDelivery()
     service = _service(delivery, ledger, _Enricher())
@@ -156,11 +161,14 @@ async def test_multi_document_with_preview_keeps_trailing_form_plus_bare_link(
     request = delivery.last
     assert request.caption is None
     assert [i.kind for i in request.items] == [
-        MediaKind.DOCUMENT, MediaKind.DOCUMENT, MediaKind.TEXT,
+        MediaKind.DOCUMENT, MediaKind.DOCUMENT, MediaKind.TEXT, MediaKind.TEXT,
     ]
-    source = _text_items(request)[0].source
-    assert source.text.endswith(f"📖 在线阅读\n{PREVIEW_URL}")
-    assert source.link_preview_url == PREVIEW_URL
+    caption_item, bare_item = _text_items(request)
+    assert caption_item.source.link_preview_url is None
+    assert PREVIEW_URL not in caption_item.source.text
+    assert "标题" in caption_item.source.text
+    assert bare_item.source.text == f"📖 在线阅读\n{PREVIEW_URL}"
+    assert bare_item.source.link_preview_url == PREVIEW_URL
 
 
 @pytest.mark.asyncio
@@ -259,18 +267,21 @@ def test_dict_round_trip_without_preview_url_stays_none():
 
 # ---- legacy chat direct-publish helper --------------------------------------
 
-def test_legacy_chat_helper_appends_trailing_text_and_clears_caption():
+def test_legacy_chat_helper_single_document_keeps_caption_plus_bare_item():
     from handlers.publish import _chat_delivery_with_readonline
 
     items, caption = _chat_delivery_with_readonline(
         [{"kind": "document", "file_id": "F", "filename": "novel.txt"}],
         "caption body", PREVIEW_URL,
+        caption_data={"tags": "#novel", "title": "标题", "novel_preview_url": PREVIEW_URL},
     )
-    assert caption is None
-    assert items[-1]["kind"] == "text"
-    assert items[-1]["text"].endswith(f"📖 在线阅读\n{PREVIEW_URL}")
-    assert items[-1]["link_preview_url"] == PREVIEW_URL
+    assert caption is not None
+    assert "标题" in caption
+    assert "在线阅读" not in caption
     assert items[0]["kind"] == "document"
+    assert items[-1]["kind"] == "text"
+    assert items[-1]["text"] == f"📖 在线阅读\n{PREVIEW_URL}"
+    assert items[-1]["link_preview_url"] == PREVIEW_URL
 
 
 def test_legacy_chat_helper_without_preview_is_passthrough():
@@ -292,6 +303,170 @@ def test_legacy_chat_helper_switch_off_is_passthrough(monkeypatch):
     assert items is base
     assert caption == "caption body"
 
+
+# ---- phase matrix: reply mode x document count x preview ----------------------
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply_mode", [
+    "chain", "post", "discussion",
+])
+async def test_single_document_preview_matrix_is_boarded_identically_at_app_layer(
+        ledger, tmp_path, reply_mode):
+    """单文档 + preview：无论外部 reply mode，应用层都保持 DOC(caption) + TEXT(裸链)。"""
+    delivery = _RecordingDelivery()
+    service = _service(delivery, ledger, _Enricher())
+    command = _command([_txt_item(tmp_path)])
+    command = PublishCommand(
+        chat_id=command.chat_id,
+        items=command.items,
+        caption_data=command.caption_data,
+        user_id=command.user_id,
+        idempotency_key=command.idempotency_key,
+        target_id=command.target_id,
+        work_type=command.work_type,
+        work_id=command.work_id,
+        reply_mode=ReplyMode(reply_mode),
+    )
+
+    outcome = await service.publish(command)
+
+    assert outcome.status == "published"
+    request = delivery.last
+    assert request.reply_mode.value == reply_mode
+    assert [i.kind for i in request.items] == [MediaKind.DOCUMENT, MediaKind.TEXT]
+    bare = _text_items(request)[0]
+    assert bare.source.text == f"📖 在线阅读\nhttps://telegra.ph/readonline-iv-01-01"
+    assert bare.source.link_preview_url == PREVIEW_URL
+    assert request.caption is not None
+    assert "在线阅读" not in request.caption
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply_mode", [
+    "chain", "post", "discussion",
+])
+async def test_multi_document_preview_matrix_is_boarded_identically_at_app_layer(
+        ledger, tmp_path, reply_mode):
+    """多文档 + preview：应用层保持 DOC 组、尾随 caption、再尾随两行裸链。"""
+    delivery = _RecordingDelivery()
+    service = _service(delivery, ledger, _Enricher())
+    command = _command([
+        _txt_item(tmp_path, "novel.txt"), _txt_item(tmp_path, "extra.txt"),
+    ])
+    command = PublishCommand(
+        chat_id=command.chat_id,
+        items=command.items,
+        caption_data=command.caption_data,
+        user_id=command.user_id,
+        idempotency_key=command.idempotency_key,
+        target_id=command.target_id,
+        work_type=command.work_type,
+        work_id=command.work_id,
+        reply_mode=ReplyMode(reply_mode),
+    )
+
+    outcome = await service.publish(command)
+
+    assert outcome.status == "published"
+    request = delivery.last
+    assert request.reply_mode.value == reply_mode
+    assert [i.kind for i in request.items] == [
+        MediaKind.DOCUMENT, MediaKind.DOCUMENT, MediaKind.TEXT, MediaKind.TEXT,
+    ]
+    caption_item, bare_item = _text_items(request)
+    assert caption_item.source.link_preview_url is None
+    assert bare_item.source.text == f"📖 在线阅读\nhttps://telegra.ph/readonline-iv-01-01"
+    assert bare_item.source.link_preview_url == PREVIEW_URL
+    assert request.caption is None
+
+
+# ---- discussion routing: readonline trailing text must land in comments -------
+
+class _Msg:
+    def __init__(self, message_id, chat_id=None):
+        self.message_id = message_id
+        if chat_id is not None:
+            self.chat = SimpleNamespace(id=chat_id)
+
+
+@pytest.mark.asyncio
+async def test_discussion_single_document_preview_routes_bare_link_to_comments(
+        monkeypatch):
+    from handlers import publish
+
+    bot = AsyncMock()
+    bot.get_chat.return_value = SimpleNamespace(id=-1001, linked_chat_id=-1002)
+    bot.send_document.return_value = _Msg(1, -1001)
+    bot.send_message.return_value = _Msg(2, -1002)
+    waiter = AsyncMock(return_value=(-1002, 77))
+    monkeypatch.setattr(publish, "_wait_for_discussion_forward", waiter)
+
+    sent, main = await publish.deliver_items_to_chat(
+        bot,
+        -1001,
+        [
+            {"kind": "document", "file_id": "F", "filename": "novel.txt"},
+            {
+                "kind": "text",
+                "text": f"📖 在线阅读\nhttps://telegra.ph/readonline-iv-01-01",
+                "link_preview_url": PREVIEW_URL,
+            },
+        ],
+        caption="完整 caption（无在线阅读 footer）",
+        timeout_kwargs={},
+        reply_mode="discussion",
+    )
+
+    assert publish._channel_message_ids(sent, main) == [1]
+    doc_kw = bot.send_document.await_args.kwargs
+    assert doc_kw["chat_id"] == -1001
+    assert doc_kw["caption"] == "完整 caption（无在线阅读 footer）"
+    msg_kw = bot.send_message.await_args.kwargs
+    assert msg_kw["chat_id"] == -1002
+    assert msg_kw["reply_to_message_id"] == 77
+    assert msg_kw["text"] == f"📖 在线阅读\nhttps://telegra.ph/readonline-iv-01-01"
+    options = msg_kw["link_preview_options"]
+    assert options.url == PREVIEW_URL
+    assert options.prefer_large_media is True
+
+
+@pytest.mark.asyncio
+async def test_discussion_multi_document_preview_routes_caption_and_bare_link_to_comments(
+        monkeypatch):
+    from handlers import publish
+
+    bot = AsyncMock()
+    bot.get_chat.return_value = SimpleNamespace(id=-1001, linked_chat_id=-1002)
+    bot.send_media_group.return_value = [_Msg(1, -1001), _Msg(2, -1001)]
+    bot.send_message.side_effect = [_Msg(3, -1002), _Msg(4, -1002)]
+    waiter = AsyncMock(return_value=(-1002, 77))
+    monkeypatch.setattr(publish, "_wait_for_discussion_forward", waiter)
+
+    sent, main = await publish.deliver_items_to_chat(
+        bot,
+        -1001,
+        [
+            {"kind": "document", "file_id": "F1", "filename": "novel.txt"},
+            {"kind": "document", "file_id": "F2", "filename": "extra.txt"},
+            {"kind": "text", "text": "完整 caption（无 footer 在线阅读）"},
+            {
+                "kind": "text",
+                "text": f"📖 在线阅读\nhttps://telegra.ph/readonline-iv-01-01",
+                "link_preview_url": PREVIEW_URL,
+            },
+        ],
+        caption=None,
+        timeout_kwargs={},
+        reply_mode="discussion",
+    )
+
+    assert publish._channel_message_ids(sent, main) == [1, 2]
+    assert bot.send_media_group.await_args.kwargs["chat_id"] == -1001
+    assert bot.send_message.await_args_list[0].kwargs["chat_id"] == -1002
+    assert bot.send_message.await_args_list[0].kwargs["text"] == "完整 caption（无 footer 在线阅读）"
+    options = bot.send_message.await_args_list[1].kwargs["link_preview_options"]
+    assert options.url == PREVIEW_URL
+    assert options.prefer_large_media is True
 
 # ---- send layer --------------------------------------------------------------
 

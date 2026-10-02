@@ -308,26 +308,43 @@ def novel_cover_asset_ids(assets) -> set:
     }
 
 
-def _chat_delivery_with_readonline(chat_items, caption, preview_url):
-    """Legacy chat direct-publish: a novel with a Telegraph "read online" page
-    moves its caption onto a trailing TEXT message whose bare URL triggers the
-    Instant View link preview (media captions never get one). Returns
+def _chat_delivery_with_readonline(chat_items, caption, preview_url, *,
+                                      caption_data=None):
+    """Legacy chat direct-publish: shape a novel with a Telegraph preview URL.
+
+    Mirrors the application publication layer (single-document caption stays on
+    the file + a separate two-line bare-link message; multi-document caption
+    tails the album + the bare-link message still owns the IV card). Returns
     ``(items, caption)`` for :func:`deliver_items_to_chat`; without a preview
     URL — or with READONLINE_LINK_PREVIEW off — both pass through unchanged.
     """
     if not caption or not preview_url:
         return chat_items, caption
     from telepost.application.publication import (
+        channel_caption,
+        readonline_bare_link_text,
         readonline_link_preview_enabled,
-        with_readonline_preview,
     )
     if not readonline_link_preview_enabled():
         return chat_items, caption
-    return chat_items + [{
+    move_caption = bool(
+        len(chat_items) > 1
+        and all(item.get("kind") == "document" for item in chat_items)
+    )
+    if caption_data is not None:
+        caption = channel_caption(
+            {**caption_data, "novel_preview_url": preview_url},
+            include_readonline_footer=False,
+        )
+    bare_item = {
         "kind": "text",
-        "text": with_readonline_preview(caption, preview_url),
+        "text": readonline_bare_link_text(preview_url),
         "link_preview_url": preview_url,
-    }], None
+    }
+    if move_caption:
+        caption_item = {"kind": "text", "text": caption}
+        return chat_items + [caption_item, bare_item], None
+    return chat_items + [bare_item], caption
 
 
 def _items_from_dicts(items):
@@ -1266,11 +1283,11 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
             caption = channel_caption({**caption_data, "novel_preview_url": preview_url})
 
         chat_items = _normalize_chat_items(media_list, doc_list)
-        # A novel with a Telegraph preview page moves its caption onto a
-        # trailing TEXT message so the bare read-online URL earns the Instant
-        # View link preview; everything else keeps caption-on-first-media.
+        # A novel with a Telegraph preview page keeps the root caption on the
+        # single file and adds a separate two-line bare-link message for the
+        # Instant View card; multi-document form mirrors the app layer.
         chat_items, deliver_caption = _chat_delivery_with_readonline(
-            chat_items, caption, preview_url,
+            chat_items, caption, preview_url, caption_data=caption_data,
         )
         sent_message = None
         all_message_ids = []
