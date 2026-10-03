@@ -559,7 +559,13 @@ async def _execute_with_on_sent(gateway, request, on_sent):
     )
     sender = PTBSender(gateway._bot, request.chat_id,
                        timeouts=gateway._timeouts())
+    # Same contract as DeliveryGateway.deliver: root-only navigation (e.g. the
+    # READ_ONLINE button) must reach execute_plan, otherwise the on_sent branch
+    # silently drops it. execute_plan attaches it to the root message only and
+    # never to albums / overflow / discussion replies (§root-only-navigation).
+    root_markup = sender._navigation_markup(request.root_navigation)
     return await execute_plan(plan, sender, caption=request.caption,
+                              root_reply_markup=root_markup,
                               on_sent=_collect)
 
 
