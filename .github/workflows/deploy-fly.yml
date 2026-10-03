@@ -188,6 +188,7 @@ jobs:
           echo "image ref : ${REF}:${VERSION}"
           echo "digest    : ${DIGEST}"
           echo "acceptable machine digests: $(printf '%s' "${ALLOWED}" | tr ',' '\n' | wc -l | tr -d ' ') (index + platform manifests)"
+          printf '%s\n' "${ALLOWED}" | tr ',' '\n' | sed 's/^/  /'
 
       # Informational only, deliberately. It answers "is this exact version part
       # of the PyPI release too?", NOT "is it the newest?" - comparing against

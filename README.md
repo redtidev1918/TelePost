@@ -58,6 +58,21 @@ chmod +x telepost-linux-x64
 docker compose up -d
 ```
 
+**或使用 pip：**
+
+```bash
+pip install telepost-bot
+telepost
+```
+
+## 🔖 发版
+
+只需要 merge Release PR，其余全由流水线完成：**GitHub Release → GHCR 镜像 →
+PyPI `telepost-bot` → 文档 → Fly 生产部署 → 校验 `/health` 版本与 bot1/bot2 就绪**。
+任一步失败都会让发版明确失败，不会出现「发版显示成功、生产仍是旧版本」。
+
+详见 [docs/FLYIO_DEPLOYMENT.md § 0](docs/FLYIO_DEPLOYMENT.md#0-正式发版路径唯一推荐)。
+
 > 完整的安装、配置与升级步骤见 [安装与部署](docs/INSTALL.md)。
 
 ## 🌐 HTTP API
