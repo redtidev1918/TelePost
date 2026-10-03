@@ -21,10 +21,51 @@ logger = logging.getLogger(__name__)
 # 简单缓存：标签云 60s
 _tag_cloud_cache = TTLCache(default_ttl=60, max_size=16)
 
+# 搜索未启用时的统一提示（与 Mini App 未启用的文案风格保持一致）。
+# 只拦依赖搜索引擎的入口；「我的投稿 / 标签云 / 热门内容」走数据库，不受
+# SEARCH_ENABLED 影响，因此提示里把它们作为仍然可用的替代路径。
+SEARCH_DISABLED_MESSAGE = (
+    "ℹ️ 搜索功能在当前机器人尚未启用。\n\n"
+    "你仍然可以：\n"
+    "• 📋 我的投稿 —— 查看自己发布过的内容\n"
+    "• 🏷️ 标签云 —— 按标签浏览\n"
+    "• 🔥 热门内容 —— 看看最近的热门\n\n"
+    "如需使用搜索，请联系频道管理员开启后再试。"
+)
+
 
 def is_owner(user_id: int) -> bool:
     """检查用户是否是 OWNER"""
     return OWNER_ID and user_id == OWNER_ID
+
+
+def search_enabled() -> bool:
+    """当前 bot 是否启用搜索。
+
+    多 bot 部署下 SEARCH_ENABLED 可被 ``BOT{n}_SEARCH_ENABLED`` 逐 bot 覆盖，
+    所以必须从 config.settings 现读，不能在模块导入时缓存。
+    """
+    from config.settings import SEARCH_ENABLED
+    return bool(SEARCH_ENABLED)
+
+
+async def reply_search_disabled(update: Update, *, edit: bool = False) -> None:
+    """回复「搜索未启用」提示，命令 / 菜单 / 回调三种入口通用。"""
+    # 回调应答由调用方负责（每个 callback query 只能应答一次）。
+    query = getattr(update, "callback_query", None)
+    if query is not None:
+        try:
+            if edit:
+                await query.edit_message_text(SEARCH_DISABLED_MESSAGE)
+            else:
+                await query.message.reply_text(SEARCH_DISABLED_MESSAGE)
+            return
+        except Exception:
+            logger.warning("搜索未启用提示（回调）发送失败", exc_info=True)
+            return
+    message = getattr(update, "message", None) or getattr(update, "effective_message", None)
+    if message is not None:
+        await message.reply_text(SEARCH_DISABLED_MESSAGE)
 
 
 async def search_posts(update: Update, context: CallbackContext):
@@ -49,6 +90,11 @@ async def search_posts(update: Update, context: CallbackContext):
         update: Telegram 更新对象
         context: 回调上下文
     """
+    # 搜索未启用时不再进入帮助/检索流程，直接给出明确说明。
+    if not search_enabled():
+        await reply_search_disabled(update)
+        return
+
     try:
         # 解析参数
         if not context.args:
@@ -320,6 +366,14 @@ async def handle_search_input(update: Update, context: CallbackContext):
     mode = context.user_data.get('search_mode')
     if not mode:
         return  # 未处于搜索输入模式，交给其他处理器
+
+    # 开关可能在用户进入搜索模式之后才被关掉（例如 bot 重启换配置），此时
+    # 明确提示并退出搜索模式，避免用户一直停在「等待输入关键词」的状态。
+    if not search_enabled():
+        context.user_data['search_mode'] = None
+        await reply_search_disabled(update)
+        return
+
     text = (update.message.text or '').strip()
     if not text:
         await update.message.reply_text("❌ 请输入搜索关键词")
@@ -350,6 +404,10 @@ async def search_posts_by_tag(update: Update, context: CallbackContext, tag: str
         context: 回调上下文
         tag: 要搜索的标签
     """
+    if not search_enabled():
+        await reply_search_disabled(update)
+        return
+
     # 如果没有提供标签，从context.args获取
     if tag is None:
         if not context.args:

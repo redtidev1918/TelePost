@@ -67,7 +67,7 @@
 |---|---|---|
 | `DB_PATH` | `data/submissions.db` | SQLite 路径 |
 | `DB_CACHE_KB` | `4096` | SQLite page cache；低内存可设 `1024` |
-| `SEARCH_ENABLED` | `true` | 是否建立并写入搜索索引 |
+| `SEARCH_ENABLED` | `true` | 是否建立并写入搜索索引。关闭后 `/search`、底部菜单「🔍 搜索」及内联搜索按钮会统一回复「搜索功能在当前机器人尚未启用」；「我的投稿 / 标签云 / 热门内容」走数据库，不受影响 |
 | `SEARCH_INDEX_DIR` | `data/search_index` | Whoosh 索引目录 |
 | `SEARCH_ANALYZER` | `jieba` | `jieba`；未安装时回退 `simple` |
 | `SEARCH_HIGHLIGHT` | `false` | 搜索结果高亮 |

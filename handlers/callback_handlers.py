@@ -11,7 +11,9 @@ from ui.messages import MessageFormatter
 from database.db_manager import get_db
 from utils.blacklist import remove_from_blacklist, is_owner
 from handlers.stats_handlers import get_hot_posts
-from handlers.search_handlers import search_posts_by_tag
+from handlers.search_handlers import (
+    reply_search_disabled, search_enabled, search_posts_by_tag,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +106,9 @@ async def handle_callback_query(update: Update, context: CallbackContext):
         # 搜索-时间筛选
         elif data.startswith("time_"):
             # 记录时间筛选并提示输入关键词
+            if not search_enabled():
+                await reply_search_disabled(update, edit=True)
+                return
             mapping = {
                 'time_day': 'day',
                 'time_week': 'week',
@@ -216,6 +221,11 @@ async def handle_search_action(update: Update, context: CallbackContext):
     query = update.callback_query
     await _safe_answer(query)
     action = query.data.replace("search_", "")
+
+    # search_myposts 走数据库，不依赖搜索引擎，不受 SEARCH_ENABLED 影响。
+    if action != "myposts" and not search_enabled():
+        await reply_search_disabled(update, edit=True)
+        return
     
     if action == "fulltext":
         await query.edit_message_text(
@@ -247,6 +257,11 @@ async def handle_search_action(update: Update, context: CallbackContext):
 async def handle_tag_search(update: Update, context: CallbackContext):
     """处理标签搜索"""
     query = update.callback_query
+
+    if not search_enabled():
+        await reply_search_disabled(update, edit=True)
+        return
+
     tag = query.data.replace("tag_search_", "")
     
     await _safe_answer(query, f"正在搜索标签: {tag}")
