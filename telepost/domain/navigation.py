@@ -84,3 +84,16 @@ def miniapp_submission_url(
         # Direct Mini App: https://t.me/<bot>/<short_name>?startapp=submit
         return f"https://t.me/{username}/{short_name}?startapp={_SUBMIT_INTENT}"
     return f"https://t.me/{username}?startapp=miniapp"
+
+
+def read_online_navigation(url: Optional[str]) -> Optional[NavigationItem]:
+    """A READ_ONLINE semantic navigation item, or None without a valid URL.
+
+    The returned :class:`NavigationItem` is a pure domain value object; the
+    Telegram adapter decides whether it becomes a channel-root inline button
+    (channel publication) or a caption-footer hyperlink (review/preview
+    surfaces). Missing/invalid URLs never produce a broken link.
+    """
+    if not url or not str(url).startswith(("http://", "https://")):
+        return None
+    return NavigationItem(READ_ONLINE_ACTION, READ_ONLINE_LABEL, str(url))

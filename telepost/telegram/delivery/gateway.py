@@ -84,7 +84,14 @@ class PTBTelegramDeliveryGateway:
                 anchor_message_id=request.reply_to_message_id,
             )
             sender = PTBSender(self._bot, request.chat_id, timeouts=self._timeouts())
-            return await execute_plan(plan, sender, caption=request.caption)
+            # Root-only navigation (e.g. the READ_ONLINE button) becomes a PTB
+            # inline keyboard on the root message only; execute_plan ignores it
+            # for albums and never propagates it to overflow/discussion.
+            root_markup = sender._navigation_markup(request.root_navigation)
+            return await execute_plan(
+                plan, sender, caption=request.caption,
+                root_reply_markup=root_markup,
+            )
         finally:
             cleanup_prepared(items)
             for path in materialized_paths:

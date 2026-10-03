@@ -282,18 +282,6 @@ MINIAPP_SUBMIT_CTA = str(
     or 'false'
 ).strip().lower() in {'1', 'true', 'yes', 'on'}
 
-# 频道小说帖「在线阅读」Instant View 预览：有 Telegraph 预览页（novel preview
-# enrichment 成功）的小说频道帖把裸链放进尾随文本消息，并由发送层显式下发
-# LinkPreviewOptions(url=…) 触发 IV 卡片（Telegram 只对文本消息里的裸 URL
-# 生成链接预览，媒体 caption 永远不会有）。默认开启；置 false 后全链路退回
-# 改动前行为（caption 位置与预览抑制和旧版逐字节一致）。footer 的内嵌
-# 「📖 在线阅读」超链接与此共存、互不影响。
-READONLINE_LINK_PREVIEW = str(
-    get_env_or_config('READONLINE_LINK_PREVIEW', 'BOT', 'READONLINE_LINK_PREVIEW',
-                      fallback='true')
-    or 'true'
-).strip().lower() in {'1', 'true', 'yes', 'on'}
-
 # Mini App surface gate. Enabled by default (matches the Mini App session/auth
 # gate in telepost/miniapp/auth.init_data_enabled); set explicitly to
 # 'false'/'0'/'no'/'off' to disable the private-chat Web App buttons. It never

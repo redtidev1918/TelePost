@@ -575,10 +575,11 @@ Each action appears EXACTLY ONCE in the footer.
 - `start=submit` / `startapp=submit` 只是导航意图：绝不放入 user id /
   username / token / session，也不被当成认证或授权；Mini App 身份仍只来自
   服务器校验的 Telegram initData。
-- 频道 footer 是在 caption 内的文本导航行（不是单一 inline button）：
-  TXT 带预览时 `📖 在线阅读 | ✉️ TG 投稿 | 📱 Mini App`；普通投稿
-  `✉️ TG 投稿 | 📱 Mini App`；Mini App 未启用则只剩 `✉️ TG 投稿`。标签是固定
-  展示契约，不接受 `CHANNEL_FOOTER_TEXT` 覆盖。
+- 频道 footer 是在 caption 内的文本导航行（不是单一 inline button），只承载
+  投稿 CTA：`✉️ TG 投稿 | 📱 Mini App`；Mini App 未启用则只剩 `✉️ TG 投稿`。
+  标签是固定展示契约，不接受 `CHANNEL_FOOTER_TEXT` 覆盖。小说预览成功时的
+  `📖 在线阅读` 是主贴 root 的 inline keyboard URL 按钮（见 §online-reading），
+  不再出现在 caption footer 文本行（避免与 TXT document 并列或重复）。
 - `_publication_navigation()` 是加入 footer 的唯一位置，chat-DIRECT、API 直发、
   review 通过、editorial、PixivFlow/service 全部经 `channel_caption()` 汇聚；
   禁止各 handler 各自拼 CTA。
@@ -587,24 +588,37 @@ Each action appears EXACTLY ONCE in the footer.
 - CTA 进入既有 caption 预算（`channel_caption` 预留 footer 宽度），不得让
   Publication 因加 footer 超出 Telegram 上限。
 
-### 频道小说帖「在线阅读」Instant View 预览（§readonline-iv）
+### 频道小说帖「在线阅读」= 主贴 root 的 inline 按钮（§online-reading）
 
-- 机制：有 Telegraph 预览页（novel preview enrichment 产出 `preview_url`）的
-  小说频道帖，caption 迁移为**尾随文本消息**（单 TXT 也强制此形态），文本
-  末尾追加裸链块 `\n\n📖 在线阅读\n<url>`，发送层对该 TEXT 消息显式下发
-  `LinkPreviewOptions(url=…, prefer_large_media=True)` 触发 IV 卡片。
-  Telegram 只对文本消息里的裸 URL 生成链接预览 / Instant View，媒体 caption
-  永远不会有——这是形态迁移的唯一原因。
-- 边界：`with_readonline_preview()`（纯函数，publication.py）只被两条真实
-  频道发布链路调用（`PublicationService.publish` 与 handlers/publish.py 的
-  chat 直发 `_chat_delivery_with_readonline`）；`channel_caption()` 本体不改，
-  审核/预览面（preview_handlers、/submissions/preview）零变化。域层只携带
-  纯 URL 字符串（`SubmissionText.link_preview_url`），`LinkPreviewOptions`
-  只在 `telepost/telegram/delivery/sender.py` TEXT 分支构造。
-- 与 footer 关系：footer 的内嵌 `📖 在线阅读` 超链接保留不变；裸链块是
-  预览触发器，两者共存互不替代。
-- 开关：`READONLINE_LINK_PREVIEW`（config/settings.py，默认 true）；置 false
-  全链路退回改动前行为。
+- 形态：小说频道帖的「在线阅读」是**主贴 root 消息下方的 inline keyboard
+  URL 按钮 `[ 📖 在线阅读 ]`**，按钮 `url` 指向 Telegraph 预览页
+  （`novel_preview_url`）。它**不是** caption footer 超链接、**不是**尾随裸链
+  TEXT 消息、**不是** Instant View / `LinkPreviewOptions` 预览卡片。
+- 出现条件（三者同时满足，由 `presentation_policy.build_publication_presentation`
+  决策，见 §online-reading-invariant）：
+  1. surface = `CHANNEL_PUBLICATION`；
+  2. 小说预览 SUCCEEDED（`PreviewState.SUCCEEDED`，预览页 URL 有效）；
+  3. root 是单条可承载 `reply_markup` 的消息（普通小说 root 正是：单 TXT /
+     单封面图 / 单 fallback card，`plan.batches[0].kind == SINGLE`）。
+- 纯数据流动：`PublicationService` 把 `NavigationItem(READ_ONLINE)` 放进
+  `DeliveryRequest.root_navigation`；`telepost/telegram/delivery/gateway.py`
+  经 `PTBSender._navigation_markup()` 转为 PTB `InlineKeyboardMarkup`，仅挂在
+  整段投递的**第一条**消息（root）。专辑（album）不能挂 `reply_markup`，
+  `execute_plan` 自动丢弃；溢出 / discussion 回复绝不继承 root navigation
+  （§root-only-navigation）。`root_navigation` 为空时 `_navigation_markup`
+  返回 `None`，绝不发送空键盘。
+- 审核 / 预览面（REVIEW / PREVIEW surface）保留 `📖 在线阅读` **footer 超链接**
+  （便于审核者打开预览），但频道正式出版（CHANNEL_PUBLICATION）的 caption footer
+  **不含** READ_ONLINE 超链接。`NOTIFICATION` surface 不挂任何 CTA。
+- 最高不变量（§online-reading-invariant）：在线阅读的展示**绝不能改变
+  Publication topology**。预览成功/失败只能影响 root `reply_markup`，绝不能影响
+  item 数 / batch 数 / 相册打包 / caption 归属 / reply mode / discussion 路由 /
+  ledger / idempotency / Publication outcome。2.76.0 曾为 Instant View 把单 TXT
+  拆成 TXT + TEXT、在 `CHANNEL_ALBUM_REPLY=discussion` 下把 caption 搬进讨论串，
+  本方案严格杜绝（caption 必须留在 root，绝不再产生第二条消息）。
+- 旧 `READONLINE_LINK_PREVIEW` 开关、`readonline_bare_link_text`、
+  `with_readonline_preview`、`SubmissionText.link_preview_url` 已删除；
+  `LinkPreviewOptions` 的「在线阅读」专用分支已移除，其它合法用途不受影响。
 - Telegram 主菜单契约：Mini App 配置可用时主菜单是 `MenuButtonWebApp`；
   `/commands` 仍全量可用但不再抢主菜单按钮。未配置 Mini App 时回退默认命令菜单。
 - 热度契约：views/forwards 是 Telegram Bot API 不提供的字段，禁止在用户界面
@@ -710,9 +724,11 @@ TelePost must not reimplement Telegraph rendering and pagination.
   `NovelPreviewPublisher`，实现 `TelePressNovelPreviewPublisher` 直接调用
   `from telepress import TelegraphPublisher`（正式 Python API，非 CLI）；
   TelePost 不重写 Telegraph node 生成/分页/API wrapper。
-- 展示 SSOT 仍是 `build_caption`：预览成功才渲染「🔗 在线阅读」一行（只挂 root
-  caption，与 TXT document 并列，不替换下载）；`查看发布内容` 仍指 Telegram
-  channel post。
+- 展示放置 SSOT 是 `telepost/domain/presentation_policy.py`
+  （`build_publication_presentation`，FSM-C）：决定 READ_ONLINE 出现在 root 按钮
+  （频道 CHANNEL_PUBLICATION）还是 footer 超链接（审核/预览 REVIEW/PREVIEW）。
+  频道正式出版的 caption footer 不再渲染 READ_ONLINE 一行；TXT document 仍是
+  权威下载 artifact（与按钮并列、不替换）。`查看发布内容` 仍指 Telegram channel post。
 - privacy/attribution：Telegraph 页只含 title + TXT 正文，永不携带
   submitter/username/display name/internal id；anonymous 投稿在页内零身份泄漏。
 - 预览 URL 属于 Publication（`publication_previews`），绝不写入 mutable

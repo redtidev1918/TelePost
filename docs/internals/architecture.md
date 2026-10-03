@@ -108,8 +108,10 @@ Final Publication Snapshot
 - Provider：`telepost/domain/novel_preview.py` 的 `NovelPreviewPublisher` port；
   `telepost/application/telepress_provider.py` 的 `TelePressNovelPreviewPublisher`
   直接使用 `from telepress import TelegraphPublisher`（正式 Python API）。
-- 展示：`build_caption` 是 SSOT，成功才有「🔗 在线阅读」一行；TXT document
-  始终作为权威下载 artifact 发送（§telepress-preview）。
+- 展示放置 SSOT 是 `telepost/domain/presentation_policy.py`
+  （`build_publication_presentation`，§online-reading）：频道 CHANNEL_PUBLICATION
+  成功才有 `[ 📖 在线阅读 ]` root 按钮；TXT document 始终作为权威下载 artifact
+  发送（§telepress-preview）。
 
 
 
@@ -129,12 +131,13 @@ TelePress /publish/rich-novel → Catbox → Telegraph
 novel_preview_url
         │
         ▼
-TelePost channel caption  →  📖 在线阅读
+TelePost channel root  →  [ 📖 在线阅读 ]
 ```
 
-- `build_caption` 是 SSOT：凡 publication 数据携带可用于导航的 `novel_preview_url`
-  （无论来自上游 PixivFlow 字段还是本侧 TelePress enrichment），频道 footer 就会
-  显示「📖 在线阅读」，且只出现一次。
+- `build_caption` + `presentation_policy` 是展示放置 SSOT：凡 publication 数据
+  携带可用于导航的 `novel_preview_url`（无论来自上游 PixivFlow 字段还是本侧
+  TelePress enrichment），频道 CHANNEL_PUBLICATION 就会在主贴 root 挂
+  `[ 📖 在线阅读 ]` 按钮（审核/预览面则仍是 footer 超链接），且只出现一次。
 - 富媒体正文与插图顺序由 TelePress/Telegraph 负责；TelePost 不解析 Pixiv Novel
   结构，仍然以 TXT/ZIP document 作为权威下载 artifact。
 - 可选的 TelePost 本地 TXT 预览（`NOVEL_PREVIEW_ENABLED`）走 `telepress` Python

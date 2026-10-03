@@ -32,6 +32,14 @@ from ..domain.delivery import (
     RemoteUrl,
     SubmissionText,
 )
+from ..domain.novel_preview import PreviewStatus
+from ..domain.presentation_policy import (
+    PreviewState,
+    PublicationSurface,
+    build_publication_presentation,
+)
+from ..telegram.delivery.planner import BatchKind
+from ..telegram.delivery.planner import plan_delivery
 from ..observability import audit
 from ..observability.errors import classify as classify_error
 from ..storage.sqlite.ledger import DeliveryLedgerRepository, LedgerEntry
@@ -176,7 +184,6 @@ class PublicationService:
 
     async def _publish(self, command: PublishCommand, key: str) -> PublicationOutcome:
         from ..domain.delivery import ReplyMode
-        from ..telegram.delivery.planner import plan_delivery
 
         pid = (command.work_id or "").strip()
         event_fields = self._event_fields(command, key)
@@ -218,37 +225,22 @@ class PublicationService:
         # document is always still delivered and the publication outcome is
         # decided by Telegram delivery alone. The enrichment is idempotent per
         # publication key, so a delivery retry never creates a second page.
-        preview_url = ""
-        if key and not prior and self._novel_preview is not None:
-            try:
-                preview = await self._novel_preview.enrich(
-                    publication_key=key,
-                    title=dict(command.caption_data or {}).get("title", ""),
-                    items=base_items,
-                    fetch=self._txt_fetch,
-                )
-                if preview.succeeded:
-                    preview_url = preview.url
-            except Exception as exc:
-                # Enrichment must never break the TXT publication path.
-                logger.warning("novel preview enrichment skipped: %s",
-                               type(exc).__name__)
-        link_preview_url = preview_url if readonline_link_preview_enabled() else ""
-        caption = self._caption(
-            command,
-            preview_url=preview_url,
-            suppress_readonline_footer=bool(link_preview_url),
+        preview_state, preview_url = await self._enrich_novel_preview(
+            command, key, prior,
         )
+        # Channel caption: body + submission footer (BOT_SUBMIT / MINI_APP_SUBMIT).
+        # The READ_ONLINE action is NOT a channel caption footer here — it moves
+        # to a root inline button via the presentation policy below (§footer-rules),
+        # so we never pass novel_preview_url into the caption and never suppress
+        # the submission footer on its account.
+        caption = self._caption(command)
         ordered_items = list(base_items)
         # A multi-document submission's caption is submission metadata. Send it
         # as the final message instead of attaching it to the first document, so
         # readers do not mistake it for that one file's label. Visual media
-        # keeps the existing root-caption UX. A novel with a Telegraph "read
-        # online" page additionally gains a SEPARATE two-line bare-link trailing
-        # message: Telegram only builds a link preview / Instant View card for
-        # a bare URL inside a TEXT message, never for a media caption. Keeping
-        # the bare link separate preserves the single-document root caption
-        # (2.75.0 form) and avoids a duplicate read-online entry in the footer.
+        # keeps the existing root-caption UX. This caption-tailing is unrelated
+        # to Online Reading: it never creates a second publication, a bare link,
+        # or an extra read-online entrance.
         text_as_caption = bool(caption and len(base_items) > 1 and all(
             item.kind is MediaKind.DOCUMENT for item in base_items
         ))
@@ -257,19 +249,30 @@ class PublicationService:
                 MediaKind.TEXT,
                 SubmissionText(caption),
             ))
-        if link_preview_url:
-            ordered_items.append(MediaItem(
-                MediaKind.TEXT,
-                SubmissionText(
-                    readonline_bare_link_text(link_preview_url),
-                    link_preview_url=link_preview_url,
-                ),
-            ))
         plan = plan_delivery(
             ordered_items,
             album_size=command.album_size,
             reply_mode=mode,
         )
+        # FSM-C: decide whether the root message carries the READ_ONLINE button.
+        # The first batch being SINGLE means the root is one message capable of
+        # an inline keyboard (a novel root is exactly this — a single TXT, a
+        # single cover photo, or a single fallback card). Albums (or text tails)
+        # cannot carry a button, and the policy also suppresses it on every
+        # non-SUCCEEDED preview state — so Online Reading never changes topology.
+        root_supports_button = bool(
+            plan.batches and plan.batches[0].kind is BatchKind.SINGLE
+        )
+        presentation = build_publication_presentation(
+            preview_state=preview_state,
+            preview_url=preview_url,
+            surface=PublicationSurface.CHANNEL_PUBLICATION,
+            root_supports_button=root_supports_button,
+            channel_footer_link=_owning_bot_footer_link(),
+            miniapp_submit_cta=_miniapp_submit_cta_enabled(),
+            miniapp_short_name=_miniapp_short_name(),
+        )
+        root_navigation = list(presentation.root_navigation)
         ordered_items = [item for batch in plan.batches for item in batch.items]
         if replay is not None and replay.status != "partial":
             return PublicationOutcome(
@@ -333,6 +336,9 @@ class PublicationService:
             reply_mode=mode,
             reply_to_message_id=reply_to,
             album_size=command.album_size,
+            # Root-only inline navigation (e.g. the READ_ONLINE button). Empty for
+            # ordinary publications; never inherited by overflow/discussion.
+            root_navigation=root_navigation,
         )
         if audit_publish:
             await audit.record_event(
@@ -518,65 +524,85 @@ class PublicationService:
         )
 
     @staticmethod
-    def _caption(command, preview_url: str = "",
-                 *, suppress_readonline_footer: bool = False) -> str:
+    def _caption(command) -> str:
         """Channel caption. Attachment kinds come from the REAL delivery items,
         so the media presentation (the spoiler "点击查看" hint) always reflects
         what is actually published — a multi-document publication never
-        advertises a media view (§publication-presentation). An optional novel
-        preview link (Telegraph "read online") is appended when the enrichment
-        succeeded; its absence never alters the presentation of the TXT
-        document, which remains the authoritative downloadable artifact."""
+        advertises a media view (§publication-presentation).
+
+        The READ_ONLINE action is intentionally absent from this caption: on a
+        channel publication it lives as a root inline button, decided by the
+        presentation policy (§footer-rules), never as a caption footer link.
+        Review/preview surfaces build their own captions and may still show the
+        READ_ONLINE footer hyperlink.
+        """
         from telepost.domain import presentation
         data = dict(command.caption_data or {})
         if not data.get("media_types"):
             data["media_types"] = presentation.media_kinds_from_items(
                 command.items or []
             )
-        if preview_url:
-            data["novel_preview_url"] = preview_url
-        return channel_caption(
-            data,
-            include_readonline_footer=not suppress_readonline_footer,
-        )
+        # Channel publication: build the footer without a READ_ONLINE link
+        # (it is rendered as a root inline button instead). The submission CTAs
+        # (BOT_SUBMIT / MINI_APP_SUBMIT) remain.
+        return channel_caption(data, include_readonline_footer=False)
+
+    async def _enrich_novel_preview(self, command, key: str, prior):
+        """FSM-A: resolve the Novel Preview lifecycle state for this publication.
+
+        Novel preview is an optional publication enrichment (§telegraph-preview):
+        a Telegraph page is a nice-to-have, the TXT document is the authoritative
+        artifact. Enrichment therefore NEVER affects the Publication/Delivery
+        outcome — any failure, timeout, disabled feature, or absent TXT yields a
+        non-SUCCEEDED state with an empty URL, and the Telegram publication
+        proceeds unchanged (§preview-lifecycle). The result is idempotent per
+        publication key, so a delivery retry never creates a second page.
+        """
+        if not key or prior or self._novel_preview is None:
+            return PreviewState.NOT_APPLICABLE, ""
+        try:
+            preview = await self._novel_preview.enrich(
+                publication_key=key,
+                title=dict(command.caption_data or {}).get("title", ""),
+                items=command.items,
+                fetch=self._txt_fetch,
+            )
+        except Exception as exc:  # enrichment must never break publication
+            logger.warning("novel preview enrichment skipped: %s",
+                           type(exc).__name__)
+            return PreviewState.FAILED, ""
+        if preview.status is PreviewStatus.SUCCEEDED:
+            return PreviewState.SUCCEEDED, preview.url or ""
+        # NOT_APPLICABLE / DISABLED / FAILED / TIMEOUT all carry no URL.
+        try:
+            return PreviewState(str(preview.status.value)), ""
+        except ValueError:
+            return PreviewState.FAILED, ""
 
 
-def readonline_bare_link_text(preview_url: str) -> str:
-    """Return the fixed two-line bare read-online block, or ``""`` without URL.
-
-    The bare URL (not wrapped in an ``<a>`` tag) is what Telegram expands into
-    a link preview / Instant View card. The block is intentionally *only* these
-    two lines: `📖 在线阅读` + URL. The visual body of the entrance is supplied
-    by the IV card itself; no long caption text is duplicated here.
-    """
-    url = (preview_url or "").strip()
-    if not url:
-        return ""
-    return f"📖 在线阅读\n{url}"
-
-
-def with_readonline_preview(caption_text: str, preview_url: str) -> str:
-    """Append the bare read-online block to arbitrary caption text.
-
-    Kept as a pure helper for callers that genuinely want one message combining
-    a caption and the bare-link tail. The real publication chain no longer uses
-    this form: it keeps the root caption on the file and sends a separate
-    two-line bare-link message, so the caption footer and the IV card never
-    compete visually. No-op without a URL.
-    """
-    block = readonline_bare_link_text(preview_url)
-    if not block:
-        return caption_text
-    return f"{caption_text}\n\n{block}"
-
-
-def readonline_link_preview_enabled() -> bool:
-    """READONLINE_LINK_PREVIEW switch (default on); off restores old behavior."""
+def _owning_bot_footer_link() -> str:
+    """Owning-bot channel footer link (BOT_SUBMIT / MINI_APP_SUBMIT base)."""
     try:
-        from config.settings import READONLINE_LINK_PREVIEW
-        return bool(READONLINE_LINK_PREVIEW)
+        from config.settings import CHANNEL_FOOTER_LINK
+        return CHANNEL_FOOTER_LINK or ""
     except Exception:
-        return True
+        return ""
+
+
+def _miniapp_submit_cta_enabled() -> bool:
+    try:
+        from config.settings import MINIAPP_SUBMIT_CTA
+        return bool(MINIAPP_SUBMIT_CTA)
+    except Exception:
+        return False
+
+
+def _miniapp_short_name() -> Optional[str]:
+    try:
+        from config.settings import MINIAPP_SHORT_NAME
+        return MINIAPP_SHORT_NAME or None
+    except Exception:
+        return None
 
 
 def channel_caption(caption_data: dict, *,

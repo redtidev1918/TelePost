@@ -97,11 +97,10 @@ API（自动化）固定进入审核；Mini App 由 `MINIAPP_REVIEW_REQUIRED` �
 | `DISCUSSION_FORWARD_TIMEOUT_SECONDS` | `10` | `discussion` 模式等待频道帖自动转发到讨论组的超时；root 已确认后超时会保留主贴、溢出等待人工核验，最小 1 秒 |
 | `REVIEW_PREVIEW_THREAD` | `1` | 后续预览和控制消息回复上一条 |
 | `PENDING_REVIEW_RETENTION_DAYS` | `0` | 待审过期天数；`0` 永久保留 |
-| `NOVEL_PREVIEW_ENABLED` | `false` | **可选发布增强**：TXT 小说经 TelePress 发布到 Telegraph，「在线阅读」链接出现在频道 caption；**默认关闭**，开启后 TXT document 仍正常发送，Telegraph 失败/超时绝不导致投稿失败（§telepress-preview）。TelePost 2.76.2 固定 TelePress 0.16.4，长文单页目标约 20,000 字符并尽量保留段落边界，减少阅读中断 |
+| `NOVEL_PREVIEW_ENABLED` | `false` | **可选发布增强**：TXT 小说经 TelePress 发布到 Telegraph，「在线阅读」入口为频道主贴 root 的 inline 按钮（§online-reading）；**默认关闭**，开启后 TXT document 仍正常发送，Telegraph 失败/超时绝不导致投稿失败（§telepress-preview）。TelePost 2.76.2 固定 TelePress 0.16.4，长文单页目标约 20,000 字符并尽量保留段落边界，减少阅读中断 |
 | `NOVEL_FALLBACK_CARD_ENABLED` | `true` | 无真实封面的小说用 Pillow 生成轻量 fallback 卡片作为频道 root（§novel-cover）；关闭或生成失败时降级为 text-only root + TXT 回复，绝不影响发布成败 |
 | `NOVEL_PREVIEW_TIMEOUT_SECONDS` | `15` | 单次预览尝试的严格超时（秒）；Telegraph 不能无限拖住发布 |
 | `NOVEL_PREVIEW_MAX_BYTES` | `4194304` | 读取 TXT 正文的大小上限（字节），超限则不生成预览 |
-| `READONLINE_LINK_PREVIEW` | `true` | 频道小说帖「在线阅读」Instant View 预览（§readonline-iv）：预览页存在时 caption 迁移为尾随文本消息，末尾附裸链并显式下发链接预览（telegra.ph IV 卡片）；`false` 退回「caption 骑文档消息」旧形态。需 `NOVEL_PREVIEW_ENABLED` 提供预览页 |
 | `TELEGRAPH_ACCESS_TOKEN` | 空 | Telegraph 账户 access token（Secret，绝不写日志）；空 = 预览关闭 |
 | `PENDING_REVIEW_CLEANUP_BATCH_SIZE` | `100` | 每轮最多过期 1–200 条 |
 | `REVIEW_RETENTION_DAYS` | `30` | 已决审核和 API 通知幂等记录保留天数 |
@@ -323,4 +322,3 @@ webhook secret / PixivFlow secret），审计事件只统计数量与最新时�
 
 实现位于 `telepost/observability/doctor.py`（纯函数 `run_doctor(*, db_paths, now)`），
 CLI 只是薄封装；诊断逻辑不依赖 web 应用（不导入 `run.py` / aiohttp）。
-
