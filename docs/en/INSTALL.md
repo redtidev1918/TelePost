@@ -6,8 +6,9 @@
 
 | Method | Fits | Requires |
 |---|---|---|
+| pip install | CLI users, automated deployment | Python 3.10+, libvips |
 | Release single file | Minimal dependencies, a single bot | No preinstalled Python |
-| Source + venv | Development, self-managed VPS | Python 3.9+ |
+| Source + venv | Development, self-managed VPS | Python 3.10+ |
 | Docker / Compose | General production | Docker |
 | Fly.io | Hosted Webhook deployment | `flyctl` |
 
@@ -15,6 +16,32 @@ PythonAnywhere's legacy WSGI adapter is **not a supported production path**: it 
 the full runtime lifecycle (multi-bot supervisor, webhook registration, review queue). Older
 documentation described it as "verified working", which was inaccurate — do not deploy to
 production following those old guides.
+
+## pip install (PyPI)
+
+```bash
+pip install telepost-bot
+telepost --setup
+telepost
+```
+
+The PyPI package name is `telepost-bot`, the CLI command is `telepost`, and the Python import name is `telepost`.
+After `pip install`, run `telepost` directly — the first run launches the config wizard.
+
+### libvips system dependency
+
+`pyvips` is a ctypes wrapper and does not bundle libvips itself. Install it at the OS level:
+
+| OS | Command |
+|---|---|
+| macOS (Homebrew) | `brew install vips` |
+| Ubuntu / Debian | `sudo apt-get install libvips42` |
+| Fedora | `sudo dnf install vips` |
+| Arch Linux | `sudo pacman -S libvips` |
+| Windows | Download from [libvips releases](https://github.com/libvips/libvips/releases), add `bin` to `PATH` |
+
+Without libvips installed, `telepost` can still start and handle basic submissions, but streaming
+downscaling of very large images will be unavailable.
 
 ## Release single file
 
@@ -98,7 +125,8 @@ cold-start delays on the submission path. Single-bot, multi-bot, and optional Pi
 ## Upgrade and uninstall
 
 - Single file: stop the old process, back up `config.ini` and `data/` from the same directory, then replace the executable.
-- Git: back up data, then `git pull --ff-only`, update dependencies and restart.
+- Source: back up data, then `git pull --ff-only`, update dependencies and restart.
+- pip: `pip install --upgrade telepost-bot`, restart the process.
 - Compose: pin the new image version, then `docker compose pull && docker compose up -d`.
 - Fly.io: take a volume snapshot first, then update to the pinned image version.
 

@@ -8,7 +8,7 @@ from utils import config_wizard as wizard
 
 def test_bot_child_command_source_mode(monkeypatch):
     monkeypatch.setattr(run, "_FROZEN", False)
-    assert run.bot_child_command() == [sys.executable, "-u", "main.py"]
+    assert run.bot_child_command() == [sys.executable, "-u", "-m", "main"]
 
 
 def test_bot_child_command_frozen_mode(monkeypatch):

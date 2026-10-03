@@ -1,0 +1,122 @@
+name: PyPI Publish
+
+# Publish telepost-bot to PyPI when a release tag (v*) is pushed.
+#
+# release-please creates the tag when its release PR is merged. This workflow
+# does NOT create a second version bump — the version comes from
+# telepost/build_info.py which release-please already updated via extra-files.
+#
+# Authentication: OIDC Trusted Publishing (no API token needed).
+#
+# One-time manual setup (the ONLY manual PyPI action):
+#   1. Go to https://pypi.org/manage/project/telepost-bot/settings/publishing/
+#   2. Add a publisher:
+#      - Publisher:    GitHub
+#      - Repository:   redtidev1918/TelePost
+#      - Workflow:     .github/workflows/pypi-publish.yml
+#      - Environment:  (leave blank)
+#   3. For TestPyPI, repeat at:
+#      https://test.pypi.org/manage/project/telepost-bot/settings/publishing/
+#   Until this is done, the publish step will fail with a 403. Everything
+#   else (build, validate, artifact upload) works without it.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      testpypi:
+        description: 'Publish to TestPyPI instead of PyPI'
+        required: false
+        default: false
+        type: boolean
+      dry_run:
+        description: 'Build and validate without publishing'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  id-token: write  # Required for OIDC Trusted Publishing
+
+concurrency:
+  group: pypi-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install libvips (pyvips runtime dependency)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips42
+
+      - name: Install Python build tools
+        run: pip install build twine
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Build Mini App frontend
+        working-directory: webapp
+        run: |
+          npm ci || npm install
+          npm run generate:api && npm run build
+
+      - name: Verify version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PY_VERSION="$(python -c 'from telepost.build_info import RELEASE_VERSION; print(RELEASE_VERSION)')"
+          echo "Tag version:  $TAG_VERSION"
+          echo "Code version: $PY_VERSION"
+          if [ "$TAG_VERSION" != "$PY_VERSION" ]; then
+            echo "::error::Version mismatch: tag=$TAG_VERSION code=$PY_VERSION"
+            exit 1
+          fi
+
+      - name: Build wheel and sdist
+        run: python -m build
+
+      - name: List artifacts
+        run: ls -lh dist/
+
+      - name: Validate artifacts
+        run: twine check dist/*
+
+      - name: Verify artifacts contain Mini App assets
+        run: |
+          echo "=== Wheel contents (webapp/dist) ==="
+          python -c "
+          import zipfile, sys
+          with zipfile.ZipFile(sys.argv[1]) as z:
+            for n in z.namelist():
+              if 'webapp/dist' in n: print(n)
+          " dist/*.whl
+          echo "=== Sdist contents (webapp/dist) ==="
+          tar tzf dist/*.tar.gz | grep 'webapp/dist' || true
+          echo "=== Wheel review_policy.md ==="
+          python -c "
+          import zipfile, sys
+          with zipfile.ZipFile(sys.argv[1]) as z:
+            for n in z.namelist():
+              if 'review_policy' in n: print(n)
+          " dist/*.whl
+
+      - name: Publish to TestPyPI
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.testpypi && !inputs.dry_run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Publish to PyPI
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.testpypi && !inputs.dry_run) }}
+        uses: pypa/gh-action-pypi-publish@release/v1

@@ -425,7 +425,12 @@ def bot_child_command():
     """冻结版没有 main.py 脚本：子进程重入自身并走 --frozen-worker 分支。"""
     if _FROZEN:
         return [sys.executable, "--frozen-worker"]
-    return [sys.executable, "-u", "main.py"]
+    # Installed (pip) layout: the bot worker lives in site-packages as the
+    # top-level ``main`` module, so launch it as ``-m main`` instead of a
+    # cwd-relative ``main.py``. This is the only change needed for the
+    # supervisor to find the worker after a wheel install (source checkouts,
+    # where ``main.py`` is on sys.path[0], are unaffected).
+    return [sys.executable, "-u", "-m", "main"]
 
 
 def run_bot_in_process():
@@ -450,7 +455,7 @@ def run_single():
         os.environ.update(env)
         run_bot_in_process()
         return
-    os.execve(sys.executable, [sys.executable, "-u", "main.py"], env)
+    os.execve(sys.executable, [sys.executable, "-u", "-m", "main"], env)
 
 
 def build_router_app(indices: list):

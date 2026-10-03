@@ -15,7 +15,13 @@ logger = logging.getLogger(__name__)
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(sys.executable)
 else:
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # Installed (pip) layout: config.ini ships with the package but the live
+    # config lives next to the user's working directory, not inside
+    # site-packages. Use cwd as the anchor so ``telepost --setup`` and the
+    # running bot read/write the same config.ini regardless of where the
+    # package is installed (source checkouts run from the repo root, so this
+    # is behaviour-preserving there too).
+    BASE_DIR = os.getcwd()
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
 
 # 读取配置文件
