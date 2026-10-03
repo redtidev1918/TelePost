@@ -83,6 +83,16 @@
         "required": true,
         "workflow": "static.yml",
         "ref": "default"
+      },
+      {
+        "id": "notify-deploy-repo",
+        "type": "github-workflow",
+        "required": false,
+        "workflow": "notify-deploy.yml",
+        "ref": "default",
+        "inputs": {
+          "tag": "{{tag}}"
+        }
       }
     ]
   },
