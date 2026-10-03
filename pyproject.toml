@@ -108,6 +108,11 @@ packages = [
     # package-data below). Built via ``npm run build`` before packaging.
     "webapp",
 ]
+# Every data file is declared explicitly in ``package-data`` below. Turning off
+# the implicit "whatever git tracks" inclusion keeps the wheel reproducible and
+# stops setuptools from treating the Mini App build output as importable
+# packages (it reports ``webapp.dist.assets`` as ambiguous otherwise).
+include-package-data = false
 
 [tool.setuptools.package-data]
 # The Mini App build ships inside the ``webapp`` package so a wheel install
@@ -118,6 +123,7 @@ packages = [
 # site-packages/webapp/dist after install, so no runtime path changes needed.
 webapp = ["dist/**/*"]
 # Review policy ships with the config package so load_review_policy()'s
-# installed-package fallback finds it inside site-packages.
-config = ["review_policy.md"]
+# installed-package fallback finds it inside site-packages. The Fly.io example
+# policy ships too (operators copy and edit it into their working directory).
+config = ["review_policy.md", "fly-telepost-policy.example.json"]
 "protocol.v1" = ["*.json", "*.sha256", "fixtures/*"]
