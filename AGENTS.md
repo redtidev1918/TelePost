@@ -607,6 +607,12 @@ Each action appears EXACTLY ONCE in the footer.
   `execute_plan` 自动丢弃；溢出 / discussion 回复绝不继承 root navigation
   （§root-only-navigation）。`root_navigation` 为空时 `_navigation_markup`
   返回 `None`，绝不发送空键盘。
+- 旧适配层必须透传：`handlers/publish.py` 的 `_LegacyDeliveryPort.deliver`
+  在转调 `deliver_items_to_chat` 时**必须**带上
+  `root_navigation=request.root_navigation`。2.78.x 曾在此处丢字段，导致
+  API 直投 / 审核通过路径发布的频道小说帖没有「在线阅读」按钮（会话内投稿路径
+  单独显式传参，不受影响）。回归测试见
+  `tests/test_legacy_delivery_port_navigation.py`。
 - 审核 / 预览面（REVIEW / PREVIEW surface）保留 `📖 在线阅读` **footer 超链接**
   （便于审核者打开预览），但频道正式出版（CHANNEL_PUBLICATION）的 caption footer
   **不含** READ_ONLINE 超链接。`NOTIFICATION` surface 不挂任何 CTA。
