@@ -187,7 +187,10 @@ jobs:
           echo "allowed_digests=${ALLOWED}" >> "$GITHUB_OUTPUT"
           echo "image ref : ${REF}:${VERSION}"
           echo "digest    : ${DIGEST}"
-          echo "acceptable machine digests: $(printf '%s' "${ALLOWED}" | tr ',' '\n' | wc -l | tr -d ' ') (index + platform manifests)"
+          # NOTE: keep the trailing newline - without it `wc -l` undercounts by
+          # one, because it counts newlines and there is none after the last item.
+          printf '%s\n' "${ALLOWED}" | tr ',' '\n' | wc -l | tr -d ' ' \
+            | sed 's/^/acceptable machine digests: /'
           printf '%s\n' "${ALLOWED}" | tr ',' '\n' | sed 's/^/  /'
 
       # Informational only, deliberately. It answers "is this exact version part
