@@ -48,7 +48,8 @@ GET /api/bot2/v1/version             # multi-bot parent router: bot2
 
 Each botN subprocess reports **its own** bot identity and real release identity (from the same `release_info()` source as the parent router's
 `/version` and `/health`), used for version-consistency acceptance in dual-bot production
-(Bot Version Matrix) (sample response — always check the latest release for the version number):
+(Bot Version Matrix). The values below illustrate the JSON shape only — the real version tracks
+the current release (something like `2.x.y`):
 
 ```json
 {
@@ -56,7 +57,7 @@ Each botN subprocess reports **its own** bot identity and real release identity 
   "data": {
     "bot": "bot1",
     "service": "telepost",
-    "version": "2.76.2",
+    "version": "<current release>",
     "commit": "…",
     "build_date": "…"
   }

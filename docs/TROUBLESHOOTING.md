@@ -31,6 +31,19 @@ min_machines_running = 1
 不要把 PixivFlow 等可选上游的生命周期配置套到 TelePost。Fly.io 配置见
 [FLYIO_DEPLOYMENT.md](FLYIO_DEPLOYMENT.md)。
 
+## 安装与升级
+
+| 症状 | 处理 |
+|---|---|
+| `telepost: command not found` | 用了虚拟环境就要在该环境里执行；脚本/cron 用绝对路径调用 CLI |
+| `ImportError: libvips.so.*` | `pyvips` 需要系统 libvips，安装命令见 [INSTALL](INSTALL.md) |
+| 不知道线上跑的是哪版 | `telepost --version`，或 `curl -fsS http://127.0.0.1:8080/health` |
+| 升级后仍是旧版本 | 进程没重启：重启后用上一条核对版本 |
+| 想固定某个版本 | `pip install telepost-bot==<version>`；容器/Fly 用 `ghcr.io/redtidev1918/telepost:<version>` |
+
+`<version>` 取自正式 Release（形如 `2.x.y`）；生产不要用 `latest`。完整安装与升级模型见
+[INSTALL](INSTALL.md) 与 [运维手册 · 统一升级模型](OPERATIONS.md#统一升级模型)。
+
 ## 启动失败
 
 | 错误 | 处理 |

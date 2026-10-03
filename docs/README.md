@@ -7,9 +7,13 @@
 > [English README](https://github.com/redtidev1918/TelePost/blob/main/README.en.md)
 > and the [Download page](/en/download.md).
 
-## 📥 下载
+## 📥 安装
 
-Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](download.md)（自动指向最新 Release；Intel Mac / Docker 安装见 [INSTALL](INSTALL.md)）。
+**推荐方式：`pip install telepost-bot`**（CLI 为 `telepost`，Python 导入为 `telepost`，需要 Python 3.10+）。
+全部安装方式、升级与卸载见 [INSTALL](INSTALL.md)。
+
+Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](download.md)（自动指向最新 Release；Intel Mac 与
+Docker 见 [INSTALL](INSTALL.md)）。
 
 ## 🧭 按任务找文档
 
