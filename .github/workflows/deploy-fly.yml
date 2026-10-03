@@ -1,0 +1,390 @@
+name: Deploy to Fly.io production
+
+# Production deployment leg of a TelePost release.
+#
+# Design constraints (do not relax without revisiting all of them):
+#   * The image deployed here MUST be the exact image ReleaseGraph already built
+#     and pushed to GHCR for this release tag. Nothing here builds an image, so
+#     there is never a second, different artifact in production.
+#   * No `latest`. No branch ref. Always ghcr.io/redtidev1918/telepost:<version>,
+#     with the version derived from the release tag and cross-checked against
+#     telepost/build_info.py.
+#   * fly.toml stays the single source of production topology; this workflow only
+#     supplies the app name and the image.
+#   * `fly deploy` exiting 0 is NOT treated as success. Production must prove it
+#     is serving the new version with both bots alive before this job goes green.
+#
+# TRIGGER NOTE (repo convention, see pypi-publish.yml / update-download-page.yml):
+# release-please runs with skip-github-release=true (no `release: published`) and
+# tags pushed with the default GITHUB_TOKEN do not fan out `push: tags:` runs, so
+# a tag push never triggers anything here. ReleaseGraph dispatches this workflow
+# as a post-release action with an explicit `tag` input (workflow_dispatch), which
+# is why the same input exists on both trigger types.
+#
+# The whole job must finish inside ReleaseGraph's per-action budget
+# (release_infra.actions.DEFAULT_MAX_WAIT = 30 minutes) or the release
+# transaction times out instead of reporting a verdict - hence timeout-minutes
+# below and bounded polling loops.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to deploy, e.g. v2.79.0'
+        type: string
+        required: true
+      dry_run:
+        description: 'Verify every gate but do not touch production'
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      FLY_API_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to deploy, e.g. v2.79.0'
+        type: string
+        required: true
+      dry_run:
+        description: 'Verify every gate but do not touch production'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  packages: read # Read GHCR metadata for the image this tag is supposed to have
+
+concurrency:
+  group: deploy-fly-${{ github.workflow }}-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+env:
+  FLY_APP: telesubmit-multi-bot
+  PRODUCTION_HOST: telesubmit-multi-bot.fly.dev
+  IMAGE_REGISTRY: ghcr.io
+  IMAGE_REPOSITORY: redtidev1918/telepost
+  # Pinned so a flyctl release cannot silently change production deploy semantics.
+  FLYCTL_VERSION: '0.4.108'
+  HEALTH_TIMEOUT_SECONDS: '600'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Budget headroom: see DEFAULT_MAX_WAIT comment above.
+    timeout-minutes: 20
+    steps:
+      - name: Validate tag format and derive version
+        id: resolve
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${INPUT_TAG:-}"
+          if [ -z "$TAG" ]; then
+            echo "::error::No tag supplied. Pass the exact release tag, e.g. v2.79.0"
+            exit 1
+          fi
+          # Only a stable vX.Y.Z reaches production. Deliberately strict: a
+          # prerelease tag must fail loudly rather than be silently skipped,
+          # because skipping would make ReleaseGraph record a successful
+          # production deployment that never happened.
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$TAG' is not a vX.Y.Z release tag"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Deploy plan"
+            echo ""
+            echo "- release tag: \`${TAG}\`"
+            echo "- image: \`${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}:${VERSION}\`"
+            echo "- app: \`${FLY_APP}\`"
+            echo "- dry run: \`${{ inputs.dry_run || false }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "release tag : $TAG"
+          echo "image tag   : $VERSION"
+
+      # Everything downstream is taken from the tag's own tree, so the topology
+      # deployed is the one the release actually shipped - not whatever main has
+      # drifted to since.
+      - name: Check out the release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.resolve.outputs.tag }}
+          fetch-depth: 1
+
+      - name: Require code version to equal the tag version
+        env:
+          TAG_VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          PY_VERSION="$(python3 -c 'from telepost.build_info import RELEASE_VERSION; print(RELEASE_VERSION)')"
+          echo "telepost/build_info.py : ${PY_VERSION}"
+          echo "release tag            : ${TAG_VERSION}"
+          if [ "${PY_VERSION}" != "${TAG_VERSION}" ]; then
+            echo "::error::Version drift: tag says ${TAG_VERSION} but build_info.py says ${PY_VERSION}"
+            exit 1
+          fi
+
+      - name: Require GHCR image for this version
+        id: image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          REF="${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}"
+          ACCEPT='application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json'
+          URL="https://${IMAGE_REGISTRY}/v2/${IMAGE_REPOSITORY}/manifests/${VERSION}"
+          TOKEN="$(curl -fsS -u "x-access-token:${GH_TOKEN}" \
+            "https://${IMAGE_REGISTRY}/token?scope=repository:${IMAGE_REPOSITORY}:pull&service=${IMAGE_REGISTRY}" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+
+          CODE="$(curl -sS -o /dev/null -w '%{http_code}' -I \
+            -H "Authorization: Bearer ${TOKEN}" -H "Accept: ${ACCEPT}" "${URL}")"
+          echo "registry response: HTTP ${CODE} for ${VERSION}"
+          if [ "${CODE}" != "200" ]; then
+            echo "::error::${REF}:${VERSION} is not available in GHCR (HTTP ${CODE}) - refusing to deploy"
+            exit 1
+          fi
+
+          DIGEST="$(curl -sSI -H "Authorization: Bearer ${TOKEN}" -H "Accept: ${ACCEPT}" "${URL}" \
+            | tr -d '\r' \
+            | awk 'tolower($1)=="docker-content-digest:"{print $2}' | tail -n1)"
+          if [ -z "${DIGEST}" ]; then
+            echo "::error::could not resolve a digest for ${REF}:${VERSION}"
+            exit 1
+          fi
+
+          echo "image_ref=${REF}:${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "image ref : ${REF}:${VERSION}"
+          echo "digest    : ${DIGEST}"
+
+      # Informational only, deliberately. It answers "is this exact version part
+      # of the PyPI release too?", NOT "is it the newest?" - comparing against
+      # the newest version would raise a false alarm on every legitimate older
+      # version deploy (rollback, repair of an old tag). PyPI availability is
+      # already enforced upstream: publish-pypi is required=true and runs before
+      # this workflow, so duplicating that gate here would only add a way for an
+      # unrelated distribution problem to block a production update.
+      - name: Report PyPI version alignment
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.request
+
+          version = os.environ["VERSION"]
+
+          def get(url):
+              try:
+                  with urllib.request.urlopen(url, timeout=20) as response:
+                      return response.status, json.loads(response.read().decode())
+              except urllib.error.HTTPError as exc:
+                  return exc.code, None
+              except Exception as exc:
+                  print(f"warning: could not reach PyPI ({exc})")
+                  return None, None
+
+          _, latest = get("https://pypi.org/pypi/telepost-bot/json")
+          if latest:
+              print(f"PyPI telepost-bot latest version: {latest['info']['version']}")
+
+          status, exact = get(f"https://pypi.org/pypi/telepost-bot/{version}/json")
+          if status == 200:
+              print(f"PyPI telepost-bot {version}: present")
+          else:
+              print(f"::warning::PyPI has no telepost-bot {version} "
+                    f"(HTTP {status}). Not blocking the deploy - see the comment "
+                    f"above this step.")
+          PY
+
+      - name: Install pinned flyctl
+        run: |
+          set -euo pipefail
+          ASSET="flyctl_${FLYCTL_VERSION}_Linux_x86_64.tar.gz"
+          BASE="https://github.com/superfly/flyctl/releases/download/v${FLYCTL_VERSION}"
+          curl -fsSL -o "${ASSET}" "${BASE}/${ASSET}"
+          curl -fsSL -o checksums.txt "${BASE}/flyctl_${FLYCTL_VERSION}_checksums.txt"
+          grep "  ${ASSET}$" checksums.txt | sha256sum -c -
+          sudo tar -xzf "${ASSET}" -C /usr/local/bin flyctl
+          sudo chmod +x /usr/local/bin/flyctl
+          flyctl version
+
+      - name: Deploy the release image to Fly production
+        if: ${{ !inputs.dry_run }}
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          IMAGE_REF: ${{ steps.image.outputs.image_ref }}
+        run: |
+          set -euo pipefail
+          # --image means flyctl never runs a build, so the [build] section in
+          # fly.toml is inert here. That is the point: the bytes in production
+          # come from GHCR, not from a second reconstruction of the release.
+          flyctl deploy \
+            --app "${FLY_APP}" \
+            --config fly.toml \
+            --image "${IMAGE_REF}" \
+            --strategy rolling \
+            --wait-timeout 5m \
+            --yes
+
+      - name: Require every active machine to run the release image
+        if: ${{ !inputs.dry_run }}
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          EXPECTED_IMAGE: ${{ steps.image.outputs.image_ref }}
+          EXPECTED_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          flyctl machines list --app "${FLY_APP}" --json > machines.json
+          python3 - <<'PY'
+          import json, os, sys
+
+          expected_image = os.environ["EXPECTED_IMAGE"]
+          expected_digest = os.environ["EXPECTED_DIGEST"]
+          catastrophic = {"destroyed", "destroying", "replaced"}
+          machines = json.load(open("machines.json"))
+          active = [m for m in machines if (m.get("state") or "") not in catastrophic]
+
+          print(f"machines: {len(active)} active of {len(machines)} total")
+          if not active:
+              sys.exit("::error::no active machines for the production app")
+
+          failures = []
+          for machine in active:
+              mid = machine.get("id", "?")
+              state = machine.get("state") or "?"
+              image = ((machine.get("config") or {}).get("image")) or ""
+              ref = machine.get("image_ref") or {}
+              digest = ref.get("digest") or ""
+              print(f"  {mid} state={state}")
+              print(f"      image = {image}")
+
+              if state != "started":
+                  failures.append(f"{mid}: state is {state!r}, expected 'started'")
+              if image not in (expected_image, f"{expected_image}@{expected_digest}"):
+                  failures.append(f"{mid}: running {image!r}, expected {expected_image!r}")
+              if digest and digest != expected_digest:
+                  failures.append(f"{mid}: digest {digest!r} != expected {expected_digest!r}")
+
+          if failures:
+              for line in failures:
+                  print(f"  ::error::{line}")
+              sys.exit("production machines are not running the release image")
+
+          print(f"OK: {len(active)} machine(s) running {expected_image}")
+          PY
+
+      # `fly deploy` returning 0 only means the platform accepted machines. Probe
+      # the public surface until it proves the new version is actually serving.
+      - name: Require production /health to report the release version with both bots
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, time, urllib.request
+
+          version = os.environ["VERSION"]
+          host = os.environ["PRODUCTION_HOST"]
+          timeout = int(os.environ["HEALTH_TIMEOUT_SECONDS"])
+          required_bots = {"1", "2"}
+          url = f"https://{host}/health"
+          deadline = time.monotonic() + timeout
+          last = None
+
+          while time.monotonic() < deadline:
+              try:
+                  with urllib.request.urlopen(url, timeout=20) as response:
+                      status = response.status
+                      payload = json.loads(response.read().decode())
+                  served = str(payload.get("version", ""))
+                  bots = {str(b) for b in (payload.get("bots") or [])}
+                  last = f"status={status} version={served} bots={sorted(bots)}"
+                  print(f"  {last}", flush=True)
+                  if status == 200 and served == version and required_bots <= bots:
+                      print(f"OK: /health reports version {version} with bots {sorted(required_bots)}")
+                      break
+              except Exception as exc:
+                  last = f"probe failed: {exc}"
+                  print(f"  {last}", flush=True)
+              time.sleep(10)
+          else:
+              sys.exit(f"::error::/health never reached '{version}' with bots 1,2 - last state: {last}")
+          PY
+
+      # /ready probes every bot child in-process; it answers 503 unless all of
+      # them are up. This is what turns "the container is running" into "bot1 and
+      # bot2 are both actually serving".
+      - name: Require bot1 and bot2 to be ready in production
+        if: ${{ !inputs.dry_run }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, time, urllib.error, urllib.request
+
+          host = os.environ["PRODUCTION_HOST"]
+          timeout = int(os.environ["HEALTH_TIMEOUT_SECONDS"])
+          url = f"https://{host}/ready"
+          deadline = time.monotonic() + timeout
+          last = None
+
+          required = ("bot1", "bot2")
+          while time.monotonic() < deadline:
+              try:
+                  with urllib.request.urlopen(url, timeout=20) as response:
+                      status = response.status
+                      payload = json.loads(response.read().decode())
+                  bots = payload.get("bots") or {}
+                  last = f"status={status} kind={payload.get('kind')} bots={bots}"
+                  print(f"  {last}", flush=True)
+                  missing = [name for name in required if name not in bots]
+                  not_ready = [name for name, ok in bots.items() if not ok]
+                  if status == 200 and not missing and not not_ready:
+                      print(f"OK: required bots ready: {sorted(required)}")
+                      break
+                  if missing:
+                      print(f"  not present: {sorted(missing)}", flush=True)
+                  if not_ready:
+                      print(f"  waiting on: {sorted(not_ready)}", flush=True)
+              except urllib.error.HTTPError as exc:
+                  last = f"status={exc.code}"
+                  print(f"  {last}", flush=True)
+              except Exception as exc:
+                  last = f"probe failed: {exc}"
+                  print(f"  {last}", flush=True)
+              time.sleep(10)
+          else:
+              sys.exit(f"::error::/ready never reported bot1+bot2 healthy - last state: {last}")
+
+          extra = sorted(set(bots) - set(required))
+          if extra:
+              print(f"note: additional bot processes beyond bot1/bot2: {extra}")
+          PY
+
+      - name: Deployment summary
+        if: ${{ always() && steps.resolve.outcome == 'success' }}
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+          IMAGE_REF: ${{ steps.image.outputs.image_ref }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          {
+            echo "### Production deployment"
+            echo ""
+            echo "- release tag: \`${TAG}\`"
+            echo "- version: \`${VERSION}\`"
+            echo "- image: \`${IMAGE_REF}\`"
+            echo "- digest: \`${DIGEST:-<unresolved>}\`"
+            echo "- app: \`${FLY_APP}\`"
+            echo "- health: <https://${PRODUCTION_HOST}/health>"
+            echo ""
+            echo "Verification: machine image pin, /health version + bots 1/2, /ready per-bot readiness."
+          } >> "$GITHUB_STEP_SUMMARY"

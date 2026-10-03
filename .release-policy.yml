@@ -39,7 +39,7 @@
       "required": true
     },
     "ghcr": {
-      "required": false,
+      "required": true,
       "context": ".",
       "file": "Dockerfile",
       "image": "ghcr.io/redtidev1918/telepost",
@@ -62,8 +62,17 @@
       {
         "id": "publish-pypi",
         "type": "github-workflow",
-        "required": false,
+        "required": true,
         "workflow": "pypi-publish.yml",
+        "inputs": {
+          "tag": "{{tag}}"
+        }
+      },
+      {
+        "id": "deploy-production",
+        "type": "github-workflow",
+        "required": true,
+        "workflow": "deploy-fly.yml",
         "inputs": {
           "tag": "{{tag}}"
         }
