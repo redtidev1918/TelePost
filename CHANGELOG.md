@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.78.0](https://github.com/redtidev1918/TelePost/compare/v2.77.0...v2.78.0) (2026-10-03)
+
+
+### Features
+
+* add PyPI distribution packaging and CI publish workflow ([9ed57ef](https://github.com/redtidev1918/TelePost/commit/9ed57efd54416b1fba44f7808e76561f663c5b7a))
+
 ## [2.77.0](https://github.com/redtidev1918/TelePost/compare/v2.76.2...v2.77.0) (2026-10-03)
 
 
