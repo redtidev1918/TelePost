@@ -13,7 +13,11 @@ def app_root() -> str:
     """config.ini / data / logs 的锚点目录。"""
     if getattr(sys, "frozen", False):
         return os.path.dirname(os.path.abspath(sys.executable))
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # Installed (pip) layout: the package lives in site-packages, but the live
+    # config.ini / data / logs must live in the user's working directory, never
+    # inside site-packages. Use cwd as the anchor. Source checkouts run from the
+    # repo root, so this is behaviour-preserving there too.
+    return os.getcwd()
 
 
 def config_path() -> str:

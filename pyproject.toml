@@ -1,0 +1,123 @@
+# TelePost — PyPI distribution packaging
+#
+# Distribution name : telepost-bot   (PyPI project)
+# Console script    : telepost       (CLI command)
+# Python import     : import telepost (unchanged application package)
+#
+# Build backend: setuptools. No source-tree restructuring was required: the
+# existing top-level packages (handlers, config, database, utils, models,
+# services, mcp_server) and the newer ``telepost`` package, plus the two
+# runtime entry modules ``main`` and ``run``, are packaged as-is.
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "telepost-bot"
+# Single source of truth: release-please bumps telepost/build_info.py
+# (extra-files in release-please-config.json); this reads the same constant.
+dynamic = ["version"]
+description = "Telegram submission, review, and publication bot with a Mini App, HTTP API, and multi-bot supervisor."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{name = "redtidev1918"}]
+keywords = [
+    "telegram", "bot", "submission", "review", "publication",
+    "miniapp", "telepost", "moderation",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Chat",
+    "Topic :: Internet :: WWW/HTTP",
+]
+dependencies = [
+    "python-telegram-bot[job-queue]>=22.8",
+    "aiohttp>=3.14.3",
+    "python-dotenv>=1.2.3",
+    "aiosqlite>=0.22.1",
+    "psutil>=5.9.8",
+    "Pillow>=10.0.0",
+    "pyvips>=2.2.0",
+    "whoosh>=2.7.4",
+    "init-data-py>=1.0.0",
+    "telepress>=0.16.4",
+]
+
+[project.optional-dependencies]
+# Optional AI review sidecar (MCP). TelePost core remains Python 3.10+.
+mcp = ["mcp>=2.2,<3"]
+# Test / coverage tooling. Intentionally excluded from the runtime dependency
+# set so a plain ``pip install telepost-bot`` stays lean.
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.11.0",
+    "coverage>=7.3.0",
+]
+
+[project.scripts]
+telepost = "run:main"
+
+[project.urls]
+Homepage = "https://github.com/redtidev1918/TelePost"
+Repository = "https://github.com/redtidev1918/TelePost"
+Documentation = "https://github.com/redtidev1918/TelePost/tree/main/docs"
+Issues = "https://github.com/redtidev1918/TelePost/issues"
+Changelog = "https://github.com/redtidev1918/TelePost/blob/main/CHANGELOG.md"
+
+[tool.setuptools.dynamic]
+version = {attr = "telepost.build_info.RELEASE_VERSION"}
+
+[tool.setuptools]
+py-modules = ["main", "run"]
+packages = [
+    "config",
+    "database",
+    "handlers",
+    "mcp_server",
+    "models",
+    "protocol",
+    "protocol.v1",
+    "services",
+    "telepost",
+    "telepost.api",
+    "telepost.application",
+    "telepost.domain",
+    "telepost.miniapp",
+    "telepost.observability",
+    "telepost.storage",
+    "telepost.storage.sqlite",
+    "telepost.telegram",
+    "telepost.telegram.delivery",
+    "ui",
+    "utils",
+    # The Mini App frontend project. ``webapp/__init__.py`` is a packaging
+    # marker only; the shipped content is its build artifact ``dist/`` (see
+    # package-data below). Built via ``npm run build`` before packaging.
+    "webapp",
+]
+
+[tool.setuptools.package-data]
+# The Mini App build ships inside the ``webapp`` package so a wheel install
+# serves a working /app/ frontend. ``webapp/dist`` is a Vite build artifact
+# (produced by ``npm run build`` in webapp/ before packaging); it is
+# gitignored, so it only enters the wheel/sdist when built first. The original
+# webhook_server.py path math (../webapp/dist relative to utils/) resolves to
+# site-packages/webapp/dist after install, so no runtime path changes needed.
+webapp = ["dist/**/*"]
+# Review policy ships with the config package so load_review_policy()'s
+# installed-package fallback finds it inside site-packages.
+config = ["review_policy.md"]
+"protocol.v1" = ["*.json", "*.sha256", "fixtures/*"]

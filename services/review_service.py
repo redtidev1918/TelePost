@@ -1090,12 +1090,30 @@ class ReviewService:
 
 
 def load_review_policy() -> str:
-    path = os.getenv("TELEPOST_REVIEW_POLICY", "config/review_policy.md")
+    # Locate the bundled review policy. An explicit env override wins; otherwise
+    # we try the working directory (source checkouts / operator overrides) and
+    # finally the policy shipped inside the installed ``config`` package so the
+    # feature works the same from a wheel install.
+    candidates = []
+    env_path = os.getenv("TELEPOST_REVIEW_POLICY")
+    if env_path:
+        candidates.append(env_path)
+    candidates.append(os.path.join(os.getcwd(), "config", "review_policy.md"))
     try:
-        with open(path, "r", encoding="utf-8") as fh:
-            return fh.read()
-    except OSError:
-        return (
+        import config
+
+        candidates.append(
+            os.path.join(os.path.dirname(os.path.abspath(config.__file__)), "review_policy.md")
+        )
+    except Exception:
+        pass
+    for path in candidates:
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                return fh.read()
+        except OSError:
+            continue
+    return (
             "# TelePost Review Policy\n\n"
             "管理员尚未配置具体审核规则。请只根据频道主题、法律合规性、版权、广告引流和"
             "明显内容安全风险给出谨慎建议；不确定时选择 needs_human_review。\n"

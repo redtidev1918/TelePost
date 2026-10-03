@@ -1,0 +1,47 @@
+# TelePost sdist manifest
+#
+# Keep production data, runtime state, logs, caches, virtualenvs, and secrets
+# out of the source distribution. The wheel is built only from the declared
+# packages + package-data, so this MANIFEST.in mainly guards the sdist.
+include LICENSE
+include README.md
+include README.en.md
+include CHANGELOG.md
+include pyproject.toml
+include config.ini.example
+
+# Mini App frontend build artifact. ``webapp/dist`` is gitignored (it is a
+# build output), so it is NOT auto-included from VCS; pull it from the working
+# tree explicitly. It must exist at sdist build time (run ``npm run build`` in
+# webapp/ first). ``webapp/__init__.py`` is a packaging marker.
+recursive-include webapp/dist *
+include webapp/__init__.py
+
+# Package markers created for PyPI packaging (not yet in history at build time).
+include protocol/__init__.py
+include protocol/v1/__init__.py
+include ui/__init__.py
+
+# Protocol contract data (also auto-included via VCS, listed for clarity).
+recursive-include protocol/v1 *.json *.sha256
+
+# Config package data shipped to site-packages.
+recursive-include config *.md *.json
+
+prune data
+prune logs
+prune search_index
+prune htmlcov
+prune .pytest_cache
+prune .coverage
+prune .venv
+prune __pycache__
+# Frontend deps must never enter the sdist.
+prune webapp/node_modules
+
+global-exclude *.pyc
+global-exclude *.db
+global-exclude *.db-journal
+global-exclude *.log
+global-exclude *.sqlite
+global-exclude .env

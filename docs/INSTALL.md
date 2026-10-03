@@ -4,14 +4,40 @@
 
 | 方式 | 适合 | 需要 |
 |---|---|---|
+| pip 安装 | 命令行用户、自动化部署 | Python 3.10+, libvips |
 | Release 单文件 | 最少依赖、单 Bot | 无需预装 Python |
-| 源码 + venv | 开发、自管 VPS | Python 3.9+ |
+| 源码 + venv | 开发、自管 VPS | Python 3.10+ |
 | Docker / Compose | 通用生产环境 | Docker |
 | Fly.io | Webhook、托管运行 | `flyctl` |
 
 PythonAnywhere 的旧 WSGI 适配**不是当前受支持的生产路径**：它覆盖不了完整运行生命周期
 （多 Bot supervisor、webhook 注册与审核队列）。旧文档曾把它描述为「已验证可用」，那是不准确的，
 不要按旧教程部署到生产。
+
+## pip 安装（PyPI）
+
+```bash
+pip install telepost-bot
+telepost --setup
+telepost
+```
+
+PyPI 包名是 `telepost-bot`，CLI 命令是 `telepost`，Python 导入名是 `telepost`。
+`pip install` 后直接运行 `telepost`，首次会进入配置向导。
+
+### libvips 系统依赖
+
+`pyvips` 是 ctypes 封装，不打包 libvips 本体。需要在操作系统层面安装：
+
+| 系统 | 命令 |
+|---|---|
+| macOS (Homebrew) | `brew install vips` |
+| Ubuntu / Debian | `sudo apt-get install libvips42` |
+| Fedora | `sudo dnf install vips` |
+| Arch Linux | `sudo pacman -S libvips` |
+| Windows | 从 [libvips releases](https://github.com/libvips/libvips/releases) 下载，将 `bin` 目录加入 `PATH` |
+
+未安装 libvips 时，`telepost` 仍可启动并完成基本投稿流程，但超大图片的流式缩放会不可用。
 
 ## Release 单文件
 
@@ -90,7 +116,8 @@ Fly.io 使用预构建镜像、持久卷和 Webhook。TelePost 保持常驻，�
 ## 升级与卸载
 
 - 单文件：停止旧进程，备份同目录的 `config.ini` 与 `data/`，替换可执行文件。
-- Git：备份数据后 `git pull --ff-only`，更新依赖并重启。
+- 源码：备份数据后 `git pull --ff-only`，更新依赖并重启。
+- pip：`pip install --upgrade telepost-bot`，重启进程。
 - Compose：固定新镜像版本，`docker compose pull && docker compose up -d`。
 - Fly.io：先建 Volume snapshot，再更新固定版本镜像。
 
