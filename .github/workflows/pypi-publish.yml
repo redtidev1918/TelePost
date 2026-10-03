@@ -179,7 +179,11 @@ jobs:
         # on sys.path, so importing from the repo root would silently import the
         # source tree instead of the installed package and prove nothing.
         # A real user always imports telepost from somewhere else.
+        # API_ENABLED=false: add_api_routes() dereferences the Telegram
+        # Application, which we deliberately do not construct here. The point of
+        # this check is package layout and the Mini App surface, not the API.
         env:
+          API_ENABLED: 'false'
           TOKEN: 123456:ci-smoke-test
           CHANNEL_ID: '@ci-smoke-channel'
           OWNER_ID: '1'
