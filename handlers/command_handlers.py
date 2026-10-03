@@ -142,10 +142,16 @@ async def handle_menu_shortcuts(update: Update, context: CallbackContext) -> Non
             handled = True
         # 搜索
         elif text.endswith("搜索"):
-            await update.message.reply_text(
-                "🔍 请输入搜索关键词，或点击下方选项：",
-                reply_markup=Keyboards.search_options()
+            from handlers.search_handlers import (
+                reply_search_disabled, search_enabled,
             )
+            if not search_enabled():
+                await reply_search_disabled(update)
+            else:
+                await update.message.reply_text(
+                    "🔍 请输入搜索关键词，或点击下方选项：",
+                    reply_markup=Keyboards.search_options()
+                )
             handled = True
         # 帮助
         elif text.endswith("帮助"):

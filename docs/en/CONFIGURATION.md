@@ -67,7 +67,7 @@ For the full architecture, auth chain, build, and same-origin hosting see [`docs
 |---|---|---|
 | `DB_PATH` | `data/submissions.db` | SQLite path |
 | `DB_CACHE_KB` | `4096` | SQLite page cache; `1024` for low memory |
-| `SEARCH_ENABLED` | `true` | Whether to build and write the search index |
+| `SEARCH_ENABLED` | `true` | Whether to build and write the search index. When off, `/search`, the "🔍 搜索" menu button and the inline search buttons reply "search is not enabled on this bot"; "my posts / tag cloud / hot posts" read the database and stay available |
 | `SEARCH_INDEX_DIR` | `data/search_index` | Whoosh index directory |
 | `SEARCH_ANALYZER` | `jieba` | `jieba`; falls back to `simple` when not installed |
 | `SEARCH_HIGHLIGHT` | `false` | Search result highlighting |
