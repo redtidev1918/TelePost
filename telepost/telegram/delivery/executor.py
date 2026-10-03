@@ -145,7 +145,8 @@ async def materialize_remote(item: MediaItem) -> Optional[MediaItem]:
 
 async def _recover_rejected_photo(sender: "Sender", item, *,
                                   reply_to: Optional[int],
-                                  caption: Optional[str]):
+                                  caption: Optional[str],
+                                  reply_markup: Optional[object] = None):
     """ONE bounded re-process of a photo Telegram itself rejected.
 
     Telegram's verdict is the authority (the artifact already passed local
@@ -168,8 +169,10 @@ async def _recover_rejected_photo(sender: "Sender", item, *,
     )
     try:
         try:
-            return await sender.send_single(retry_item, reply_to=reply_to,
-                                            caption=caption)
+            kwargs = {"reply_to": reply_to, "caption": caption}
+            if reply_markup is not None:
+                kwargs["reply_markup"] = reply_markup
+            return await sender.send_single(retry_item, **kwargs)
         except NetworkFailure:
             raise
         except Exception:
@@ -193,15 +196,17 @@ async def _send_with_remote_fallback(
     *,
     reply_to: Optional[int],
     caption: Optional[str],
+    reply_markup: Optional[object] = None,
 ) -> Optional[DeliveredMessage]:
     """One bounded remote→local retry when Telegram cannot fetch a URL."""
     materialized = await materialize_remote(item)
     if materialized is None:
         return None
     try:
-        return await sender.send_single(
-            materialized, reply_to=reply_to, caption=caption
-        )
+        kwargs = {"reply_to": reply_to, "caption": caption}
+        if reply_markup is not None:
+            kwargs["reply_markup"] = reply_markup
+        return await sender.send_single(materialized, **kwargs)
     finally:
         path = materialized.local_path
         if path:
@@ -216,6 +221,7 @@ async def execute_plan(
     sender: Sender,
     *,
     caption: Optional[str] = None,
+    root_reply_markup: Optional[object] = None,
     on_sent: Optional[OnSent] = None,
 ) -> DeliveryResult:
     if not plan.batches:
@@ -237,14 +243,26 @@ async def execute_plan(
 
         # The caption belongs to the first message of the whole delivery only.
         batch_caption = caption if main_message is None else None
+        # root_reply_markup is a Presentation-only decoration: it may attach to
+        # the FIRST message of the entire delivery (the root) and only when that
+        # root is a single message. Albums cannot carry a reply_markup, and
+        # overflow / discussion replies must never inherit the root navigation
+        # (§root-only-navigation). A novel root is always a single message, so a
+        # button attaches there and nowhere else.
+        root_markup = (
+            root_reply_markup
+            if (main_message is None and not batch.is_album and root_reply_markup is not None)
+            else None
+        )
         messages: Optional[List[DeliveredMessage]] = None
         album_error: Optional[BaseException] = None
 
         if batch.is_album:
             try:
-                messages = await sender.send_album(
-                    batch, reply_to=reply_to, caption=batch_caption
-                )
+                album_kwargs = {"reply_to": reply_to, "caption": batch_caption}
+                if root_markup is not None:
+                    album_kwargs["reply_markup"] = root_markup
+                messages = await sender.send_album(batch, **album_kwargs)
             except NetworkFailure as exc:
                 result = DeliveryResult.uncertain(
                     "album send response lost; Telegram may have accepted it",
@@ -276,16 +294,19 @@ async def execute_plan(
                 else:
                     item_reply = messages[-1].message_id
                 item_caption = batch_caption if index == 0 else None
+                item_markup = root_markup if index == 0 else None
                 try:
+                    single_kwargs = {"reply_to": item_reply, "caption": item_caption}
+                    if item_markup is not None:
+                        single_kwargs["reply_markup"] = item_markup
                     messages.append(
-                        await sender.send_single(
-                            item, reply_to=item_reply, caption=item_caption
-                        )
+                        await sender.send_single(item, **single_kwargs)
                     )
                 except NetworkFailure as exc:
                     if item.is_remote and is_remote_fetch_error(exc):
                         remote_fallback = await _send_with_remote_fallback(
-                            sender, item, reply_to=item_reply, caption=item_caption
+                            sender, item, reply_to=item_reply, caption=item_caption,
+                            reply_markup=item_markup,
                         )
                         if remote_fallback is not None:
                             messages.append(remote_fallback)
@@ -302,7 +323,7 @@ async def execute_plan(
                         try:
                             recovered = await _recover_rejected_photo(
                                 sender, item, reply_to=item_reply,
-                                caption=item_caption,
+                                caption=item_caption, reply_markup=item_markup,
                             )
                         except NetworkFailure as net_exc:
                             result = DeliveryResult.uncertain(
@@ -318,7 +339,8 @@ async def execute_plan(
                         continue
                     if item.is_remote and is_remote_fetch_error(exc):
                         remote_fallback = await _send_with_remote_fallback(
-                            sender, item, reply_to=item_reply, caption=item_caption
+                            sender, item, reply_to=item_reply, caption=item_caption,
+                            reply_markup=item_markup,
                         )
                         if remote_fallback is not None:
                             messages.append(remote_fallback)

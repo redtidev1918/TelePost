@@ -312,39 +312,34 @@ def _chat_delivery_with_readonline(chat_items, caption, preview_url, *,
                                       caption_data=None):
     """Legacy chat direct-publish: shape a novel with a Telegraph preview URL.
 
-    Mirrors the application publication layer (single-document caption stays on
-    the file + a separate two-line bare-link message; multi-document caption
-    tails the album + the bare-link message still owns the IV card). Returns
-    ``(items, caption)`` for :func:`deliver_items_to_chat`; without a preview
-    URL — or with READONLINE_LINK_PREVIEW off — both pass through unchanged.
+    Mirrors the application publication layer — the READ_ONLINE action becomes a
+    root inline button (``root_navigation``), never a trailing bare-link text
+    message (§legacy-bare-link-removed). Returns ``(items, caption,
+    root_navigation)`` for :func:`deliver_items_to_chat`; without a preview URL,
+    all three pass through unchanged. Multi-document captions still tail the
+    album (unchanged behaviour), but no read-online entrance is appended.
     """
+    from telepost.domain.navigation import read_online_navigation
     if not caption or not preview_url:
-        return chat_items, caption
-    from telepost.application.publication import (
-        channel_caption,
-        readonline_bare_link_text,
-        readonline_link_preview_enabled,
-    )
-    if not readonline_link_preview_enabled():
-        return chat_items, caption
-    move_caption = bool(
-        len(chat_items) > 1
-        and all(item.get("kind") == "document" for item in chat_items)
-    )
+        return chat_items, caption, []
+    root_navigation = []
+    nav = read_online_navigation(preview_url)
+    if nav is not None:
+        root_navigation.append(nav)
     if caption_data is not None:
+        from telepost.application.publication import channel_caption
         caption = channel_caption(
             {**caption_data, "novel_preview_url": preview_url},
             include_readonline_footer=False,
         )
-    bare_item = {
-        "kind": "text",
-        "text": readonline_bare_link_text(preview_url),
-        "link_preview_url": preview_url,
-    }
+    move_caption = bool(
+        len(chat_items) > 1
+        and all(item.get("kind") == "document" for item in chat_items)
+    )
     if move_caption:
         caption_item = {"kind": "text", "text": caption}
-        return chat_items + [caption_item, bare_item], None
-    return chat_items + [bare_item], caption
+        return chat_items + [caption_item], None, root_navigation
+    return chat_items, caption, root_navigation
 
 
 def _items_from_dicts(items):
@@ -361,7 +356,7 @@ def _items_from_dicts(items):
         elif it.get("url"):
             source = RemoteUrl(it["url"], it.get("filename"))
         elif it.get("text") is not None:
-            source = SubmissionText(it["text"], it.get("link_preview_url") or None)
+            source = SubmissionText(it["text"])
         elif it.get("file_id") is not None:
             source = TelegramFileId(it["file_id"], it.get("filename"))
         else:
@@ -381,8 +376,6 @@ def _item_to_dict(item: MediaItem) -> dict:
     out = {"kind": item.kind.value, "spoiler": item.spoiler}
     if item.is_submission_text:
         out["text"] = item.source.text
-        if getattr(item.source, "link_preview_url", None):
-            out["link_preview_url"] = item.source.link_preview_url
     elif item.is_local:
         out["path"] = item.source.path
         out["filename"] = item.source.filename
@@ -478,7 +471,7 @@ def _reply_mode_from(reply_mode):
 async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
                                 album_size=CHANNEL_ALBUM_SIZE, timeout_kwargs=None,
                                 reply_to_message_id=None, reply_mode=None,
-                                on_sent=None):
+                                root_navigation=None, on_sent=None):
     """统一投递入口（频道发布与审核群预览共用）。
 
     items: [{"kind": photo|video|animation|audio|document,
@@ -495,6 +488,7 @@ async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
         sent, main = await _deliver_discussion(
             bot, channel, items, caption=caption, spoiler=spoiler,
             album_size=album_size, timeout_kwargs=timeout_kwargs,
+            root_navigation=root_navigation,
         )
         return sent, main
 
@@ -510,6 +504,7 @@ async def deliver_items_to_chat(bot, chat_id, items, *, caption, spoiler=False,
         reply_mode=mode,
         reply_to_message_id=reply_to_message_id,
         album_size=album_size,
+        root_navigation=list(root_navigation or []),
     )
     result = await _execute_with_on_sent(gateway, request, on_sent)
     raw_messages = [m.raw for m in result.messages if m.raw is not None]
@@ -569,7 +564,7 @@ async def _execute_with_on_sent(gateway, request, on_sent):
 
 
 async def _deliver_discussion(bot, channel, items, *, caption, spoiler,
-                              album_size, timeout_kwargs):
+                              album_size, timeout_kwargs, root_navigation=None):
     """Shared family-aware discussion strategy, kept on the legacy seams."""
     domain_items = _items_from_dicts([
         dict(item, spoiler=item.get("spoiler", spoiler)) for item in items
@@ -589,6 +584,7 @@ async def _deliver_discussion(bot, channel, items, *, caption, spoiler,
         spoiler=spoiler,
         reply_mode=ReplyMode.DISCUSSION,
         album_size=album_size,
+        root_navigation=list(root_navigation or []),
     )
     result = await strategy.deliver(
         request, linked_chat_id=channel.linked_chat_id
@@ -1284,9 +1280,11 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
 
         chat_items = _normalize_chat_items(media_list, doc_list)
         # A novel with a Telegraph preview page keeps the root caption on the
-        # single file and adds a separate two-line bare-link message for the
-        # Instant View card; multi-document form mirrors the app layer.
-        chat_items, deliver_caption = _chat_delivery_with_readonline(
+        # single file and attaches a [ 📖 在线阅读 ] root inline button via
+        # root_navigation (no bare-link message, no Instant View). _chat_delivery_with_readonline
+        # rebuilds the caption with include_readonline_footer=False so the
+        # channel root shows the button exactly once (§online-reading).
+        chat_items, deliver_caption, root_navigation = _chat_delivery_with_readonline(
             chat_items, caption, preview_url, caption_data=caption_data,
         )
         sent_message = None
@@ -1296,6 +1294,7 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                 sent_messages, sent_message = await deliver_items_to_chat(
                     context.bot, CHANNEL_ID, chat_items,
                     caption=deliver_caption, spoiler=spoiler_flag,
+                    root_navigation=root_navigation,
                 )
                 all_message_ids = _channel_message_ids(sent_messages, sent_message)
             except Exception as exc:

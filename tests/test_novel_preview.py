@@ -33,6 +33,7 @@ from telepost.domain.delivery import (
     MediaItem,
     MediaKind,
 )
+from telepost.domain.navigation import READ_ONLINE_ACTION
 from telepost.domain.novel_preview import (
     NovelSnapshot,
     PreviewResult,
@@ -184,12 +185,14 @@ def _command(items, key="pixivflow:bot1:novel:1:slot:t1", *, title="原稿标题
 
 def _trailing_text(request: DeliveryRequest):
     """A single-document preview-carrying publication keeps its caption on the
-    document and adds exactly one two-line bare-link TEXT message for the
-    Instant View card."""
+    document and exposes the READ_ONLINE action as a root inline button — never a
+    separate trailing TEXT / bare-link message (§online-reading)."""
     text_items = [i for i in request.items if i.kind is MediaKind.TEXT]
-    assert len(text_items) == 1
-    assert text_items[0].source.text == f"📖 在线阅读\n{PREVIEW_URL}"
-    return text_items[0].source
+    assert text_items == [], "no bare-link TEXT message may be appended"
+    for nav in request.root_navigation:
+        if nav.action == READ_ONLINE_ACTION:
+            return nav
+    raise AssertionError("expected a READ_ONLINE root button")
 
 
 # ---- eligibility (final snapshot) ---------------------------------------
@@ -382,16 +385,14 @@ async def test_published_txt_publication_carries_preview_url_and_document(
     outcome = await service.publish(_command([_document_item(_txt_file(tmp_path))]))
 
     assert outcome.status == "published"
-    # The caption stays on the TXT document; one separate two-line bare-link
-    # message carries the Telegram link preview / Instant View card.
-    trailing = _trailing_text(delivery.last)
-    assert trailing.link_preview_url == PREVIEW_URL
+    # The caption stays on the TXT document; the READ_ONLINE action is a root
+    # inline button, not a second message.
+    button = _trailing_text(delivery.last)
+    assert button.url == PREVIEW_URL
     assert delivery.last.caption is not None
     assert PREVIEW_URL not in delivery.last.caption
-    # The authoritative artifact is still the TXT document.
-    assert [i.kind for i in delivery.last.items] == [
-        MediaKind.DOCUMENT, MediaKind.TEXT,
-    ]
+    # The authoritative artifact is still the single TXT document.
+    assert [i.kind for i in delivery.last.items] == [MediaKind.DOCUMENT]
     assert provider.calls == 1
 
 
@@ -484,11 +485,9 @@ async def test_retry_reuses_preview_and_retries_txt_delivery_independently(
     assert second.status == "published"
     assert delivery.calls == 2, "TXT delivery retry stays independent"
     assert provider.calls == 1, "the retry must reuse the existing preview"
-    trailing = _trailing_text(delivery.last)
+    button = _trailing_text(delivery.last)
     assert delivery.last.caption is not None
-    assert [i.kind for i in delivery.last.items] == [
-        MediaKind.DOCUMENT, MediaKind.TEXT,
-    ]
+    assert [i.kind for i in delivery.last.items] == [MediaKind.DOCUMENT]
 
 
 @pytest.mark.asyncio
@@ -505,7 +504,8 @@ async def test_file_id_txt_is_fetched_through_adapter_and_previewed(ledger):
 
     assert outcome.status == "published"
     assert provider.snapshots[0].content == "正文来自 Telegram 下载"
-    assert PREVIEW_URL in _trailing_text(delivery.last).text
+    # READ_ONLINE is a root inline button, not a trailing bare-link text.
+    assert _trailing_text(delivery.last).url == PREVIEW_URL
 
 
 @pytest.mark.asyncio
