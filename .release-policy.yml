@@ -60,6 +60,15 @@
         }
       },
       {
+        "id": "publish-pypi",
+        "type": "github-workflow",
+        "required": false,
+        "workflow": "pypi-publish.yml",
+        "inputs": {
+          "tag": "{{tag}}"
+        }
+      },
+      {
         "id": "deploy-docs",
         "type": "github-workflow",
         "required": true,
