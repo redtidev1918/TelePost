@@ -9,6 +9,8 @@
 
 > Telegram 频道投稿、审核与发布平台。
 
+**安装：** `pip install telepost-bot` · **启动：** `telepost` · **Python 导入：** `telepost`
+
 用户可以从 **Bot** 或 **Mini App** 投稿，外部程序可以通过 **HTTP API** 投递内容；不同入口共用同一套流程。
 
 ## ✨ 功能
@@ -16,7 +18,7 @@
 - **Bot 投稿** — 预览、编辑、发布，支持图片、视频、音频与文件
 - **Mini App** — 投稿、浏览内容、审核与后台管理；审核队列空态附「最近处理」与审核历史入口
 - **审核队列** — 审核、编辑后发布、剧透等
-- **小说在线阅读** — TXT 小说可选生成 Telegraph 在线阅读页；频道主贴保留完整标题/简介/tags，在线阅读入口独立且不重复；TelePost 2.76.2 配置 TelePress 0.16.4 后，长文单页目标约 20,000 字符，阅读中断更少
+- **小说在线阅读** — TXT 小说可选生成 Telegraph 在线阅读页；频道主贴保留完整标题/简介/tags，在线阅读入口独立且不重复；搭配 TelePress 0.16.4 后，长文单页目标约 20,000 字符，阅读中断更少
 - **媒体代理重写** — 受限图床链接可经自建公网反代重写后投递
 - **频道搜索** — 历史搜索、标签、投稿记录
 - **HTTP API** — Bearer Token、幂等提交，方便脚本与自动化
@@ -34,46 +36,57 @@ HTTP API ─────────┘
 
 投稿、审核和发布共用同一套流程；审核策略可按入口（Chat / Mini App / HTTP API）分别配置。
 
-## 🚀 快速开始
-
-**四步跑起来：**
-
-1. 用 [@BotFather](https://t.me/BotFather) 创建（或已有）一个 Bot
-2. 把 Bot 加进目标频道，并授予发帖权限
-3. 从 [Releases](https://github.com/redtidev1918/TelePost/releases) 下载对应平台版本
-4. 运行一次，按向导填写 **Bot Token**、**频道 ID**、**Owner ID**
-
-Linux 首次启动：
-
-```bash
-chmod +x telepost-linux-x64
-./telepost-linux-x64
-```
-
-启动后，向 Bot 发送 `/start`，再用 `/submit` 发布第一条投稿。
-
-**或使用 Docker：**
-
-```bash
-docker compose up -d
-```
-
-**或使用 pip：**
+## 🚀 30 秒开始
 
 ```bash
 pip install telepost-bot
+telepost --setup
 telepost
 ```
 
+首次运行 `telepost` 会进入配置向导，按提示填入 **Bot Token**、**频道 ID**、**Owner ID**；
+之后直接运行 `telepost` 即以前次配置启动。
+
+开始前只需要两件事：用 [@BotFather](https://t.me/BotFather) 创建（或复用）一个 Bot，
+把它加入目标频道并授予发帖权限。启动后向 Bot 发送 `/start`，再用 `/submit` 发布第一条投稿。
+
+| 名称 | 值 |
+| --- | --- |
+| PyPI 项目名 | `telepost-bot` |
+| 命令行 | `telepost` |
+| Python 导入 | `telepost` |
+| Python | 3.10+ |
+| 系统依赖 | `pyvips` 需要操作系统 libvips（macOS `brew install vips`，Debian/Ubuntu `sudo apt-get install libvips42`） |
+
+## 📦 安装方式
+
+| 顺序 | 方式 | 适合 | 入口 |
+| --- | --- | --- | --- |
+| 1 | **PyPI（推荐）** | 有 Python 环境的用户、脚本化与自动化部署 | `pip install telepost-bot` |
+| 2 | Release 单文件 | 不想安装 Python 的用户 | [Releases](https://github.com/redtidev1918/TelePost/releases) 下载对应平台可执行文件 |
+| 3 | Docker / Compose | 容器化部署 | `ghcr.io/redtidev1918/telepost:<version>` |
+| 4 | 源码 | 开发、自建 VPS | `git clone` 后 `python run.py` |
+
+Release 单文件不需要 Python 环境：下载后 `chmod +x telepost-linux-x64 && ./telepost-linux-x64`。
+
+升级统一为 `pip install --upgrade telepost-bot`；容器与 Fly 则切换到新的 release 版本镜像
+`ghcr.io/redtidev1918/telepost:<version>`（生产环境不要使用 `latest`）。版本号一律取自正式
+Release。完整安装、配置、升级与卸载见 [安装与部署](docs/INSTALL.md)。
+
 ## 🔖 发版
 
-只需要 merge Release PR，其余全由流水线完成：**GitHub Release → GHCR 镜像 →
-PyPI `telepost-bot` → 文档 → Fly 生产部署 → 校验 `/health` 版本与 bot1/bot2 就绪**。
-任一步失败都会让发版明确失败，不会出现「发版显示成功、生产仍是旧版本」。
+日常开发是 **PR → `main`**；正式发版有人工闸门——**merge Release PR**。之后的每一步都由流水线
+串行完成，任一关键阶段失败都会让这次发版明确失败：
 
-详见 [docs/FLYIO_DEPLOYMENT.md § 0](docs/FLYIO_DEPLOYMENT.md#0-正式发版路径唯一推荐)。
+```text
+merge Release PR → vX.Y.Z → GitHub Release → GHCR 镜像 → PyPI telepost-bot
+                                                          ↓
+                              Fly 生产部署 ← 校验 /health 版本与 bot1/bot2 就绪
+```
 
-> 完整的安装、配置与升级步骤见 [安装与部署](docs/INSTALL.md)。
+不会出现「发版显示成功、生产仍是旧版本」。详见
+[docs/FLYIO_DEPLOYMENT.md § 0](docs/FLYIO_DEPLOYMENT.md#0-正式发版路径唯一推荐) 与
+[运维手册 · 正式发布流程](docs/OPERATIONS.md#正式发布流程)。
 
 ## 🌐 HTTP API
 

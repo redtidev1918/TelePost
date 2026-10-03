@@ -30,7 +30,7 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: 'Release tag to deploy, e.g. v2.79.0'
+        description: 'Release tag to deploy, e.g. v2.x.y'
         type: string
         required: true
       dry_run:
@@ -44,7 +44,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing release tag to deploy, e.g. v2.79.0'
+        description: 'Existing release tag to deploy, e.g. v2.x.y'
         type: string
         required: true
       dry_run:
@@ -84,7 +84,7 @@ jobs:
           set -euo pipefail
           TAG="${INPUT_TAG:-}"
           if [ -z "$TAG" ]; then
-            echo "::error::No tag supplied. Pass the exact release tag, e.g. v2.79.0"
+            echo "::error::No tag supplied. Pass the exact release tag, e.g. v2.x.y"
             exit 1
           fi
           # Only a stable vX.Y.Z reaches production. Deliberately strict: a

@@ -25,6 +25,22 @@ Telegram ── Webhook ──→ Fly Proxy ──→ TelePost（常驻）
 合并 Release PR 之后，不需要任何人执行命令。流水线按固定顺序完成：
 
 ```text
+Release PR
+   ↓  merge（人工闸门）
+vX.Y.Z
+   ↓
+ReleaseGraph
+   ↓
+GHCR image ghcr.io/redtidev1918/telepost:<version>
+   ↓
+Fly.io deployment
+   ↓
+health / version / bot1 / bot2 verification
+```
+
+同一条链产出：
+
+```text
 merge Release PR
    └─ ReleaseGraph
         ├─ 二进制 / release assets ──────────────► GitHub Release
@@ -44,8 +60,11 @@ merge Release PR
 不存在漂移：Git tag / GitHub Release / `build_info.py` / PyPI / GHCR image tag / 生产 `/health`。
 
 ```text
-v2.79.0 → 2.79.0 → 2.79.0 → 2.79.0 → 2.79.0 → 2.79.0
+v<version> → <version> → <version> → <version> → <version> → <version>
 ```
+
+<small>依次为 Git tag、GitHub Release、`build_info.py`、PyPI、GHCR 镜像 tag、生产 `/health`。示例
+`<version>` 形如 `2.x.y`。</small>
 
 生产部署的固定行为：
 
@@ -60,7 +79,7 @@ v2.79.0 → 2.79.0 → 2.79.0 → 2.79.0 → 2.79.0 → 2.79.0
 部署失败或需要重新验证某个已发布版本时，可以直接重跑同一个 tag，不需要 bump 版本：
 
 ```bash
-gh workflow run deploy-fly.yml --ref main -f tag=v2.79.0
+gh workflow run deploy-fly.yml --ref main -f tag=v<version>   # 例如 tag=v2.x.y
 ```
 
 只想确认各项门禁而不动生产，加 `-f dry_run=true`。
@@ -106,25 +125,26 @@ flyctl secrets set --app <app> \
 
 完整变量见[配置参考](CONFIGURATION.md)。
 
-## 3. 部署
+## 3. 手动部署（自建实例 / 故障恢复）
 
 > 生产发布已由自动化接管这一步，见 §0。以下命令只在自建实例、或自动化不可用需要
-> 手动恢复时使用。
+> 手动恢复时使用；给 TelePost 生产推新版不要走这条手工路径。
 
-可以从仓库构建：
-
-```bash
-flyctl deploy --app <app> --config fly.toml --ha=false
-```
-
-也可以部署固定版本的公开镜像：
+手动部署的固定形态是「指定版本的公开镜像」：
 
 ```bash
 flyctl deploy --app <app> --config fly.toml --ha=false \
   --image ghcr.io/redtidev1918/telepost:<version>
 ```
 
-生产部署应使用明确版本，不要使用会随时间变化的 `latest`。
+`<version>` 必须替换为正式 Release 的版本号（形如 `2.x.y`）。生产部署不要使用会随时间变化的
+`latest`，也不要从分支或 commit 部署。
+
+只有在改代码后需要就地构建时才从仓库构建（同样不是生产发布路径）：
+
+```bash
+flyctl deploy --app <app> --config fly.toml --ha=false
+```
 
 ## 4. 验证
 
@@ -192,8 +212,11 @@ TelePost 的产品配置。
 
 ## 升级与回退
 
+正式发版不需要手工走本节：流水线会用 GHCR 上同一个 release version 的镜像完成部署并验收，
+失败即判定发版失败（见 §0 与[运维手册 · 正式发布流程](OPERATIONS.md#正式发布流程)）。
+
 1. 部署前为 Volume 创建 snapshot。
-2. 更新到明确版本镜像。
+2. 更新到明确版本镜像（`ghcr.io/redtidev1918/telepost:<version>`，不是 `latest`）。
 3. 核对原 Machine 和 Volume 仍在使用，检查健康端点与一次真实投稿。
 4. 需要回退时更新回上一版本镜像；只有数据损坏时才恢复旧 snapshot。
 

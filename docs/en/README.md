@@ -11,6 +11,9 @@
 
 ## Start here
 
+**Recommended install: `pip install telepost-bot`** (CLI `telepost`, Python import `telepost`,
+Python 3.10+). Every install method, upgrades and uninstall: [Install & deploy](INSTALL.md).
+
 | Document | Content |
 | :-- | :-- |
 | [📥 Download](download.md) | Single-file builds for Windows / macOS / Linux, auto-updated on every release |

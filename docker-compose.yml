@@ -1,6 +1,10 @@
 services:
   telepost:
-    image: ghcr.io/redtidev1918/telepost:latest   # 预构建镜像；本地有源码时改 build: .
+    # 固定你要部署的 release version（形如 2.x.y）。示例：
+    #   TELEPOST_VERSION=2.x.y docker compose pull && docker compose up -d
+    # 不设置时会落到 latest —— latest 会随时间漂移，只适合本机试用，生产不要用。
+    # 本地有源码时把 image 换成 build: .
+    image: ghcr.io/redtidev1918/telepost:${TELEPOST_VERSION:-latest}
     container_name: telepost
     restart: unless-stopped
 

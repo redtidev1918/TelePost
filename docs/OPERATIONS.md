@@ -131,10 +131,21 @@ TelePost 是用户可见的投稿入口，在 Fly.io 上保持常驻：`auto_sto
 
 ## 安全升级与回退
 
+通用模型见 [统一升级模型](#统一升级模型)。下面是各目标的具体动作。
+
+### pip
+
+```bash
+pip install --upgrade telepost-bot
+```
+
+升级后重启进程，并核对 `/health` 的 `version`。
+
 ### Compose
 
 1. 备份 `data/`。
-2. 把镜像改为固定新版本。
+2. 把镜像版本固定到新的 release version：设置 `TELEPOST_VERSION=<version>`，或直接改 `image`
+   为 `ghcr.io/redtidev1918/telepost:<version>`（不要用 `latest`）。
 3. `docker compose pull && docker compose up -d`。
 4. 检查健康、版本、日志和一次测试投稿。
 
@@ -155,12 +166,13 @@ curl -fsS https://<app>.fly.dev/api/bot1/v1/health
 curl -fsS https://<app>.fly.dev/api/bot2/v1/health
 ```
 
-必须确认 Machine ID、Volume ID、资源和生命周期配置不变，镜像 digest 对应目标新版本。
-两个 Bot 的 API 健康端点均应返回目标版本。2.10.43 无数据库迁移，无需清理或重建历史数据；
-升级前后的只读完整性检查均应为 `ok`。相册降级回复、聊天遮罩和混合文件保存的回归测试见
+必须确认 Machine ID、Volume ID、资源和生命周期配置不变，镜像 digest 对应目标新版本
+（`<version>` 是正式 release version，不是 `latest`）。两个 Bot 的 API 健康端点均应返回该版本。
+正式发版不需要手工执行本段：流水线会用同一个 GHCR 镜像完成部署并校验，失败即判定发版失败
+（见 [正式发布流程](#正式发布流程)）。升级前后的只读完整性检查均应为 `ok`。相册降级回复、
+聊天遮罩和混合文件保存的回归测试见
 `tests/test_publish_reply.py`、`tests/test_publish_regressions.py` 和 `tests/test_streaming_uploads.py`。
-回退只需更新
-为上一版本镜像；除非数据本身损坏，不要用旧 snapshot 覆盖较新的数据库。
+回退时更新为上一个 release version 的镜像即可；除非数据本身损坏，不要用旧 snapshot 覆盖较新的数据库。
 
 ## 数据库完整性
 
@@ -215,28 +227,74 @@ Webhook Secret 不能通过 Telegram 修改。
   intent；不要手改 SQLite `next_attempt_at`，也不要用 `run-once` 代替 outbox retry。
 - replay 保留原 idempotency key。TelePost `/ready` 非 200 时 PixivFlow 只延后，不增加 attempt。
 
-## 正式发布
+## 正式发布流程
 
-1. 工作区必须干净，`main` 与远端同步。
-2. 更新 `utils/helper_functions.py` 版本与 `CHANGELOG.md` 对应版本段。
-3. 运行完整测试。
-4. 提交并推送 `main`，再创建并推送同版本 `vX.Y.Z` tag。
-5. 等待 GitHub Actions 的 test、docker、三平台 bundle、release 全部成功。
-6. 核对 Release 的三个资产和 GHCR 的 amd64/arm64 manifest。
-7. 有生产环境时，按“安全升级”单独部署固定版本镜像并复核数据。
+TelePost 有两道不同的通道，不要混用：
 
-```bash
-./.venv/bin/python -m pytest -q --no-cov -o log_cli=false
-git tag vX.Y.Z
-git push origin main
-git push origin vX.Y.Z
-gh run list --workflow release.yml --limit 3
-gh release view vX.Y.Z
-docker buildx imagetools inspect ghcr.io/redtidev1918/telepost:X.Y.Z
+| 通道 | 入口 | 结果 |
+|---|---|---|
+| 开发 | PR → merge 到 `main` | 只进代码，**不发版** |
+| 正式发版 | release-please 开出的 **Release PR** → merge（人工闸门） | 触发完整发行链 |
+
+**没有「push main 后自动部署」这条路径。** 只有 merge Release PR 才进入正式发布。
+
+Release PR 由 release-please 维护：它按 Conventional Commits 累积变更、更新 `CHANGELOG.md` 与
+`telepost/build_info.py` 的版本。合并后流水线串行完成：
+
+```text
+开发：PR → main
+正式发版：Release PR → merge
+                ↓
+            vX.Y.Z tag
+                ↓
+          ReleaseGraph
+                ↓
+   GitHub Release / GHCR image / PyPI telepost-bot / Docs
+                ↓
+        GHCR image → Fly.io 生产部署
+                ↓
+      health + version + bot1 / bot2 校验
 ```
 
-Tag 只触发流程，不等于发布完成。Release 缺资产时，从对应 run 下载 bundle 后用
-`gh release upload vX.Y.Z <files> --clobber` 补传；不要仅因上传竞态重复发布版本。
+- **自动发行物**：GitHub Release（三平台单文件 + 校验和 + SBOM）、GHCR 镜像
+  `ghcr.io/redtidev1918/telepost:<version>`、PyPI `telepost-bot`、文档站。
+- **自动生产部署**：使用与 release version 完全相同的 GHCR 镜像，不重新构建、不用 `latest`；
+  部署后必须满足 `/health` 返回该 version、`bots` 含 1 和 2、`/ready` 的 `bot1`/`bot2` 均为 true。
+- **任一关键阶段失败 = 这次发版失败**：GHCR 或 PyPI 不通过时 ReleaseGraph 报告 release 不完整，
+  生产部署不会被触发；部署后达不到验收条件同样判定失败，不存在「发版显示成功、生产仍是旧版本」。
+- 六处版本必须相等：Git tag / GitHub Release / `build_info.py` / PyPI / GHCR image tag / 生产 `/health`。
+
+人工操作清单：
+
+```bash
+gh pr list --search "head:release-please"        # 找到 Release PR
+gh pr view <pr>                                   # 核对 CHANGELOG 与版本号
+gh pr merge <pr> --squash                         # 合并 = 放行发版
+gh run list --workflow deploy-fly.yml --limit 3   # 生产部署结果
+```
+
+日常排障核对：
+
+```bash
+gh release view v<version>
+docker buildx imagetools inspect ghcr.io/redtidev1918/telepost:<version>
+curl -fsS https://<app>.fly.dev/health    # version 必须等于本次 release version
+```
+
+版本号一律由 release-please 写入 `telepost/build_info.py`：不手工改版本号、不手工打 tag、
+也不要为「补某个资产」另行发布同版本。
+
+## 统一升级模型
+
+| 部署方式 | 升级动作 | 版本来源 |
+|---|---|---|
+| pip | `pip install --upgrade telepost-bot` | PyPI `telepost-bot` |
+| Docker / Compose | 改为 `ghcr.io/redtidev1918/telepost:<version>` 后 `docker compose pull && docker compose up -d` | GHCR release tag |
+| Fly.io | `ghcr.io/redtidev1918/telepost:<version>`（正式发版由流水线完成，见上一节） | GHCR release tag |
+| Release 单文件 | 下载新 release 的单文件替换旧的 | GitHub Release |
+
+规则：**生产不要使用 `latest`**；`<version>` 必须是正式 Release 的版本号。升级前备份 `data/`，
+升级后核对 `/health` 的 `version` 与 `commit`。
 
 ## 热度统计
 
