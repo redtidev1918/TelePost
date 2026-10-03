@@ -175,6 +175,10 @@ jobs:
           " dist/*.whl
 
       - name: Smoke test the built wheel
+        # Run from OUTSIDE the checkout: Python puts the current directory first
+        # on sys.path, so importing from the repo root would silently import the
+        # source tree instead of the installed package and prove nothing.
+        # A real user always imports telepost from somewhere else.
         env:
           TOKEN: 123456:ci-smoke-test
           CHANNEL_ID: '@ci-smoke-channel'
@@ -184,12 +188,15 @@ jobs:
           python -m venv /tmp/wheel-check
           /tmp/wheel-check/bin/pip install --upgrade pip
           /tmp/wheel-check/bin/pip install dist/*.whl
+
+          mkdir -p /tmp/smoke && cd /tmp/smoke
           /tmp/wheel-check/bin/telepost --version
           /tmp/wheel-check/bin/python -c "
           import telepost
           assert 'site-packages' in telepost.__file__, telepost.__file__
           print('telepost imported from', telepost.__file__)
           "
+
           # The Mini App must survive packaging (hard gate).
           /tmp/wheel-check/bin/python - <<'PY'
           import asyncio
