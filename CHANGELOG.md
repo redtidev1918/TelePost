@@ -8,6 +8,16 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.78.1](https://github.com/redtidev1918/TelePost/compare/v2.78.0...v2.78.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* accept per-platform digests when verifying production machines ([a00d446](https://github.com/redtidev1918/TelePost/commit/a00d446f12272c304d5630bf1a2550c46c44288f))
+* **delivery:** forward root markup in the on_sent execute_plan branch ([7153ed6](https://github.com/redtidev1918/TelePost/commit/7153ed6dcf2043f2ab0b602c5807f518502da1a6))
+* **delivery:** forward root_navigation through the legacy delivery port ([dd1db6a](https://github.com/redtidev1918/TelePost/commit/dd1db6a248fc10689475b307f22a331f76636d9f))
+* off-by-one in the accepted digest count printed in the deploy log ([738e480](https://github.com/redtidev1918/TelePost/commit/738e4801871023aca870d27c4ad0a8f4a38750f0))
+
 ## [2.78.0](https://github.com/redtidev1918/TelePost/compare/v2.77.0...v2.78.0) (2026-10-03)
 
 
