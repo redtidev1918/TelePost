@@ -8,17 +8,16 @@ name: PyPI Publish
 #
 # Authentication: OIDC Trusted Publishing (no API token needed).
 #
-# One-time manual setup (the ONLY manual PyPI action):
-#   1. Go to https://pypi.org/manage/project/telepost-bot/settings/publishing/
-#   2. Add a publisher:
-#      - Publisher:    GitHub
-#      - Repository:   redtidev1918/TelePost
-#      - Workflow:     .github/workflows/pypi-publish.yml
-#      - Environment:  (leave blank)
-#   3. For TestPyPI, repeat at:
-#      https://test.pypi.org/manage/project/telepost-bot/settings/publishing/
-#   Until this is done, the publish step will fail with a 403. Everything
-#   else (build, validate, artifact upload) works without it.
+# One-time manual setup (pending publisher, for first-time projects):
+#   1. Go to https://pypi.org/manage/account/publishing/
+#   2. Under "Add a new pending publisher", select GitHub and fill in:
+#      - PyPI Project Name:  telepost-bot
+#      - Owner:              redtidev1918
+#      - Repository name:    TelePost
+#      - Workflow name:      pypi-publish.yml  (filename only, no path)
+#      - Environment name:   pypi
+#   3. When the workflow first runs with OIDC, PyPI auto-creates the project.
+#   4. For TestPyPI, repeat at https://test.pypi.org/manage/account/publishing/
 
 on:
   push:
@@ -45,7 +44,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-publish:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -73,6 +72,8 @@ jobs:
           npm run generate:api && npm run build
 
       - name: Verify version matches tag
+        # Skip version-tag check on workflow_dispatch (branch name is not a version tag)
+        if: ${{ github.event_name == 'push' }}
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           PY_VERSION="$(python -c 'from telepost.build_info import RELEASE_VERSION; print(RELEASE_VERSION)')"
@@ -94,16 +95,16 @@ jobs:
 
       - name: Verify artifacts contain Mini App assets
         run: |
-          echo "=== Wheel contents (webapp/dist) ==="
+          echo "=== Wheel: webapp/dist ==="
           python -c "
           import zipfile, sys
           with zipfile.ZipFile(sys.argv[1]) as z:
             for n in z.namelist():
               if 'webapp/dist' in n: print(n)
           " dist/*.whl
-          echo "=== Sdist contents (webapp/dist) ==="
+          echo "=== Sdist: webapp/dist ==="
           tar tzf dist/*.tar.gz | grep 'webapp/dist' || true
-          echo "=== Wheel review_policy.md ==="
+          echo "=== Wheel: review_policy.md ==="
           python -c "
           import zipfile, sys
           with zipfile.ZipFile(sys.argv[1]) as z:
@@ -111,12 +112,31 @@ jobs:
               if 'review_policy' in n: print(n)
           " dist/*.whl
 
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi  # Must match PyPI Trusted Publisher config
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run) }}
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
       - name: Publish to TestPyPI
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.testpypi && !inputs.dry_run }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.testpypi }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
 
       - name: Publish to PyPI
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.testpypi && !inputs.dry_run) }}
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.testpypi) }}
         uses: pypa/gh-action-pypi-publish@release/v1
