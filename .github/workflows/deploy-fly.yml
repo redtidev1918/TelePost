@@ -161,10 +161,33 @@ jobs:
             exit 1
           fi
 
+          # The build publishes linux/amd64 AND linux/arm64, so :<version> is an
+          # OCI index whose digest is NOT the digest of the image a machine
+          # actually runs - each machine reports its own platform manifest. Accept
+          # the index digest plus every child manifest it points at; anything else
+          # genuinely means "this machine is not running this release".
+          curl -fsS -H "Authorization: Bearer ${TOKEN}" -H "Accept: ${ACCEPT}" \
+            "${URL}" -o manifest.json
+          ALLOWED="$(DIGEST="${DIGEST}" python3 - <<'PY'
+          import json, os
+
+          digests = {os.environ["DIGEST"]}
+          manifest = json.load(open("manifest.json"))
+          for child in manifest.get("manifests") or []:
+              if child.get("digest"):
+                  digests.add(child["digest"])
+          if (manifest.get("config") or {}).get("digest"):
+              digests.add(manifest["config"]["digest"])
+          print(",".join(sorted(digests)))
+          PY
+          )"
+
           echo "image_ref=${REF}:${VERSION}" >> "$GITHUB_OUTPUT"
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "allowed_digests=${ALLOWED}" >> "$GITHUB_OUTPUT"
           echo "image ref : ${REF}:${VERSION}"
           echo "digest    : ${DIGEST}"
+          echo "acceptable machine digests: $(printf '%s' "${ALLOWED}" | tr ',' '\n' | wc -l | tr -d ' ') (index + platform manifests)"
 
       # Informational only, deliberately. It answers "is this exact version part
       # of the PyPI release too?", NOT "is it the newest?" - comparing against
@@ -241,6 +264,7 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           EXPECTED_IMAGE: ${{ steps.image.outputs.image_ref }}
           EXPECTED_DIGEST: ${{ steps.image.outputs.digest }}
+          ALLOWED_DIGESTS: ${{ steps.image.outputs.allowed_digests }}
         run: |
           set -euo pipefail
           flyctl machines list --app "${FLY_APP}" --json > machines.json
@@ -249,6 +273,10 @@ jobs:
 
           expected_image = os.environ["EXPECTED_IMAGE"]
           expected_digest = os.environ["EXPECTED_DIGEST"]
+          allowed = {d for d in os.environ["ALLOWED_DIGESTS"].split(",") if d}
+          # :<version> and :<version>@<digest> are both legitimate forms; the
+          # digest-pinned form is what an immutable reference looks like.
+          acceptable_images = {expected_image} | {f"{expected_image}@{d}" for d in allowed}
           catastrophic = {"destroyed", "destroying", "replaced"}
           machines = json.load(open("machines.json"))
           active = [m for m in machines if (m.get("state") or "") not in catastrophic]
@@ -269,10 +297,11 @@ jobs:
 
               if state != "started":
                   failures.append(f"{mid}: state is {state!r}, expected 'started'")
-              if image not in (expected_image, f"{expected_image}@{expected_digest}"):
+              if image not in acceptable_images:
                   failures.append(f"{mid}: running {image!r}, expected {expected_image!r}")
-              if digest and digest != expected_digest:
-                  failures.append(f"{mid}: digest {digest!r} != expected {expected_digest!r}")
+              # Each machine reports its own platform manifest, not the index.
+              if digest and digest not in allowed:
+                  failures.append(f"{mid}: digest {digest!r} is not part of {expected_image}")
 
           if failures:
               for line in failures:
