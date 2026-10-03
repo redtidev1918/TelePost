@@ -155,6 +155,9 @@ class DiscussionStrategy:
                 spoiler=request.spoiler,
                 reply_mode=ReplyMode.CHAIN,
                 album_size=request.album_size,
+                # The channel root owns the root navigation (READ_ONLINE button);
+                # discussion overflow replies must not inherit it (§root-only-navigation).
+                root_navigation=request.root_navigation,
             )
         )
         if cover_result.is_uncertain:

@@ -111,6 +111,24 @@ class PTBSender:
         self._chat_id = chat_id
         self._timeouts = timeouts or {}
 
+    # ---- PTB navigation adapter --------------------------------------
+    def _navigation_markup(self, nav_items) -> Optional[object]:
+        """Build a PTB ``InlineKeyboardMarkup`` from pure NavigationItems.
+
+        This is the ONLY place navigation domain objects become Telegram objects
+        (§telegram-adapter). Each navigation item is one full-width button so a
+        channel root reads as a single stacked ``[ 📖 在线阅读 ]``. Returns None
+        for an empty list so callers never send a pointless empty keyboard.
+        """
+        if not nav_items:
+            return None
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        buttons = [
+            InlineKeyboardButton(text=item.label, url=item.url)
+            for item in nav_items
+        ]
+        return InlineKeyboardMarkup([[btn] for btn in buttons])
+
     # ---- construction helpers ---------------------------------------
     def _media_ref(self, item: MediaItem, *, attach: bool):
         # Local files are always multipart attachments (attach://); PTB uses the
@@ -146,32 +164,26 @@ class PTBSender:
             filename=item.filename or "file",
         )
 
-    def _single_kwargs(self, item: MediaItem, caption: Optional[str]) -> dict:
+    def _single_kwargs(self, item: MediaItem, caption: Optional[str],
+                       reply_markup: Optional[object] = None) -> dict:
         if item.kind is MediaKind.TEXT:
             text = caption or item.source.text
-            preview_url = getattr(item.source, "link_preview_url", None)
-            if preview_url:
-                # Channel novel trailing text: surface the bare read-online URL
-                # as a Telegram link preview (telegra.ph Instant View). The
-                # domain layer carries the plain URL only; the PTB options
-                # object is built here, the only PTB-aware layer.
-                from telegram import LinkPreviewOptions
-                return {
-                    "method": "send_message",
-                    "text": text,
-                    "parse_mode": "HTML" if text else None,
-                    "link_preview_options": LinkPreviewOptions(
-                        url=preview_url, prefer_large_media=True,
-                    ),
-                }
-            return {
+            # Submission-level text. Online Reading is never a bare-link text
+            # message (§legacy-bare-link-removed): it is a root inline button, so
+            # plain text simply suppresses the web preview.
+            kw = {
                 "method": "send_message",
                 "text": text,
                 "parse_mode": "HTML" if text else None,
                 "disable_web_page_preview": True,
             }
+            if reply_markup is not None:
+                kw["reply_markup"] = reply_markup
+            return kw
         ref = self._media_ref(item, attach=False)
         kw = {"caption": caption, "parse_mode": "HTML" if caption else None}
+        if reply_markup is not None:
+            kw["reply_markup"] = reply_markup
         kind = item.kind
         if kind is MediaKind.PHOTO:
             return {"method": "send_photo", "photo": ref, **kw,
@@ -189,7 +201,8 @@ class PTBSender:
 
     # ---- executor Sender interface ----------------------------------
     async def send_album(self, batch: Batch, *, reply_to: Optional[int],
-                         caption: Optional[str]) -> List[DeliveredMessage]:
+                         caption: Optional[str],
+                         reply_markup: Optional[object] = None) -> List[DeliveredMessage]:
         from telegram.error import NetworkError
 
         media_group = [
@@ -219,10 +232,11 @@ class PTBSender:
         return [_to_delivered(m, it.kind) for m, it in zip(messages, batch.items)]
 
     async def send_single(self, item: MediaItem, *, reply_to: Optional[int],
-                          caption: Optional[str]) -> DeliveredMessage:
+                          caption: Optional[str],
+                          reply_markup: Optional[object] = None) -> DeliveredMessage:
         from telegram.error import NetworkError
 
-        kw = self._single_kwargs(item, caption)
+        kw = self._single_kwargs(item, caption, reply_markup)
         method_name = kw.pop("method")
         method = getattr(self._bot, method_name)
         try:

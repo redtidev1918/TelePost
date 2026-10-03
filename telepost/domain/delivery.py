@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional, Union
 
+from .navigation import NavigationItem
 from .packing import MEDIA_GROUP_CAPACITY
 
 
@@ -68,12 +69,8 @@ class RemoteUrl:
 @dataclass(frozen=True)
 class SubmissionText:
     """Submission-level text, deliberately not an asset or Telegram file."""
+
     text: str
-    #: Bare "read online" URL the send layer should surface as a Telegram link
-    #: preview (telegra.ph Instant View). Pure data — the PTB
-    #: ``LinkPreviewOptions`` object is constructed only in the telegram send
-    #: layer; ``None`` keeps the preview suppressed exactly as before.
-    link_preview_url: Optional[str] = None
 
 
 MediaSource = Union[TelegramFileId, LocalFile, RemoteUrl, SubmissionText]
@@ -147,6 +144,12 @@ class DeliveryRequest:
     # Discussion-only: linked discussion chat id, resolved by the caller when
     # known; the strategy resolves it from the channel when left unset.
     discussion_chat_id: Optional[int] = None
+    #: Root-only navigation actions (e.g. a READ_ONLINE inline button). Pure
+    #: domain value objects — the telegram adapter turns these into a PTB
+    #: ``InlineKeyboardMarkup`` on the FIRST/root message only. Overflow and
+    #: discussion replies never inherit them (§root-only-navigation). Empty by
+    #: default so ordinary publications are unaffected.
+    root_navigation: List[NavigationItem] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
