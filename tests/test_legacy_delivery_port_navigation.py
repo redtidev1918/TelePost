@@ -78,3 +78,66 @@ async def test_legacy_port_without_navigation_stays_clean(monkeypatch):
     assert fake_deliver.await_args.kwargs.get("root_navigation") == [], (
         "ordinary publications must not grow a navigation keyboard"
     )
+
+
+# ---- the on_sent branch is a second adapter over execute_plan -------------
+
+_MARKUP = object()
+
+
+class _FakeSender:
+    """Stands in for PTBSender; records whatever markup it is asked to build."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def _navigation_markup(self, navigation):
+        return _MARKUP if navigation else None
+
+
+def _patch_on_sent_path(monkeypatch):
+    from telepost.domain.delivery import DeliveredMessage, DeliveryResult
+    from telepost.telegram.delivery import executor
+
+    async def fake_execute_plan(plan, sender, *, caption=None,
+                                root_reply_markup=None, on_sent=None):
+        fake_execute_plan.seen = root_reply_markup
+        return DeliveryResult.delivered([
+            DeliveredMessage(chat_id="@channel", message_id=1,
+                             kind=MediaKind.DOCUMENT)
+        ])
+
+    fake_execute_plan.seen = "not-called"
+    monkeypatch.setattr(publish, "PTBSender", _FakeSender)
+    monkeypatch.setattr(executor, "execute_plan", fake_execute_plan)
+    gateway = MagicMock()
+    gateway._bot = MagicMock()
+    gateway._timeouts.return_value = {}
+    return gateway, fake_execute_plan
+
+
+@pytest.mark.asyncio
+async def test_on_sent_branch_forwards_root_markup(monkeypatch):
+    gateway, fake = _patch_on_sent_path(monkeypatch)
+    nav = read_online_navigation(PREVIEW_URL)
+
+    result = await publish._execute_with_on_sent(
+        gateway, _request(root_navigation=[nav]), lambda messages: None
+    )
+
+    assert result.ok, result.reason
+    assert fake.seen is _MARKUP, (
+        "the on_sent branch must not drop the root reply markup"
+    )
+
+
+@pytest.mark.asyncio
+async def test_on_sent_branch_without_navigation_sends_no_markup(monkeypatch):
+    gateway, fake = _patch_on_sent_path(monkeypatch)
+
+    result = await publish._execute_with_on_sent(
+        gateway, _request(), lambda messages: None
+    )
+
+    assert result.ok, result.reason
+    assert fake.seen is None, "empty navigation must produce no keyboard"
