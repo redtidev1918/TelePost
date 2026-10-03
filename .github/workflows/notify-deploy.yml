@@ -1,0 +1,55 @@
+name: Notify deploy repo
+
+# ReleaseGraph post-release action（见 .release-policy.yml 的
+# release.postRelease[notify-deploy-repo]）。
+#
+# 只在 Release 已发布且审计通过后由 ReleaseGraph dispatch：PR 与 dry-run 不会
+# 走到这里。它只把「确切 tag」这个事实告诉 pixivflow-telepost-deploy，由那边
+# 自己的 update-telepost.yml 去检测、验证、开 PR —— 这里不代它做任何判断，
+# 也绝不直接 push 那个仓库的 main。
+#
+# deploy 仓的 update-telepost.yml 仍会自己校验 vX.Y.Z 是正式 Release、GHCR
+# 镜像存在、go test / validate.sh / control-plane 测试通过，才开 PR。
+# 所以这条通知即使重复投递也是幂等的。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Exact TelePost release tag, e.g. v2.78.1"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      # 注意：这个 step 不能开 `set -x`，token 绝不能进日志。
+      - name: Send telepost-release repository_dispatch
+        env:
+          DISPATCH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${DISPATCH_TOKEN:-}" ]]; then
+            echo "::error::RELEASE_PLEASE_TOKEN missing; cannot notify the deploy repo"
+            exit 1
+          fi
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag must look like vX.Y.Z, got: $TAG"
+            exit 1
+          fi
+          payload=$(python3 -c 'import json,os,sys;print(json.dumps({"event_type":"telepost-release","client_payload":{"tag":os.environ["TAG"]}}))')
+          code=$(curl -sS -o /dev/null -m 30 -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $DISPATCH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/redtidev1918/pixivflow-telepost-deploy/dispatches \
+            -d "$payload")
+          echo "repository_dispatch telepost-release (tag=$TAG) -> HTTP $code"
+          if [[ "$code" != "204" ]]; then
+            echo "::error::failed to notify the deploy repo (HTTP $code)"
+            exit 1
+          fi
