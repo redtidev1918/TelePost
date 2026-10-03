@@ -58,7 +58,22 @@ Once running, send `/start` to the bot, then use `/submit` for your first submis
 docker compose up -d
 ```
 
+**Or use pip:**
+
+```bash
+pip install telepost-bot
+telepost
+```
+
 > Full install, configuration, and upgrade steps: [Install and deployment](docs/INSTALL.md).
+
+## Releasing
+
+Merging the Release PR is the only manual step. The pipeline then runs:
+**GitHub Release → GHCR image → PyPI `telepost-bot` → docs → Fly.io production
+deploy → verification of `/health` version and bot1/bot2 readiness**. Any failing
+step fails the release, so a release can never look successful while production
+still serves an older version.
 
 ## 🌐 HTTP API
 

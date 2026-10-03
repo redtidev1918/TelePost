@@ -20,6 +20,53 @@ Telegram ── Webhook ──→ Fly Proxy ──→ TelePost（常驻）
 仓库根目录的 [`fly.toml`](../fly.toml) 是 TelePost 的参考配置。它不包含 PixivFlow、外部调度器
 或作者生产环境的应用名称。
 
+## 0. 正式发版路径（唯一推荐）
+
+合并 Release PR 之后，不需要任何人执行命令。流水线按固定顺序完成：
+
+```text
+merge Release PR
+   └─ ReleaseGraph
+        ├─ 二进制 / release assets ──────────────► GitHub Release
+        ├─ GHCR 镜像 ghcr.io/…/telepost:<version>
+        ├─ postRelease: download page
+        ├─ postRelease: PyPI telepost-bot
+        ├─ postRelease: Fly 生产部署 ────────────► 验证 image / health / bot1 / bot2
+        └─ postRelease: docs
+```
+
+每一步都要求上一步成功：**GHCR 或 PyPI 失败会让 ReleaseGraph 报告 release 不完整，
+生产部署根本不会被触发**；反过来，部署后未能达到验收条件的 release 会明确失败。
+这条链由 [`.release-policy.yml`](../.release-policy.yml) 的 `release.postRelease`
+按数组顺序串行驱动（ReleaseGraph 会逐个 dispatch 并等待结束）。
+
+版本唯一的来源是 `telepost/build_info.py`（release-please 改写），下面六个位置始终相等，
+不存在漂移：Git tag / GitHub Release / `build_info.py` / PyPI / GHCR image tag / 生产 `/health`。
+
+```text
+v2.79.0 → 2.79.0 → 2.79.0 → 2.79.0 → 2.79.0 → 2.79.0
+```
+
+生产部署的固定行为：
+
+| 约束 | 说明 |
+| --- | --- |
+| 部署依据 | `ghcr.io/redtidev1918/telepost:<version>`，**不用 `latest`，不用分支** |
+| 不重新构建 | `fly deploy --image` 只部署 ReleaseGraph 已验证的那个镜像，`fly.toml` 的 `[build]` 段不参与 |
+| 拓扑来源 | 仍是 `fly.toml`，工作流只提供 app 名与镜像 |
+| 验收 | 每台 machine 的 image 命中该 tag、`/health` 返回该 version 且 `bots` 含 1 和 2、`/ready` 的 `bot1`/`bot2` 均为 true |
+| 凭据 | 仓库 secret `FLY_API_TOKEN`（app 级 deploy token），不落盘、不打印 |
+
+部署失败或需要重新验证某个已发布版本时，可以直接重跑同一个 tag，不需要 bump 版本：
+
+```bash
+gh workflow run deploy-fly.yml --ref main -f tag=v2.79.0
+```
+
+只想确认各项门禁而不动生产，加 `-f dry_run=true`。
+
+下面第 1～4 节描述的是**自建实例**。给 TelePost 生产推新版不需要、也不应该走手工路径。
+
 ## 1. 创建 App 和 Volume
 
 安装并登录 `flyctl`，再创建应用和同区域的持久卷：
@@ -60,6 +107,9 @@ flyctl secrets set --app <app> \
 完整变量见[配置参考](CONFIGURATION.md)。
 
 ## 3. 部署
+
+> 生产发布已由自动化接管这一步，见 §0。以下命令只在自建实例、或自动化不可用需要
+> 手动恢复时使用。
 
 可以从仓库构建：
 
