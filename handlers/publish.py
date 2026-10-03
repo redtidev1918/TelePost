@@ -977,6 +977,11 @@ class _LegacyDeliveryPort:
                     album_size=request.album_size,
                     reply_to_message_id=request.reply_to_message_id,
                     reply_mode=request.reply_mode.value,
+                    # Root-only inline navigation (e.g. the READ_ONLINE button on a
+                    # novel with a Telegraph preview). It must survive the legacy
+                    # adapter: dropping it here silently removes the online-reading
+                    # entrance from every application-layer publication.
+                    root_navigation=request.root_navigation,
                 )
             finally:
                 cleanup_prepared_dicts(dict_items)
