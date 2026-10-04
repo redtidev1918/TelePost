@@ -15,6 +15,14 @@ const INIT_DATA =
 
 const LAUNCH_HASH = `#tgWebAppVersion=8.0&tgWebAppPlatform=ios&tgWebAppData=${encodeURIComponent(INIT_DATA)}`;
 
+/** 1x1 PNG: enough for the browser to decode a real image for media previews. */
+const PNG_1X1 = Buffer.from(
+  '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489' +
+    '0000000d4944415478da63f8cfc0f01f0005000101000000ffff03000006000557bfabd4' +
+    '0000000049454e44ae426082',
+  'hex',
+);
+
 function launchUrl(path: string): string {
   // Launch params go in the URL FRAGMENT (Telegram WebView convention), while
   // ?bot= stays in the query. BrowserRouter's basename /app ignores the hash.
@@ -188,6 +196,110 @@ async function mockApi(page: Page, roles: string[] = ['submitter', 'reviewer', '
     }
     if (path.endsWith('/publish') && method === 'POST') {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data: { review_id: 1, status: 'published', reused: false, message_id: 888, link: 'https://t.me/c/1/888' } }) });
+    }
+    if (path.includes('/posts/hot') && method === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                message_id: 101,
+                title: 'E2E 热门内容：一个刻意写得比较长的标题',
+                tags: ['#e2e', '#r18'],
+                link: '',
+                publish_time: 1700000000,
+                heat_score: 4.2,
+                reactions: 7,
+                content_type: 'media',
+                media_count: 2,
+              },
+              {
+                message_id: 102,
+                title: '第二条热门内容',
+                tags: ['#second'],
+                link: '',
+                publish_time: 1700000100,
+                heat_score: 1.5,
+                reactions: 0,
+                content_type: 'media',
+                media_count: 1,
+              },
+              { message_id: 103, title: '无媒体的条目', tags: [], link: '', publish_time: 1700000200, heat_score: 0.4, reactions: 3, content_type: 'text', media_count: 0 },
+            ],
+            next_cursor: null,
+          },
+        }),
+      });
+    }
+    if (/^\/api\/bot1\/v1\/posts\/\d+$/.test(path) && method === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            message_id: 101,
+            title: 'E2E 热门内容：一个刻意写得比较长的标题',
+            tags: ['#e2e', '#r18'],
+            link: 'https://example.com/source',
+            publish_time: 1700000000,
+            heat_score: 4.2,
+            reactions: 7,
+            content_type: 'media',
+            media_count: 2,
+            note: '这是一条用于 E2E 的简介。',
+          },
+        }),
+      });
+    }
+    if (/^\/api\/bot1\/v1\/posts\/\d+\/media\/\d+/.test(path) && method === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'image/png', body: PNG_1X1 });
+    }
+    if (path.endsWith('/admin/status') && method === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            version: { version: '2.79.0', commit: 'abcdef1234567890' },
+            queue: { pending: 1, staging: 0, failed: 0, superseded: 0, published: 40, rejected: 5 },
+            refetch: { active: 0, recent_failures: [] },
+            submissions_24h: 12,
+            blacklist_size: 1,
+            policy: {
+              api_review_required: true,
+              miniapp_review_required: true,
+              chat_review_required: false,
+              show_submitter: true,
+              overrides: [],
+              review_chat_configured: true,
+              channel_configured: true,
+            },
+            restart_managed: true,
+          },
+        }),
+      });
+    }
+    if (path.endsWith('/admin/roles') && method === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: [{ telegram_user_id: 42, role: 'reviewer', created_by: 'telegram_user:1', created_at: '2026-09-19T00:00:00Z' }],
+        }),
+      });
+    }
+    if (path.endsWith('/admin/blacklist') && method === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: [{ user_id: 7, reason: '刷屏', added_at: '2026-09-19T00:00:00Z' }] }),
+      });
     }
     if (path.endsWith('/health')) {
       return route.fulfill({
