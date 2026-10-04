@@ -52,7 +52,7 @@ describe('ReviewQueuePage', () => {
     mockQueue([item()]);
     renderQueue();
     await waitFor(() => expect(screen.getByText('待审投稿')).toBeTruthy());
-    expect(screen.queryByText('审核队列为空。')).toBeNull();
+    expect(screen.queryByText('当前没有待审核内容')).toBeNull();
   });
 
   it('空队列时展示最近处理记录，解释「为什么空」(§review-queue-empty-state)', async () => {
@@ -65,21 +65,21 @@ describe('ReviewQueuePage', () => {
       next_cursor: null,
     });
     renderQueue();
-    await waitFor(() => expect(screen.getByText('审核队列为空。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('当前没有待审核内容')).toBeTruthy());
     await waitFor(() => expect(screen.getByText('昨天那条')).toBeTruthy());
     expect(screen.getByText('已发布')).toBeTruthy();
     expect(screen.getByText('审核 #40')).toBeTruthy();
     expect(screen.getByText('已过期')).toBeTruthy();
-    expect(screen.getByText('查看全部审核历史')).toBeTruthy();
+    expect(screen.getByText('查看审核历史')).toBeTruthy();
   });
 
   it('历史窥探失败时空态保持可用，绝不变成错误态', async () => {
     mockQueue([]);
     vi.spyOn(reviewsApi, 'fetchReviewHistory').mockRejectedValue(new Error('boom'));
     renderQueue();
-    await waitFor(() => expect(screen.getByText('审核队列为空。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('当前没有待审核内容')).toBeTruthy());
     expect(screen.queryByText(/加载失败/)).toBeNull();
-    expect(screen.queryByText('查看全部审核历史')).toBeNull();
+    expect(screen.queryByText('查看审核历史')).toBeNull();
   });
 
   it('历史也为空时只显示空态文案', async () => {
@@ -89,7 +89,14 @@ describe('ReviewQueuePage', () => {
       next_cursor: null,
     });
     renderQueue();
-    await waitFor(() => expect(screen.getByText('审核队列为空。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('当前没有待审核内容')).toBeTruthy());
     expect(screen.queryByText('最近处理')).toBeNull();
+  });
+
+  it('刷新频率属于实现细节，不再出现在标题里', async () => {
+    mockQueue([item()]);
+    renderQueue();
+    await waitFor(() => expect(screen.getByText('待审投稿')).toBeTruthy());
+    expect(document.body.textContent).not.toContain('自动刷新');
   });
 });
