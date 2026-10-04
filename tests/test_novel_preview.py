@@ -796,6 +796,157 @@ def test_provider_builder_is_disabled_without_a_token():
     assert build_telepress_provider("   ") is None
 
 
+class _IdentityBot:
+    def __init__(self, username):
+        self.username = username
+        self.get_me_calls = 0
+
+    async def get_me(self):
+        self.get_me_calls += 1
+        if isinstance(self.username, Exception):
+            raise self.username
+        return type("User", (), {"username": self.username})()
+
+
+class _RecordingPublisher:
+    def __init__(self):
+        self.calls = []
+
+    def publish_text(self, content, title=None, **kwargs):
+        self.calls.append({"content": content, "title": title, **kwargs})
+        return "https://telegra.ph/test"
+
+
+def test_telepress_provider_passes_current_bot_author_metadata():
+    from telepost.application.telepress_provider import (
+        TelePressNovelPreviewPublisher,
+        clear_bot_author_cache,
+    )
+
+    clear_bot_author_cache()
+    bot = _IdentityBot("example_bot")
+    publisher = _RecordingPublisher()
+    provider = TelePressNovelPreviewPublisher(
+        "token", client_factory=lambda _: publisher, bot=bot
+    )
+
+    result = asyncio.run(provider.publish_preview(
+        NovelSnapshot(title="t", content="c")))
+
+    assert result.succeeded
+    assert publisher.calls == [{
+        "content": "c",
+        "title": "t",
+        "author_name": "@example_bot",
+        "author_url": "https://t.me/example_bot",
+    }]
+
+
+def test_telepress_provider_keeps_bot_author_identity_isolated():
+    from telepost.application.telepress_provider import (
+        TelePressNovelPreviewPublisher,
+        clear_bot_author_cache,
+    )
+
+    clear_bot_author_cache()
+    bot1, bot2 = _IdentityBot("foo_bot"), _IdentityBot("bar_bot")
+    pub1, pub2 = _RecordingPublisher(), _RecordingPublisher()
+    provider1 = TelePressNovelPreviewPublisher(
+        "token", client_factory=lambda _: pub1, bot=bot1)
+    provider2 = TelePressNovelPreviewPublisher(
+        "token", client_factory=lambda _: pub2, bot=bot2)
+
+    asyncio.run(provider1.publish_preview(NovelSnapshot(title="1", content="x")))
+    asyncio.run(provider2.publish_preview(NovelSnapshot(title="2", content="y")))
+
+    assert pub1.calls[0]["author_name"] == "@foo_bot"
+    assert pub1.calls[0]["author_url"] == "https://t.me/foo_bot"
+    assert pub2.calls[0]["author_name"] == "@bar_bot"
+    assert pub2.calls[0]["author_url"] == "https://t.me/bar_bot"
+
+
+def test_telepress_provider_omits_author_when_username_missing():
+    from telepost.application.telepress_provider import (
+        TelePressNovelPreviewPublisher,
+        clear_bot_author_cache,
+    )
+
+    clear_bot_author_cache()
+    publisher = _RecordingPublisher()
+    provider = TelePressNovelPreviewPublisher(
+        "token", client_factory=lambda _: publisher,
+        bot=_IdentityBot(None),
+    )
+
+    result = asyncio.run(provider.publish_preview(
+        NovelSnapshot(title="t", content="c")))
+
+    assert result.succeeded
+    assert "author_name" not in publisher.calls[0]
+    assert "author_url" not in publisher.calls[0]
+
+
+def test_telepress_provider_omits_author_when_get_me_fails():
+    from telepost.application.telepress_provider import (
+        TelePressNovelPreviewPublisher,
+        clear_bot_author_cache,
+    )
+
+    clear_bot_author_cache()
+    publisher = _RecordingPublisher()
+    provider = TelePressNovelPreviewPublisher(
+        "token", client_factory=lambda _: publisher,
+        bot=_IdentityBot(RuntimeError("network down")),
+    )
+
+    result = asyncio.run(provider.publish_preview(
+        NovelSnapshot(title="t", content="c")))
+
+    assert result.succeeded
+    assert "author_name" not in publisher.calls[0]
+    assert "author_url" not in publisher.calls[0]
+
+
+def test_telepress_provider_caches_bot_identity_for_retries():
+    from telepost.application.telepress_provider import (
+        TelePressNovelPreviewPublisher,
+        clear_bot_author_cache,
+    )
+
+    clear_bot_author_cache()
+    bot = _IdentityBot("example_bot")
+    publishers = [_RecordingPublisher() for _ in range(3)]
+    provider = TelePressNovelPreviewPublisher(
+        "token", client_factory=lambda _: publishers.pop(0), bot=bot)
+
+    for index in range(3):
+        asyncio.run(provider.publish_preview(
+            NovelSnapshot(title=str(index), content="c")))
+
+    assert bot.get_me_calls == 1
+
+
+def test_build_novel_preview_passes_current_bot_to_provider(monkeypatch):
+    import config.settings as settings
+    from handlers import publish
+    from telepost.application import telepress_provider
+
+    seen = {}
+    bot = _IdentityBot("example_bot")
+    monkeypatch.setattr(settings, "NOVEL_PREVIEW_ENABLED", True)
+    monkeypatch.setattr(settings, "NOVEL_PREVIEW_MAX_BYTES", 1024)
+    monkeypatch.setattr(settings, "NOVEL_PREVIEW_TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr(settings, "TELEGRAPH_ACCESS_TOKEN", "token")
+
+    def fake_build(token, *, client_factory=None, bot=None):
+        seen.update(token=token, bot=bot)
+        return None
+
+    monkeypatch.setattr(telepress_provider, "build_telepress_provider", fake_build)
+    assert publish._build_novel_preview(bot) is None
+    assert seen == {"token": "token", "bot": bot}
+
+
 # ---- media-proxy env bridge (TelePost config -> in-process TelePress) ------
 # Regression guard: production configured only MEDIA_PROXY_BASE_URL /
 # MEDIA_PROXY_HOSTS while the TelePress library reads TELEPRESS_MEDIA_PROXY_*,

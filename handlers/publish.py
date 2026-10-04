@@ -869,8 +869,9 @@ def _build_novel_preview(bot=None):
 
     Returns ``None`` (feature disabled / no Telegraph token / library not
     installed in this image) — the TXT publication path never depends on it.
-    ``bot`` is unused today but kept so file_id fetchers can be attached here
-    in one place; the caller binds the real fetcher per publication.
+    ``bot`` is the current Bot context. The provider uses it only for
+    best-effort Telegram ``getMe`` author metadata; failure never disables the
+    preview or publication path.
     """
     from config.settings import (
         NOVEL_PREVIEW_ENABLED,
@@ -883,7 +884,7 @@ def _build_novel_preview(bot=None):
     from telepost.application.novel_preview import NovelPreviewEnricher
     from telepost.application.telepress_provider import build_telepress_provider
 
-    provider = build_telepress_provider(TELEGRAPH_ACCESS_TOKEN)
+    provider = build_telepress_provider(TELEGRAPH_ACCESS_TOKEN, bot=bot)
     if provider is None:
         return None
     return NovelPreviewEnricher(
