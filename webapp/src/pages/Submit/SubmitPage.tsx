@@ -2,12 +2,12 @@ import { useBotNavigate } from '../../lib/useBotNavigate';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
-  Cell,
-  Section,
   Input,
-  Textarea,
-  Switch,
+  Section,
   Snackbar,
+  Spinner,
+  Switch,
+  Textarea,
 } from '@telegram-apps/telegram-ui';
 import Uppy from '@uppy/core';
 import { Dashboard, UppyContextProvider, useFileInput, useUppyState } from '@uppy/react';
@@ -16,15 +16,24 @@ import '@uppy/dashboard/dist/style.min.css';
 import '@uppy/react/dist/styles.css';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiFetch, hasSession } from '../../api/client';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { PageSection } from '../../components/ui/PageSection';
+import { ActionBar } from '../../components/ui/ActionBar';
 
 /**
- * Submission form (Mini App, §18-§23, §uppy).
+ * Submission form (Mini App, §18-§23, §uppy, §submit-ux).
  *
  * Framework ownership: Uppy owns attachment state (selection, restrictions,
  * duplicate detection, remove, progress, errors) through its OFFICIAL React
  * integration — no imperative plugin mounting and no hand-written file manager.
  * TelePost only builds the business request: one multipart POST with every file
  * + metadata + a STABLE idempotency key.
+ *
+ * Presentation: the page is a four-step single column — attachments, content,
+ * publish settings, submit — so the phone shows one decision at a time. Uppy's
+ * Dashboard is demoted to an optional tool behind a toggle: it still owns the
+ * state and keeps its official React lifecycle, but it is never the first thing
+ * on screen and never dominates the layout.
  *
  * Preview (§preview-ux): local media previews are rendered from Uppy state via
  * a thin browser adapter (URL.createObjectURL, revoked on remove/unmount/
@@ -185,6 +194,7 @@ function SubmitForm(props: FormProps) {
   const inFlight = useRef(false);
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [uppyOpen, setUppyOpen] = useState(false);
 
   /** Server-side caption preview: the SAME formatter the review group sees. */
   const refreshCaption = async () => {
@@ -273,169 +283,255 @@ function SubmitForm(props: FormProps) {
     }
   };
 
-  return (
-    <div>
-      <Section header="投稿">
-        <div className="attach-actions">
-          {/* Real, working picker entry: Uppy's official file-input hook. */}
-          <Button
-            size="m"
-            mode="outline"
-            stretched
-            data-testid="add-files"
-            {...fileInput.getButtonProps()}
-          >
-            ＋ 添加媒体或文件
-          </Button>
-          {selected.length > 0 && (
-            <Button size="m" mode="outline" data-testid="clear-files"
-              onClick={() => uppy.removeFiles(Object.keys(files))}>
-              🗑 清空附件
-            </Button>
-          )}
-          <input
-            {...fileInput.getInputProps()}
-            data-testid="file-input"
-            style={{ display: 'none' }}
-          />
-        </div>
-        <Cell
-          subtitle={
-            selected.length
-              ? selected
-                  .map((file) => `${file.name ?? 'file'} · ${formatSize(file.size)}`)
-                  .join('\n')
-              : `最多 ${MAX_FILES} 个文件，单文件 ≤ 50MB`
-          }
-          data-testid="selected-files"
-        >
-          {selected.length ? `已选择 ${selected.length} 个文件` : '尚未选择文件'}
-        </Cell>
-        {/* @uppy/react renders the Dashboard inline by default (React-owned
-            mount/unmount); no imperative plugin mounting here. */}
-        <Dashboard
-          uppy={uppy}
-          height={220}
-          hideUploadButton
-          showProgressDetails
-          proudlyDisplayPoweredByUppy={false}
-        />
-        <div style={{ padding: '0 16px' }}>
-          <Input
-            placeholder="标签（必填，可用空格或逗号分隔）"
-            value={props.tags}
-            onChange={(e) => props.setTags(e.target.value)}
-          />
-          <div className="tag-hint" data-testid="tag-hint">{TAG_HINT}</div>
-        </div>
-        <div style={{ padding: '0 16px 12px' }}>
-          <Input
-            placeholder="标题（可选）"
-            value={props.title}
-            onChange={(e) => props.setTitle(e.target.value)}
-          />
-        </div>
-        <div style={{ padding: '0 16px 12px' }}>
-          <Textarea
-            placeholder="备注（可选）"
-            value={props.note}
-            onChange={(e) => props.setNote(e.target.value)}
-          />
-        </div>
-        <div style={{ padding: '0 16px 12px' }}>
-          <Input
-            placeholder="来源链接（可选，http/https）"
-            value={props.link}
-            onChange={(e) => props.setLink(e.target.value)}
-          />
-        </div>
-        <Cell subtitle={props.anonymous ? '不展示署名' : '展示署名'}>
-          <Switch
-            checked={props.anonymous}
-            onChange={(e) => props.setAnonymous(e.target.checked)}
-          />
-          匿名投稿
-        </Cell>
-        <Cell subtitle={props.spoiler ? '通过后以剧透发布' : '正常发布'}>
-          <Switch
-            checked={props.spoiler}
-            onChange={(e) => props.setSpoiler(e.target.checked)}
-          />
-          剧透
-        </Cell>
-      </Section>
-      <div style={{ padding: '0 16px 12px', marginTop: 8 }}>
-        <Button mode="outline" stretched disabled={props.submitting}
-          onClick={openPreview} style={{ marginBottom: 12 }}>预览投稿</Button>
-        <Button
-          size="l"
-          stretched
-          loading={props.submitting}
-          disabled={props.submitting}
-          data-testid="submit"
-          onClick={() => void submit()}
-        >
-          {props.submitting ? '提交中…' : '提交审核'}
-        </Button>
-        <div className="mutation-help" style={{ marginTop: 8 }}>
-          提交失败时会保留附件和文字，可直接重试。
-        </div>
-      </div>
-      {previewOpen && (
-        <div data-testid="preview-panel" className="preview-panel" style={{ padding: '0 16px 12px' }}>
-          <h3 style={{ margin: '12px 0 8px' }}>投稿预览</h3>
-          <div
-            data-testid="preview-media"
-            style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 8, marginBottom: 12 }}
-          >
+  if (previewOpen) {
+    return (
+      <div className="stack" data-testid="preview-panel">
+        <PageHeader title="投稿预览" subtitle="这是频道里将会出现的样子，确认无误后再提交。" />
+        <PageSection title="附件">
+          <div className="attach-grid" data-testid="preview-media">
             {selected.map((file, index) => {
               const kind = fileKind(file);
               const url = objectUrls.get(file.id) ?? '';
               return (
-                <div key={file.id} data-testid={`preview-media-${index}`}
-                  style={{ textAlign: 'center' }}>
+                <div key={file.id} className="attach-tile" data-testid={`preview-media-${index}`}>
                   {kind === 'image' && url ? (
-                    <img src={url} alt={file.name ?? `附件 ${index + 1}`}
-                      style={{ width: '100%', borderRadius: 8, aspectRatio: '1', objectFit: 'cover' }} />
+                    <img
+                      className="attach-tile__media"
+                      src={url}
+                      alt={file.name ?? `附件 ${index + 1}`}
+                    />
                   ) : kind === 'video' ? (
-                    <video src={url || undefined} controls style={{ width: '100%', borderRadius: 8 }} />
+                    <video className="attach-tile__media" src={url || undefined} controls />
                   ) : kind === 'audio' ? (
                     <audio src={url || undefined} controls style={{ width: '100%' }} />
                   ) : (
-                    <div style={{ fontSize: 28 }}>📄</div>
+                    <div className="attach-tile__placeholder">📄</div>
                   )}
-                  <div style={{ fontSize: 12, color: 'var(--tgui--subtitle_text_color)', wordBreak: 'break-all' }}>
+                  <div className="attach-tile__name">
                     {file.name ?? `附件 ${index + 1}`} · {formatSize(file.size)}
                   </div>
                 </div>
               );
             })}
           </div>
-          {previewHtml && (
+        </PageSection>
+        <PageSection title="频道文案">
+          {previewHtml ? (
             <div
               data-testid="preview-caption"
-              style={{ whiteSpace: 'pre-wrap', margin: '8px 0' }}
+              className="post-detail__note"
               dangerouslySetInnerHTML={{ __html: previewHtml }}
             />
+          ) : (
+            <div className="page-loading">
+              <Spinner size="s" />
+            </div>
           )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <Button mode="outline" stretched disabled={props.submitting}
-              data-testid="preview-back" onClick={() => setPreviewOpen(false)}>
-              返回修改
-            </Button>
-            <Button stretched loading={props.submitting} disabled={props.submitting}
-              data-testid="preview-submit" onClick={() => void submit()}>
+        </PageSection>
+        <ActionBar
+          primary={
+            <Button
+              size="l"
+              stretched
+              loading={props.submitting}
+              disabled={props.submitting}
+              data-testid="preview-submit"
+              onClick={() => void submit()}
+            >
               {props.submitting ? '提交中…' : '提交审核'}
             </Button>
+          }
+          secondary={
+            <Button
+              mode="outline"
+              stretched
+              disabled={props.submitting}
+              data-testid="preview-back"
+              onClick={() => setPreviewOpen(false)}
+            >
+              返回修改
+            </Button>
+          }
+        />
+        {props.snack && (
+          <Snackbar onClose={() => props.setSnack(null)} duration={3000} children={props.snack} />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="stack">
+      <PageHeader title="投稿" subtitle="添加附件，填写信息，然后提交审核。" />
+
+      {/* ① 附件 */}
+      <PageSection
+        title={`① 附件${selected.length ? ` · ${selected.length} 个` : ''}`}
+        action={selected.length > 0 ? '清空' : undefined}
+        onAction={selected.length > 0 ? () => uppy.removeFiles(Object.keys(files)) : undefined}
+      >
+        <div className="stack">
+          <Button size="m" mode="outline" stretched data-testid="add-files" {...fileInput.getButtonProps()}>
+            ＋ 添加附件
+          </Button>
+          <input {...fileInput.getInputProps()} data-testid="file-input" style={{ display: 'none' }} />
+          <Button
+            size="m"
+            mode="plain"
+            stretched
+            data-testid="clear-files"
+            onClick={() => uppy.removeFiles(Object.keys(files))}
+          >
+            清空附件
+          </Button>
+          {selected.length > 0 ? (
+            <div className="attach-grid" data-testid="attachment-grid">
+              {selected.map((file) => {
+                const kind = fileKind(file);
+                const url = objectUrls.get(file.id) ?? '';
+                return (
+                  <div key={file.id} className="attach-tile">
+                    {kind === 'image' && url ? (
+                      <img className="attach-tile__media" src={url} alt={file.name ?? '附件'} />
+                    ) : (
+                      <div className="attach-tile__placeholder">
+                        {kind === 'video' ? '🎬' : kind === 'audio' ? '🎧' : '📄'}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="attach-tile__remove"
+                      aria-label={`移除 ${file.name ?? '附件'}`}
+                      onClick={() => uppy.removeFile(file.id)}
+                    >
+                      ×
+                    </button>
+                    <div className="attach-tile__name">
+                      {file.name ?? '附件'} · {formatSize(file.size)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+          <div className="mutation-help" data-testid="selected-files">
+            {selected.length
+              ? `已选择 ${selected.length} 个文件\n${selected
+                  .map((file) => `${file.name ?? 'file'} · ${formatSize(file.size)}`)
+                  .join('\n')}`
+              : `尚未选择文件 · 最多 ${MAX_FILES} 个，单文件 ≤ 50MB`}
+          </div>
+          <button
+            type="button"
+            className="page-section__action"
+            data-testid="uppy-toggle"
+            onClick={() => setUppyOpen((value) => !value)}
+          >
+            {uppyOpen ? '收起附件管理器' : '附件管理器（拖拽 / 进度）'}
+          </button>
+          <div className={`uppy-panel${uppyOpen ? ' uppy-panel--open' : ''}`} data-testid="uppy-panel">
+            {/* @uppy/react renders the Dashboard inline (React-owned mount/unmount). */}
+            <Dashboard
+              uppy={uppy}
+              height={180}
+              hideUploadButton
+              showProgressDetails
+              proudlyDisplayPoweredByUppy={false}
+            />
           </div>
         </div>
-      )}
+      </PageSection>
+
+      {/* ② 投稿信息 */}
+      <PageSection title="② 投稿信息">
+        <div className="stack">
+          <div className="field">
+            <Input
+              placeholder="标签（必填，可用空格或逗号分隔）"
+              value={props.tags}
+              onChange={(e) => props.setTags(e.target.value)}
+            />
+            <div className="tag-hint" data-testid="tag-hint">{TAG_HINT}</div>
+          </div>
+          <div className="field">
+            <Input
+              placeholder="标题（可选）"
+              value={props.title}
+              onChange={(e) => props.setTitle(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <Textarea
+              placeholder="备注（可选）"
+              value={props.note}
+              onChange={(e) => props.setNote(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <Input
+              placeholder="来源链接（可选，http/https）"
+              value={props.link}
+              onChange={(e) => props.setLink(e.target.value)}
+            />
+          </div>
+        </div>
+      </PageSection>
+
+      {/* ③ 发布设置 */}
+      <PageSection title="③ 发布设置">
+        <Section>
+          <div className="card__row card__row--static">
+            <div className="card__row-title">匿名投稿</div>
+            <div className="card__row-meta">{props.anonymous ? '不展示署名' : '展示署名'}</div>
+            <div className="card__row-foot">
+              <Switch
+                checked={props.anonymous}
+                onChange={(e) => props.setAnonymous(e.target.checked)}
+              />
+            </div>
+          </div>
+          <div className="card__row card__row--static">
+            <div className="card__row-title">剧透</div>
+            <div className="card__row-meta">{props.spoiler ? '通过后以剧透发布' : '正常发布'}</div>
+            <div className="card__row-foot">
+              <Switch
+                checked={props.spoiler}
+                onChange={(e) => props.setSpoiler(e.target.checked)}
+              />
+            </div>
+          </div>
+        </Section>
+      </PageSection>
+
+      {/* ④ 提交 */}
+      <ActionBar
+        primary={
+          <Button
+            size="l"
+            stretched
+            loading={props.submitting}
+            disabled={props.submitting}
+            data-testid="submit"
+            onClick={() => void submit()}
+          >
+            {props.submitting ? '提交中…' : '提交审核'}
+          </Button>
+        }
+        secondary={
+          <Button
+            mode="outline"
+            stretched
+            disabled={props.submitting}
+            onClick={openPreview}
+          >
+            预览投稿
+          </Button>
+        }
+        note="提交失败时会保留附件和文字，可直接重试。"
+      />
+
       {props.snack && (
-        <Snackbar
-          onClose={() => props.setSnack(null)}
-          duration={3000}
-          children={props.snack}
-        />
+        <Snackbar onClose={() => props.setSnack(null)} duration={3000} children={props.snack} />
       )}
     </div>
   );
