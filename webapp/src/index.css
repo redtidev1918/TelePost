@@ -6,6 +6,19 @@
   /* Reserved space for the fixed TelegramUI Tabbar; measured at runtime so no
      device-specific height is hard-coded (§layout invariant). */
   --app-tabbar-reserve: 0px;
+
+  /* Presentation-only design tokens. Every value falls back to a Telegram
+     theme variable first, so the Mini App keeps the native Telegram palette in
+     light and dark instead of shipping its own (§visual). */
+  --tp-surface: var(--tgui--secondary_bg_color, rgba(127, 127, 127, 0.08));
+  --tp-surface-strong: var(--tgui--section_bg_color, var(--tgui--bg_color, #ffffff));
+  --tp-divider: var(--tgui--divider, rgba(127, 127, 127, 0.16));
+  --tp-hint: var(--tgui--hint_color, #8e8e93);
+  --tp-subtitle: var(--tgui--subtitle_text_color, #7d8b99);
+  --tp-link: var(--tgui--link_color, #2f7fd8);
+  --tp-destructive: var(--tgui--destructive_text_color, #ff3b30);
+  --tp-radius: 14px;
+  --tp-gutter: 16px;
 }
 
 html,
@@ -48,14 +61,271 @@ body {
   width: 100%;
   max-width: 720px;
   margin: 0 auto;
+  /* Narrow-screen safety: long titles, URLs and tag lists must wrap instead of
+     pushing the document wider than the viewport (§responsive). */
+  overflow-x: hidden;
 }
 
+/* ---------------------------------------------------------------------------
+   Page-level primitives
+   Every page follows the same rhythm: header → primary content → secondary
+   information → action bar. No page owns a private padding scale.
+   --------------------------------------------------------------------------- */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 2px 0;
+  min-width: 0;
+}
+
+.page-header__main {
+  min-width: 0;
+}
+
+.page-header__title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+  color: var(--tgui--text_color, #000000);
+}
+
+.page-header__subtitle {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--tp-hint);
+  overflow-wrap: anywhere;
+}
+
+.page-header__action {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.page-section {
+  min-width: 0;
+}
+
+.page-section + .page-section,
+.page-section + .stack,
+.stack > .page-section + .page-section {
+  margin-top: 16px;
+}
+
+.page-section__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 4px 8px;
+  min-width: 0;
+}
+
+.page-section__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tp-hint);
+  overflow-wrap: anywhere;
+}
+
+.page-section__action {
+  flex: none;
+  font-size: 13px;
+  color: var(--tp-link);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.page-section__hint {
+  margin: 8px 4px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--tp-subtitle);
+}
+
+/* Card surface used by content lists (submissions, reviews, settings groups). */
+.card {
+  min-width: 0;
+  background: var(--tp-surface);
+  border-radius: var(--tp-radius);
+  overflow: hidden;
+}
+
+.card--plain {
+  background: transparent;
+}
+
+.card__row {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--tp-divider);
+  padding: 12px 14px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.card__row:first-child {
+  border-top: 0;
+}
+
+.card__row--static {
+  cursor: default;
+}
+
+.card__row-title {
+  font-size: 16px;
+  line-height: 1.3;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.card__row-meta {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--tp-hint);
+  overflow-wrap: anywhere;
+}
+
+.card__row-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  min-width: 0;
+}
+
+/* Status pill: one visual language for submission / review states. */
+.status-badge {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 500;
+  background: var(--tp-surface);
+  color: var(--tp-subtitle);
+  overflow-wrap: anywhere;
+}
+
+.status-badge--progress {
+  background: color-mix(in srgb, var(--tp-link) 14%, transparent);
+  color: var(--tp-link);
+}
+
+.status-badge--good {
+  background: color-mix(in srgb, #34c759 16%, transparent);
+  color: #248a3d;
+}
+
+.status-badge--bad {
+  background: color-mix(in srgb, var(--tp-destructive) 14%, transparent);
+  color: var(--tp-destructive);
+}
+
+.status-badge--warn {
+  background: color-mix(in srgb, #ff9500 18%, transparent);
+  color: #b26a00;
+}
+
+/* Segmented control: replaces the old ad-hoc filter chips and is reused by the
+   reviewer workspace (待处理 / 历史) and 我的投稿 filters. */
+.segmented {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.segmented::-webkit-scrollbar {
+  display: none;
+}
+
+.segmented__item {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--tp-divider);
+  background: transparent;
+  color: var(--tgui--text_color, inherit);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 14px;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  min-height: 34px;
+  box-sizing: border-box;
+}
+
+.segmented__item--on {
+  background: var(--tp-link);
+  border-color: var(--tp-link);
+  color: #ffffff;
+}
+
+.segmented__count {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+/* Empty / error / loading surfaces. */
 .page-loading,
 .page-error,
 .page-empty {
   padding: 48px 24px;
   text-align: center;
-  color: var(--tgui--hint_color, #8e8e93);
+  color: var(--tp-hint);
+}
+
+.empty-state {
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--tp-hint);
+}
+
+.empty-state__title {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--tgui--text_color, #000000);
+}
+
+.empty-state__hint {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.empty-state__action {
+  margin-top: 14px;
 }
 
 .error-box {
@@ -63,10 +333,363 @@ body {
   padding: 12px;
   border-radius: 12px;
   background: rgba(255, 0, 0, 0.08);
-  color: var(--tgui--destructive_text_color, #ff3b30);
+  color: var(--tp-destructive);
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Action bar: the page's decisions live at the bottom, never scattered. */
+.action-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.action-bar__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* A secondary action wraps onto its own line instead of being squeezed: no
+   phone width may turn three actions into three unreadable slivers. */
+.action-bar__row > * {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+.action-bar__note {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--tp-hint);
+  text-align: center;
+}
+
+/* Secondary / overflow actions: kept in the DOM, revealed on demand so a
+   destructive or low-frequency action never competes with the main CTA. */
+.overflow-panel {
+  display: none;
+  min-width: 0;
+}
+
+.overflow-panel--open {
+  display: block;
+}
+
+/* ---------------------------------------------------------------------------
+   Content browsing (Hot / Post detail)
+   --------------------------------------------------------------------------- */
+
+.media-grid {
+  display: grid;
+  /* 150px keeps two readable columns on ≥360px phones and degrades to one
+     full-width card on 320px instead of squeezing titles. */
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.media-card {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.media-card__media {
+  display: block;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--tp-surface);
+}
+
+.media-card__media--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 12px;
+  color: var(--tp-hint);
+}
+
+.media-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.media-card__body {
+  display: block;
+  padding: 8px 2px 0;
+  min-width: 0;
+}
+
+.media-card__title {
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 500;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.media-card__meta {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--tp-hint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Row variant: a compact media + text row (home previews, my submissions). */
+.media-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.media-row__media {
+  display: block;
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--tp-surface);
+}
+
+.media-row__media--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  font-size: 11px;
+  color: var(--tp-hint);
+}
+
+.media-row__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.media-row__body {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.media-row__title {
+  font-size: 15px;
+  line-height: 1.3;
+  font-weight: 500;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.media-row__meta {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--tp-hint);
+  overflow-wrap: anywhere;
+}
+
+.media-row__side {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.post-detail__media {
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--tp-surface);
+  margin-bottom: 12px;
+}
+
+.post-detail__frame {
+  display: block;
+  width: 100%;
+  background: var(--tp-surface);
+}
+
+.post-detail__img {
+  display: block;
+  width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+  background: var(--tp-surface);
+}
+
+.post-detail__title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.post-detail__meta {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--tp-hint);
+}
+
+.post-detail__note {
+  margin: 12px 0 0;
+  font-size: 15px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  min-width: 0;
+}
+
+.tag {
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--tp-surface);
+  color: var(--tp-subtitle);
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------------------
+   Submit page
+   --------------------------------------------------------------------------- */
+
+.attach-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.attach-tile {
+  position: relative;
+  min-width: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--tp-surface);
+}
+
+.attach-tile__media {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  display: block;
+  background: var(--tp-surface);
+}
+
+.attach-tile__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  font-size: 24px;
+  color: var(--tp-hint);
+}
+
+.attach-tile__name {
+  padding: 4px 6px 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--tp-subtitle);
+  word-break: break-all;
+}
+
+.attach-tile__remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* Uppy keeps owning attachment state, but its Dashboard is demoted to a
+   secondary tool so it never becomes the first thing on screen. */
+.uppy-panel {
+  display: none;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.uppy-panel--open {
+  display: block;
+}
+
+.field {
+  min-width: 0;
+}
+
+.field + .field {
+  margin-top: 10px;
+}
+
+.field__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--tp-subtitle);
+}
+
+/* ---------------------------------------------------------------------------
+   Legacy / compatibility
+   --------------------------------------------------------------------------- */
 
 .mine-filters {
   display: flex;
@@ -87,14 +710,14 @@ body {
 }
 
 .mine-filter--on {
-  background: var(--tgui--link_color, #2f7fd8);
-  border-color: var(--tgui--link_color, #2f7fd8);
+  background: var(--tp-link);
+  border-color: var(--tp-link);
   color: #ffffff;
 }
 
 .mine-meta {
   font-size: 13px;
-  color: var(--tgui--hint_color, #8e8e93);
+  color: var(--tp-hint);
 }
 
 .attach-actions {
@@ -106,7 +729,7 @@ body {
 .tag-hint {
   font-size: 12px;
   line-height: 1.4;
-  color: var(--tgui--subtitle_text_color, #7d8b99);
+  color: var(--tp-subtitle);
   margin-top: 6px;
   padding: 0 2px;
 }
@@ -114,8 +737,47 @@ body {
 .mutation-help {
   font-size: 13px;
   line-height: 1.5;
-  color: var(--tgui--hint_color, #8e8e93);
+  color: var(--tp-hint);
 }
+
 .telegram-root {
   --tgui--safe_area_inset_bottom: calc(var(--tg-viewport-safe-area-inset-bottom, env(safe-area-inset-bottom)) + var(--tg-viewport-content-safe-area-inset-bottom, 0px));
+}
+
+/* Secondary detail (task ids, lineage, internal codes) stays out of the main
+   flow but reachable one tap away. */
+.details-panel {
+  min-width: 0;
+}
+
+.details-panel > summary {
+  font-size: 13px;
+  color: var(--tp-subtitle);
+  cursor: pointer;
+  padding: 4px 2px;
+  list-style: none;
+}
+
+.details-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.details-panel > summary::before {
+  content: '详细信息 ›';
+}
+
+.details-panel[open] > summary::before {
+  content: '详细信息 ⌄';
+}
+
+/* Narrow screens: nothing may rely on desktop widths. */
+@media (max-width: 360px) {
+  .page {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .page-header__title {
+    font-size: 21px;
+  }
 }

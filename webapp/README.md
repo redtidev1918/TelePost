@@ -15,11 +15,55 @@ Telegram Bot.
 - [Uppy](https://uppy.io) for upload UX (progress / retry / cancel)
 - Vitest + Testing Library for unit tests
 
+## Information architecture (mobile first)
+
+The bottom bar has **at most five items for every role** — reviewer and admin
+surfaces are workspaces behind the 5th slot, never extra tabs:
+
+| role       | bottom nav                          |
+| ---------- | ----------------------------------- |
+| submitter  | 首页 / 热门 / 投稿 / 我的 / 更多     |
+| reviewer   | 首页 / 热门 / 投稿 / 我的 / 审核     |
+| admin      | same five; 管理 lives in 更多        |
+
+- `审核` is one workspace with two tabs (待处理 / 历史): `/review` and
+  `/review/history` are two states of the same page.
+- `更多` (`/more`) is the account + shortcuts hub and carries the admin entry.
+- Deep routes belong to their section: `/mine/:id` → 我的, `/review/:id` → 审核,
+  `/post/:id` → 热门, `/admin` → none (it is a secondary workspace).
+- Level-1 pages use the bottom nav; every deeper page uses the Telegram
+  BackButton only — no page renders its own back button.
+
+Single source of truth: `src/lib/navigation.ts` (`navigationForSpace`,
+`isNavItemActive`).
+
+## UI kit
+
+`src/components/ui/` holds the small presentation primitives every page shares
+(PageHeader, PageSection, StatusBadge, ActionBar, Segmented, EmptyState,
+MediaThumb) plus the design tokens in `src/index.css`. No UI framework: the
+palette comes from Telegram theme variables (`--tgui--*`), so light and dark
+stay native.
+
+- Media is lazy: `MediaThumb` only requests bytes when a card approaches the
+  viewport, and always renders a placeholder on failure.
+- Layout contract: the route content is the only scrolling region and reserves
+  the measured bottom-nav height (`--app-tabbar-reserve`), so nothing is
+  occluded and no device height is hard-coded.
+
 ## Development
 
 ```bash
 npm install
 npm run dev        # http://localhost:3000/app/ — proxies /api to a local TelePost
+```
+
+Browser E2E (Playwright) runs against the dev server with a mocked `/api`:
+
+```bash
+npx playwright install --with-deps chromium
+npx playwright test                 # functional + responsive + visual baselines
+npx playwright test --update-snapshots   # only when a UI change is intended
 ```
 
 A dev mock Telegram environment is injected automatically (`import.meta.env.DEV`).
