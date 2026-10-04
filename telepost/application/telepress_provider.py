@@ -28,6 +28,47 @@ from ..domain.novel_preview import (
 logger = logging.getLogger(__name__)
 
 PROVIDER_NAME = "telepress"
+_BOT_AUTHOR_CACHE = {}
+_CACHE_MISS = object()
+
+
+def clear_bot_author_cache() -> None:
+    """Clear the process-local bot identity cache (primarily for tests)."""
+    _BOT_AUTHOR_CACHE.clear()
+
+
+async def _resolve_bot_author(bot) -> tuple[Optional[str], Optional[str]]:
+    """Resolve the current bot's Telegram username without making it a hard dependency.
+
+    The cache key is the current ``Bot`` object identity. TelePost's supervisor
+    runs each Bot in its own process, but the identity key keeps even in-process
+    test doubles isolated from one another.
+    """
+    if bot is None:
+        return None, None
+    cache_key = id(bot)
+    cached = _BOT_AUTHOR_CACHE.get(cache_key, _CACHE_MISS)
+    if cached is not _CACHE_MISS:
+        return cached
+    try:
+        me = await bot.get_me()
+        username = str(getattr(me, "username", "") or "").strip().lstrip("@")
+        if not username:
+            logger.warning(
+                "Unable to resolve Telegram bot username; publishing Telegraph page "
+                "without author metadata"
+            )
+            return None, None
+        author = (f"@{username}", f"https://t.me/{username}")
+        _BOT_AUTHOR_CACHE[cache_key] = author
+        return author
+    except Exception as exc:  # metadata is enrichment; publication must continue
+        logger.warning(
+            "Unable to resolve Telegram bot username; publishing Telegraph page "
+            "without author metadata (%s)",
+            type(exc).__name__,
+        )
+        return None, None
 
 
 class _PublisherFactory(Protocol):
@@ -38,13 +79,15 @@ class TelePressNovelPreviewPublisher(NovelPreviewPublisher):
     """Adapter over the official TelePress Python API."""
 
     def __init__(self, token: str, *, skip_duplicate: bool = False,
-                 client_factory: Optional[_PublisherFactory] = None):
+                 client_factory: Optional[_PublisherFactory] = None,
+                 bot=None):
         self._token = token
         # TelePost owns publication idempotency (one durable row per
         # publication). TelePress's content cache must not decide whether this
         # publication already has a preview, so it stays off.
         self._skip_duplicate = skip_duplicate
         self._client_factory = client_factory
+        self._bot = bot
         self._client = None
 
     def _publisher(self):
@@ -65,10 +108,18 @@ class TelePressNovelPreviewPublisher(NovelPreviewPublisher):
                 )
         return self._client
 
-    def _publish_sync(self, snapshot: NovelSnapshot):
+    def _publish_sync(self, snapshot: NovelSnapshot, *,
+                      author_name: Optional[str] = None,
+                      author_url: Optional[str] = None):
         """Return ``(url, rich)``; ``rich`` is true only when the rich markdown
         path (with image manifest) was actually used."""
         publisher = self._publisher()
+        author_kwargs = {}
+        if author_name and author_url:
+            author_kwargs = {
+                "author_name": author_name,
+                "author_url": author_url,
+            }
         if snapshot.rich_content and snapshot.media_manifest:
             rich = getattr(publisher, "publish_rich_markdown", None)
             if callable(rich):
@@ -82,6 +133,7 @@ class TelePressNovelPreviewPublisher(NovelPreviewPublisher):
                         path,
                         snapshot.title,
                         manifest=list(snapshot.media_manifest),
+                        **author_kwargs,
                     )
                     if isinstance(result, dict):
                         return str(result.get("url") or ""), True
@@ -95,13 +147,21 @@ class TelePressNovelPreviewPublisher(NovelPreviewPublisher):
                 "installed telepress lacks publish_rich_markdown; "
                 "falling back to text-only preview"
             )
-        return publisher.publish_text(snapshot.content, snapshot.title), False
+        return publisher.publish_text(
+            snapshot.content, snapshot.title, **author_kwargs
+        ), False
 
     async def publish_preview(self, snapshot: NovelSnapshot) -> PreviewResult:
         import asyncio
 
         try:
-            url, rich = await asyncio.to_thread(self._publish_sync, snapshot)
+            author_name, author_url = await _resolve_bot_author(self._bot)
+            url, rich = await asyncio.to_thread(
+                self._publish_sync,
+                snapshot,
+                author_name=author_name,
+                author_url=author_url,
+            )
         except Exception as exc:  # provider/library/network failure — never fatal
             logger.warning(
                 "novel preview publish failed (%s): %s", type(exc).__name__, exc
@@ -152,7 +212,8 @@ def _bridge_media_proxy_env() -> None:
 
 
 def build_telepress_provider(token: str,
-                             *, client_factory: Optional[_PublisherFactory] = None
+                             *, client_factory: Optional[_PublisherFactory] = None,
+                             bot=None
                              ) -> Optional[TelePressNovelPreviewPublisher]:
     """Build the provider, or ``None`` when the runtime cannot serve previews.
 
@@ -167,4 +228,5 @@ def build_telepress_provider(token: str,
         logger.info("novel preview disabled: telepress is not installed")
         return None
     return TelePressNovelPreviewPublisher(str(token).strip(),
-                                          client_factory=client_factory)
+                                          client_factory=client_factory,
+                                          bot=bot)

@@ -97,7 +97,7 @@ API（自动化）固定进入审核；Mini App 由 `MINIAPP_REVIEW_REQUIRED` �
 | `DISCUSSION_FORWARD_TIMEOUT_SECONDS` | `10` | `discussion` 模式等待频道帖自动转发到讨论组的超时；root 已确认后超时会保留主贴、溢出等待人工核验，最小 1 秒 |
 | `REVIEW_PREVIEW_THREAD` | `1` | 后续预览和控制消息回复上一条 |
 | `PENDING_REVIEW_RETENTION_DAYS` | `0` | 待审过期天数；`0` 永久保留 |
-| `NOVEL_PREVIEW_ENABLED` | `false` | **可选发布增强**：TXT 小说经 TelePress 发布到 Telegraph，「在线阅读」入口为频道主贴 root 的 inline 按钮（§online-reading）；**默认关闭**，开启后 TXT document 仍正常发送，Telegraph 失败/超时绝不导致投稿失败（§telepress-preview）。当前依赖 TelePress 0.16.4，长文单页目标约 20,000 字符并尽量保留段落边界，减少阅读中断 |
+| `NOVEL_PREVIEW_ENABLED` | `false` | **可选发布增强**：TXT 小说经 TelePress 发布到 Telegraph，「在线阅读」入口为频道主贴 root 的 inline 按钮（§online-reading）；**默认关闭**，开启后 TXT document 仍正常发送，Telegraph 失败/超时绝不导致投稿失败（§telepress-preview）。当前依赖 TelePress 0.17.0；文章标题下方会使用当前发送 Bot 的 Telegram username 作为 Telegraph 原生 author metadata（例如 `@example_bot → https://t.me/example_bot`），无法取得 username 时自动跳过作者元数据 |
 | `NOVEL_FALLBACK_CARD_ENABLED` | `true` | 无真实封面的小说用 Pillow 生成轻量 fallback 卡片作为频道 root（§novel-cover）；关闭或生成失败时降级为 text-only root + TXT 回复，绝不影响发布成败 |
 | `NOVEL_PREVIEW_TIMEOUT_SECONDS` | `15` | 单次预览尝试的严格超时（秒）；Telegraph 不能无限拖住发布 |
 | `NOVEL_PREVIEW_MAX_BYTES` | `4194304` | 读取 TXT 正文的大小上限（字节），超限则不生成预览 |
