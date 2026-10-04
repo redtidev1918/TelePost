@@ -13,6 +13,9 @@ import {
   removeRoleBinding,
   RoleBinding,
 } from '../../api/admin';
+import { useBackButton } from '../../lib/useBackButton';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { EmptyState } from '../../components/ui/EmptyState';
 
 /**
  * Admin Control Plane panel (§admin-api): one screen, four sections —
@@ -20,6 +23,10 @@ import {
  * rights on every request; this page only renders what the verified session
  * may do (§45). Mutations are reversible (re-grant / un-blacklist), so no
  * confirm dialogs — the audit log is the durable record.
+ *
+ * It is a SECONDARY workspace: reachable from 更多 / the 审核 header, never
+ * from a dedicated bottom tab, and its only back affordance is the Telegram
+ * BackButton.
  */
 
 function useAdminStatus() {
@@ -36,6 +43,7 @@ function mutationError(error: unknown): string {
 
 export function AdminPage() {
   const status = useAdminStatus();
+  useBackButton('/more');
 
   if (status.isLoading) {
     return (
@@ -45,17 +53,23 @@ export function AdminPage() {
     );
   }
   if (status.isError) {
-    return <div className="page-error">加载失败：{mutationError(status.error)}</div>;
+    return (
+      <div className="stack">
+        <PageHeader title="管理" />
+        <EmptyState title="加载失败" hint={mutationError(status.error)} />
+      </div>
+    );
   }
 
   const snapshot = status.data as AdminStatusSnapshot;
   return (
-    <>
+    <div className="stack">
+      <PageHeader title="管理" subtitle="运行状态、审核策略、角色与黑名单。" />
       <StatusSection snapshot={snapshot} />
       <PolicySection embedded={snapshot.policy} restartManaged={snapshot.restart_managed} />
       <RolesSection />
       <BlacklistSection />
-    </>
+    </div>
   );
 }
 

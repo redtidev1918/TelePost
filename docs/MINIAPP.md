@@ -26,25 +26,37 @@ Telegram
 6. Mini App deep link（`startapp=review_123`）只表达导航意图，不构成授权。
 7. TelePost 仍是后端 SSOT；Mini App 不是第二个 backend。
 
-## 空间与导航（§mine-admin-split）
+## 空间与导航（§mine-admin-split, §ia）
 
-Mini App 只有**一个**工作空间：所有人都拥有用户四件套（首页 / 热门 / 投稿 / 我的投稿），
-reviewer / admin 额外持有审核队列，admin 再额外持有管理面板。路由与底部导航单一来源是
-`webapp/src/app/App.tsx` 的 `navigationForSpace(isReviewer, isAdmin)`：
+Mini App 只有**一个**工作空间，并且底部导航对**任何角色都最多 5 项**——手机上不允许出现
+6～7 个 Tab。路由与底部导航单一来源是 `webapp/src/lib/navigation.ts` 的
+`navigationForSpace(isReviewer, isAdmin)`，Tab 归属判定是同文件的 `isNavItemActive()`：
 
-- **普通用户**（submitter）：Tabbar 为「首页 / 热门 / 投稿 / 我的投稿」，路由只有内容浏览
-  （`/hot`、`/hotweek`、`/post/:id`）、投稿三件套与各自的详情/编辑历史；不注册审核路径。
-- **reviewer / admin**：在用户三件套之上额外显示「审核队列」「审核历史」，并注册
-  `/review`、`/review/history`、`/review/:id`、`/review/:id/edit`；同时保留了投稿与「我的投稿」全部能力，
-  与后端 RBAC 一致（`roles` 始终包含 `submitter`）。
-- **admin**：再额外显示「管理」面板（`/admin`），四个分区对应 `/api/v1/admin/*`：
-  运行状态（`GET /admin/status`，30 秒轮询）、运行策略（`PATCH /admin/policy`，仅
-  `chat_review` / `show_submitter` 两个开关——`miniapp_review` 刻意只留 Bot 侧，避免面板
-  把自己锁在外面）、角色管理（`/admin/roles` 持久化绑定增删，env 引导的管理员不在此列）、
-  黑名单（`/admin/blacklist` 增删）。所有变更均由服务端审计；移除操作可逆（重新授予 /
-  解除拉黑），故无二次确认弹窗。
-- 服务端 RBAC 仍是唯一权威；Tabbar/路由只是把非授权表面藏起来，不能替代服务端校验。
-  新路由必须走 `navigationForSpace`，禁止各页面自拼底部导航。
+- **普通用户**（submitter）：`首页 | 热门 | 投稿 | 我的 | 更多`。
+  第 5 项「更多」（`/more`）是账号 + 快捷入口 + 说明页。
+- **reviewer**：`首页 | 热门 | 投稿 | 我的 | 审核`。
+  「审核」是一个工作区（`/review`），内部用 `待处理 / 历史` 两个 Tab 切换
+  （`/review` 与 `/review/history` 是同一页的两个状态），不再是两个一级页面。
+- **admin**：同样不超过 5 项；管理面板（`/admin`）是**二级工作区**，从「更多」或审核页头部
+  的「更多」进入，永不占用第 6 个 Tab。
+
+深层路由的归属：`/mine/:id`、`/mine/:id/editorial` 属于「我的」；`/review/:id`、
+`/review/:id/edit`、`/review/history` 属于「审核」；`/post/:id`、`/hotweek` 属于「热门」；
+`/admin` 不属于任何 Tab（高亮为空）。同一时刻只可能点亮一个 Tab。
+
+服务端 RBAC 仍是唯一权威；Tabbar/路由只是把非授权表面藏起来，不能替代服务端校验。
+新路由必须走 `navigationForSpace`，禁止各页面自拼底部导航。返回行为统一：一级页面用
+BottomNav，二级及以下只用 Telegram BackButton，页面内不再重复放「返回」按钮。
+
+管理面板（`/admin`）本身仍是四个分区，对应 `/api/v1/admin/*`：
+
+- 运行状态（`GET /admin/status`，30 秒轮询）
+- 运行策略（`PATCH /admin/policy`，仅 `chat_review` / `show_submitter` 两个开关——
+  `miniapp_review` 刻意只留 Bot 侧，避免面板把自己锁在外面）
+- 角色管理（`/admin/roles` 持久化绑定增删，env 引导的管理员不在此列）
+- 黑名单（`/admin/blacklist` 增删）
+
+所有变更均由服务端审计；移除操作可逆（重新授予 / 解除拉黑），故无二次确认弹窗。
 
 ### 公开内容浏览（§miniapp-content）
 

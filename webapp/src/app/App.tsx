@@ -1,4 +1,24 @@
+import { useCallback, useEffect, useRef } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { initDataStartParam } from '@telegram-apps/sdk';
+import { submissionIntent } from '../lib/submissionEntry';
+import { Tabbar } from '@telegram-apps/telegram-ui';
+import { AuthProvider, useAuth } from '../auth/AuthProvider';
 import { useBotNavigate } from '../lib/useBotNavigate';
+import { navigationForSpace, isNavItemActive, MAX_TAB_COUNT } from '../lib/navigation';
+import { HomePage } from '../pages/Home/HomePage';
+import { HotPage } from '../pages/Hot/HotPage';
+import { PostDetailPage } from '../pages/PostDetail/PostDetailPage';
+import { SubmitPage } from '../pages/Submit/SubmitPage';
+import { MySubmissionsPage } from '../pages/MySubmissions/MySubmissionsPage';
+import { SubmissionDetailPage } from '../pages/SubmissionDetail/SubmissionDetailPage';
+import { ReviewWorkspacePage } from '../pages/Review/ReviewWorkspacePage';
+import { ReviewEditPage } from '../pages/ReviewEdit/ReviewEditPage';
+import { EditorialHistoryPage } from '../pages/EditorialHistory/EditorialHistoryPage';
+import { ReviewDetailPage } from '../pages/ReviewDetail/ReviewDetailPage';
+import { AdminPage } from '../pages/Admin/AdminPage';
+import { MorePage } from '../pages/More/MorePage';
+
 /**
  * App shell: Telegram UI chrome + AuthProvider + routes.
  *
@@ -9,47 +29,14 @@ import { useBotNavigate } from '../lib/useBotNavigate';
  * never a hard-coded device offset — and TelegramUI/AppRoot owns the platform
  * safe-area insets.
  *
- * Routing (§44): submitter sees Home/Submit/MySubmissions; reviewer sees the
- * ReviewQueue/ReviewDetail additionally. Server-side RBAC remains the
- * authority — the router only hides what the verified roles say (§45).
+ * Navigation (§ia): at most five bottom tabs for EVERY role. Reviewer and admin
+ * surfaces live inside the 5th slot (审核 / 更多) instead of inflating the bar.
+ * Server-side RBAC remains the authority — the router only hides what the
+ * verified roles say (§45), and every page still re-verifies the session.
+ *
+ * Back affordance (§back): level-1 pages use the BottomNav; every deeper route
+ * uses the Telegram BackButton. No page renders its own back button.
  */
-import { useCallback, useEffect, useRef } from 'react';
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { initDataStartParam } from '@telegram-apps/sdk';
-import { submissionIntent } from '../lib/submissionEntry';
-import { Tabbar } from '@telegram-apps/telegram-ui';
-import { AuthProvider, useAuth } from '../auth/AuthProvider';
-import { HomePage } from '../pages/Home/HomePage';
-import { HotPage } from '../pages/Hot/HotPage';
-import { PostDetailPage } from '../pages/PostDetail/PostDetailPage';
-import { SubmitPage } from '../pages/Submit/SubmitPage';
-import { MySubmissionsPage } from '../pages/MySubmissions/MySubmissionsPage';
-import { SubmissionDetailPage } from '../pages/SubmissionDetail/SubmissionDetailPage';
-import { ReviewEditPage } from '../pages/ReviewEdit/ReviewEditPage';
-import { EditorialHistoryPage } from '../pages/EditorialHistory/EditorialHistoryPage';
-import { ReviewQueuePage } from '../pages/ReviewQueue/ReviewQueuePage';
-import { ReviewHistoryPage } from '../pages/ReviewHistory/ReviewHistoryPage';
-import { ReviewDetailPage } from '../pages/ReviewDetail/ReviewDetailPage';
-import { AdminPage } from '../pages/Admin/AdminPage';
-
-interface NavItem {
-  path: string;
-  label: string;
-}
-
-/** 统一导航：所有人都有用户三件套，审核角色额外看到审核队列，管理员再看到管理面板。 */
-export function navigationForSpace(isReviewer: boolean, isAdmin = false): NavItem[] {
-  const userNav: NavItem[] = [
-    { path: '/', label: '首页' },
-    { path: '/hot', label: '热门' },
-    { path: '/submit', label: '投稿' },
-    { path: '/mine', label: '我的投稿' },
-  ];
-  const reviewerNav = isReviewer
-    ? [...userNav, { path: '/review', label: '审核队列' }, { path: '/review/history', label: '审核历史' }]
-    : userNav;
-  return isAdmin ? [...reviewerNav, { path: '/admin', label: '管理' }] : reviewerNav;
-}
 
 const ERROR_TEXT: Partial<Record<ReturnType<typeof useAuth>['status'], { title: string; hint?: string }>> = {
   outside_telegram: {
@@ -147,10 +134,8 @@ function Shell() {
     );
   }
 
-  // 统一空间：所有人都有用户三件套（首页/投稿/我的投稿），审核角色额外拿到
-  // 审核队列，管理员再拿到管理面板。服务端 RBAC 仍是唯一权威，前端只隐藏
-  // 验证过的角色不能用的入口（§45）。
-  const nav = navigationForSpace(isReviewer, isAdmin);
+  // ≤5 tabs for every role; reviewer/admin surfaces live behind the 5th slot.
+  const nav = navigationForSpace(isReviewer, isAdmin).slice(0, MAX_TAB_COUNT);
 
   return (
     <div className="app-safe">
@@ -164,10 +149,11 @@ function Shell() {
           <Route path="/mine" element={<MySubmissionsPage />} />
           <Route path="/mine/:id" element={<SubmissionDetailPage />} />
           <Route path="/mine/:id/editorial" element={<EditorialHistoryPage />} />
+          <Route path="/more" element={<MorePage />} />
           {isReviewer && (
             <>
-              <Route path="/review" element={<ReviewQueuePage />} />
-              <Route path="/review/history" element={<ReviewHistoryPage />} />
+              <Route path="/review" element={<ReviewWorkspacePage />} />
+              <Route path="/review/history" element={<ReviewWorkspacePage />} />
               <Route path="/review/:id" element={<ReviewDetailPage />} />
               <Route path="/review/:id/edit" element={<ReviewEditPage />} />
             </>
@@ -182,15 +168,8 @@ function Shell() {
             <Tabbar.Item
               key={item.path}
               text={item.label}
-              selected={
-                item.path === '/'
-                  ? location.pathname === '/'
-                  : item.path === '/review'
-                    ? location.pathname === '/review'
-                      || (location.pathname.startsWith('/review/')
-                          && !location.pathname.startsWith('/review/history'))
-                    : location.pathname.startsWith(item.path)
-              }
+              data-testid={`nav-${item.path === '/' ? 'home' : item.path.replace(/^\//, '')}`}
+              selected={isNavItemActive(item.path, location.pathname)}
               onClick={() => navigate(item.path)}
             />
           ))}

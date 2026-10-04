@@ -70,4 +70,14 @@ describe('ReviewHistoryPage (§history)', () => {
     await waitFor(() => expect(screen.getByText('更早的记录')).toBeTruthy());
     expect(spy).toHaveBeenCalledTimes(2);
   });
+
+  it('刷新频率属于实现细节，不再出现在标题里', async () => {
+    vi.spyOn(reviewsApi, 'fetchReviewHistory').mockResolvedValue({
+      items: [item()],
+      next_cursor: null,
+    });
+    renderHistory();
+    await waitFor(() => expect(screen.getByText('已审投稿')).toBeTruthy());
+    expect(document.body.textContent).not.toContain('自动刷新');
+  });
 });

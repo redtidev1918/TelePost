@@ -70,11 +70,14 @@ describe('HotPage', () => {
     expect(spy).toHaveBeenNthCalledWith(2, 'all', 'cur-1');
   });
 
-  it('shows the week scope header', async () => {
+  it('shows the week scope header and an empty state that explains itself', async () => {
     vi.spyOn(postsApi, 'fetchHotPosts').mockResolvedValue({ items: [], next_cursor: null });
     renderUi(<HotPage scope="week" />);
     expect(await screen.findByText('本周热门')).toBeTruthy();
-    expect(await screen.findByText('还没有热门内容。')).toBeTruthy();
+    // Empty is a state, not a failure: the title says what is empty and the
+    // hint says what will fill it (§ui-kit EmptyState).
+    expect(screen.getByTestId('empty-state').textContent).toContain('还没有热门内容');
+    expect(screen.getByTestId('empty-state').textContent).toContain('频道里发布的内容会按热度出现在这里。');
   });
 });
 

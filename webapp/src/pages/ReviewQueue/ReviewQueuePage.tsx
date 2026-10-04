@@ -1,22 +1,28 @@
+import { Button, Spinner } from '@telegram-apps/telegram-ui';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useBotNavigate } from '../../lib/useBotNavigate';
 import { reviewStatusLabel } from '../../lib/reviewStatus';
-import { Cell, Section, Spinner } from '@telegram-apps/telegram-ui';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { fetchReviewHistory, fetchReviewQueue, ReviewSummary } from '../../api/reviews';
+import { StatusBadge } from '../../components/ui/StatusBadge';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { PageSection } from '../../components/ui/PageSection';
 
 /**
- * Empty-queue context (§review-queue-empty-state).
+ * 审核 · 待处理 (§review-workspace).
  *
  * The queue only ever holds LIVE pending rows: a submission is visible only
  * between "preview + control card posted to the review group" and
  * "approved / rejected / expired". Review action happens primarily on the
- * Telegram review-group control cards, so the queue is legitimately empty
- * most of the time — which read as "the queue is broken". When it is empty,
- * show the most recent terminal outcomes (same ReviewService store, reviewer
- * scope) so the reviewer can SEE that flow happened, and offer the history
- * page as the record surface. The peek is strictly best-effort: its failure
- * must never turn the empty state into an error state.
+ * Telegram review-group control cards, so the queue is legitimately empty most
+ * of the time — which used to read as "the queue is broken".
+ *
+ * Two presentation rules:
+ * - refresh cadence is an IMPLEMENTATION detail and is never printed;
+ * - an empty queue explains itself (recent outcomes + history entry) instead of
+ *   looking like a failure. The peek is best-effort: its failure must never turn
+ *   the empty state into an error state.
  */
+
 function QueueEmptyState() {
   const navigate = useBotNavigate();
   const peek = useQuery({
@@ -27,25 +33,41 @@ function QueueEmptyState() {
   });
   const recent = peek.data?.items ?? [];
   return (
-    <Section>
-      <div className="page-empty">审核队列为空。</div>
+    <div className="stack">
+      <EmptyState
+        title="当前没有待审核内容"
+        hint="新的投稿会先出现在 Telegram 审核群里，处理完成后进入审核历史。"
+      />
       {recent.length > 0 && (
-        <Section header="最近处理">
-          {recent.map((item) => (
-            <Cell
-              key={item.review_id}
-              onClick={() => navigate(`/review/${item.review_id}`)}
-              subtitle={reviewStatusLabel(item.status)}
-            >
-              {item.title || `审核 #${item.review_id}`}
-            </Cell>
-          ))}
-          <Cell onClick={() => navigate('/review/history')} after="→">
-            查看全部审核历史
-          </Cell>
-        </Section>
+        <PageSection title="最近处理">
+          <div className="card">
+            {recent.map((item) => (
+              <div
+                key={item.review_id}
+                className="card__row"
+                role="button"
+                tabIndex={0}
+                onClick={() => navigate(`/review/${item.review_id}`)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    navigate(`/review/${item.review_id}`);
+                  }
+                }}
+              >
+                <div className="card__row-title">{item.title || `审核 #${item.review_id}`}</div>
+                <div className="card__row-meta">{reviewStatusLabel(item.status)}</div>
+              </div>
+            ))}
+          </div>
+        </PageSection>
       )}
-    </Section>
+      {recent.length > 0 && (
+        <Button mode="outline" stretched onClick={() => navigate('/review/history')}>
+          查看审核历史
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -67,7 +89,17 @@ export function ReviewQueuePage() {
     );
   }
   if (query.isError) {
-    return <div className="page-error">加载失败：{(query.error as Error).message}</div>;
+    return (
+      <EmptyState
+        title="暂时无法加载待审队列"
+        hint={(query.error as Error).message}
+        action={
+          <Button size="m" stretched onClick={() => void query.refetch()}>
+            重试
+          </Button>
+        }
+      />
+    );
   }
   const items: ReviewSummary[] = query.data?.pages.flatMap((p) => p.items) ?? [];
   if (items.length === 0) {
@@ -75,27 +107,50 @@ export function ReviewQueuePage() {
   }
 
   return (
-    <Section header="审核队列（每 15 秒自动刷新）">
-      {items.map((item) => (
-        <Cell
-          key={item.review_id}
-          onClick={() => navigate(`/review/${item.review_id}`)}
-          subtitle={
-            <>
-              {item.tags.slice(0, 3).join(' ')}
-              {item.media_count ? ` · 📎 ${item.media_count}` : ''}
-              {item.spoiler ? ' · 🫥' : ''}
-            </>
-          }
-        >
-          {item.title || `审核 #${item.review_id}`}
-        </Cell>
-      ))}
+    <div className="stack">
+      <PageSection title={items.length > 1 ? `待处理 ${items.length} 条` : '待处理'}>
+        <div className="card" data-testid="review-queue-list">
+          {items.map((item) => (
+            <div
+              key={item.review_id}
+              className="card__row"
+              role="button"
+              tabIndex={0}
+              data-testid="review-queue-item"
+              onClick={() => navigate(`/review/${item.review_id}`)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  navigate(`/review/${item.review_id}`);
+                }
+              }}
+            >
+              <div className="card__row-title">{item.title || `审核 #${item.review_id}`}</div>
+              <div className="card__row-meta">
+                {[
+                  item.tags.slice(0, 3).join(' '),
+                  item.media_count ? `${item.media_count} 个附件` : '',
+                  item.spoiler ? '剧透' : '',
+                ].filter(Boolean).join(' · ')}
+              </div>
+              <div className="card__row-foot">
+                <StatusBadge tone="progress">待审核</StatusBadge>
+              </div>
+            </div>
+          ))}
+        </div>
+      </PageSection>
       {query.hasNextPage && (
-        <Cell onClick={() => void query.fetchNextPage()} after="↓">
+        <Button
+          mode="bezeled"
+          stretched
+          data-testid="load-more"
+          loading={query.isFetchingNextPage}
+          onClick={() => void query.fetchNextPage()}
+        >
           加载更多
-        </Cell>
+        </Button>
       )}
-    </Section>
+    </div>
   );
 }
