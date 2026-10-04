@@ -283,23 +283,34 @@ test.describe('Back: 二级页面只有 Telegram Back Button', () => {
 
 test.describe('Responsive: 各宽度下不产生横向滚动', () => {
   const widths = [320, 360, 375, 390, 414, 430];
+  const paths = ['/', '/hot', '/submit', '/mine', '/review', '/more'];
 
   for (const width of widths) {
-    test(`${width}px：首页/热门/投稿/我的/审核 无横向滚动`, async ({ page }) => {
-      for (const path of ['/', '/hot', '/submit', '/mine', '/review', '/more']) {
-        await page.setViewportSize({ width, height: 780 });
-        await openApp(page, path);
-        await page.waitForTimeout(120);
-        const overflow = await page.evaluate(() => {
-          const doc = document.documentElement;
-          const main = document.querySelector('main.page');
-          return {
-            doc: doc.scrollWidth - doc.clientWidth,
-            main: main ? main.scrollWidth - main.clientWidth : 0,
-          };
-        });
-        expect(overflow.doc, `${path} @${width}px 文档横向溢出`).toBeLessThanOrEqual(1);
-        expect(overflow.main, `${path} @${width}px 内容区横向溢出`).toBeLessThanOrEqual(1);
+    test(`${width}px：首页/热门/投稿/我的/审核/更多 无横向滚动`, async ({ page }) => {
+      const context = page.context();
+      for (const path of paths) {
+        // ONE fresh tab per route: the Telegram SDK resolves launch params from
+        // the URL only on a tab's FIRST document — re-using a tab for a second
+        // deep link makes the dev-only mock branch throw and unmounts the whole
+        // tree, which would hide the very layout regression this test guards.
+        const tab = await context.newPage();
+        try {
+          await tab.setViewportSize({ width, height: 780 });
+          await openApp(tab, path);
+          await tab.waitForTimeout(120);
+          const overflow = await tab.evaluate(() => {
+            const doc = document.documentElement;
+            const main = document.querySelector('main.page');
+            return {
+              doc: doc.scrollWidth - doc.clientWidth,
+              main: main ? main.scrollWidth - main.clientWidth : 0,
+            };
+          });
+          expect(overflow.doc, `${path} @${width}px 文档横向溢出`).toBeLessThanOrEqual(1);
+          expect(overflow.main, `${path} @${width}px 内容区横向溢出`).toBeLessThanOrEqual(1);
+        } finally {
+          await tab.close();
+        }
       }
     });
   }
