@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.81.0](https://github.com/redtidev1918/TelePost/compare/v2.80.0...v2.81.0) (2026-10-04)
+
+
+### Features
+
+* **telegraph:** tag preview pages with the current bot author ([#296](https://github.com/redtidev1918/TelePost/issues/296)) ([1113ebf](https://github.com/redtidev1918/TelePost/commit/1113ebf3d4c7fa4356ad597191ab57db4e550ada))
+
 ## [2.80.0](https://github.com/redtidev1918/TelePost/compare/v2.79.0...v2.80.0) (2026-10-04)
 
 
