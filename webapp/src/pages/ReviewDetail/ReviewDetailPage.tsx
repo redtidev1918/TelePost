@@ -1,15 +1,8 @@
-import { useBotNavigate } from '../../lib/useBotNavigate';
 import { useState } from 'react';
-import {
-  Button,
-  Cell,
-  Chip,
-  Section,
-  Spinner,
-  Textarea,
-} from '@telegram-apps/telegram-ui';
+import { Button, Chip, Spinner, Textarea } from '@telegram-apps/telegram-ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
+import { useBotNavigate } from '../../lib/useBotNavigate';
 import {
   approveReview,
   fetchRefetchAttempt,
@@ -22,6 +15,24 @@ import {
 import { SubmissionMedia } from '../../components/SubmissionMedia';
 import { ApiError } from '../../api/client';
 import { useBackButton } from '../../lib/useBackButton';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { PageSection } from '../../components/ui/PageSection';
+import { StatusBadge, StatusTone } from '../../components/ui/StatusBadge';
+import { ActionBar } from '../../components/ui/ActionBar';
+import { EmptyState } from '../../components/ui/EmptyState';
+
+/**
+ * ReviewDetail (§30-§36, §review-detail-ux).
+ *
+ * One dominant decision (通过并发布), one secondary row, and one destructive
+ * area — so the reviewer never faces a five-button toolbox on a phone.
+ * Approve is irreversible-ish and high impact, so it is always the single
+ * primary action with a warning underneath; reject asks for a reason inside its
+ * own section instead of squeezing every button into extra rows.
+ *
+ * Refetch internals (task id, generation, lineage) are one tap away in a
+ * collapsed details panel — the reviewer sees the human stage first.
+ */
 
 const STATUS_LABELS: Record<string, string> = {
   pending: '待审核',
@@ -31,6 +42,14 @@ const STATUS_LABELS: Record<string, string> = {
   rejected: '已拒绝',
   expired: '已过期',
   superseded: '已被替换',
+};
+
+const STATUS_TONES: Record<string, StatusTone> = {
+  pending: 'progress',
+  publishing: 'progress',
+  published: 'good',
+  failed: 'bad',
+  rejected: 'bad',
 };
 
 const REFETCH_LABELS: Record<string, string> = {
@@ -141,11 +160,12 @@ export function ReviewDetailPage() {
   }
   if (review.isError || !review.data) {
     return (
-      <div className="page-error">
-        {review.isError ? errorMessage(review.error) : '未找到'}
-        <div style={{ marginTop: 12 }}>
-          <Button onClick={() => navigate('/review')}>返回审核队列</Button>
-        </div>
+      <div className="stack">
+        <PageHeader title="审核" />
+        <EmptyState
+          title={review.isError ? errorMessage(review.error) : '未找到该审核'}
+          hint="它可能已经被处理，或不在当前 bot 的范围内。"
+        />
       </div>
     );
   }
@@ -156,150 +176,217 @@ export function ReviewDetailPage() {
   const refetchStateName = attempt ? (attempt.canonical_state || attempt.state) : '';
   const refetchActive = ACTIVE_REFETCH_STATES.has(refetchStateName);
   const refetchFailed = refetchStateName === 'failed' || refetchStateName === 'timeout';
+  const refetchLabel =
+    attempt?.label || REFETCH_LABELS[refetchStateName] || refetchStateName;
+  const actionable = item.status === 'pending' || item.status === 'failed';
 
   return (
-    <div>
-      <Section header={`审核 #${item.id}`}>
-        <Cell subtitle={STATUS_LABELS[item.status] || item.status}>
-          {item.title || '（无标题）'}
-        </Cell>
-        {item.media.map((attachment) => (
-          <SubmissionMedia key={attachment.index}
-            path={`/reviews/${item.id}/media/${attachment.index}`} attachment={attachment} />
-        ))}
+    <div className="stack">
+      <PageHeader
+        title={item.title || '（无标题）'}
+        subtitle={`审核 #${item.id}`}
+      />
+
+      <div className="card">
+        <div className="card__row card__row--static">
+          <div className="card__row-meta">状态</div>
+          <div className="card__row-foot">
+            <StatusBadge tone={STATUS_TONES[item.status] ?? 'neutral'}>
+              {STATUS_LABELS[item.status] || item.status}
+            </StatusBadge>
+          </div>
+        </div>
         {item.tags.length > 0 && (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 16px 12px' }}>
-            {item.tags.map((tag) => (
-              <Chip key={tag}>{tag}</Chip>
-            ))}
+          <div className="card__row card__row--static">
+            <div className="tag-list" style={{ marginTop: 0 }}>
+              {item.tags.map((tag) => (
+                <Chip key={tag}>{tag}</Chip>
+              ))}
+            </div>
           </div>
         )}
-        {item.note && <Cell subtitle={item.note}>备注</Cell>}
-        {item.link && (
-          <Cell
-            subtitle={
-              <a href={item.link} target="_blank" rel="noopener noreferrer">
-                {item.link}
-              </a>
-            }
-          >
-            来源链接
-          </Cell>
+        {item.note && (
+          <div className="card__row card__row--static">
+            <div className="card__row-meta">备注</div>
+            <div className="card__row-title">{item.note}</div>
+          </div>
         )}
-        {item.source_label && <Cell subtitle={item.source_label}>来源</Cell>}
-        <Cell subtitle={item.spoiler ? '开启' : '关闭'}>剧透</Cell>
-      </Section>
+        {item.link && (
+          <div className="card__row card__row--static">
+            <div className="card__row-meta">来源链接</div>
+            <a href={item.link} target="_blank" rel="noopener noreferrer" style={{ overflowWrap: 'anywhere' }}>
+              {item.link}
+            </a>
+          </div>
+        )}
+        {item.source_label && (
+          <div className="card__row card__row--static">
+            <div className="card__row-meta">来源</div>
+            <div className="card__row-title">{item.source_label}</div>
+          </div>
+        )}
+        <div className="card__row card__row--static">
+          <div className="card__row-meta">剧透</div>
+          <div className="card__row-foot">
+            <StatusBadge tone={item.spoiler ? 'warn' : 'neutral'}>
+              {item.spoiler ? '开启' : '关闭'}
+            </StatusBadge>
+          </div>
+        </div>
+      </div>
 
-      {/* Refetch state (§35-§36, §refetch-lifecycle) */}
+      {item.media.map((attachment) => (
+        <SubmissionMedia key={attachment.index}
+          path={`/reviews/${item.id}/media/${attachment.index}`} attachment={attachment} />
+      ))}
+
+      {/* Refetch state (§35-§36, §refetch-lifecycle): the human stage first. */}
       {refetchState.data && attempt && (
-        <Section header="重抓">
-          <Cell
-            subtitle={
-              attempt.label
-              || REFETCH_LABELS[refetchStateName]
-              || refetchStateName
-            }
-          >
-            Generation {attempt.generation}
-          </Cell>
-          {(attempt.progress?.task_id || attempt.task_id) && (
-            <Cell subtitle={attempt.progress?.task_id || attempt.task_id}>任务ID</Cell>
-          )}
-          {attempt.progress && refetchActive && (
-            <Cell subtitle={`已等待 ${formatElapsed(attempt.progress.elapsed_seconds)}`}>
-              进度
-            </Cell>
-          )}
-          {refetchFailed && attempt.failure_code && (
-            <Cell subtitle={attempt.failure_code}>失败原因</Cell>
-          )}
-          {attempt.terminal_reason && (
-            <Cell subtitle={attempt.terminal_reason}>终止原因</Cell>
-          )}
-          {refetchState.data.lineage.length > 1 && (
-            <Cell subtitle={refetchState.data.lineage.map((l) => `G${l.generation}:${l.candidate_id}`).join(' → ')}>
-              候选历史
-            </Cell>
-          )}
-        </Section>
+        <PageSection title="重抓">
+          <div className="card">
+            <div className="card__row card__row--static">
+              <div className="card__row-title">{refetchLabel}</div>
+              {attempt.progress && refetchActive && (
+                <div className="card__row-meta">
+                  已等待 {formatElapsed(attempt.progress.elapsed_seconds)}
+                </div>
+              )}
+              {refetchFailed && attempt.failure_code && (
+                <div className="card__row-meta">{attempt.failure_code}</div>
+              )}
+              {attempt.terminal_reason && (
+                <div className="card__row-meta">{attempt.terminal_reason}</div>
+              )}
+            </div>
+            <details className="details-panel">
+              <summary />
+              <div style={{ padding: '0 14px 12px' }}>
+                {(attempt.progress?.task_id || attempt.task_id) && (
+                  <>
+                    <div className="card__row-meta">任务ID</div>
+                    <div className="card__row-meta">
+                      {attempt.progress?.task_id || attempt.task_id}
+                    </div>
+                  </>
+                )}
+                <div className="card__row-meta">Generation</div>
+                <div className="card__row-meta">{attempt.generation}</div>
+                {refetchState.data.lineage.length > 1 && (
+                  <>
+                    <div className="card__row-meta">候选历史</div>
+                    <div className="card__row-meta">
+                      {refetchState.data.lineage
+                        .map((l) => `G${l.generation}:${l.candidate_id}`)
+                        .join(' → ')}
+                    </div>
+                  </>
+                )}
+              </div>
+            </details>
+          </div>
+        </PageSection>
       )}
 
       {mutationError && <div className="error-box">{mutationError}</div>}
 
       {/* Reviewer mutations (§30-§35) — all server-side RBAC, no blind retry */}
-      {(item.status === 'pending' || item.status === 'failed') && (
-        <Section header="操作">
-          <div style={{ display: 'flex', gap: 8, padding: '0 16px 12px', flexWrap: 'wrap' }}>
-            <Button
-              size="s"
-              loading={approve.isPending}
-              disabled={approve.isPending || refetch.isPending}
-              onClick={() => void approve.mutateAsync()}
-            >
-              ✅ 通过并发布
-            </Button>
-            <Button
-              size="s"
-              mode="plain"
-              style={{ color: "var(--tgui--destructive_text_color)" }}
-              loading={reject.isPending}
-              disabled={reject.isPending}
-              onClick={() => setRejectOpen((v) => !v)}
-            >
-              ❌ 拒绝
-            </Button>
-            <Button
-              size="s"
-              mode="bezeled"
-              data-testid="edit-before-publish"
-              onClick={() => navigate(`/review/${item.id}/edit`)}
-            >
-              ✏️ 编辑后发布
-            </Button>
-            <Button
-              size="s"
-              mode="bezeled"
-              disabled={spoiler.isPending || item.spoiler}
-              onClick={() => void spoiler.mutateAsync(true)}
-            >
-              🫥 设为剧透
-            </Button>
-            <Button
-              size="s"
-              mode="bezeled"
-              loading={refetch.isPending}
-              disabled={refetch.isPending || refetchState.isPending || refetchState.isError || refetchActive}
-              onClick={() => void refetch.mutateAsync()}
-            >
-              🔄 重抓
-            </Button>
-          </div>
-          {rejectOpen && (
-            <div style={{ padding: '0 16px 12px' }}>
-              <Textarea
-                placeholder="拒绝原因（可选，仅审核记录）"
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-              />
-              <div style={{ marginTop: 8 }}>
+      {actionable && (
+        <>
+          <ActionBar
+            primary={
+              <Button
+                size="l"
+                stretched
+                loading={approve.isPending}
+                disabled={approve.isPending || refetch.isPending}
+                data-testid="approve"
+                onClick={() => void approve.mutateAsync()}
+              >
+                通过并发布
+              </Button>
+            }
+            secondary={
+              <>
                 <Button
-                  size="s"
-                  mode="plain"
-                  style={{ color: "var(--tgui--destructive_text_color)" }}
-                  loading={reject.isPending}
-                  disabled={reject.isPending}
-                  onClick={() => void reject.mutateAsync()}
+                  size="m"
+                  mode="bezeled"
+                  data-testid="edit-before-publish"
+                  onClick={() => navigate(`/review/${item.id}/edit`)}
                 >
-                  确认拒绝
+                  编辑后发布
                 </Button>
+                <Button
+                  size="m"
+                  mode="bezeled"
+                  loading={refetch.isPending}
+                  disabled={refetch.isPending || refetchState.isPending || refetchState.isError || refetchActive}
+                  onClick={() => void refetch.mutateAsync()}
+                >
+                  重抓
+                </Button>
+                <Button
+                  size="m"
+                  mode="bezeled"
+                  disabled={spoiler.isPending || item.spoiler}
+                  onClick={() => void spoiler.mutateAsync(true)}
+                >
+                  剧透
+                </Button>
+              </>
+            }
+            note="通过/拒绝后不可撤销；并发操作以服务端先到者为准。"
+          />
+
+          <PageSection title="不通过">
+            {rejectOpen ? (
+              <div className="stack">
+                <Textarea
+                  placeholder="拒绝原因（可选，仅审核记录）"
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                />
+                <ActionBar
+                  primary={
+                    <Button
+                      mode="outline"
+                      stretched
+                      loading={reject.isPending}
+                      disabled={reject.isPending}
+                      style={{ color: 'var(--tgui--destructive_text_color)' }}
+                      data-testid="reject-confirm"
+                      onClick={() => void reject.mutateAsync()}
+                    >
+                      确认拒绝
+                    </Button>
+                  }
+                  secondary={
+                    <Button
+                      mode="plain"
+                      stretched
+                      disabled={reject.isPending}
+                      data-testid="reject-cancel"
+                      onClick={() => setRejectOpen(false)}
+                    >
+                      取消
+                    </Button>
+                  }
+                />
               </div>
-            </div>
-          )}
-        </Section>
+            ) : (
+              <Button
+                mode="outline"
+                stretched
+                disabled={reject.isPending}
+                style={{ color: 'var(--tgui--destructive_text_color)' }}
+                data-testid="reject"
+                onClick={() => setRejectOpen(true)}
+              >
+                拒绝
+              </Button>
+            )}
+          </PageSection>
+        </>
       )}
-      <div className="mutation-help" style={{ padding: '0 16px 12px' }}>
-        通过/拒绝后不可撤销；并发操作以服务端先到者为准（另一边会提示已处理）。
-      </div>
     </div>
   );
 }
