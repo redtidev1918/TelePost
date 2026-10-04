@@ -1,10 +1,13 @@
-import { useBotNavigate } from '../../lib/useBotNavigate';
-import { Cell, Section, Spinner, Chip, Button } from '@telegram-apps/telegram-ui';
+import { Chip, Spinner } from '@telegram-apps/telegram-ui';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { fetchEditorialHistory } from '../../api/reviews';
 import { ApiError } from '../../api/client';
 import { useBackButton } from '../../lib/useBackButton';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { PageSection } from '../../components/ui/PageSection';
+import { StatusBadge } from '../../components/ui/StatusBadge';
+import { EmptyState } from '../../components/ui/EmptyState';
 
 /**
  * Submitter-facing editorial history (§48-§50).
@@ -12,10 +15,11 @@ import { useBackButton } from '../../lib/useBackButton';
  * Shows what was published and what the channel owner changed beforehand.
  * NEVER exposes editor ids, internal moderation fields or refetch metadata:
  * the editor is rendered as a label ('频道管理员').
+ *
+ * Detail route: back comes from the Telegram BackButton only (§back).
  */
 export function EditorialHistoryPage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useBotNavigate();
   useBackButton(`/mine/${id}`);
   const history = useQuery({
     queryKey: ['editorial-history', id],
@@ -31,72 +35,106 @@ export function EditorialHistoryPage() {
   }
   if (history.isError || !history.data) {
     return (
-      <div className="page-error">
-        {history.error instanceof ApiError ? history.error.message : '未找到该投稿'}
-        <div style={{ marginTop: 12 }}>
-          <Button onClick={() => navigate('/mine')}>返回我的投稿</Button>
-        </div>
+      <div className="stack">
+        <PageHeader title="修改详情" />
+        <EmptyState
+          title={history.error instanceof ApiError ? history.error.message : '未找到该投稿'}
+          hint="它可能已经被清理，或没有可展示的编辑记录。"
+        />
       </div>
     );
   }
   const data = history.data;
 
   return (
-    <div>
-      <Section header={`投稿 #${data.review_id} 的发布记录`}>
-        <Cell subtitle={data.status} data-testid="history-status">发布状态</Cell>
-        <Cell subtitle={data.edited_before_publication ? '是' : '否'} data-testid="history-edited">
-          发布前经过编辑
-        </Cell>
-      </Section>
+    <div className="stack">
+      <PageHeader title="修改详情" subtitle={`投稿 #${data.review_id}`} />
+
+      <div className="card">
+        <div className="card__row card__row--static">
+          <div className="card__row-meta">发布状态</div>
+          <div className="card__row-title" data-testid="history-status">{data.status}</div>
+        </div>
+        <div className="card__row card__row--static">
+          <div className="card__row-meta">发布前经过编辑</div>
+          <div className="card__row-foot">
+            <StatusBadge tone={data.edited_before_publication ? 'progress' : 'neutral'}>
+              <span data-testid="history-edited">{data.edited_before_publication ? '是' : '否'}</span>
+            </StatusBadge>
+          </div>
+        </div>
+      </div>
 
       {data.revisions.length === 0 && (
-        <div className="mutation-help" style={{ padding: '0 16px 12px' }}>
-          本次投稿按原稿发布，没有编辑记录。
-        </div>
+        <EmptyState title="本次投稿按原稿发布，没有编辑记录。" />
       )}
 
       {data.revisions.map((rev) => (
-        <Section key={rev.revision_number} header={`版本 ${rev.revision_number} · ${rev.editor_display}`}>
-          <Cell subtitle={rev.summary || '仅调整格式'} data-testid={`history-summary-${rev.revision_number}`}>
-            修改摘要
-          </Cell>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 16px 8px' }}>
-            {rev.change_set.title && <Chip>标题</Chip>}
-            {rev.change_set.note && <Chip>简介</Chip>}
-            {!!rev.change_set.tags?.added?.length && <Chip>新增标签</Chip>}
-            {!!rev.change_set.tags?.removed?.length && <Chip>移除标签</Chip>}
-            {rev.change_set.link && <Chip>链接</Chip>}
-            {rev.change_set.spoiler && <Chip>剧透</Chip>}
-            {rev.change_set.media?.reordered && <Chip>图片顺序</Chip>}
-            {!!rev.change_set.media?.removed?.length && <Chip>移除附件</Chip>}
+        <PageSection key={rev.revision_number} title={`版本 ${rev.revision_number} · ${rev.editor_display}`}>
+          <div className="card">
+            <div className="card__row card__row--static">
+              <div className="card__row-meta">修改摘要</div>
+              <div className="card__row-title" data-testid={`history-summary-${rev.revision_number}`}>
+                {rev.summary || '仅调整格式'}
+              </div>
+              <div className="tag-list">
+                {rev.change_set.title && <Chip>标题</Chip>}
+                {rev.change_set.note && <Chip>简介</Chip>}
+                {!!rev.change_set.tags?.added?.length && <Chip>新增标签</Chip>}
+                {!!rev.change_set.tags?.removed?.length && <Chip>移除标签</Chip>}
+                {rev.change_set.link && <Chip>链接</Chip>}
+                {rev.change_set.spoiler && <Chip>剧透</Chip>}
+                {rev.change_set.media?.reordered && <Chip>图片顺序</Chip>}
+                {!!rev.change_set.media?.removed?.length && <Chip>移除附件</Chip>}
+              </div>
+            </div>
+            <div className="card__row card__row--static">
+              <div className="card__row-meta">发布标题</div>
+              <div className="card__row-title">{rev.published_snapshot.title || '（无标题）'}</div>
+            </div>
+            {!!rev.published_snapshot.tags && (
+              <div className="card__row card__row--static">
+                <div className="card__row-meta">发布标签</div>
+                <div className="card__row-title">{rev.published_snapshot.tags}</div>
+              </div>
+            )}
+            {!!rev.published_snapshot.note && (
+              <div className="card__row card__row--static">
+                <div className="card__row-meta">发布简介</div>
+                <div className="card__row-title">{rev.published_snapshot.note}</div>
+              </div>
+            )}
+            {rev.change_set.title && (
+              <div className="card__row card__row--static">
+                <div className="card__row-meta">标题对比</div>
+                <div className="card__row-title">原稿：{rev.change_set.title.before}</div>
+              </div>
+            )}
+            {(rev.change_set.tags?.added?.length || rev.change_set.tags?.removed?.length) && (
+              <div className="card__row card__row--static">
+                <div className="card__row-meta">标签变化</div>
+                <div className="card__row-title">
+                  {[
+                    ...(rev.change_set.tags?.added || []).map((t) => `+${t}`),
+                    ...(rev.change_set.tags?.removed || []).map((t) => `-${t}`),
+                  ].join(' ')}
+                </div>
+              </div>
+            )}
+            {!!rev.change_set.media?.removed?.length && (
+              <div className="card__row card__row--static">
+                <div className="card__row-meta">附件变化</div>
+                <div className="card__row-title">
+                  移除 {rev.change_set.media.removed.length} 个附件
+                </div>
+              </div>
+            )}
           </div>
-
-          <Cell subtitle={rev.published_snapshot.title || '（无标题）'}>发布标题</Cell>
-          {!!rev.published_snapshot.tags && (
-            <Cell subtitle={rev.published_snapshot.tags}>发布标签</Cell>
-          )}
-          {!!rev.published_snapshot.note && (
-            <Cell subtitle={rev.published_snapshot.note}>发布简介</Cell>
-          )}
-          {rev.change_set.title && (
-            <Cell subtitle={`原稿：${rev.change_set.title.before}`}>标题对比</Cell>
-          )}
-          {(rev.change_set.tags?.added?.length || rev.change_set.tags?.removed?.length) && (
-            <Cell
-              subtitle={[
-                ...(rev.change_set.tags?.added || []).map((t) => `+${t}`),
-                ...(rev.change_set.tags?.removed || []).map((t) => `-${t}`),
-              ].join(' ')}
-            >
-              标签变化
-            </Cell>
-          )}
-          {!!rev.change_set.media?.removed?.length && (
-            <Cell subtitle={`移除 ${rev.change_set.media.removed.length} 个附件`}>附件变化</Cell>
-          )}
-        </Section>
+        </PageSection>
       ))}
+      <div className="mutation-help">
+        编辑记录由频道管理员操作产生，原始投稿始终保留。
+      </div>
     </div>
   );
 }
