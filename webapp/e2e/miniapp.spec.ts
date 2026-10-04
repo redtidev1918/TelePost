@@ -217,3 +217,90 @@ test.describe('Submitter Mine: published + edited history', () => {
     await expect(page.getByTestId('history-summary-1').locator('..')).toContainText('发布标题', { timeout: 3000 }).catch(() => undefined);
   });
 });
+
+test.describe('BottomNav: at most five items for every role', () => {
+  const cases: { name: string; roles: string[]; expected: string[] }[] = [
+    { name: '普通用户', roles: ['submitter'], expected: ['首页', '热门', '投稿', '我的', '更多'] },
+    {
+      name: 'reviewer',
+      roles: ['submitter', 'reviewer'],
+      expected: ['首页', '热门', '投稿', '我的', '审核'],
+    },
+    {
+      name: 'admin',
+      roles: ['submitter', 'reviewer', 'admin'],
+      expected: ['首页', '热门', '投稿', '我的', '审核'],
+    },
+  ];
+
+  for (const entry of cases) {
+    test(`${entry.name} 底部导航 = ${entry.expected.join('/')}`, async ({ page }) => {
+      await openApp(page, '/', entry.roles);
+      const tabs = page.locator('[data-testid^="nav-"]');
+      await expect(tabs).toHaveCount(entry.expected.length);
+      expect(await tabs.allInnerTexts()).toEqual(entry.expected);
+      // 审核队列 / 审核历史 / 管理 都不再占用一个底部 Tab。
+      const labels = (await tabs.allInnerTexts()).join('|');
+      expect(labels).not.toContain('审核队列');
+      expect(labels).not.toContain('审核历史');
+      expect(labels).not.toContain('管理');
+    });
+  }
+
+  test('admin 从「更多」进入管理面板，而不是第 6 个 Tab', async ({ page }) => {
+    await openApp(page, '/more', ['submitter', 'reviewer', 'admin']);
+    await expect(page.getByTestId('more-admin')).toBeVisible();
+    await page.getByTestId('more-admin').click();
+    await expect(page.getByTestId('admin-status')).toBeVisible();
+  });
+});
+
+test.describe('Review workspace: 审核 = 待处理 / 历史', () => {
+  test('审核页提供两个 Tab，默认落在待处理', async ({ page }) => {
+    await openApp(page, '/review');
+    await expect(page.getByTestId('review-tab-queue')).toBeVisible();
+    await expect(page.getByTestId('review-tab-history')).toBeVisible();
+    // 实现细节（刷新频率）不再出现在标题里。
+    await expect(page.locator('main.page')).not.toContainText('自动刷新');
+  });
+
+  test('深链 /review/history 落在历史 Tab', async ({ page }) => {
+    await openApp(page, '/review/history');
+    await expect(page.getByTestId('review-tab-history')).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+test.describe('Back: 二级页面只有 Telegram Back Button', () => {
+  for (const path of ['/post/1', '/mine/3', '/mine/3/editorial', '/review/1']) {
+    test(`${path} 不再重复放一个页面内返回按钮`, async ({ page }) => {
+      await openApp(page, path);
+      await expect(page.getByRole('button', { name: '返回', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '返回我的投稿' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '返回审核队列' })).toHaveCount(0);
+    });
+  }
+});
+
+test.describe('Responsive: 各宽度下不产生横向滚动', () => {
+  const widths = [320, 360, 375, 390, 414, 430];
+
+  for (const width of widths) {
+    test(`${width}px：首页/热门/投稿/我的/审核 无横向滚动`, async ({ page }) => {
+      for (const path of ['/', '/hot', '/submit', '/mine', '/review', '/more']) {
+        await page.setViewportSize({ width, height: 780 });
+        await openApp(page, path);
+        await page.waitForTimeout(120);
+        const overflow = await page.evaluate(() => {
+          const doc = document.documentElement;
+          const main = document.querySelector('main.page');
+          return {
+            doc: doc.scrollWidth - doc.clientWidth,
+            main: main ? main.scrollWidth - main.clientWidth : 0,
+          };
+        });
+        expect(overflow.doc, `${path} @${width}px 文档横向溢出`).toBeLessThanOrEqual(1);
+        expect(overflow.main, `${path} @${width}px 内容区横向溢出`).toBeLessThanOrEqual(1);
+      }
+    });
+  }
+});

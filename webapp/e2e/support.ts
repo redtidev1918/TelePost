@@ -200,8 +200,8 @@ async function mockApi(page: Page, roles: string[] = ['submitter', 'reviewer', '
   });
 }
 
-async function openApp(page: Page, path = '/') {
-  await mockApi(page);
+async function openApp(page: Page, path = '/', roles?: string[]) {
+  await mockApi(page, roles);
   await page.goto(launchUrl(path));
   await expect(page.getByTestId('bottom-nav')).toBeVisible();
   // Shell rendered means auth bootstrapped through the mocked session.
