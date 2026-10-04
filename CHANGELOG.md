@@ -8,6 +8,18 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.80.0](https://github.com/redtidev1918/TelePost/compare/v2.79.0...v2.80.0) (2026-10-04)
+
+
+### Features
+
+* **webapp:** add a mobile presentation kit and design tokens ([b1aab32](https://github.com/redtidev1918/TelePost/commit/b1aab325043ad5830bd0e7022980654c53633ddd))
+* **webapp:** improve submission experience ([308c3d5](https://github.com/redtidev1918/TelePost/commit/308c3d5e872114898a7458b58b6346c1ffdb6267))
+* **webapp:** make home a dashboard, hot a content browser, mine a history ([8edd729](https://github.com/redtidev1918/TelePost/commit/8edd72903030eafa412cfdd62df3102aa271c21e))
+* **webapp:** redesign mobile mini app navigation ([7a5d141](https://github.com/redtidev1918/TelePost/commit/7a5d141f081f262f62e616fcc56b4eeb968ea3a7))
+* **webapp:** redesign the Mini App for mobile (navigation, browsing, submit, review) ([46d6238](https://github.com/redtidev1918/TelePost/commit/46d6238173a7103f30afc25d0428e0dadf50c758))
+* **webapp:** simplify reviewer workspace and review actions ([ba2d8aa](https://github.com/redtidev1918/TelePost/commit/ba2d8aa85a8772270d8c6841c26b6240a4195f9a))
+
 ## [2.79.0](https://github.com/redtidev1918/TelePost/compare/v2.78.1...v2.79.0) (2026-10-03)
 
 
