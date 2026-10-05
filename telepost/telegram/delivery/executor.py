@@ -22,6 +22,7 @@ import mimetypes
 import os
 import tempfile
 import urllib.request
+from urllib.parse import urlparse
 from typing import Callable, List, Optional, Protocol
 
 from ...domain.delivery import (
@@ -91,11 +92,20 @@ def _download_remote(url: str, max_bytes: int = PHOTO_MAX_BYTES) -> str:
 
     Runs in a worker thread (blocking urllib I/O); Telegram's User-Agent is
     deliberately reused so proxy/CDN policy treats TelePost like Telegram.
+
+    Pixiv CDN (``i.pximg.net``) additionally rejects requests without a pixiv
+    Referer. The media proxy normally supplies it, but this local fallback
+    adds it directly so a proxy outage cannot fail the whole channel publish
+    with HTTP 403 (see test coverage in tests/test_remote_fetch_fallback.py).
     """
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": "TelegramBot-LinkPreview/0.1"},
-    )
+    headers = {"User-Agent": "TelegramBot-LinkPreview/0.1"}
+    try:
+        host = urlparse(url).hostname
+    except ValueError:
+        host = None
+    if host and host.endswith("i.pximg.net"):
+        headers["Referer"] = "https://www.pixiv.net/"
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=60) as response:
         content_type = (response.headers.get("content-type") or "").split(";")[0].strip()
         if content_type and not content_type.startswith(

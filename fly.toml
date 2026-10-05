@@ -76,6 +76,19 @@ primary_region = ""
   # button with "PixivFlow 重抓服务未配置".
   PIXIVFLOW_REFETCH_BASE_URL = 'https://pixivflow-scheduler.fly.dev'
 
+  # Public media proxy for Pixiv CDN URLs (i.pximg.net). Telegram cannot fetch
+  # them without a pixiv Referer; the fixed-upstream Worker supplies it. This
+  # mirrors fly/deploy.telepost.toml in redtidev1918/pixivflow-telepost-deploy.
+  # Losing these from the deploy config breaks channel publishing of
+  # remote-cover novels/illusts with "remote media materialization failed"
+  # (HTTP 403) and silently drops TelePress 在线阅读 inline images.
+  MEDIA_PROXY_BASE_URL = 'https://pixiv-media-proxy.redtidev1918.workers.dev'
+  MEDIA_PROXY_HOSTS = 'i.pximg.net'
+  # TelePress library reads its own names; the provider bridges from the pair
+  # above, so keeping both explicit here avoids double source-of-truth drift.
+  TELEPRESS_MEDIA_PROXY_BASE = 'https://pixiv-media-proxy.redtidev1918.workers.dev'
+  TELEPRESS_MEDIA_PROXY_HOSTS = 'i.pximg.net'
+
   # Telegram Mini App surface。显式启用，避免缺席默认值与 Bot 侧 capability
   # 判断分叉（P0：bot 私聊入口误报「Mini App 尚未启用」）。公开 URL 不必写死：
   # 代码从 MINIAPP_PUBLIC_URL 或 WEBHOOK_URL 派生 <WEBHOOK_URL>/app/；
