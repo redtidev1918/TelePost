@@ -68,6 +68,14 @@ primary_region = ""
   PENDING_REVIEW_RETENTION_DAYS = "1"
   PENDING_REVIEW_CLEANUP_BATCH_SIZE = "20"
 
+  # Review-group refetch ("重抓") reaches the sleeping PixivFlow executor through
+  # Fly's HTTPS proxy. PIXIVFLOW_REFETCH_TOKEN is a separate shared Secret (never
+  # committed); the base URL is public and must stay in sync with
+  # fly/deploy.telepost.toml in redtidev1918/pixivflow-telepost-deploy. A deploy
+  # config that silently drops this variable breaks the review-group refetch
+  # button with "PixivFlow 重抓服务未配置".
+  PIXIVFLOW_REFETCH_BASE_URL = 'https://pixivflow-scheduler.fly.dev'
+
   # Telegram Mini App surface。显式启用，避免缺席默认值与 Bot 侧 capability
   # 判断分叉（P0：bot 私聊入口误报「Mini App 尚未启用」）。公开 URL 不必写死：
   # 代码从 MINIAPP_PUBLIC_URL 或 WEBHOOK_URL 派生 <WEBHOOK_URL>/app/；
