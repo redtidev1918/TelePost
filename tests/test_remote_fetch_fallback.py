@@ -126,3 +126,67 @@ async def test_network_failure_with_url_fetch_marker_falls_back(tmp_path):
 
     assert result.ok
     assert os.path.exists(local_path) is False
+
+
+class _FakeImageResponse:
+    """Minimal urllib response that yields a tiny fake JPEG once."""
+
+    headers = {"content-type": "image/jpeg"}
+    _done = False
+
+    def read(self, size=-1):
+        if not self._done:
+            self._done = True
+            return b"fake-jpeg-bytes"
+        return b""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _download_remote_with_capture(monkeypatch, url):
+    """Run _download_remote returning (path, captured_headers_dict)."""
+    import urllib.request
+
+    from telepost.telegram.delivery.executor import _download_remote
+
+    captured = {}
+
+    def fake_urlopen(request, timeout=60):
+        captured["headers"] = {
+            k.lower(): v for k, v in request.headers.items()
+        }
+        captured["url"] = request.full_url
+        return _FakeImageResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    path = _download_remote(url)
+    return path, captured
+
+
+def test_download_remote_adds_pixiv_referer(monkeypatch):
+    import os
+
+    url = "https://i.pximg.net/novel-cover-master/img/x/ci123_master1200.jpg"
+    path, captured = _download_remote_with_capture(monkeypatch, url)
+    try:
+        assert captured["url"] == url
+        assert captured["headers"]["user-agent"] == "TelegramBot-LinkPreview/0.1"
+        assert captured["headers"]["referer"] == "https://www.pixiv.net/"
+    finally:
+        os.unlink(path)
+
+
+def test_download_remote_omits_referer_for_non_pixiv_host(monkeypatch):
+    import os
+
+    path, captured = _download_remote_with_capture(
+        monkeypatch, "https://cdn.example.com/img/art.png"
+    )
+    try:
+        assert "referer" not in captured["headers"]
+    finally:
+        os.unlink(path)

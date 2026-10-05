@@ -29,3 +29,16 @@ def test_fly_toml_never_commits_refetch_token():
     # text may name the variable; the env section must not contain it.
     env = _env()
     assert "PIXIVFLOW_REFETCH_TOKEN" not in env
+
+
+EXPECTED_MEDIA_PROXY_BASE_URL = "https://pixiv-media-proxy.redtidev1918.workers.dev"
+
+
+def test_fly_toml_declares_media_proxy_pair():
+    env = _env()
+    assert env.get("MEDIA_PROXY_BASE_URL") == EXPECTED_MEDIA_PROXY_BASE_URL
+    assert "i.pximg.net" in env.get("MEDIA_PROXY_HOSTS", "")
+    # TelePress reads its own names; the bridge maps from the TelePost pair, so
+    # both must be present and consistent to keep 在线阅读 images proxied.
+    assert env.get("TELEPRESS_MEDIA_PROXY_BASE") == EXPECTED_MEDIA_PROXY_BASE_URL
+    assert "i.pximg.net" in env.get("TELEPRESS_MEDIA_PROXY_HOSTS", "")
