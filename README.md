@@ -66,7 +66,7 @@ Mini App 使用独立审核开关。需要审核时，先配置审核群与审�
 | 方式 | 入口 | 适合 |
 | --- | --- | --- |
 | Python / pip | `python -m pip install telepost-bot` | 自管服务器与本地运行 |
-| 独立程序 | [选择平台并下载](https://redtidev1918.github.io/TelePost/download.html) | 无需安装 Python |
+| 独立程序 | [选择平台并下载](https://redtidev1918.github.io/TelePost/#/download) | 无需安装 Python |
 | Docker / Compose | `ghcr.io/redtidev1918/telepost:<version>` | 容器部署 |
 | 源码 | [开发与测试](docs/TESTING.md) | 修改代码或参与开发 |
 
