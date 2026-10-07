@@ -8,6 +8,14 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.81.3](https://github.com/redtidev1918/TelePost/compare/v2.81.2...v2.81.3) (2026-10-07)
+
+
+### Performance Improvements
+
+* 完善中英文安装、首次投稿和审核规则说明。
+* 减少重复构建，缩短新版本发布等待时间。 ([#303](https://github.com/redtidev1918/TelePost/pull/303))
+
 ## [2.81.2](https://github.com/redtidev1918/TelePost/compare/v2.81.1...v2.81.2) (2026-10-07)
 
 
