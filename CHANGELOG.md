@@ -13,7 +13,7 @@
 
 ### Bug Fixes
 
-* **deps:** use TelePress rendered-byte pagination ([#301](https://github.com/redtidev1918/TelePost/issues/301)) ([05321b5](https://github.com/redtidev1918/TelePost/commit/05321b5e75029a2294d8449de7483e579298a6db))
+* 修复长篇小说因阅读页大小超限而缺少「在线阅读」按钮的问题 ([#301](https://github.com/redtidev1918/TelePost/issues/301)) ([05321b5](https://github.com/redtidev1918/TelePost/commit/05321b5e75029a2294d8449de7483e579298a6db))
 
 ## [2.81.1](https://github.com/redtidev1918/TelePost/compare/v2.81.0...v2.81.1) (2026-10-05)
 
