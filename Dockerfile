@@ -15,7 +15,9 @@ RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 
 # Build the Telegram Mini App static bundle (webapp/dist). Node toolchain and
 # node_modules stay in this stage; the runtime image only receives dist/.
-FROM node:24-bookworm-slim AS webapp-builder
+# Static assets are architecture-independent: build once on the host instead
+# of repeating npm/Vite under QEMU for each target architecture.
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS webapp-builder
 
 WORKDIR /build
 COPY webapp/package.json webapp/package-lock.json webapp/
@@ -34,10 +36,6 @@ RUN npm install --prefix /opt/pixivflow "pixivflow@${PIXIVFLOW_VERSION}" \
 
 
 FROM python:3.11-slim AS runtime-base
-
-ARG APP_VERSION=dev
-ARG GIT_SHA=dev
-ARG BUILD_DATE=dev
 
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
@@ -66,6 +64,11 @@ COPY --from=webapp-builder /build/webapp/dist /app/webapp/dist
 # Bake build identity for /version + /health. Same shape scripts/build-release
 # writes for PyInstaller bundles; the shared releasegraph workflow supplies the
 # build-args (APP_VERSION/GIT_SHA). Defaults keep a local `docker build` on dev.
+# Declare changing release identity only here: earlier ARGs invalidate every
+# subsequent RUN, including apt and pip, on each version/commit/date change.
+ARG APP_VERSION=dev
+ARG GIT_SHA=dev
+ARG BUILD_DATE=dev
 RUN printf 'RELEASE_VERSION = "%s"\nRELEASE_COMMIT = "%s"\nBUILD_DATE = "%s"\n' \
         "${APP_VERSION}" "${GIT_SHA}" "${BUILD_DATE}" > /app/_release_version.py
 RUN mkdir -p logs data data/search_index \

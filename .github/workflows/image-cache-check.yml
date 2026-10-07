@@ -1,0 +1,54 @@
+name: Release image cache check
+
+on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - requirements.txt
+      - .github/workflows/image-cache-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-cache-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build the runtime and change only its release identity
+        run: |
+          set -euo pipefail
+          docker buildx build --target runtime --load --progress plain \
+            --cache-from type=gha,scope=buildkit \
+            --build-arg APP_VERSION=cache-check-a \
+            --build-arg GIT_SHA=commit-a --build-arg BUILD_DATE=date-a \
+            -t telepost:cache-check-a . 2>&1 | tee "$RUNNER_TEMP/image-first.log"
+          docker buildx build --target runtime --load --progress plain \
+            --build-arg APP_VERSION=cache-check-b \
+            --build-arg GIT_SHA=commit-b --build-arg BUILD_DATE=date-b \
+            -t telepost:cache-check-b . 2>&1 | tee "$RUNNER_TEMP/image-second.log"
+      - name: Verify dependency reuse and fresh runtime identity
+        run: |
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          log = (Path(os.environ['RUNNER_TEMP']) / 'image-second.log').read_text()
+          # Observe BuildKit results, rather than checking Dockerfile text:
+          # each costly dependency/asset build must be reused across stamps.
+          for marker in ('RUN apt-get update', 'RUN pip wheel', 'RUN pip install',
+                         'RUN cd webapp && npm ci', 'RUN cd webapp && npm run generate:api'):
+              steps = re.findall(r'(#\d+) \[[^\n]+\] ' + re.escape(marker), log)
+              assert steps, f'build step missing: {marker}'
+              assert all(f'{step} CACHED' in log for step in steps), f'release stamp invalidated: {marker}'
+          print('Dependency and static-asset layers reused across release identities')
+          PY
+          docker run --rm telepost:cache-check-b python -c \
+            "import _release_version as v; import pyvips; import telepress; assert (v.RELEASE_VERSION, v.RELEASE_COMMIT, v.BUILD_DATE) == ('cache-check-b', 'commit-b', 'date-b'); print('Fresh runtime identity verified; TelePress', telepress.__version__)"
