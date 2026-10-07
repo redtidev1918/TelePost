@@ -13,8 +13,8 @@
 
 ### Performance Improvements
 
-* **release:** clarify onboarding and reuse release build caches ([89a06ea](https://github.com/redtidev1918/TelePost/commit/89a06eabcae680e7d1ac74d7085e00d0c4458f57))
-* **release:** preserve image layers and reuse ReleaseGraph engine ([3f64658](https://github.com/redtidev1918/TelePost/commit/3f64658819f87e1f9642c1d7f75773a27d223f1f))
+* 完善中英文安装、首次投稿和审核规则说明。
+* 减少重复构建，缩短新版本发布等待时间。 ([#303](https://github.com/redtidev1918/TelePost/pull/303))
 
 ## [2.81.2](https://github.com/redtidev1918/TelePost/compare/v2.81.1...v2.81.2) (2026-10-07)
 
