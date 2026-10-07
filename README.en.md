@@ -24,7 +24,7 @@ HTTP API ─────────┘
 
 [Install and deploy](docs/en/INSTALL.md) · [Configuration](docs/en/CONFIGURATION.md) ·
 [Commands](docs/en/COMMANDS.md) · [Troubleshooting (Chinese)](docs/TROUBLESHOOTING.md) ·
-[Documentation](https://redtidev1918.github.io/TelePost/en/)
+[Documentation](https://redtidev1918.github.io/TelePost/#/en/)
 
 ## What it does
 
@@ -68,7 +68,7 @@ Configure the review chat and reviewers before using moderation; see
 | Method | Entry point | Best for |
 | --- | --- | --- |
 | Python / pip | `python -m pip install telepost-bot` | Self-managed servers and local use |
-| Standalone program | [Choose a platform and download](https://redtidev1918.github.io/TelePost/en/download.html) | No Python installation |
+| Standalone program | [Choose a platform and download](https://redtidev1918.github.io/TelePost/#/en/download) | No Python installation |
 | Docker / Compose | `ghcr.io/redtidev1918/telepost:<version>` | Container deployments |
 | Source | [Development and testing (Chinese)](docs/TESTING.md) | Code changes and contributions |
 
