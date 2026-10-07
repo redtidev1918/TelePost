@@ -4,8 +4,6 @@
 
 > **Telegram 频道投稿、审核与发布服务。**
 
-📚 [完整文档](https://redtidev1918.github.io/TelePost/)
-
 [![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
 [![PyPI](https://img.shields.io/pypi/v/telepost-bot.svg)](https://pypi.org/project/telepost-bot/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -21,55 +19,64 @@ Telegram Mini App ├──→ TelePost ──→ Telegram Channel
 HTTP API ─────────┘
 ```
 
-## 功能
+## 从哪里开始
 
-- Bot 投稿：图片、视频、音频和文件
-- 审核队列：审核、修改后发布、剧透控制、审核历史
-- Mini App：投稿、内容浏览、我的投稿、审核和管理
-- HTTP API：文件上传、Bearer Token、幂等提交
-- 频道搜索：历史内容、标签和投稿记录
-- 小说 / 长文：TXT 可生成 Telegraph 在线阅读页
-- 多 Bot：一个进程运行多个相互隔离的 Bot
-- SQLite：持久化存储，重启后恢复
+[安装与部署](docs/INSTALL.md) · [配置](docs/CONFIGURATION.md) ·
+[命令](docs/COMMANDS.md) · [故障排查](docs/TROUBLESHOOTING.md) ·
+[完整文档](https://redtidev1918.github.io/TelePost/)
+
+## 能做什么
+
+| 场景 | 能力 |
+| --- | --- |
+| 接收投稿 | Bot、Mini App、HTTP API；支持图片、视频、音频和文件 |
+| 审核与发布 | 审核队列、修改后发布、剧透控制、审核历史 |
+| 阅读与检索 | 频道搜索、标签；TXT 小说可生成 Telegraph 在线阅读页 |
+| 用户自助 | Mini App 浏览内容、投稿、查看自己的投稿 |
+| 自动化集成 | Bearer Token、文件上传、幂等提交，避免重复投稿 |
+| 自托管运行 | 多 Bot 独立配置与数据目录，SQLite 持久化，重启后恢复 |
 
 ## 快速开始
 
+1. 用 [@BotFather](https://t.me/BotFather) 创建 Bot，加入目标频道并授予发帖权限。
+2. 安装 Python 3.10+。图片处理需要系统 libvips，安装方法见
+   [系统依赖](docs/INSTALL.md#libvips-系统依赖)。
+3. 在虚拟环境中安装并启动：
+
 ```bash
-pip install telepost-bot
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install telepost-bot
 telepost --setup
 telepost
 ```
 
-需要 Python 3.10+；图片处理依赖系统级 libvips。
+Windows PowerShell 使用 `.venv\Scripts\Activate.ps1` 激活环境。
+配置向导需要 **Bot Token、Channel ID、Owner ID**；再次运行 `telepost` 会使用保存的配置。
 
-开始前：用 [@BotFather](https://t.me/BotFather) 创建一个 Bot，把它加入目标频道并授予发帖权限。
+启动后向 Bot 发送 `/start` → `/submit` → 上传媒体 → `/done_media`，
+在预览中检查内容，再按提示提交。命令详情见 [投稿流程](docs/COMMANDS.md)。
 
-首次运行 `telepost` 会进入配置向导，填入 **Bot Token**、**Channel ID**、**Owner ID**；
-之后直接运行 `telepost` 即以前次配置启动。启动后向 Bot 发送 `/start`，再用 `/submit`
-发布第一条投稿。
+**审核规则：** Bot 私聊投稿默认直接发布，可配置为先审核；HTTP API 投稿固定需要审核；
+Mini App 使用独立审核开关。需要审核时，先配置审核群与审核人，参见
+[配置参考](docs/CONFIGURATION.md)。
 
-| 名称 | 值 |
-| --- | --- |
-| PyPI 项目名 | `telepost-bot` |
-| 命令行 | `telepost` |
-| Python 导入 | `telepost` |
-| Python | 3.10+ |
+## 选择安装方式
 
-## 安装
-
-| 方式 | 用法 | 适合 |
+| 方式 | 入口 | 适合 |
 | --- | --- | --- |
-| PyPI | `pip install telepost-bot` | 普通安装、服务器、脚本 |
-| Release | [下载](https://github.com/redtidev1918/TelePost/releases) | 不想安装 Python |
-| Docker | `ghcr.io/redtidev1918/telepost:<version>` | 容器部署 |
-| 源码 | `git clone` | 开发、自建环境 |
+| Python / pip | `python -m pip install telepost-bot` | 自管服务器与本地运行 |
+| 独立程序 | [选择平台并下载](https://redtidev1918.github.io/TelePost/#/download) | 无需安装 Python |
+| Docker / Compose | `ghcr.io/redtidev1918/telepost:<version>` | 容器部署 |
+| 源码 | [开发与测试](docs/TESTING.md) | 修改代码或参与开发 |
 
-生产环境固定 Release 版本，不要使用 `latest`。完整安装、升级和卸载见
-[安装与部署](docs/INSTALL.md)。
+PyPI 包名为 `telepost-bot`，启动命令和 Python 导入名均为 `telepost`。
+生产环境固定正式 Release 版本；完整安装、升级、卸载步骤以
+[安装与部署](docs/INSTALL.md) 为准。
 
 ## HTTP API
 
-先在 Bot 中用 `/gen_token` 生成 Token，再提交内容：
+Owner 在 Bot 中用 `/gen_token <名称>` 生成 API Token，再提交内容：
 
 ```bash
 curl -X POST 'https://example.com/api/v1/submissions' \
@@ -106,7 +113,7 @@ TelePost 支持在一个进程中运行多个相互隔离的 Bot，各自拥有�
 
 ## 文档
 
-完整文档站：**https://redtidev1918.github.io/TelePost/**
+完整文档站：[TelePost 文档](https://redtidev1918.github.io/TelePost/)。
 
 | 内容 | 文档 |
 | --- | --- |

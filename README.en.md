@@ -4,8 +4,6 @@
 
 > **Submissions, moderation, and publishing for Telegram channels.**
 
-📚 [Documentation](https://redtidev1918.github.io/TelePost/)
-
 [![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
 [![PyPI](https://img.shields.io/pypi/v/telepost-bot.svg)](https://pypi.org/project/telepost-bot/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -22,56 +20,65 @@ Telegram Mini App ├──→ TelePost ──→ Telegram Channel
 HTTP API ─────────┘
 ```
 
-## Features
+## Start here
 
-- Bot submissions: images, video, audio, and files
-- Review queue: review, edit-before-publish, spoiler control, review history
-- Mini App: submit, browse content, view your own submissions, moderate, and manage
-- HTTP API: file upload, Bearer tokens, idempotent submissions
-- Channel search: past content, tags, and submission records
-- Novels / long-form text: TXT uploads can produce a Telegraph reading page
-- Multi-bot: several isolated bots in a single process
-- SQLite: persistent storage that survives restarts
+[Install and deploy](docs/en/INSTALL.md) · [Configuration](docs/en/CONFIGURATION.md) ·
+[Commands](docs/en/COMMANDS.md) · [Troubleshooting (Chinese)](docs/TROUBLESHOOTING.md) ·
+[Documentation](https://redtidev1918.github.io/TelePost/#/en/)
+
+## What it does
+
+| Use case | Features |
+| --- | --- |
+| Accept submissions | Bot, Mini App, and HTTP API; images, video, audio, and files |
+| Review and publish | Review queue, edit before publishing, spoilers, and review history |
+| Read and search | Channel search and tags; TXT novels can generate Telegraph reading pages |
+| User self-service | Browse content, submit, and view your own submissions in the Mini App |
+| Integrate automation | Bearer tokens, file uploads, and idempotent submissions |
+| Self-host | Isolated multi-bot configuration and storage, SQLite persistence, restart recovery |
 
 ## Quick start
 
+1. Create a bot with [@BotFather](https://t.me/BotFather), add it to your channel, and grant it permission to post.
+2. Install Python 3.10+. Image processing requires system libvips; see
+   [system dependencies](docs/en/INSTALL.md#libvips-system-dependency).
+3. Install and start in a virtual environment:
+
 ```bash
-pip install telepost-bot
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install telepost-bot
 telepost --setup
 telepost
 ```
 
-Needs Python 3.10+; image handling requires the system-level libvips library.
+On Windows PowerShell, activate with `.venv\Scripts\Activate.ps1`.
+The setup wizard asks for **Bot Token, Channel ID, and Owner ID**. Later runs use the saved configuration.
 
-Before you start: create a bot with [@BotFather](https://t.me/BotFather), add it to your target
-channel, and grant it permission to post.
+Send `/start` → `/submit` → upload media → `/done_media`, check the preview,
+then follow the submission prompts. See the [command guide](docs/en/COMMANDS.md).
 
-The first `telepost` run opens the setup wizard for the **Bot Token**, **Channel ID**, and
-**Owner ID**; after that, `telepost` starts with the saved configuration. Once it is running, send
-`/start` to the bot and use `/submit` for your first submission.
+**Review rules:** Bot private-chat submissions publish directly by default and can be configured
+for review. HTTP API submissions always require review. The Mini App has its own review setting.
+Configure the review chat and reviewers before using moderation; see
+[configuration](docs/en/CONFIGURATION.md).
 
-| Name | Value |
-| --- | --- |
-| PyPI project | `telepost-bot` |
-| CLI command | `telepost` |
-| Python import | `telepost` |
-| Python | 3.10+ |
+## Choose an installation method
 
-## Installation
-
-| Method | Usage | Fits |
+| Method | Entry point | Best for |
 | --- | --- | --- |
-| PyPI | `pip install telepost-bot` | Regular installs, servers, scripts |
-| Release | [Download](https://github.com/redtidev1918/TelePost/releases) | No Python installation needed |
-| Docker | `ghcr.io/redtidev1918/telepost:<version>` | Container deployments |
-| Source | `git clone` | Development, self-managed hosts |
+| Python / pip | `python -m pip install telepost-bot` | Self-managed servers and local use |
+| Standalone program | [Choose a platform and download](https://redtidev1918.github.io/TelePost/#/en/download) | No Python installation |
+| Docker / Compose | `ghcr.io/redtidev1918/telepost:<version>` | Container deployments |
+| Source | [Development and testing (Chinese)](docs/TESTING.md) | Code changes and contributions |
 
-In production, pin a release version; do not use `latest`. Full install, upgrade, and uninstall
-steps: [Install and deployment](docs/en/INSTALL.md).
+The PyPI package is `telepost-bot`; the command and Python import name are both `telepost`.
+Pin a formal release version in production. Full install, upgrade, and uninstall instructions:
+[Install and deployment](docs/en/INSTALL.md).
 
 ## HTTP API
 
-Generate a token with `/gen_token` in the bot, then submit content:
+As the Owner, generate an API token with `/gen_token <name>` in the bot, then submit content:
 
 ```bash
 curl -X POST 'https://example.com/api/v1/submissions' \
