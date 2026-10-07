@@ -239,8 +239,7 @@ TelePost 有两道不同的通道，不要混用：
 **没有「push main 后自动部署」这条路径。** 只有 merge Release PR 才进入正式发布。
 
 Release PR 由 release-please 维护：它按 Conventional Commits 累积变更、更新 `CHANGELOG.md` 与
-`telepost/build_info.py` 的版本。合并后流水线完成以下阶段（测试与平台构建可并行，
-正式发布仍等待全部检查通过）：
+`telepost/build_info.py` 的版本。合并后流水线依次完成测试、三平台并行构建与正式发布：
 
 ```text
 开发：PR → main
@@ -285,7 +284,7 @@ curl -fsS https://<app>.fly.dev/health    # version 必须等于本次 release v
 ### 发版耗时与构建缓存
 
 TelePost 使用固定提交的 ReleaseGraph 1.5.18：复用 Go 构建缓存，同一次运行只编译
-一次发布引擎；平台产物构建与测试并行，最终发布仍依赖两者成功。业务仓库只声明
+一次发布引擎；测试成功后三平台产物并行构建，最终发布仍等待全部构建成功。业务仓库只声明
 构建策略与调用版本，不维护第二套发布事务。
 
 Docker 的网页阶段在 `$BUILDPLATFORM` 上构建，生成的静态资源供两个目标架构共用，
