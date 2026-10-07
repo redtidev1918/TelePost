@@ -26,6 +26,10 @@ jobs:
       - name: Build the runtime and change only its release identity
         run: |
           set -euo pipefail
+          # Model the reusable release workflow's infrastructure checkouts.
+          mkdir -p .releasegraph/.git .release-please-action
+          printf 'fixture-only\n' > .releasegraph/.git/config
+          printf 'fixture-only\n' > .release-please-action/index.js
           docker buildx build --target runtime --load --progress plain \
             --cache-from type=gha,scope=buildkit \
             --build-arg APP_VERSION=cache-check-a \
@@ -51,4 +55,4 @@ jobs:
           print('Dependency and static-asset layers reused across release identities')
           PY
           docker run --rm telepost:cache-check-b python -c \
-            "import _release_version as v; import pyvips; import telepress; assert (v.RELEASE_VERSION, v.RELEASE_COMMIT, v.BUILD_DATE) == ('cache-check-b', 'commit-b', 'date-b'); print('Fresh runtime identity verified; TelePress', telepress.__version__)"
+            "import os; import _release_version as v; import pyvips; import telepress; assert (v.RELEASE_VERSION, v.RELEASE_COMMIT, v.BUILD_DATE) == ('cache-check-b', 'commit-b', 'date-b'); assert not os.path.exists('/app/.releasegraph'); assert not os.path.exists('/app/.release-please-action'); print('Fresh runtime identity and excluded release tooling verified; TelePress', telepress.__version__)"

@@ -1,8 +1,15 @@
 # Git 相关
 .git
+**/.git
 .gitignore
 .gitattributes
 .github
+
+# ReleaseGraph checks out infrastructure into the caller workspace. It is
+# build tooling, not application source (including its nested Git metadata).
+.releasegraph
+.releasegraph-engine
+.release-please-action
 
 # Python 相关
 __pycache__

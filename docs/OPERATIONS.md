@@ -290,6 +290,8 @@ TelePost 使用固定提交的 ReleaseGraph 1.5.18：复用 Go 构建缓存，�
 Docker 的网页阶段在 `$BUILDPLATFORM` 上构建，生成的静态资源供两个目标架构共用，
 避免在 ARM QEMU 下重复运行 npm/Vite。版本、提交和构建时间 ARG 放在依赖安装之后，
 每次发版只重写运行时版本文件，依赖与系统包仍可命中 BuildKit 缓存。
+`.dockerignore` 排除 ReleaseGraph、release-please 工作区与嵌套 Git 目录，避免
+发布工具进入应用镜像，或由发布工作区的变化使应用层缓存失效。
 
 社区依据：[Docker ARG 缓存规则](https://docs.docker.com/reference/dockerfile/#impact-on-build-caching)、
 [多平台构建](https://docs.docker.com/build/building/multi-platform/)、
@@ -298,7 +300,8 @@ Docker 的网页阶段在 `$BUILDPLATFORM` 上构建，生成的静态资源供�
 
 `Release image cache check` CI 实际构建两次，仅改变版本、提交和时间；核对 apt、pip 与
 网页构建层在第二次全部 CACHED，并启动第二个镜像检查真实版本与依赖，避免缓存错误
-导致发布旧版本。完整发版速度仍受冷缓存、基础镜像更新、GitHub API 和 registry 网络影响。
+导致发布旧版本；CI 还模拟发布工具目录，确认它们没有进入镜像。完整发版速度仍受冷缓存、
+基础镜像更新、GitHub API 和 registry 网络影响。
 
 优化前参考：TelePost 2.81.2 的 [Release run 37582280930](https://github.com/redtidev1918/TelePost/actions/runs/37582280930)
 约 21 分 16 秒；镜像构建 9 分 47 秒，post-release actions 3 分 31 秒。网页阶段的 ARM
