@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.81.5](https://github.com/redtidev1918/TelePost/compare/v2.81.4...v2.81.5) (2026-10-09)
+
+
+### Bug Fixes
+
+* **ci:** verify every deploy-side telepress pin, not just the service ([#307](https://github.com/redtidev1918/TelePost/issues/307)) ([d240385](https://github.com/redtidev1918/TelePost/commit/d2403850c305d0e22ebd0943b11e699db80e2c99))
+
 ## [2.81.4](https://github.com/redtidev1918/TelePost/compare/v2.81.3...v2.81.4) (2026-10-09)
 
 
