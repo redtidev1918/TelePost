@@ -27,10 +27,13 @@ MCP 首期只围绕 Review：
 
 ## 2. 为什么是 sidecar
 
-官方 MCP Python SDK 2.x 要求 Python 3.10+，而 TelePost 主程序仍支持 Python 3.9+。因此 MCP 是可选 sidecar：
+官方 MCP Python SDK 2.x 要求 Python 3.10+；TelePost 主程序的下限同样是 Python 3.10+
+（`pyproject.toml`：`requires-python = ">=3.10"`）。所以 Sidecar 的理由不是 Python
+版本，而是依赖隔离：把 `requirements-mcp.txt` 并进主镜像会把 MCP SDK 及其传递依赖绑进
+Bot 运行时，并让它的发版节奏影响投稿/审核路径。MCP 因此仍是可选 sidecar：
 
 ```text
-TelePost:        Python 3.9+，主 requirements.txt，:8080
+TelePost:        Python 3.10+，主 requirements.txt，:8080
 review-mcp:      Python 3.10+，requirements-mcp.txt，stdio 或 :8081
 ```
 
