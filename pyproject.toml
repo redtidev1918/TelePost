@@ -51,7 +51,7 @@ dependencies = [
     "pyvips>=2.2.0",
     "whoosh>=2.7.4",
     "init-data-py>=1.0.0",
-    "telepress>=0.17.0",
+    "telepress>=0.17.2",
 ]
 
 [project.optional-dependencies]
