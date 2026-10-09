@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.81.4](https://github.com/redtidev1918/TelePost/compare/v2.81.3...v2.81.4) (2026-10-09)
+
+
+### Bug Fixes
+
+* **preview:** require TelePress 0.17.2 unified pagination ([#305](https://github.com/redtidev1918/TelePost/issues/305)) ([536f815](https://github.com/redtidev1918/TelePost/commit/536f81582c5f584601dbb0f771cf84bc592470b5))
+
 ## [2.81.3](https://github.com/redtidev1918/TelePost/compare/v2.81.2...v2.81.3) (2026-10-07)
 
 
