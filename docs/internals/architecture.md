@@ -106,7 +106,7 @@ Final Publication Snapshot
   （幂等 by publication key → `publication_previews`；严格超时；失败/超时/不可用
   只影响「有没有在线阅读链接」，绝不影响 Publication 结果）。
 - TelePress 渲染后的正文每页按 UTF-8 JSON 限制为 60 KiB，含导航最多
-  64 KiB。20,000 源字符只作目标；分页与大小校验由上游负责，TelePost 不复制
+  64 KiB。全文先渲染，再统一按约 20,000 正文字符与字节预算分页；分页与大小校验由上游负责，TelePost 不复制
   分页实现。预览失败仍不影响频道 TXT 发布，root 按钮只在 URL 成功时出现。
 - Provider：`telepost/domain/novel_preview.py` 的 `NovelPreviewPublisher` port；
   `telepost/application/telepress_provider.py` 的 `TelePressNovelPreviewPublisher`
