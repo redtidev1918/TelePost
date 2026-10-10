@@ -194,7 +194,7 @@
   "任务ID": "Task ID",
   "候选历史": "Candidate history",
   "通过并发布": "Approve and publish",
-  "编辑后发布": "Edit and publish",
+  "编辑后发布": "Edit & publish",
   "通过/拒绝后不可撤销；并发操作以服务端先到者为准。": "Approval/rejection cannot be undone. The server accepts the first concurrent action.",
   "不通过": "Reject",
   "拒绝原因（可选，仅审核记录）": "Rejection reason (optional, review record only)",

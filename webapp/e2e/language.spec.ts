@@ -32,7 +32,11 @@ test('English review actions keep the original submitted title', async ({ page }
   await expect(page.getByTestId('bottom-nav')).toContainText('Review');
   await expect(page.getByRole('button', { name: 'Approve and publish' })).toBeVisible();
   await expect(page.getByText('E2E 审核稿')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Edit and publish' })).toBeVisible();
+  const edit = page.getByRole('button', { name: 'Edit & publish' });
+  await expect(edit).toBeVisible();
+  expect(await edit.evaluate((button) => [...button.querySelectorAll('span')].every(
+    (label) => label.scrollWidth <= label.clientWidth,
+  ))).toBe(true);
   await page.getByRole('button', { name: 'Approve and publish' }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('english-review.png'), fullPage: true });
 });
