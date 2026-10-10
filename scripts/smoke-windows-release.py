@@ -1,5 +1,6 @@
 """Verify frozen Windows setup and first startup without contacting Telegram."""
 import os
+from contextlib import closing
 from pathlib import Path
 import shutil
 import sqlite3
@@ -51,7 +52,7 @@ def main() -> None:
         assert result.returncode != 0 and "InvalidToken" in output, output
         database = exe.parent / "data" / "submissions.db"
         assert database.is_file()
-        with sqlite3.connect(database) as connection:
+        with closing(sqlite3.connect(database)) as connection:
             assert connection.execute(
                 "SELECT name FROM sqlite_master WHERE name = 'pending_reviews'"
             ).fetchone()
