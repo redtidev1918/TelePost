@@ -1,4 +1,6 @@
 [BOT]
+; Bot interface: zh (Chinese, default) or en (English). Restart after changing.
+LANGUAGE = zh
 # Telegram Bot Token (从 @BotFather 获取)
 TOKEN = your_bot_token_here
 

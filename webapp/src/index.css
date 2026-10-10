@@ -35,6 +35,11 @@ body {
   color: var(--tgui--text_color, #000000);
 }
 
+/* English tab names need more text space than the two-character Chinese labels. */
+html[lang='en'] .bottom-nav button {
+  padding-inline: 4px;
+}
+
 /* App shell (§layout): a single viewport-height column. The route content is
    the only scrolling region and the fixed BottomNav never overlays it because
    the content reserves the measured tabbar height + the platform safe area. */
