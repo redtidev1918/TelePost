@@ -20,6 +20,7 @@ Each test below fails against the pre-fix implementation.
 import asyncio
 import json
 import time
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import AsyncMock
@@ -220,23 +221,37 @@ async def test_send_throttled_never_starts_an_attempt_without_budget():
 
 
 @pytest.mark.asyncio
-async def test_send_throttled_stops_at_deadline_instead_of_retrying():
+async def test_send_throttled_stops_at_deadline_instead_of_retrying(monkeypatch):
     """Flood retries must not outlive the budget the router allows."""
-    from telepost.telegram.review_stager import TelegramReviewStager
+    from telepost.telegram import review_stager
 
     calls = []
+    sleeps = []
+    clock = {"now": 1000.0}
+    # asyncio timers can wake early on Windows. Own only the stager's clock;
+    # the event loop and pytest keep their real monotonic clocks.
+    monkeypatch.setattr(review_stager, "time", SimpleNamespace(
+        monotonic=lambda: clock["now"],
+    ))
 
     async def factory():
-        calls.append(1)
+        calls.append(clock["now"])
         raise RetryAfter(1)
 
-    stager = TelegramReviewStager(
-        AsyncMock(), -100123, preview_max_attempts=1000
+    async def sleep(delay):
+        sleeps.append(delay)
+        clock["now"] += delay
+
+    stager = review_stager.TelegramReviewStager(
+        AsyncMock(), -100123, sleep=sleep, preview_max_attempts=1000
     )
-    stager.set_staging_deadline(time.monotonic() + 0.05)
-    with pytest.raises(Exception):
+    deadline = clock["now"] + 0.05
+    stager.set_staging_deadline(deadline)
+    with pytest.raises(RuntimeError, match="submission staging timeout"):
         await stager._send_throttled(factory)
-    assert 0 < len(calls) <= 2, f"unbounded retry: {len(calls)} attempts"
+    assert calls == [1000.0], "an attempt started after the staging deadline"
+    assert sleeps == [pytest.approx(0.05)], "backoff exceeded the remaining budget"
+    assert clock["now"] == deadline
 
 
 @pytest.mark.asyncio
