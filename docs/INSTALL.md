@@ -8,7 +8,7 @@
 
 | 方式 | 适合 | 需要 |
 |---|---|---|
-| **pip（推荐）** | 最简单的 Python 安装与自动化：一条命令安装、一条命令升级 | Python 3.10+，系统 libvips |
+| pip | Python 环境与自动化安装 | Python 3.10+，系统 libvips |
 | Release 单文件 | 不希望安装 Python 的用户 | 无需预装 Python |
 | Docker / Compose | 容器部署 | Docker |
 | Fly.io | 常驻生产 Webhook | `flyctl` |
@@ -18,16 +18,14 @@
 示例中的 `<version>` 形如 `2.x.y`，请替换成你要部署的那个 release version；生产环境不要使用
 会随时间漂移的 `latest`。
 
-PythonAnywhere 的旧 WSGI 适配**不是当前受支持的生产路径**：它覆盖不了完整运行生命周期
-（多 Bot supervisor、webhook 注册与审核队列）。旧文档曾把它描述为「已验证可用」，那是不准确的，
-不要按旧教程部署到生产。
+PythonAnywhere 的旧 WSGI 适配不覆盖多 Bot supervisor、Webhook 注册与审核队列生命周期，
+不用于生产部署。
 
 ## 1. pip 安装（推荐）
 
 ```bash
-pip install telepost-bot
+python -m pip install telepost-bot
 telepost --setup
-telepost
 ```
 
 | 名称 | 值 |
@@ -38,12 +36,32 @@ telepost
 | Python | 3.10+ |
 
 `telepost --setup` 是可选的配置向导：跳过它直接运行 `telepost` 时，首次启动同样会进入同一个
-向导，填写 **Bot Token**、**频道 ID**、**Owner ID**。再次运行则以前次配置直接启动。
+向导，填写 Bot Token、频道 ID、Owner ID。pip 安装的配置和数据保存在当前工作目录，
+后续启动应使用同一目录。
+
+启动前补齐审核配置。`API_REVIEW_REQUIRED` 与 `MINIAPP_REVIEW_REQUIRED` 默认开启，
+因此三项向导配置之外还需要在 `config.ini` 中设置独立审核群：
+
+```ini
+[BOT]
+# 保留向导生成的 TOKEN、CHANNEL_ID、OWNER_ID，追加：
+REVIEW_CHAT_ID = -1001234567890
+```
+
+将示例 ID 换成自己的审核群 ID，把 Bot 加入群中并确保它能发送消息，然后启动：
+
+```bash
+telepost
+```
+
+仅使用私聊直发、暂不接入 API 和 Mini App 时，可显式设置 `API_REVIEW_REQUIRED=false` 与
+`MINIAPP_REVIEW_REQUIRED=false`，并保持 `CHAT_REVIEW_REQUIRED=false`。
+兼容开关不会允许 API 绕过审核；要接入自动化投稿仍须配置审核群。
 
 升级：
 
 ```bash
-pip install --upgrade telepost-bot
+python -m pip install --upgrade telepost-bot
 ```
 
 ### libvips 系统依赖
@@ -76,7 +94,8 @@ chmod +x telepost-*
 ./telepost-linux-x64
 ```
 
-首次运行会询问 Token、频道和 Owner ID，并在程序同目录写入 `config.ini`。再次运行启动；
+首次运行会询问 Token、频道和 Owner ID，并在程序同目录写入 `config.ini`。
+按上一节补齐审核群配置后，再次运行启动；
 以后可执行 `./telepost-linux-x64 --setup` 重配。macOS 产物只支持 Apple Silicon，Intel
 Mac 请使用 pip、源码或 Docker。
 
@@ -88,6 +107,7 @@ Mac 请使用 pip、源码或 Docker。
 TOKEN=123456:replace-me
 CHANNEL_ID=@your_channel
 OWNER_ID=123456789
+REVIEW_CHAT_ID=-1001234567890
 TELEPOST_VERSION=2.x.y    # 替换成要固定的 release version，例如 PYPI/GHCR 上的正式版本号
 ```
 
@@ -109,6 +129,7 @@ docker run -d --name telepost --restart unless-stopped \
   ghcr.io/redtidev1918/telepost:<version>
 ```
 
+将示例 ID 换成自己的配置；审核群与频道必须是不同的会话。
 容器会把 `./data`、`./logs` 挂载出来；升级前备份 `data/`。
 
 需要 Webhook 时自行映射 8080 并提供公网 HTTPS 反向代理；无公网地址保持
@@ -122,9 +143,11 @@ cd TelePost
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ./.venv/bin/python run.py --setup
-./.venv/bin/python run.py
 ```
 
+补齐上面的审核配置后运行 `./.venv/bin/python run.py`。
+Windows 用 `py -3 -m venv .venv` 创建环境，将 `./.venv/bin/python` 换成
+`.\.venv\Scripts\python.exe`，安装依赖用该解释器的 `-m pip`。配置文件保存为 UTF-8（可带 BOM）。
 `run.py` 是统一入口；不要直接用 `main.py` 启动多 Bot。配置可改为环境变量，见
 [CONFIGURATION.md](CONFIGURATION.md)。
 

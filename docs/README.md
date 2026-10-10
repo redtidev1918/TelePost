@@ -1,80 +1,56 @@
-# TelePost 文档中心
+# TelePost 文档
 
-> TelePost 是一个面向 Telegram 频道的投稿、审核与自动化发布平台，支持聊天、Mini App、
-> 多 Bot 和 HTTP API。这里汇聚它的全部文档。
+TelePost 接收 Telegram Bot、Mini App 和 HTTP API 投稿，负责审核与频道发布。
+先按任务选择指南；接口字段、配置默认值和内部设计各有独立参考。
 
-> **English:** English pages live under [`/en/`](en/); see the
-> [English README](https://github.com/redtidev1918/TelePost/blob/main/README.en.md)
-> and the [Download page](/en/download.md).
+[English](en/README.md) · [项目主页](https://github.com/redtidev1918/TelePost)
 
-## 📥 安装
+## 开始使用
 
-**推荐方式：`pip install telepost-bot`**（CLI 为 `telepost`，Python 导入为 `telepost`，需要 Python 3.10+）。
-全部安装方式、升级与卸载见 [INSTALL](INSTALL.md)。
+首次安装见 [安装与部署](INSTALL.md)。Python 用户安装 `telepost-bot`，用
+`telepost --setup` 配置后启动；无需 Python 的独立程序见 [下载](download.md)。
 
-Windows / macOS / Linux **免安装单文件版**，见 [📥 下载页](download.md)（自动指向最新 Release；Intel Mac 与
-Docker 见 [INSTALL](INSTALL.md)）。
-
-## 🧭 按任务找文档
-
-| 你想做什么 | 路线 |
+| 任务 | 指南 |
 | --- | --- |
-| 第一次部署，跑起来 | [安装与部署](INSTALL.md) |
-| 了解所有 Telegram 命令 | [命令参考](COMMANDS.md) |
-| 精细配置（Token、频道、审核、多 Bot） | [配置参考](CONFIGURATION.md) |
-| 审核员改稿后再发布 | [配置参考 · 编辑后发布](CONFIGURATION.md) |
-| 启用 Telegram Mini App | [Mini App](MINIAPP.md) |
-| 部署到 Fly.io | [Fly.io 部署](FLYIO_DEPLOYMENT.md) |
-| 理解 Webhook 与 Polling 的区别 | [Webhook 与 Polling](WEBHOOK_MODE.md) |
-| 日常运维、升级、备份 | [运维手册](OPERATIONS.md) |
-| 排查问题 | [故障排查](TROUBLESHOOTING.md) |
-| 调内存 / 容量 | [性能与容量](PERFORMANCE.md) |
-| 接外部自动化投稿（HTTP API） | [HTTP API](API.md) |
-| 让 AI Agent 辅助审核 | [MCP 投稿审核](MCP_REVIEW.md) |
-| 二次开发、改代码 | [投稿状态机](internals/submission-flow.md) · [删帖与软删除](internals/moderation.md) · [测试指南](TESTING.md) |
+| 安装、升级或卸载 | [安装与部署](INSTALL.md) |
+| 通过 Bot 投稿或管理频道 | [命令参考](COMMANDS.md) |
+| 配置频道、审核群、多 Bot 和署名 | [配置参考](CONFIGURATION.md) |
+| 启用网页投稿与审核 | [Telegram Mini App](MINIAPP.md) |
+| 接入脚本或自动化服务 | [HTTP API](API.md) |
+| 用 Agent 查看稿件、提供审核建议 | [MCP 投稿审核](MCP_REVIEW.md) |
 
-## 📚 全部文档
+Bot 私聊默认直接发布；Mini App 默认需要审核，可独立配置；自动化 API 投稿固定需要人工审核。
+具体开关见 [审核配置](CONFIGURATION.md#审核)。
 
-### 开始使用
+## 部署与运维
 
-| 文档 | 内容 |
+| 任务 | 指南 |
 | --- | --- |
-| [INSTALL](INSTALL.md) | 各平台安装方式、首次配置、启动与验证 |
-| [COMMANDS](COMMANDS.md) | 全部 Telegram 命令与用法 |
+| 选择更新接收模式、配置反向代理 | [Webhook 与 Polling](WEBHOOK_MODE.md) |
+| 使用 Fly.io | [Fly.io 部署](FLYIO_DEPLOYMENT.md) |
+| 备份、升级、回退、检查运行状态 | [运维手册](OPERATIONS.md) |
+| 处理无响应、上传失败、发布失败 | [故障排查](TROUBLESHOOTING.md) |
+| 评估内存、上传和磁盘容量 | [性能与容量](PERFORMANCE.md) |
 
-### 配置与部署
+TelePost 在 Fly.io 上常驻运行。PixivFlow 等上游采集器使用独立 App 和卷；
+组合部署以 [部署仓库](https://github.com/redtidev1918/pixivflow-telepost-deploy) 为准。
 
-| 文档 | 内容 |
+## 开发参考
+
+| 主题 | 文档 |
 | --- | --- |
-| [CONFIGURATION](CONFIGURATION.md) | 环境变量 / config.ini 逐项说明 |
-| [MINIAPP](MINIAPP.md) | Mini App 配置、构建与安全边界 |
-| [FLYIO_DEPLOYMENT](FLYIO_DEPLOYMENT.md) | TelePost 的 Fly.io 部署 |
-| [WEBHOOK_MODE](WEBHOOK_MODE.md) | Webhook 与 Polling 两种模式 |
+| 本地测试与 CI | [测试指南](TESTING.md) |
+| 应用分层、投递与预览 | [运行时架构](internals/architecture.md) |
+| 请求身份与投稿归属 | [投稿归属契约](architecture/identity-and-provenance.md) |
+| 私聊状态与持久化 | [聊天投稿状态机](internals/submission-flow.md) |
+| 投稿处置与管理权限 | [管理控制面](internals/admin-control-plane.md) |
+| 删帖与历史记录 | [删帖与软删除](internals/moderation.md) |
+| 同一内容重新提交审核 | [重投契约](RESUBMIT.md) |
 
-### 运维
+参与开发前阅读仓库 [AGENTS.md](https://github.com/redtidev1918/TelePost/blob/main/AGENTS.md)
+和 [贡献指南](https://github.com/redtidev1918/TelePost/blob/main/CONTRIBUTING.md)。
+设计记录 [私聊文案 RFC](private-chat-ux-rfc.md) 用于理解改动背景；
+当前操作步骤以上述指南和代码为准。
 
-| 文档 | 内容 |
-| --- | --- |
-| [OPERATIONS](OPERATIONS.md) | 运维手册：更新、备份、监控 |
-| [TROUBLESHOOTING](TROUBLESHOOTING.md) | 常见故障与排查步骤 |
-| [PERFORMANCE](PERFORMANCE.md) | 内存 / 容量优化 |
-
-### 开发者
-
-| 文档 | 内容 |
-| --- | --- |
-| [API](API.md) | HTTP API v1 投稿接口参考 |
-| [TESTING](TESTING.md) | 测试指南 |
-| [RESUBMIT](RESUBMIT.md) | 重投：结果词汇、状态机与幂等语义 |
-| [architecture](internals/architecture.md) | 运行时分层：handler / 领域服务 / 适配器职责边界 |
-| [identity-and-provenance](architecture/identity-and-provenance.md) | 投稿归属契约：Actor / Submitter / Source 三者的区别 |
-| [submission-flow](internals/submission-flow.md) | 内部设计：聊天投稿状态机 |
-| [admin-control-plane](internals/admin-control-plane.md) | 管理控制面：来源可信度审核、治理名单、错误契约 |
-| [moderation](internals/moderation.md) | 内部设计：删帖与软删除 |
-| [private-chat-ux-rfc](private-chat-ux-rfc.md) | 私聊文案与投稿流程重构 RFC |
-
-## 🔗 其他入口
-
-- 项目主页：<https://github.com/redtidev1918/TelePost>
-- npm 无（Python 项目）；PyInstaller 单文件见 [Releases](https://github.com/redtidev1918/TelePost/releases)
-- 问题反馈：[Issues](https://github.com/redtidev1918/TelePost/issues)
+遇到问题可提交 [Issue](https://github.com/redtidev1918/TelePost/issues)，附版本、部署方式、
+复现步骤和脱敏日志。

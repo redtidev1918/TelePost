@@ -1,7 +1,7 @@
 # 管理控制面（实时模型）
 
-本页描述**当前代码与当前生产**中的管理员控制面模型。历史文档如果声称「所有投稿
-都进入审核」「失败只显示 failed」，以本页为准。
+本页描述管理员控制面的应用模型。生产版本和运行配置见部署仓库的
+`docs/operations/current-state.md`；本仓库配置默认值见 [配置参考](../CONFIGURATION.md)。
 
 ## 投稿 → 处置（Admission Policy，`SubmissionDisposition`）
 
@@ -41,7 +41,7 @@ created_at  操作 Unix 时间
 - `subject` 唯一；同一 subject 重复封禁幂等（返回已存在的行 id）。
 - **禁止物理删除历史治理记录**。当前没有状态列，也没有解封/过期字段；受封来源在接收新投稿
   时被 `is_blocked()` 拦截，历史投稿与审核记录保持不变。
-- `removed` / `expired` 生命周期与可见的「解封时间/操作人」为 **planned**，当前代码未实现，
+- `removed` / `expired` 生命周期与可见的「解封时间/操作人」为 `PLANNED`，当前代码未实现，
   不要按已能力宣传。
 - 封禁入口当前由管理 API/Telegram 命令调用 `add_block()` 写入；操作事件应同时写入
   `audit_events`（审计是 append-only 证据面）。
@@ -63,10 +63,9 @@ hint          给操作员的提示文案（绝不吞掉异常）
 ### 恢复/重抓已知坑
 
 - 恢复与重抓需要 TelePost 容器内设置 `PIXIVFLOW_REFETCH_BASE_URL` 与
-  `PIXIVFLOW_REFETCH_TOKEN`，并且两值必须**与 PixivFlow 端同名 Secret 一致**
+  `PIXIVFLOW_REFETCH_TOKEN`。地址指向独立 PixivFlow 服务，令牌与该服务的 Secret 一致
   （尤其不要把 `apikey=` 之类的前缀裹进 `PIXIVFLOW_REFETCH_TOKEN`）。
-- 曾出现「恢复请求失败」根本原因是 `PIXIVFLOW_REFETCH_BASE_URL` 缺失，而不是恢复逻辑
-  错误；已修复并在生产补上 `https://pixivflow-scheduler.fly.dev`。排查顺序：
-  1. TelePost 容器内 `env` 确认两个变量都存在、值为纯 token/base URL；
+- 排查配置与认证时：
+  1. 只报告两个变量「已配置 / 缺失」，不要打印 `env` 或令牌值；
   2. `GET {base}/internal/targets/<target>/recover/<fake-uuid>` 应返回「manual recovery not found」（
      该响应同时证明认证通过、路由可达），否则是变量/Secret 不一致。

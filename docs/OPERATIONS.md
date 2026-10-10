@@ -24,7 +24,7 @@ API 临时上传、审核队列、PixivFlow cache 和 delivery outbox。单 Bot 
 
 ## 计划观察（schedule observability）
 
-每天 10:00/22:00 等发布时点由 PixivFlow 执行，TelePost 收到的每条终态
+内容采集计划由 PixivFlow 执行，时点以部署仓库的生产配置为准。TelePost 收到的每条终态
 （success/partial/failed）都通过 schedule outbox 投递到审核群。为避免「没等到作品
 也没收到通知」的静默故障，TelePost 2.38.0 起增加：
 
@@ -93,10 +93,9 @@ Machine。
 | `/botconfig` 策略 | 数据库同目录的 `runtime-policy.json` |
 | 搜索索引 | `data/search_index` 或 `data/botN/search_index` |
 | API 临时上传 | `data/api_uploads/` |
-| PixivFlow 数据 | 通常 `/app/data/pixivflow/` |
 
-不要只备份数据库而遗漏 `runtime-policy.json` 和 `persistence.pickle`。多 Bot 要备份
-整个 `data/`。
+备份数据库时一并保留 `runtime-policy.json` 和 `persistence.pickle`。多 Bot 要备份
+整个 `data/`。PixivFlow 的缓存、执行账本和 outbox 位于上游独立卷，按部署仓库的流程备份。
 
 ## 备份
 
@@ -341,17 +340,17 @@ reaction 后，Bot 把 `(message_id, total_count)` 写入 `message_reaction_coun
 - 常用排查命令：
 
 ```bash
-fly logs -a telesubmit-multi-bot --no-tail | grep "Reaction ingest"
-curl -s https://telesubmit-multi-bot.fly.dev/health | jq '.reaction_ingest_by_bot'
+fly logs -a <app> --no-tail | grep "Reaction ingest"
+curl -fsS https://<app>.fly.dev/health | jq '.reaction_ingest_by_bot'
 ```
 
 ```bash
-fly ssh console -a telesubmit-multi-bot
+fly ssh console -a <app>
 ```
 
 ```python
 import sqlite3
-c = sqlite3.connect('/app/data/bot1/submissions.db')
+c = sqlite3.connect('file:/app/data/bot1/submissions.db?mode=ro', uri=True)
 print(c.execute('SELECT COUNT(*) FROM message_reaction_counts').fetchone()[0])
 ```
 

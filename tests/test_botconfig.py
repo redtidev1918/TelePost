@@ -1,4 +1,5 @@
 import json
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,9 +17,20 @@ def test_runtime_policy_is_atomic_and_validated(tmp_path):
         "CHANNEL_ID": "-100123",
         "API_REVIEW_REQUIRED": "true",
     }
-    assert path.stat().st_mode & 0o777 == 0o600
+    if os.name == "posix":
+        assert path.stat().st_mode & 0o777 == 0o600
     with pytest.raises(ValueError):
         update_runtime_policy(path, {"TOKEN": "must-not-be-configurable"})
+
+
+def test_runtime_policy_without_fchmod(monkeypatch, tmp_path):
+    monkeypatch.delattr(os, "fchmod", raising=False)
+    path = tmp_path / "runtime-policy.json"
+    update_runtime_policy(path, {"CHANNEL_ID": "-100123"})
+    assert load_runtime_policy(path) == {"CHANNEL_ID": "-100123"}
+    assert not list(tmp_path.glob(".runtime-policy-*"))
+    if os.name == "posix":
+        assert path.stat().st_mode & 0o777 == 0o600
 
 
 def test_build_bot_env_loads_only_its_persisted_policy(tmp_path):

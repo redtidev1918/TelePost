@@ -5,6 +5,7 @@
 import pytest
 import asyncio
 import sqlite3
+from contextlib import closing
 import tempfile
 import os
 import time
@@ -230,12 +231,9 @@ class TestDatabaseRobustness:
             f.write("This is not a valid SQLite database")
         
         # 尝试连接应该失败但不崩溃
-        try:
-            conn = sqlite3.connect(db_path)
-            conn.execute("SELECT 1")
-        except sqlite3.DatabaseError:
-            # 预期的行为
-            pass
+        with closing(sqlite3.connect(db_path)) as conn:
+            with pytest.raises(sqlite3.DatabaseError):
+                conn.execute("SELECT name FROM sqlite_master")
     
     @pytest.mark.robustness
     @pytest.mark.unit

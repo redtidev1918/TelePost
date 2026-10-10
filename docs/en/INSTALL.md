@@ -9,7 +9,7 @@ README only shows the shortest path; the commands live here.
 
 | Method | Fits | Requires |
 |---|---|---|
-| **pip (recommended)** | Simplest Python install and automation: one command to install, one to upgrade | Python 3.10+, OS libvips |
+| pip | Python environments and automated installation | Python 3.10+, OS libvips |
 | Release single file | Users who prefer not to install Python | No preinstalled Python |
 | Docker / Compose | Container deployments | Docker |
 | Fly.io | Resident production Webhook | `flyctl` |
@@ -20,17 +20,14 @@ README only shows the shortest path; the commands live here.
 a `2.x.y` release version — substitute the release you are deploying. Never use `latest` in
 production: it drifts over time.
 
-PythonAnywhere's legacy WSGI adapter is **not a supported production path**: it cannot cover
-the full runtime lifecycle (multi-bot supervisor, webhook registration, review queue). Older
-documentation described it as "verified working", which was inaccurate — do not deploy to
-production following those old guides.
+PythonAnywhere's legacy WSGI adapter does not cover the multi-bot supervisor, webhook registration,
+and review-queue lifecycle, so it is unsupported for production.
 
 ## 1. pip install (recommended)
 
 ```bash
-pip install telepost-bot
+python -m pip install telepost-bot
 telepost --setup
-telepost
 ```
 
 | Name | Value |
@@ -42,12 +39,34 @@ telepost
 
 `telepost --setup` is the optional configuration wizard. Skipping it changes nothing: the first
 `telepost` run enters the same wizard for the **Bot Token**, **Channel ID** and **Owner ID**, and
-later runs start with the saved configuration.
+later runs use the saved configuration. With a pip installation, configuration and data live in
+the current working directory; use the same directory for later runs.
+
+Configure review before starting. `API_REVIEW_REQUIRED` and `MINIAPP_REVIEW_REQUIRED` default to
+enabled, so the three-field wizard also needs a separate review group in `config.ini`:
+
+```ini
+[BOT]
+# Keep TOKEN, CHANNEL_ID, and OWNER_ID from the wizard; add:
+REVIEW_CHAT_ID = -1001234567890
+```
+
+Replace the example ID with your review group's ID, add the bot to the group with permission to
+send messages, then start:
+
+```bash
+telepost
+```
+
+For private-chat-only use without the API or Mini App, explicitly set `API_REVIEW_REQUIRED=false`
+and `MINIAPP_REVIEW_REQUIRED=false`, leaving `CHAT_REVIEW_REQUIRED=false`.
+The compatibility switch does not let API submissions bypass review; automated submissions still
+need a configured review group.
 
 Upgrade:
 
 ```bash
-pip install --upgrade telepost-bot
+python -m pip install --upgrade telepost-bot
 ```
 
 ### libvips system dependency
@@ -82,7 +101,8 @@ chmod +x telepost-*
 ```
 
 The first run asks for the token, channel and owner ID, and writes `config.ini` next to the
-executable. Running it again starts the bot; re-configure later with
+executable. Complete the review-group configuration described above before starting it again;
+re-configure later with
 `./telepost-linux-x64 --setup`. The macOS build is Apple Silicon only — Intel Mac users should
 use pip, source or Docker.
 
@@ -94,6 +114,7 @@ The image is always `ghcr.io/redtidev1918/telepost:<version>`. Create `.env` in 
 TOKEN=123456:replace-me
 CHANNEL_ID=@your_channel
 OWNER_ID=123456789
+REVIEW_CHAT_ID=-1001234567890
 TELEPOST_VERSION=2.x.y    # replace with the release version you want to pin
 ```
 
@@ -116,7 +137,8 @@ docker run -d --name telepost --restart unless-stopped \
   ghcr.io/redtidev1918/telepost:<version>
 ```
 
-The container mounts `./data` and `./logs`; back up `data/` before upgrading.
+Replace example IDs with your own configuration; the review group and channel must be different
+chats. The container mounts `./data` and `./logs`; back up `data/` before upgrading.
 
 If you need webhooks, map 8080 yourself and put a public HTTPS reverse proxy in front. Without
 a public address, keep `RUN_MODE=AUTO` or `POLLING`.
@@ -129,9 +151,12 @@ cd TelePost
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ./.venv/bin/python run.py --setup
-./.venv/bin/python run.py
 ```
 
+After completing the review configuration above, run `./.venv/bin/python run.py`.
+On Windows, create the environment with `py -3 -m venv .venv`, use
+`.\.venv\Scripts\python.exe` instead, and install dependencies with its `-m pip`.
+Save configuration as UTF-8, with or without a BOM.
 `run.py` is the single entry point; do not start the multi-bot supervisor directly with
 `main.py`. Configuration can be supplied through environment variables instead — see
 [Configuration](/en/CONFIGURATION.md).

@@ -561,8 +561,8 @@ submission surfaces:
   READ_ONLINE     → Telegraph preview (novel_preview_url), when present
   BOT_SUBMIT      → https://t.me/<bot>?start=submit
   MINI_APP_SUBMIT → Direct Mini App when MINIAPP_SHORT_NAME is configured;
-                    otherwise ?start=miniapp fallback (bot then opens a
-                    private-chat Web App button). MINIAPP_SUBMIT_CTA must
+                    otherwise ?startapp=miniapp (Main Mini App must be
+                    configured in BotFather). MINIAPP_SUBMIT_CTA must
                     also be enabled.
 
 Each action appears EXACTLY ONCE in the footer.
@@ -570,7 +570,7 @@ Each action appears EXACTLY ONCE in the footer.
 
 - URL 构造唯一权威在 `telepost/domain/navigation.py`：`bot_submission_url`
   只接受 `https://t.me/<bot>` 形式并返回 `?start=submit`；`miniapp_submission_url`
-  返回 `?startapp=submit`（或 Direct Mini App 的
+  返回 `?startapp=miniapp`（或 Direct Mini App 的
   `https://t.me/<bot>/<short_name>?startapp=submit`）。
 - `start=submit` / `startapp=submit` 只是导航意图：绝不放入 user id /
   username / token / session，也不被当成认证或授权；Mini App 身份仍只来自

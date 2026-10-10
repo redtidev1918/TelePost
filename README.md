@@ -2,7 +2,7 @@
 
 **语言 / Language:** 中文 · [English](README.en.md)
 
-> **Telegram 频道投稿、审核与发布服务。**
+Telegram 频道投稿、审核与发布服务。
 
 [![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
 [![PyPI](https://img.shields.io/pypi/v/telepost-bot.svg)](https://pypi.org/project/telepost-bot/)
@@ -18,12 +18,6 @@ Telegram Bot ─────┐
 Telegram Mini App ├──→ TelePost ──→ Telegram Channel
 HTTP API ─────────┘
 ```
-
-## 从哪里开始
-
-[安装与部署](docs/INSTALL.md) · [配置](docs/CONFIGURATION.md) ·
-[命令](docs/COMMANDS.md) · [故障排查](docs/TROUBLESHOOTING.md) ·
-[完整文档](https://redtidev1918.github.io/TelePost/)
 
 ## 能做什么
 
@@ -41,24 +35,33 @@ HTTP API ─────────┘
 1. 用 [@BotFather](https://t.me/BotFather) 创建 Bot，加入目标频道并授予发帖权限。
 2. 安装 Python 3.10+。图片处理需要系统 libvips，安装方法见
    [系统依赖](docs/INSTALL.md#libvips-系统依赖)。
-3. 在虚拟环境中安装并启动：
+3. 在虚拟环境中安装并生成配置：
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install telepost-bot
 telepost --setup
-telepost
 ```
 
-Windows PowerShell 使用 `.venv\Scripts\Activate.ps1` 激活环境。
-配置向导需要 **Bot Token、Channel ID、Owner ID**；再次运行 `telepost` 会使用保存的配置。
+Windows PowerShell 使用以下命令：
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install telepost-bot
+.\.venv\Scripts\telepost.exe --setup
+```
+
+配置向导填写 Bot Token、Channel ID、Owner ID。在生成的 `config.ini` 的 `[BOT]` 节中
+补充 `REVIEW_CHAT_ID`（独立审核群 ID），再运行 `telepost`。API 与 Mini App 的审核开关
+默认开启，三项向导配置尚不包含审核群。仅使用私聊直发时的配置见 [安装指南](docs/INSTALL.md#1-pip-安装推荐)。
+Windows 保存配置时使用 UTF-8，启动命令为 `.\.venv\Scripts\telepost.exe`。
 
 启动后向 Bot 发送 `/start` → `/submit` → 上传媒体 → `/done_media`，
 在预览中检查内容，再按提示提交。命令详情见 [投稿流程](docs/COMMANDS.md)。
 
-**审核规则：** Bot 私聊投稿默认直接发布，可配置为先审核；HTTP API 投稿固定需要审核；
-Mini App 使用独立审核开关。需要审核时，先配置审核群与审核人，参见
+Bot 私聊投稿默认直接发布，可配置为先审核；HTTP API 自动化投稿固定需要审核；
+Mini App 默认需要审核，由独立的 `MINIAPP_REVIEW_REQUIRED` 控制。需要审核时，先配置审核群与审核人，参见
 [配置参考](docs/CONFIGURATION.md)。
 
 ## 选择安装方式
@@ -87,7 +90,8 @@ curl -X POST 'https://example.com/api/v1/submissions' \
   -F 'idempotency_key=example:123'
 ```
 
-适合 RSS、爬虫、CI、定时任务、自有脚本以及 PixivFlow 等自动化工具。
+示例使用单 Bot 地址；多 Bot 改用 `/api/botN/v1/submissions`。
+响应表示已受理审核，人工批准后才发布。同一次请求重试时保留原 `idempotency_key`。
 
 完整接口与字段见 [HTTP API](docs/API.md)。
 
@@ -101,15 +105,14 @@ Mini App 与 Bot 共用同一套后端、权限和投稿状态。配置见 [Mini
 
 ## 多 Bot 与部署
 
-TelePost 支持在一个进程中运行多个相互隔离的 Bot，各自拥有独立的配置、数据目录与 Telegram 入口。
+`run.py` 管理多个 Bot 子进程，每个 Bot 使用独立配置和数据目录。
+父路由对外提供 `/webhook/botN` 和 `/api/botN/v1/*`，子进程端口仅供本机访问。
 
 可以部署在本地服务器、VPS、Docker / Compose 或 Fly.io。没有公网 HTTPS 时使用 Polling；
 需要接收 Telegram Webhook 时使用 Webhook。
 
-[安装与部署](docs/INSTALL.md) · [配置](docs/CONFIGURATION.md) ·
-[运行模式](docs/WEBHOOK_MODE.md) · [Fly.io](docs/FLYIO_DEPLOYMENT.md)
-
-正式发版和生产部署见 [运维手册](docs/OPERATIONS.md)。
+Fly.io 参考配置使用 512 MiB 内存、持久卷和常驻服务。PixivFlow 等内容采集器在独立服务中运行，
+通过 HTTP API 投稿。正式发版和生产部署见 [运维手册](docs/OPERATIONS.md)。
 
 ## 文档
 
@@ -127,6 +130,7 @@ TelePost 支持在一个进程中运行多个相互隔离的 Bot，各自拥有�
 | 运维 | [运维手册](docs/OPERATIONS.md) |
 | 故障排查 | [故障排查](docs/TROUBLESHOOTING.md) |
 | 开发 | [测试指南](docs/TESTING.md) |
+| 参与贡献 | [贡献指南](CONTRIBUTING.md) |
 
 ## 相关项目
 

@@ -35,6 +35,7 @@
 | `/pin_status` | View the most recent scheduled-run terminal state and pin it to the current group/channel |
 | `/searchuser <user id>` | Look up a specific user's submissions |
 | `/delete_posts <id or range...>` | Bulk soft delete, at most 50 per call |
+| `/stats` | Global user, post, and reaction counts (Owner only) |
 | `/blacklist` | Block-list panel |
 | `/blacklist_add <user id> [reason]` | Add to the block list |
 | `/blacklist_remove <user id>` | Remove from the block list |
@@ -137,6 +138,7 @@ Example: `/schedule add weekly-hot sunday 20:00 10`
 - The same task will not send twice for the same time slot (idempotent)
 - Timezone uses the `TZ` env var (default `Asia/Shanghai`)
 - Manual runs do not affect the next scheduled occurrence
+
 ## Submission flow commands
 
 | Command | Stage | Description |
@@ -157,5 +159,4 @@ default.
 
 > Pages marked **（中文）** are currently Chinese-only. Their English versions are being added
 > incrementally.
-
 

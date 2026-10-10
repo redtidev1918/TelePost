@@ -9,9 +9,9 @@ import sys
 def check_python_version():
     """检查 Python 版本"""
     major, minor = sys.version_info[:2]
-    if major < 3 or (major == 3 and minor < 8):
+    if (major, minor) < (3, 10):
         print(f"❌ Python 版本过低: {major}.{minor}")
-        print("   需要 Python 3.8 或更高版本")
+        print("   需要 Python 3.10 或更高版本")
         return False
     print(f"✅ Python 版本: {major}.{minor}")
     return True
@@ -44,7 +44,7 @@ def check_config_file():
         try:
             import configparser
             config = configparser.ConfigParser()
-            config.read('config.ini')
+            config.read('config.ini', encoding="utf-8-sig")
             
             # 检查必要配置
             if config.has_option('BOT', 'TOKEN'):
@@ -166,9 +166,7 @@ def main():
         print("✅ 所有检查通过！可以启动机器人了")
         print()
         print("启动命令:")
-        print("  python3 main.py")
-        print("  或")
-        print("  ./start.sh")
+        print("  python run.py")
         return 0
     else:
         print("❌ 检查失败，请修复以上问题")
@@ -181,20 +179,14 @@ def main():
         
         if not deps_ok:
             print("💡 安装依赖:")
-            print("   pip3 install -r requirements.txt")
+            print("   python -m pip install -r requirements.txt")
         
         if not config_ok:
             print("💡 配置机器人:")
-            print("   方法 1: 复制并编辑配置文件")
-            print("     cp config.ini.example config.ini")
-            print("     nano config.ini")
-            print()
-            print("   方法 2: 设置环境变量")
-            print("     export TOKEN='your_token'")
-            print("     export CHANNEL_ID='@your_channel'")
+            print("   python run.py --setup")
+            print("   编辑生成的 UTF-8 config.ini，补齐审核群配置后再启动。")
         
         return 1
 
 if __name__ == '__main__':
     sys.exit(main())
-
