@@ -147,7 +147,8 @@ python3 -m venv .venv
 
 补齐上面的审核配置后运行 `./.venv/bin/python run.py`。
 Windows 用 `py -3 -m venv .venv` 创建环境，将 `./.venv/bin/python` 换成
-`.\.venv\Scripts\python.exe`，安装依赖用该解释器的 `-m pip`。配置文件保存为 UTF-8（可带 BOM）。
+`.\.venv\Scripts\python.exe`，安装依赖用该解释器的 `-m pip`。配置文件保存为 UTF-8（可带 BOM），
+Windows 命令行的输入、输出也统一使用 UTF-8，单文件程序与源码运行一致。
 `run.py` 是统一入口；不要直接用 `main.py` 启动多 Bot。配置可改为环境变量，见
 [CONFIGURATION.md](CONFIGURATION.md)。
 

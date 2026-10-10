@@ -823,6 +823,8 @@ def run_multi(indices: list) -> None:
 
 
 def main():
+    from utils.console import configure_windows_stdio
+    configure_windows_stdio()
     if "--version" in sys.argv:
         from telepost.build_info import release_info
         info = release_info()
