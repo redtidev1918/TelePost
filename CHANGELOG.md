@@ -8,6 +8,16 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.81.5](https://github.com/redtidev1918/TelePost/compare/v2.81.4...v2.81.5) (2026-10-10)
+
+
+### Bug Fixes
+
+* **ci:** verify every deploy-side telepress pin, not just the service ([#307](https://github.com/redtidev1918/TelePost/issues/307)) ([d240385](https://github.com/redtidev1918/TelePost/commit/d2403850c305d0e22ebd0943b11e699db80e2c99))
+* **storage:** initialize data directory on first startup ([#313](https://github.com/redtidev1918/TelePost/issues/313)) ([85ec86a](https://github.com/redtidev1918/TelePost/commit/85ec86ab8fc38471c3b15d5ef9d63983b83f9942))
+* **windows:** normalize console encoding before frozen startup ([#312](https://github.com/redtidev1918/TelePost/issues/312)) ([be0b5b7](https://github.com/redtidev1918/TelePost/commit/be0b5b7cf56dff1f9104408d7a74ae9c8523f0e8))
+* **windows:** support Windows testing and UTF-8 configuration; refresh docs ([#311](https://github.com/redtidev1918/TelePost/issues/311)) ([9bd0cb6](https://github.com/redtidev1918/TelePost/commit/9bd0cb6681cd097c86c5923791c053352af8d36c))
+
 ## [2.81.4](https://github.com/redtidev1918/TelePost/compare/v2.81.3...v2.81.4) (2026-10-09)
 
 
