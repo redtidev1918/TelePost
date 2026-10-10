@@ -14,6 +14,7 @@ Service submissions (``submitter_user_id IS NULL``) are skipped: an API
 credential/actor holder is never substituted for a submitter.
 """
 from __future__ import annotations
+from ui.i18n import tr
 
 import json
 import logging
@@ -171,26 +172,26 @@ def format_manager_acceptance(payload: Dict[str, Any]) -> tuple[str, Optional[di
     actor_subject = str(payload.get("actor_subject") or "")
     status = str(payload.get("status") or "pending")
     statuses = {
-        "pending": "待审核",
-        "pending_review": "待审核",
-        "published": "已发布",
-        "accepted": "已受理",
-        "failed": "失败",
+        "pending": tr('待审核'),
+        "pending_review": tr('待审核'),
+        "published": tr('已发布'),
+        "accepted": tr('已受理'),
+        "failed": tr('失败'),
     }
-    head = "📝 投稿通知"
+    head = tr('📝 投稿通知')
     lines = [head]
     if source:
-        label = "Telegram 私聊" if source in ("chat", "chat_direct") else (
+        label = tr('Telegram 私聊') if source in ("chat", "chat_direct") else (
             "Mini App" if "miniapp" in source else "HTTP API"
         )
-        lines.append(f"来源：{label}")
+        lines.append(tr('来源：{p0}').format(p0=label))
     entity = None
     if not anonymous and submitter_uid:
         uid = int(submitter_uid)
         username = str(payload.get("submitter_username") or "").strip().lstrip("@")
         display_name = str(payload.get("submitter_display_name") or "").strip()
-        label = f"@{username}" if username else (display_name or "Telegram 用户")
-        lines += ["", f"投稿人：{label}"]
+        label = f"@{username}" if username else (display_name or tr('Telegram 用户'))
+        lines += ["", tr('投稿人：{p0}').format(p0=label)]
         start = len("\n".join(lines)) - len(label)
         entity = {
             "offset": start, "length": len(label), "url": f"tg://user?id={uid}",
@@ -199,61 +200,62 @@ def format_manager_acceptance(payload: Dict[str, Any]) -> tuple[str, Optional[di
         token_id = actor_subject.split(":", 1)[1].strip()
         lines.append(f"API token：#{token_id}")
     elif anonymous:
-        lines.append("（匿名投稿）")
+        lines.append(tr('（匿名投稿）'))
         if submitter_uid:
             uid = int(submitter_uid)
-            label = f"匿名用户（ID: {uid}）"
-            lines += ["", f"投稿人：{label}"]
+            label = tr('匿名用户（ID: {p0}）').format(p0=uid)
+            lines += ["", tr('投稿人：{p0}').format(p0=label)]
             start = len("\n".join(lines)) - len(label)
             entity = {
                 "offset": start, "length": len(label), "url": f"tg://user?id={uid}",
             }
-    lines.append(f"状态：{statuses.get(status, status)}")
+    lines.append(tr('状态：{p0}').format(p0=statuses.get(status, status)))
     if review_id:
-        lines.append(f"审核稿：#{int(review_id)}")
+        lines.append(tr('审核稿：#{p0}').format(p0=int(review_id)))
     review_chat = str(payload.get("review_chat_id") or "").replace("@", "")
     control_msg = payload.get("control_message_id")
     if review_chat and control_msg:
-        lines.append(f"🔗 审核：https://t.me/c/{review_chat.replace('-100', '')}/{int(control_msg)}")
+        lines.append(tr('🔗 审核：https://t.me/c/{p0}/{p1}').format(p0=review_chat.replace('-100', ''), p1=int(control_msg)))
     elif review_id:
-        lines.append("🔗 审核：链接不可用")
+        lines.append(tr('🔗 审核：链接不可用'))
     if link:
-        lines += ["", f"📂 原投稿：{link}"]
+        lines += ["", tr('📂 原投稿：{p0}').format(p0=link)]
     return "\n".join(lines), entity
 
 
 def format_publication_message(payload: Dict[str, Any], include_changes: bool,
-                               editor_label: str = "频道主") -> str:
+                               editor_label: str = "") -> str:
     """Single formatter for the three paths (§11): one place, no handler copies."""
+    editor_label = editor_label or tr("频道主")
     source = str(payload.get("source") or "publication")
     anonymous = bool(payload.get("anonymous"))
 
     if source in ("chat_direct", "api_direct", "miniapp_direct"):
-        head = "✅ 你的投稿已发布"
+        head = tr('✅ 你的投稿已发布')
     elif source == "editorial":
-        head = "✅ 你的投稿已发布"
+        head = tr('✅ 你的投稿已发布')
         if include_changes:
             summary = [str(x) for x in (payload.get("change_summary") or []) if x]
             if summary:
-                lines = [head, "", f"{editor_label}在发布前进行了以下编辑：", ""]
+                lines = [head, "", tr('{p0}在发布前进行了以下编辑：').format(p0=editor_label), ""]
                 lines += [f"• {item}" for item in summary[:12]]
                 return "\n".join(lines)
     else:  # review (original, no edits)
-        head = "✅ 你的投稿已通过审核并发布"
+        head = tr('✅ 你的投稿已通过审核并发布')
 
     lines = [head]
     if anonymous:
-        lines.append("（匿名投稿）")
+        lines.append(tr('（匿名投稿）'))
     link = str(payload.get("link") or "")
     if link:
         lines.append("")
-        lines.append(f"🔗 查看发布内容：{link}")
+        lines.append(tr('🔗 查看发布内容：{p0}').format(p0=link))
     # §publication-presentation: the Telegraph "read online" URL is an optional
     # Publication enrichment. It appears in the success DM ONLY when a real
     # preview exists; a failed/absent preview never shows a broken entry.
     preview_url = str(payload.get("preview_url") or "")
     if preview_url:
-        lines.append(f"📖 在线阅读：{preview_url}")
+        lines.append(tr('📖 在线阅读：{p0}').format(p0=preview_url))
     return "\n".join(lines)
 
 
@@ -316,13 +318,13 @@ async def flush_manager_notifications(bot, *, limit: int = 20) -> int:
             buttons = []
             if payload.get("submitter_user_id"):
                 buttons.append(InlineKeyboardButton(
-                    "🚫 封禁用户",
+                    tr('🚫 封禁用户'),
                     callback_data=f"admin_block:user:{int(payload['submitter_user_id'])}",
                 ))
             actor = str(payload.get("actor_subject") or "")
             if actor.startswith("api:"):
                 buttons.append(InlineKeyboardButton(
-                    "🔑 禁用API",
+                    tr('🔑 禁用API'),
                     callback_data=f"admin_block:api:{actor.split(':', 1)[1].strip()}",
                 ))
             if buttons:

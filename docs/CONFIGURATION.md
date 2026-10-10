@@ -9,6 +9,36 @@
 
 ## 核心配置
 
+### Bot 语言与多 Bot
+
+单 Bot 在 `config.ini` 的 `[BOT]` 节中设置 `LANGUAGE = zh` 或 `LANGUAGE = en`，
+也可使用环境变量 `BOT_LANGUAGE`。不配置时为中文，修改后重启生效。
+多 Bot 的优先级为 `BOTn_LANGUAGE` > `BOT_LANGUAGE` > INI `LANGUAGE` > `zh`。
+
+例如，创建两个 Bot 后，在部署环境中分别填写：
+
+```dotenv
+BOT1_TOKEN=<中文Bot的Token>
+BOT1_CHANNEL_ID=@your_chinese_channel
+BOT1_OWNER_ID=<你的数字UserID>
+BOT1_REVIEW_CHAT_ID=<中文审核群ID>
+BOT1_LANGUAGE=zh
+BOT2_TOKEN=<英文Bot的Token>
+BOT2_CHANNEL_ID=@your_english_channel
+BOT2_OWNER_ID=<你的数字UserID>
+BOT2_REVIEW_CHAT_ID=<英文审核群ID>
+BOT2_LANGUAGE=en
+```
+
+Compose 可直接写入 `.env`；其他部署平台使用环境变量或 Secrets。直接启动程序时，
+需先在终端设置这些环境变量，`run.py` 不自动读取 `.env`。
+Fly.io 的非敏感语言项可放入现有 `fly.toml` 的 `[env]`；Token 使用 Secrets。
+
+Bot 的欢迎、帮助、菜单、命令说明、投稿与审核提示使用所选语言；Mini App 在服务器验证
+`initData` 后从 session 响应的 `bot_language` 读取语言。正文、标签、用户名和附件名保留原文。
+网页路由、命令名、callback data、API 状态和审核规则不随语言改变；运维日志保留原文。
+语言值还兼容 `zh-CN` / `zh-Hans` / `en-US` / `en-GB`，不支持的语言会在启动时明确报错。
+
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `TOKEN` | 必填 | Bot Token；兼容 `BOT_TOKEN`、`TELEGRAM_BOT_TOKEN` |
@@ -16,6 +46,7 @@
 | `OWNER_ID` | 空 | 唯一所有者 ID；自动加入 `ADMIN_IDS` |
 | `ADMIN_IDS` | 空 | 逗号分隔；只用于明确标为 Admin 的操作 |
 | `BOT_MODE` | `MIXED` | `MEDIA`、`DOCUMENT` 或 `MIXED` |
+| `BOT_LANGUAGE` | `zh` | Bot 与 Mini App 界面语言：`zh` / `en`；INI 对应 `[BOT] LANGUAGE` |
 | `ALLOWED_FILE_TYPES` | `*` | 文档扩展名或 MIME，逗号分隔 |
 | `SHOW_SUBMITTER` | `true` | 频道是否显示投稿人 |
 | `NOTIFY_OWNER` | `true` | 是否 durable 私聊 Owner：审核稿入队成功或直发成功后各按 logical submission 通知一次；refetch/editorial 不重复 |

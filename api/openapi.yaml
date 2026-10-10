@@ -787,6 +787,7 @@ paths:
                     properties:
                       token: {type: string, description: 'Bearer session (ma_v1.*)'}
                       expires_in: {type: integer}
+                      bot_language: {type: string, enum: [zh, en], description: 'Presentation language configured for this Bot; defaults to zh on older servers'}
                       user:
                         type: object
                         properties:

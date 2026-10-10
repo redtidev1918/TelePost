@@ -1,3 +1,5 @@
+import { tr } from "../../lib/i18n";
+import { useTranslation } from 'react-i18next';
 import { Button, Spinner } from '@telegram-apps/telegram-ui';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { fetchHotPosts, HotScope } from '../../api/posts';
@@ -16,6 +18,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
  * media set.
  */
 export function HotPage({ scope }: { scope: HotScope }) {
+  useTranslation();
   const navigate = useBotNavigate();
   const query = useInfiniteQuery({
     queryKey: ['hot-posts', scope],
@@ -34,8 +37,8 @@ export function HotPage({ scope }: { scope: HotScope }) {
   if (query.isError) {
     return (
       <div className="stack">
-        <PageHeader title={scope === 'week' ? '本周热门' : '全部热门'} />
-        <EmptyState title="暂时无法加载热门内容" hint={(query.error as Error).message} />
+        <PageHeader title={scope === 'week' ? tr("本周热门") : tr("全部热门")} />
+        <EmptyState title={tr("暂时无法加载热门内容")} hint={(query.error as Error).message} />
       </div>
     );
   }
@@ -43,18 +46,18 @@ export function HotPage({ scope }: { scope: HotScope }) {
   const items = query.data?.pages.flatMap((page) => page.items) ?? [];
   return (
     <div className="stack">
-      <PageHeader title={scope === 'week' ? '本周热门' : '全部热门'} />
+      <PageHeader title={scope === 'week' ? tr("本周热门") : tr("全部热门")} />
       <Segmented<HotScope>
         testId="hot-scope"
         value={scope}
         options={[
-          { value: 'all', label: '全部' },
-          { value: 'week', label: '本周' },
+          { value: 'all', label: tr("全部") },
+          { value: 'week', label: tr("本周") },
         ]}
         onChange={(next) => navigate(next === 'week' ? '/hotweek' : '/hot')}
       />
       {items.length === 0 ? (
-        <EmptyState title="还没有热门内容" hint="频道里发布的内容会按热度出现在这里。" />
+        <EmptyState title={tr("还没有热门内容")} hint={tr("频道里发布的内容会按热度出现在这里。")} />
       ) : (
         <div className="media-grid" data-testid="hot-grid">
           {items.map((post) => (
@@ -75,8 +78,7 @@ export function HotPage({ scope }: { scope: HotScope }) {
           loading={query.isFetchingNextPage}
           onClick={() => void query.fetchNextPage()}
         >
-          加载更多
-        </Button>
+          {tr("加载更多")}</Button>
       )}
     </div>
   );

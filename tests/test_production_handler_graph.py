@@ -115,6 +115,26 @@ async def test_start_submission_is_owned_once_by_production_graph(production_app
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("button", ["📝 New submission", "📝 开始投稿"])
+async def test_english_bot_keyboard_completes_submission_flow(production_app, monkeypatch, button):
+    from config import settings
+    monkeypatch.setattr(settings, "BOT_LANGUAGE", "en")
+    app, bot = production_app
+    await _process(app, bot, _message_update(button))
+    assert sum("Upload your content" in text for text in bot.outbox) == 1
+    await _process(app, bot, _message_update(photo=True, update_id=2))
+    await _process(app, bot, _message_update("/done_media", update_id=3))
+    assert _submission_conversation(app)._conversations[(42, 42)] == STATE["PREVIEW"]
+    bot.outbox.clear()
+    await _process(app, bot, _callback_update("edit_tag"))
+    assert sum("Send new tags" in text for text in bot.outbox) == 1
+    await _process(app, bot, _message_update("#中文标签, test", update_id=11))
+    assert any("Tags updated" in text for text in bot.outbox)
+    assert _submission_conversation(app)._conversations[(42, 42)] == STATE["PREVIEW"]
+    assert not any("could not understand" in text for text in bot.outbox)
+
+
+@pytest.mark.asyncio
 async def test_edit_tag_is_owned_once_by_production_graph(production_app):
     app, bot = production_app
     await _process(app, bot, _message_update("📝 开始投稿"))

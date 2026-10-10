@@ -1,3 +1,5 @@
+import { tr } from "../../lib/i18n";
+import { useTranslation } from 'react-i18next';
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useBotNavigate } from '../../lib/useBotNavigate';
@@ -19,6 +21,7 @@ import { Segmented } from '../../components/ui/Segmented';
  * an extra tab.
  */
 export function ReviewWorkspacePage() {
+  useTranslation();
   const navigate = useBotNavigate();
   const location = useLocation();
   const { isAdmin } = useAuth();
@@ -34,8 +37,8 @@ export function ReviewWorkspacePage() {
   return (
     <div className="stack">
       <PageHeader
-        title="审核"
-        subtitle={tab === 'queue' ? '处理等待中的投稿' : '查看已处理的记录'}
+        title={tr("审核")}
+        subtitle={tab === 'queue' ? tr("处理等待中的投稿") : tr("查看已处理的记录")}
         action={
           <button
             type="button"
@@ -43,16 +46,15 @@ export function ReviewWorkspacePage() {
             data-testid="review-more"
             onClick={() => navigate('/more')}
           >
-            更多
-          </button>
+            {tr("更多")}</button>
         }
       />
       <Segmented<'queue' | 'history'>
         testId="review-tab"
         value={tab}
         options={[
-          { value: 'queue', label: '待处理' },
-          { value: 'history', label: '历史' },
+          { value: 'queue', label: tr("待处理") },
+          { value: 'history', label: tr("历史") },
         ]}
         onChange={(next) => {
           setTab(next);
@@ -67,8 +69,7 @@ export function ReviewWorkspacePage() {
           data-testid="review-admin-entry"
           onClick={() => navigate('/admin')}
         >
-          管理面板
-        </button>
+          {tr("管理面板")}</button>
       ) : null}
     </div>
   );

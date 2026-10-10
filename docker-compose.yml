@@ -12,9 +12,21 @@ services:
     # 或改用配置文件挂载：- ./config.ini:/app/config.ini:ro
     environment:
       - TZ=Asia/Shanghai
-      - TOKEN=${TOKEN}
-      - CHANNEL_ID=${CHANNEL_ID}
-      - OWNER_ID=${OWNER_ID}
+      - TOKEN=${TOKEN:-}
+      - CHANNEL_ID=${CHANNEL_ID:-}
+      - OWNER_ID=${OWNER_ID:-}
+      - BOT_LANGUAGE=${BOT_LANGUAGE:-zh}
+      - REVIEW_CHAT_ID=${REVIEW_CHAT_ID:-}
+      - BOT1_TOKEN=${BOT1_TOKEN:-}
+      - BOT1_CHANNEL_ID=${BOT1_CHANNEL_ID:-}
+      - BOT1_OWNER_ID=${BOT1_OWNER_ID:-}
+      - BOT1_REVIEW_CHAT_ID=${BOT1_REVIEW_CHAT_ID:-}
+      - BOT1_LANGUAGE=${BOT1_LANGUAGE:-${BOT_LANGUAGE:-zh}}
+      - BOT2_TOKEN=${BOT2_TOKEN:-}
+      - BOT2_CHANNEL_ID=${BOT2_CHANNEL_ID:-}
+      - BOT2_OWNER_ID=${BOT2_OWNER_ID:-}
+      - BOT2_REVIEW_CHAT_ID=${BOT2_REVIEW_CHAT_ID:-}
+      - BOT2_LANGUAGE=${BOT2_LANGUAGE:-${BOT_LANGUAGE:-zh}}
       # 可选开关：SHOW_SUBMITTER=true / BOT_MODE=MIXED / SEARCH_INDEX_DIR=data/search_index
 
     volumes:

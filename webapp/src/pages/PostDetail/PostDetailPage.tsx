@@ -1,3 +1,5 @@
+import { tr } from "../../lib/i18n";
+import { useTranslation } from 'react-i18next';
 import { Button, Spinner } from '@telegram-apps/telegram-ui';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
@@ -15,6 +17,7 @@ import { useBackButton } from '../../lib/useBackButton';
  * BackButton (§back) — no in-page back button.
  */
 export function PostDetailPage() {
+  useTranslation();
   const params = useParams();
   const messageId = params.id ?? '';
   useBackButton('/hot');
@@ -33,8 +36,8 @@ export function PostDetailPage() {
   if (query.isError) {
     return (
       <div className="stack">
-        <PageHeader title="内容" />
-        <EmptyState title="暂时无法加载这条内容" hint={(query.error as Error).message} />
+        <PageHeader title={tr("内容")} />
+        <EmptyState title={tr("暂时无法加载这条内容")} hint={(query.error as Error).message} />
       </div>
     );
   }
@@ -42,8 +45,8 @@ export function PostDetailPage() {
   if (!post) {
     return (
       <div className="stack">
-        <PageHeader title="内容" />
-        <EmptyState title="帖子不存在" />
+        <PageHeader title={tr("内容")} />
+        <EmptyState title={tr("帖子不存在")} />
       </div>
     );
   }
@@ -53,7 +56,7 @@ export function PostDetailPage() {
   return (
     <div className="stack">
       <PageHeader
-        title={post.title || '无标题'}
+        title={post.title || tr("无标题")}
         subtitle={[
           `🔥 ${formatHeat(post.heat_score)}`,
           post.reactions > 0 ? `❤️ ${post.reactions}` : '',
@@ -89,10 +92,9 @@ export function PostDetailPage() {
           data-testid="post-link"
           onClick={() => window.open(post.link, '_blank', 'noopener')}
         >
-          打开来源
-        </Button>
+          {tr("打开来源")}</Button>
       )}
-      <div className="mutation-help">完整内容在 Telegram 频道中查看。</div>
+      <div className="mutation-help">{tr("完整内容在 Telegram 频道中查看。")}</div>
     </div>
   );
 }

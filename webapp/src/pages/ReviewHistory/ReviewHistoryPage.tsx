@@ -1,3 +1,5 @@
+import { tr } from "../../lib/i18n";
+import { useTranslation } from 'react-i18next';
 import { Button, Spinner } from '@telegram-apps/telegram-ui';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useBotNavigate } from '../../lib/useBotNavigate';
@@ -18,15 +20,16 @@ const TONES: Record<string, StatusTone> = {
   failed: 'bad',
 };
 
-const LABELS: Record<string, string> = {
-  published: '已发布',
-  rejected: '已拒绝',
-  failed: '失败',
-  expired: '已过期',
-  superseded: '已被替换',
-};
+const LABELS = (): Record<string, string> => ({
+  published: tr("已发布"),
+  rejected: tr("已拒绝"),
+  failed: tr("失败"),
+  expired: tr("已过期"),
+  superseded: tr("已被替换"),
+});
 
 export function ReviewHistoryPage() {
+  useTranslation();
   const navigate = useBotNavigate();
   const query = useInfiniteQuery({
     queryKey: ['review-history'],
@@ -46,24 +49,23 @@ export function ReviewHistoryPage() {
   if (query.isError) {
     return (
       <EmptyState
-        title="暂时无法加载审核历史"
+        title={tr("暂时无法加载审核历史")}
         hint={(query.error as Error).message}
         action={
           <Button size="m" stretched onClick={() => void query.refetch()}>
-            重试
-          </Button>
+            {tr("重试")}</Button>
         }
       />
     );
   }
   const items: ReviewSummary[] = query.data?.pages.flatMap((p) => p.items) ?? [];
   if (items.length === 0) {
-    return <EmptyState title="还没有审核历史记录。" hint="处理过的投稿会按时间出现在这里。" />;
+    return <EmptyState title={tr("还没有审核历史记录。")} hint={tr("处理过的投稿会按时间出现在这里。")} />;
   }
 
   return (
     <div className="stack">
-      <PageSection title="审核历史">
+      <PageSection title={tr("审核历史")}>
         <div className="card">
           {items.map((item) => (
             <div
@@ -80,17 +82,17 @@ export function ReviewHistoryPage() {
                 }
               }}
             >
-              <div className="card__row-title">{item.title || `审核 #${item.review_id}`}</div>
+              <div className="card__row-title">{item.title || tr("审核 #{{p0}}", {p0: item.review_id})}</div>
               <div className="card__row-meta">
                 {[
                   item.tags.length ? item.tags.slice(0, 3).join(' ') : '',
-                  item.media_count ? `${item.media_count} 个附件` : '',
-                  item.spoiler ? '剧透' : '',
+                  item.media_count ? tr("{{p0}} 个附件", {p0: item.media_count}) : '',
+                  item.spoiler ? tr("剧透") : '',
                 ].filter(Boolean).join(' · ')}
               </div>
               <div className="card__row-foot">
                 <StatusBadge tone={TONES[item.status] ?? 'neutral'}>
-                  {LABELS[item.status] || item.status}
+                  {LABELS()[item.status] || item.status}
                 </StatusBadge>
               </div>
             </div>
@@ -105,8 +107,7 @@ export function ReviewHistoryPage() {
           loading={query.isFetchingNextPage}
           onClick={() => void query.fetchNextPage()}
         >
-          加载更多
-        </Button>
+          {tr("加载更多")}</Button>
       )}
     </div>
   );

@@ -40,6 +40,7 @@ def main() -> None:
         assert config.read_bytes() == before
         env.update({
             "TOKEN": "synthetic-invalid-token", "CHANNEL_ID": "@synthetic_channel",
+            "BOT_LANGUAGE": "en",
             "OWNER_ID": "1", "MINIAPP_ENABLED": "false", "SEARCH_ENABLED": "false",
             "API_REVIEW_REQUIRED": "false",
             "CHAT_REVIEW_REQUIRED": "false", "MINIAPP_REVIEW_REQUIRED": "false",
@@ -50,6 +51,7 @@ def main() -> None:
         output = result.stdout.decode("utf-8") + result.stderr.decode("utf-8")
         # An invalid token stops locally before Telegram requests, after storage setup.
         assert result.returncode != 0 and "InvalidToken" in output, output
+        assert "FileNotFoundError" not in output, output
         database = exe.parent / "data" / "submissions.db"
         assert database.is_file()
         with closing(sqlite3.connect(database)) as connection:

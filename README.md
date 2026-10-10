@@ -2,7 +2,7 @@
 
 **语言 / Language:** 中文 · [English](README.en.md)
 
-Telegram 频道投稿、审核与发布服务。
+让用户向你的 Telegram 频道投稿，在预览或审核群中检查内容，再发布到频道。
 
 [![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest)
 [![PyPI](https://img.shields.io/pypi/v/telepost-bot.svg)](https://pypi.org/project/telepost-bot/)
@@ -32,6 +32,15 @@ HTTP API ─────────┘
 
 ## 快速开始
 
+先准备 Bot Token、目标频道、你的数字 User ID，以及一个独立审核群。
+把 Bot 加为频道管理员并授予发帖权限，再加入审核群。
+
+不想安装 Python？[下载独立程序](https://redtidev1918.github.io/TelePost/#/download)。
+Windows 在 PowerShell 中运行 `.\telepost-windows-x64.exe --setup`，补齐下方审核配置后，
+运行 `.\telepost-windows-x64.exe`。升级时保留程序旁的 `config.ini` 和 `data` 文件夹。
+
+使用 Python / pip：
+
 1. 用 [@BotFather](https://t.me/BotFather) 创建 Bot，加入目标频道并授予发帖权限。
 2. 安装 Python 3.10+。图片处理需要系统 libvips，安装方法见
    [系统依赖](docs/INSTALL.md#libvips-系统依赖)。
@@ -57,8 +66,21 @@ py -3 -m venv .venv
 默认开启，三项向导配置尚不包含审核群。仅使用私聊直发时的配置见 [安装指南](docs/INSTALL.md#1-pip-安装推荐)。
 Windows 保存配置时使用 UTF-8，启动命令为 `.\.venv\Scripts\telepost.exe`。
 
-启动后向 Bot 发送 `/start` → `/submit` → 上传媒体 → `/done_media`，
-在预览中检查内容，再按提示提交。命令详情见 [投稿流程](docs/COMMANDS.md)。
+在已有的 `[BOT]` 节中修改或追加，群 ID 换成你自己的数字 ID：
+
+```ini
+LANGUAGE = zh
+REVIEW_CHAT_ID = <你的审核群ID>
+```
+
+第一篇投稿：
+
+1. 私聊 Bot，发送 `/start`，点击「开始投稿」或发送 `/submit`。
+2. 上传图片、视频、音频或文件，完成后发送 `/done_media`。
+3. 在预览中填写标签，按需修改标题、简介、链接、匿名和剧透设置。
+4. 检查后点击发布按钮；开启聊天审核时，按钮显示「提交审核」。
+
+随时发送 `/cancel` 取消，完整命令见 [投稿流程](docs/COMMANDS.md)。
 
 Bot 私聊投稿默认直接发布，可配置为先审核；HTTP API 自动化投稿固定需要审核；
 Mini App 默认需要审核，由独立的 `MINIAPP_REVIEW_REQUIRED` 控制。需要审核时，先配置审核群与审核人，参见
@@ -103,7 +125,21 @@ Mini App 是 TelePost 的可选 Web 前端。
 
 Mini App 与 Bot 共用同一套后端、权限和投稿状态。配置见 [Mini App](docs/MINIAPP.md)。
 
-## 多 Bot 与部署
+## 中文 Bot、英文 Bot 与部署
+
+同一份程序支持两种语言，默认中文。单 Bot 在 `config.ini` 的 `[BOT]` 节中设置
+`LANGUAGE = en`，或部署时设置环境变量 `BOT_LANGUAGE=en`。改完重启生效。
+
+同时运行中文和英文 Bot 时，为两个 Bot 配置独立凭据、频道和审核群，再设置：
+
+```dotenv
+BOT1_LANGUAGE=zh
+BOT2_LANGUAGE=en
+```
+
+把这两项加到部署平台的环境变量或 Compose 的 `.env` 中。欢迎、帮助、菜单、投稿和审核提示
+使用所选语言，Mini App 默认跟随所属 Bot；用户的标题、标签和正文保留原文。
+完整配置见 [Bot 语言与多 Bot](docs/CONFIGURATION.md#bot-语言与多-bot)。
 
 `run.py` 管理多个 Bot 子进程，每个 Bot 使用独立配置和数据目录。
 父路由对外提供 `/webhook/botN` 和 `/api/botN/v1/*`，子进程端口仅供本机访问。

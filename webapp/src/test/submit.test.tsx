@@ -6,6 +6,7 @@ import { AppRoot } from '@telegram-apps/telegram-ui';
 import * as React from 'react';
 import { SubmitPage } from '../pages/Submit/SubmitPage';
 import * as client from '../api/client';
+import { setBotLanguage } from '../lib/i18n';
 
 interface UppyLike {
   addFile: (file: { data: unknown; name: string; type: string }) => void;
@@ -92,11 +93,31 @@ beforeEach(() => {
   URL.revokeObjectURL = vi.fn();
 });
 
-afterEach(() => {
+afterEach(async () => {
   ctxUppy?.destroy?.();
+  await setBotLanguage('zh');
 });
 
 describe('SubmitPage (Uppy React integration)', () => {
+  it('submits original Chinese content from an English interface', async () => {
+    await setBotLanguage('en');
+    vi.spyOn(client, 'hasSession').mockReturnValue(true);
+    const call = vi.spyOn(client, 'apiFetch').mockResolvedValue({ status: 'pending_review', review_id: 42 });
+    renderPage();
+    expect(screen.getByTestId('tag-hint').textContent).toContain('Separate tags with spaces');
+    fireEvent.change(screen.getByTestId('file-input'), {
+      target: { files: [new File(['image'], '中文图片.png', { type: 'image/png' })] },
+    });
+    await waitFor(() => expect(screen.getByTestId('selected-files').textContent).toContain('1 files selected'));
+    fireEvent.change(screen.getByPlaceholderText('Tags (required; spaces or commas)'), { target: { value: '#中文标签' } });
+    fireEvent.change(screen.getByPlaceholderText('Title (optional)'), { target: { value: '中文标题' } });
+    fireEvent.click(screen.getByTestId('submit'));
+    await waitFor(() => expect(call).toHaveBeenCalledTimes(1));
+    const form = (call.mock.calls[0][1] as RequestInit).body as FormData;
+    expect(form.get('tags')).toBe('#中文标签');
+    expect(form.get('title')).toBe('中文标题');
+    expect((form.get('files') as File).name).toBe('中文图片.png');
+  });
   it('adds and lists files through real Uppy core state', async () => {
     renderPage();
     await addFiles(['photo.png', 'clip.mp4']);
