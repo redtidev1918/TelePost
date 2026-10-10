@@ -47,6 +47,9 @@ async def init_db():
     初始化数据库
     """
     try:
+        parent = os.path.dirname(DB_PATH)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         async with get_db() as conn:
             # 临时投稿数据表
             await conn.execute('''

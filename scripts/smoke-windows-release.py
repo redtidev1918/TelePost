@@ -1,7 +1,8 @@
-"""Verify a frozen Windows setup wizard without contacting Telegram."""
+"""Verify frozen Windows setup and first startup without contacting Telegram."""
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -36,7 +37,24 @@ def main() -> None:
         before = config.read_bytes()
         assert "保持现有配置" in setup(b"n\n")
         assert config.read_bytes() == before
-    print("Windows frozen setup and UTF-8 BOM configuration smoke passed")
+        env.update({
+            "TOKEN": "synthetic-invalid-token", "CHANNEL_ID": "@synthetic_channel",
+            "OWNER_ID": "1", "MINIAPP_ENABLED": "false", "SEARCH_ENABLED": "false",
+            "CHAT_REVIEW_REQUIRED": "false", "MINIAPP_REVIEW_REQUIRED": "false",
+        })
+        result = subprocess.run(
+            [str(exe), "--frozen-worker"], capture_output=True, env=env, timeout=45,
+        )
+        output = result.stdout.decode("utf-8") + result.stderr.decode("utf-8")
+        # An invalid token stops locally before Telegram requests, after storage setup.
+        assert result.returncode != 0 and "InvalidToken" in output, output
+        database = exe.parent / "data" / "submissions.db"
+        assert database.is_file()
+        with sqlite3.connect(database) as connection:
+            assert connection.execute(
+                "SELECT name FROM sqlite_master WHERE name = 'pending_reviews'"
+            ).fetchone()
+    print("Windows frozen setup, UTF-8 BOM and first-start storage smoke passed")
 
 
 if __name__ == "__main__":
