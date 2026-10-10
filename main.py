@@ -912,6 +912,8 @@ def entrypoint() -> None:
 
     冻结版（PyInstaller）的 worker 子进程也复用此入口，保证与源码运行一致。
     """
+    from utils.console import configure_windows_stdio
+    configure_windows_stdio()
     try:
         # 根据系统设置正确的事件循环策略
         if platform.system() == "Windows":
@@ -931,7 +933,6 @@ def entrypoint() -> None:
 
 if __name__ == "__main__":
     entrypoint()
-
 
 
 

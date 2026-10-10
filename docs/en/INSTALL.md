@@ -157,6 +157,7 @@ After completing the review configuration above, run `./.venv/bin/python run.py`
 On Windows, create the environment with `py -3 -m venv .venv`, use
 `.\.venv\Scripts\python.exe` instead, and install dependencies with its `-m pip`.
 Save configuration as UTF-8, with or without a BOM.
+Windows CLI input and output also use UTF-8, for both frozen executables and source runs.
 `run.py` is the single entry point; do not start the multi-bot supervisor directly with
 `main.py`. Configuration can be supplied through environment variables instead — see
 [Configuration](/en/CONFIGURATION.md).
