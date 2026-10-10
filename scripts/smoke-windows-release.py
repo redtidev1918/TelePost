@@ -40,6 +40,7 @@ def main() -> None:
         env.update({
             "TOKEN": "synthetic-invalid-token", "CHANNEL_ID": "@synthetic_channel",
             "OWNER_ID": "1", "MINIAPP_ENABLED": "false", "SEARCH_ENABLED": "false",
+            "API_REVIEW_REQUIRED": "false",
             "CHAT_REVIEW_REQUIRED": "false", "MINIAPP_REVIEW_REQUIRED": "false",
         })
         result = subprocess.run(
