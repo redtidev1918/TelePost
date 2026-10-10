@@ -4,6 +4,7 @@
 预览面板提供发布、字段编辑、补充媒体、匿名/剧透开关、取消。
 编辑态收敛为单一 EDIT 状态，用 context.user_data['edit_field'] 区分字段。
 """
+from ui.i18n import tr
 import logging
 from datetime import datetime
 
@@ -29,13 +30,7 @@ from ui.messages import MessageFormatter
 
 NO_LINK_PREVIEW = LinkPreviewOptions(is_disabled=True)
 
-_EDIT_PROMPTS = {
-    "edit_tag": MessageFormatter.edit_prompt("edit_tag"),
-    "edit_title": MessageFormatter.edit_prompt("edit_title"),
-    "edit_note": MessageFormatter.edit_prompt("edit_note"),
-    "edit_link": MessageFormatter.edit_prompt("edit_link"),
-    "edit_media": MessageFormatter.edit_prompt("edit_media"),
-}
+_EDIT_FIELDS = frozenset({"edit_tag", "edit_title", "edit_note", "edit_link", "edit_media"})
 
 
 def _build_preview_text(row) -> str:
@@ -69,18 +64,18 @@ def _build_preview_keyboard(row=None) -> InlineKeyboardMarkup:
     review_first = _chat_disposition() == SubmissionDisposition.REVIEW_REQUIRED
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(
-            "✅ 提交审核" if (has_tags and review_first) else
-            ("✅ 确认发布" if has_tags else
-             ("🏷️ 填写标签后提交审核" if review_first else "🏷️ 填写标签后发布")),
+            tr('✅ 提交审核') if (has_tags and review_first) else
+            (tr('✅ 确认发布') if has_tags else
+             (tr('🏷️ 填写标签后提交审核') if review_first else tr('🏷️ 填写标签后发布'))),
             callback_data="publish" if has_tags else "edit_tag")],
-        [InlineKeyboardButton("🏷️ 改标签", callback_data="edit_tag"),
-         InlineKeyboardButton("🔖 改标题", callback_data="edit_title")],
-        [InlineKeyboardButton("📝 改简介", callback_data="edit_note"),
-         InlineKeyboardButton("🔗 改链接", callback_data="edit_link")],
-        [InlineKeyboardButton("📎 补充媒体", callback_data="edit_media"),
-         InlineKeyboardButton("❌ 取消投稿", callback_data="cancel")],
-        [InlineKeyboardButton(f"🕵️ 匿名：{'开' if is_anon else '关'}", callback_data="toggle_anon"),
-         InlineKeyboardButton(f"🔞 剧透：{'开' if is_spoiler else '关'}", callback_data="toggle_spoiler")],
+        [InlineKeyboardButton(tr('🏷️ 改标签'), callback_data="edit_tag"),
+         InlineKeyboardButton(tr('🔖 改标题'), callback_data="edit_title")],
+        [InlineKeyboardButton(tr('📝 改简介'), callback_data="edit_note"),
+         InlineKeyboardButton(tr('🔗 改链接'), callback_data="edit_link")],
+        [InlineKeyboardButton(tr('📎 补充媒体'), callback_data="edit_media"),
+         InlineKeyboardButton(tr('❌ 取消投稿'), callback_data="cancel")],
+        [InlineKeyboardButton(tr('🕵️ 匿名：{p0}').format(p0=tr('开') if is_anon else tr('关')), callback_data="toggle_anon"),
+         InlineKeyboardButton(tr('🔞 剧透：{p0}').format(p0=tr('开') if is_spoiler else tr('关')), callback_data="toggle_spoiler")],
     ])
 
 
@@ -126,7 +121,7 @@ async def _send_preview_media(update: Update, context: CallbackContext,
     for entry in doc_list:
         parts = entry.split(":", 2)
         file_id = parts[1] if len(parts) > 1 else ""
-        name = parts[2] if len(parts) > 2 and parts[2] else "未命名文件"
+        name = parts[2] if len(parts) > 2 and parts[2] else tr('未命名文件')
         if file_id:
             singles.append(("document", file_id, name))
 
@@ -161,7 +156,7 @@ async def show_submission_preview(update: Update, context: CallbackContext) -> i
     if row is None:
         try:
             target = update.callback_query if update.callback_query else update.effective_message
-            await target.reply_text("❌ 会话已过期，请重新发送 /submit")
+            await target.reply_text(tr('❌ 会话已过期，请重新发送 /submit'))
         except Exception:
             pass
         return ConversationHandler.END
@@ -191,7 +186,7 @@ async def show_submission_preview(update: Update, context: CallbackContext) -> i
 async def handle_edit_field_callback(update: Update, context: CallbackContext) -> int:
     """预览页字段编辑按钮：切到 EDIT 状态并记录编辑目标。"""
     field = update.callback_query.data
-    prompt = _EDIT_PROMPTS.get(field)
+    prompt = MessageFormatter.edit_prompt(field) if field in _EDIT_FIELDS else None
     if not prompt:
         return STATE["PREVIEW"]
     context.user_data["edit_field"] = field
@@ -221,16 +216,16 @@ async def handle_edit_input(update: Update, context: CallbackContext) -> int:
     if field == "edit_media":
         entry = classify_message(message)
         if entry is None or entry_kind(entry) == "document":
-            await message.reply_text("⚠️ 请发送支持的媒体（图片/视频/GIF/音频），或发送 /cancel 取消。", parse_mode="HTML")
+            await message.reply_text(tr('⚠️ 请发送支持的媒体（图片/视频/GIF/音频），或发送 /cancel 取消。'), parse_mode="HTML")
             return STATE["EDIT"]
         count = await append_entry(user_id, entry)
         from telepost.domain.submission import (
             SubmissionDisposition,
             chat_disposition as _cd,
         )
-        action = "提交审核" if _cd() == SubmissionDisposition.REVIEW_REQUIRED else "确认发布"
+        action = tr('提交审核') if _cd() == SubmissionDisposition.REVIEW_REQUIRED else tr('确认发布')
         await message.reply_text(
-            f"✅ 已添加，当前共 {count} 个媒体。可继续发送，或发送 /done_media 返回预览并{action}。",
+            tr('✅ 已添加，当前共 {p0} 个媒体。可继续发送，或发送 /done_media 返回预览并{p1}。').format(p0=count, p1=action),
             parse_mode="HTML",
         )
         return await show_submission_preview(update, context)
@@ -239,28 +234,28 @@ async def handle_edit_input(update: Update, context: CallbackContext) -> int:
     if field == "edit_tag":
         success, processed = process_tags(text)
         if not success or not processed:
-            await message.reply_text("❌ 标签格式错误，请重新输入（最多 30 个，用逗号分隔）")
+            await message.reply_text(tr('❌ 标签格式错误，请重新输入（最多 30 个，用逗号分隔）'))
             return STATE["EDIT"]
         await update_fields(user_id, tags=processed)
-        await message.reply_text("✅ 标签已更新")
+        await message.reply_text(tr('✅ 标签已更新'))
     elif field == "edit_title":
-        await update_fields(user_id, title=("" if text.lower() == "无" else text[:100]))
-        await message.reply_text("✅ 标题已更新")
+        await update_fields(user_id, title=("" if text.lower() in ("无", "none") else text[:100]))
+        await message.reply_text(tr('✅ 标题已更新'))
     elif field == "edit_note":
-        await update_fields(user_id, note=("" if text.lower() == "无" else text[:600]))
-        await message.reply_text("✅ 简介已更新")
+        await update_fields(user_id, note=("" if text.lower() in ("无", "none") else text[:600]))
+        await message.reply_text(tr('✅ 简介已更新'))
     elif field == "edit_link":
-        if text.lower() == "无":
+        if text.lower() in ("无", "none"):
             link = ""
         elif not text.startswith(("http://", "https://")):
-            await message.reply_text("⚠️ 链接须以 http:// 或 https:// 开头，或回复「无」清空")
+            await message.reply_text(tr('⚠️ 链接须以 http:// 或 https:// 开头，或回复「无」清空'))
             return STATE["EDIT"]
         else:
             link = text
         await update_fields(user_id, link=link)
-        await message.reply_text("✅ 链接已更新")
+        await message.reply_text(tr('✅ 链接已更新'))
     else:
-        await message.reply_text("⚠️ 未知编辑项，已返回预览")
+        await message.reply_text(tr('⚠️ 未知编辑项，已返回预览'))
     return await show_submission_preview(update, context)
 
 

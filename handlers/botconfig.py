@@ -1,4 +1,5 @@
 """Owner-only Telegram runtime configuration panel."""
+from ui.i18n import tr
 import asyncio
 import html
 import os
@@ -29,21 +30,23 @@ def _policy_path() -> str:
 
 
 def _on(value) -> str:
-    return "开 ✅" if value else "关 ❌"
+    return tr('开 ✅') if value else tr('关 ❌')
 
 
 def _panel_text() -> str:
     bot_index = os.getenv("TELEPOST_BOT_INDEX", "1")
     return (
-        f"⚙️ <b>Bot {html.escape(bot_index)} 运行配置</b>\n\n"
-        f"📺 投稿频道：<code>{html.escape(str(CHANNEL_ID))}</code>\n"
-        f"👥 审核群：<code>{html.escape(str(REVIEW_CHAT_ID or '未设置'))}</code>\n"
-        f"🔌 API 投稿审核：{_on(True)}\n"
-        f"📱 Mini App 投稿审核：{_on(MINIAPP_REVIEW_REQUIRED)}\n"
-        f"💬 聊天投稿审核：{_on(CHAT_REVIEW_REQUIRED)}\n"
-        f"👤 频道显示投稿人：{_on(SHOW_SUBMITTER)}\n\n"
-        "设置频道：/botconfig channel @频道或-100ID\n"
-        "设置审核群：在目标群发送 /botconfig review here"
+        tr("""⚙️ <b>Bot {p0} 运行配置</b>
+
+📺 投稿频道：<code>{p1}</code>
+👥 审核群：<code>{p2}</code>
+🔌 API 投稿审核：{p3}
+📱 Mini App 投稿审核：{p4}
+💬 聊天投稿审核：{p5}
+👤 频道显示投稿人：{p6}
+
+设置频道：/botconfig channel @频道或-100ID
+设置审核群：在目标群发送 /botconfig review here""").format(p0=html.escape(bot_index), p1=html.escape(str(CHANNEL_ID)), p2=html.escape(str(REVIEW_CHAT_ID or '未设置')), p3=_on(True), p4=_on(MINIAPP_REVIEW_REQUIRED), p5=_on(CHAT_REVIEW_REQUIRED), p6=_on(SHOW_SUBMITTER))
     )
 
 
@@ -51,28 +54,28 @@ def _panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                f"API 审核：{_on(True)}",
+                tr('API 审核：{p0}').format(p0=_on(True)),
                 callback_data="botconfig:api_review",
             ),
             InlineKeyboardButton(
-                f"Mini App 审核：{_on(MINIAPP_REVIEW_REQUIRED)}",
+                tr('Mini App 审核：{p0}').format(p0=_on(MINIAPP_REVIEW_REQUIRED)),
                 callback_data="botconfig:miniapp_review",
             ),
             InlineKeyboardButton(
-                f"聊天审核：{_on(CHAT_REVIEW_REQUIRED)}",
+                tr('聊天审核：{p0}').format(p0=_on(CHAT_REVIEW_REQUIRED)),
                 callback_data="botconfig:chat_review",
             ),
         ],
         [InlineKeyboardButton(
-            f"显示投稿人：{_on(SHOW_SUBMITTER)}",
+            tr('显示投稿人：{p0}').format(p0=_on(SHOW_SUBMITTER)),
             callback_data="botconfig:show_submitter",
         )],
         [InlineKeyboardButton(
-            "📍 将当前群设为审核群",
+            tr('📍 将当前群设为审核群'),
             callback_data="botconfig:review_here",
         )],
         [InlineKeyboardButton(
-            "♻️ 恢复部署配置",
+            tr('♻️ 恢复部署配置'),
             callback_data="botconfig:reset",
         )],
     ])
@@ -151,9 +154,9 @@ async def _deny(update: Update) -> bool:
         return False
     target = update.callback_query or update.effective_message
     if update.callback_query:
-        await target.answer("仅 Bot 所有者可修改配置", show_alert=True)
+        await target.answer(tr('仅 Bot 所有者可修改配置'), show_alert=True)
     elif target:
-        await target.reply_text("⛔ 此命令仅限 Bot 所有者使用")
+        await target.reply_text(tr('⛔ 此命令仅限 Bot 所有者使用'))
     return True
 
 
@@ -161,7 +164,7 @@ async def _apply(update: Update, changes: dict, message: str) -> None:
     update_runtime_policy(_policy_path(), changes)
     target = update.effective_message
     managed = os.getenv("TELEPOST_MANAGED_RESTART", "").lower() in {"1", "true", "yes"}
-    suffix = "Bot 将在约 6 秒内单独重载。" if managed else "请重启 Bot 后生效。"
+    suffix = tr('Bot 将在约 6 秒内单独重载。') if managed else tr('请重启 Bot 后生效。')
     await target.reply_text(f"✅ {message}\n{suffix}")
     if managed:
         _schedule_restart()
@@ -182,12 +185,12 @@ async def botconfig(update: Update, context: CallbackContext) -> None:
         if action == "channel" and len(args) == 2:
             await _require_empty_review_queue()
             chat_id = await _validated_chat_id(context, args[1], "channel")
-            await _apply(update, {"CHANNEL_ID": chat_id}, f"投稿频道已设为 {chat_id}")
+            await _apply(update, {"CHANNEL_ID": chat_id}, tr('投稿频道已设为 {p0}').format(p0=chat_id))
         elif action == "review" and len(args) == 2:
             await _require_empty_review_queue()
             raw = str(update.effective_chat.id) if args[1].lower() == "here" else args[1]
             chat_id = await _validated_chat_id(context, raw, "review")
-            await _apply(update, {"REVIEW_CHAT_ID": chat_id}, f"审核群已设为 {chat_id}")
+            await _apply(update, {"REVIEW_CHAT_ID": chat_id}, tr('审核群已设为 {p0}').format(p0=chat_id))
         elif action in {"api_review", "miniapp_review", "chat_review", "show_submitter"} and len(args) == 2:
             if args[1].lower() not in {"on", "off"}:
                 raise ValueError("开关值必须是 on 或 off")
@@ -200,13 +203,14 @@ async def botconfig(update: Update, context: CallbackContext) -> None:
             enabled = args[1].lower() == "on"
             if key in {"API_REVIEW_REQUIRED", "MINIAPP_REVIEW_REQUIRED", "CHAT_REVIEW_REQUIRED"} and enabled and not REVIEW_CHAT_ID:
                 raise ValueError("请先设置审核群")
-            await _apply(update, {key: enabled}, f"{action} 已设为 {args[1].lower()}")
+            await _apply(update, {key: enabled}, tr('{p0} 已设为 {p1}').format(p0=action, p1=args[1].lower()))
         elif action == "reset" and len(args) == 1:
             await _require_empty_review_queue()
             clear_runtime_policy(_policy_path())
             managed = os.getenv("TELEPOST_MANAGED_RESTART", "").lower() in {"1", "true", "yes"}
-            suffix = "Bot 将在约 6 秒内单独重载。" if managed else "请重启 Bot 后生效。"
-            await update.effective_message.reply_text(f"✅ 已恢复部署配置。\n{suffix}")
+            suffix = tr('Bot 将在约 6 秒内单独重载。') if managed else tr('请重启 Bot 后生效。')
+            await update.effective_message.reply_text(tr("""✅ 已恢复部署配置。
+{p0}""").format(p0=suffix))
             if managed:
                 _schedule_restart()
         else:
@@ -214,7 +218,7 @@ async def botconfig(update: Update, context: CallbackContext) -> None:
     except ValueError as exc:
         await update.effective_message.reply_text(f"❌ {exc}")
     except Exception as exc:
-        await update.effective_message.reply_text(f"❌ 配置失败：{str(exc)[:160]}")
+        await update.effective_message.reply_text(tr('❌ 配置失败：{p0}').format(p0=str(exc)[:160]))
 
 
 async def botconfig_callback(update: Update, context: CallbackContext) -> None:
@@ -227,11 +231,11 @@ async def botconfig_callback(update: Update, context: CallbackContext) -> None:
         if action == "review_here":
             await _require_empty_review_queue()
             chat_id = await _validated_chat_id(context, str(update.effective_chat.id), "review")
-            changes, message = {"REVIEW_CHAT_ID": chat_id}, f"审核群已设为 {chat_id}"
+            changes, message = {"REVIEW_CHAT_ID": chat_id}, tr('审核群已设为 {p0}').format(p0=chat_id)
         elif action == "reset":
             await _require_empty_review_queue()
             clear_runtime_policy(_policy_path())
-            changes, message = None, "已恢复部署配置"
+            changes, message = None, tr('已恢复部署配置')
         else:
             key, current = {
                 "api_review": ("API_REVIEW_REQUIRED", True),
@@ -241,15 +245,15 @@ async def botconfig_callback(update: Update, context: CallbackContext) -> None:
             }[action]
             if key in {"API_REVIEW_REQUIRED", "MINIAPP_REVIEW_REQUIRED", "CHAT_REVIEW_REQUIRED"} and not current and not REVIEW_CHAT_ID:
                 raise ValueError("请先设置审核群")
-            changes, message = {key: not current}, "配置已切换"
+            changes, message = {key: not current}, tr('配置已切换')
         if changes:
             update_runtime_policy(_policy_path(), changes)
         managed = os.getenv("TELEPOST_MANAGED_RESTART", "").lower() in {"1", "true", "yes"}
-        suffix = "Bot 将在约 6 秒内单独重载。" if managed else "请重启 Bot 后生效。"
+        suffix = tr('Bot 将在约 6 秒内单独重载。') if managed else tr('请重启 Bot 后生效。')
         await query.edit_message_text(f"✅ {message}\n{suffix}")
         if managed:
             _schedule_restart()
     except (KeyError, ValueError) as exc:
         await query.edit_message_text(f"❌ {exc}")
     except Exception as exc:
-        await query.edit_message_text(f"❌ 配置失败：{str(exc)[:160]}")
+        await query.edit_message_text(tr('❌ 配置失败：{p0}').format(p0=str(exc)[:160]))

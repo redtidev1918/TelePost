@@ -88,6 +88,12 @@ def get_env_or_config(env_key, section, config_key, fallback=None):
         return value
 
 # 从环境变量或配置文件获取配置（环境变量优先）
+from ui.i18n import normalize_language
+
+BOT_LANGUAGE = normalize_language(
+    get_env_or_config('BOT_LANGUAGE', 'BOT', 'LANGUAGE', fallback='zh')
+)
+
 # Token 支持多个环境变量名：TOKEN（本项目约定）、BOT_TOKEN、TELEGRAM_BOT_TOKEN（社区惯用）。
 # 注意：Fly.io 部署指南（fly.toml 注释 / deploy_flyio.sh / 文档）使用 BOT_TOKEN，
 # 若只读 TOKEN 会导致按文档配置的部署直接启动失败，故此处必须做别名兼容。

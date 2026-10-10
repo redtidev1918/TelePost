@@ -147,6 +147,15 @@ def main():
     # 检查配置
     print("📌 检查配置...")
     config_ok = check_config_file()
+    try:
+        from config.settings import BOT_LANGUAGE
+        from ui.i18n import _catalog
+        _catalog(BOT_LANGUAGE)
+        language_ok = True
+        print(f"✅ Bot 语言: {BOT_LANGUAGE}")
+    except (ValueError, OSError) as exc:
+        language_ok = False
+        print(f"❌ Bot 语言配置失败: {exc}")
     
     if config_ok is None:
         # 配置文件不存在，检查环境变量
@@ -164,7 +173,7 @@ def main():
     print("=" * 60)
     
     # 汇总结果
-    if all([python_ok, deps_ok, structure_ok, config_ok]):
+    if all([python_ok, deps_ok, structure_ok, config_ok, language_ok]):
         print("✅ 所有检查通过！可以启动机器人了")
         print()
         print("启动命令:")

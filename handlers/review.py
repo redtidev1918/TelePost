@@ -11,6 +11,7 @@ main.py and the callback router) and wires them to those components. The
 database stores Telegram ``file_id`` values, so pending reviews survive
 restarts without retaining uploaded files.
 """
+from ui.i18n import tr
 
 import asyncio
 import json
@@ -225,7 +226,7 @@ def _result_from_row(row, *, reused: bool = False, reuse_reason: str = "") -> di
 
 
 def _source_label(source: str) -> str:
-    return "Telegram 聊天" if source == "chat" else "HTTP API"
+    return tr('Telegram 聊天') if source == "chat" else "HTTP API"
 
 
 # ---- back-compat preview staging delegates -------------------------------
@@ -424,12 +425,12 @@ async def _enqueue_reporting_dropped(bot, refetch_request_id: str, enqueue):
 
 
 _REFETCH_SOURCE_STATUS_LABELS = {
-    "pending": "待审核",
-    "approved": "已通过",
-    "rejected": "已拒绝",
-    "expired": "已过期",
-    "published": "已发布",
-    "superseded": "已被替换",
+    "pending": tr('待审核'),
+    "approved": tr('已通过'),
+    "rejected": tr('已拒绝'),
+    "expired": tr('已过期'),
+    "published": tr('已发布'),
+    "superseded": tr('已被替换'),
 }
 
 
@@ -456,12 +457,11 @@ async def _report_dropped_replacement(bot, refetch_request_id: str) -> None:
         except Exception:
             logger.debug("读取重抓源审核状态失败: review_id=%s", review_id,
                          exc_info=True)
-        label = _REFETCH_SOURCE_STATUS_LABELS.get(status, status or "已结束")
+        label = _REFETCH_SOURCE_STATUS_LABELS.get(status, status or tr('已结束'))
         await context_bot_send(
             bot,
-            f"🔄 重抓未生效：审核 #{review_id} 已结束（当前状态：{label}），"
-            "替换作品已丢弃，当前稿件保持不变。"
-            f"\n任务ID：refetch-{review_id}-{int(created)}",
+            tr("""🔄 重抓未生效：审核 #{p0} 已结束（当前状态：{p1}），替换作品已丢弃，当前稿件保持不变。
+任务ID：refetch-{p2}-{p3}""").format(p0=review_id, p1=label, p2=review_id, p3=int(created)),
         )
         await refresh_refetch_card(bot, review_id)
     except Exception:
@@ -512,7 +512,7 @@ async def expire_stale_reviews(bot, *, now: Optional[float] = None) -> int:
         await _delete_messages(bot, _review_message_ids(row))
         await _notify_chat_submitter(
             bot, row,
-            f"⌛ 你的投稿超过 {PENDING_REVIEW_RETENTION_DAYS} 天未审核，已自动过期。",
+            tr('⌛ 你的投稿超过 {p0} 天未审核，已自动过期。').format(p0=PENDING_REVIEW_RETENTION_DAYS),
         )
     if rows:
         logger.info("已过期并清理 %d 条待审核投稿（保留 %d 天）",
@@ -679,7 +679,8 @@ async def _refetch_terminal_notify(bot, repo, row, *, review_id: int,
         return False
     if not _refetch_card_notifiable(row, task_id=task_id):
         return False
-    message = f"{text}\n任务ID：{task_id}"
+    message = tr("""{p0}
+任务ID：{p1}""").format(p0=text, p1=task_id)
     sent = await _refetch_poll_notify(bot, message)
     if not sent:
         # A swallowed terminal notice IS the production defect. The attempt is
@@ -762,26 +763,16 @@ def _refetch_terminal_text(review_id: int, *, state: str, failure_code: str,
     ends with 「可以再次重抓」 (§refetch-terminal-notify).
     """
     if failure_code == "queued_too_long":
-        return (f"⏱ 审核 #{review_id} 重抓排队超时（PixivFlow 未开始执行，已等待约"
-                f" {minutes} 分钟），当前稿件保持不变，可以再次重抓。")
+        return (tr('⏱ 审核 #{p0} 重抓排队超时（PixivFlow 未开始执行，已等待约 {p1} 分钟），当前稿件保持不变，可以再次重抓。').format(p0=review_id, p1=minutes))
     if failure_code == "stalled_no_progress":
-        return (f"❌ 审核 #{review_id} 重抓在阶段「{fsm.label(state)}」停留超过"
-                f" {max(1, int(REFETCH_STAGE_TIMEOUT_MINUTES))} 分钟没有进展"
-                "（远端无状态变化也无心跳），已判定超时，当前稿件保持不变，"
-                "可以再次重抓。")
+        return (tr('❌ 审核 #{p0} 重抓在阶段「{p1}」停留超过 {p2} 分钟没有进展（远端无状态变化也无心跳），已判定超时，当前稿件保持不变，可以再次重抓。').format(p0=review_id, p1=tr(fsm.label(state)), p2=max(1, int(REFETCH_STAGE_TIMEOUT_MINUTES))))
     if failure_code == "watchdog_no_heartbeat":
-        return (f"⚠️ 审核 #{review_id} 重抓看门狗失去心跳超过"
-                f" {max(1, int(REFETCH_STALE_TIMEOUT_MINUTES))} 分钟"
-                "（本机轮询未再记录到该任务），已标记失败，当前稿件保持不变，"
-                "可以再次重抓。")
+        return (tr('⚠️ 审核 #{p0} 重抓看门狗失去心跳超过 {p1} 分钟（本机轮询未再记录到该任务），已标记失败，当前稿件保持不变，可以再次重抓。').format(p0=review_id, p1=max(1, int(REFETCH_STALE_TIMEOUT_MINUTES))))
     if failure_code == "stalled_after_hard_timeout":
-        return (f"❌ 审核 #{review_id} 重抓超过 {int(hard_minutes)} 分钟仍未完成，"
-                "已自动终止，当前稿件保持不变；请检查 PixivFlow 后重新重抓。")
+        return (tr('❌ 审核 #{p0} 重抓超过 {p1} 分钟仍未完成，已自动终止，当前稿件保持不变；请检查 PixivFlow 后重新重抓。').format(p0=review_id, p1=int(hard_minutes)))
     if failure_code == "admission_timeout":
-        return (f"⚠️ 审核 #{review_id} 重抓请求未被 PixivFlow 接受（已等待约"
-                f" {minutes} 分钟），当前稿件未变，请重新点击重抓。")
-    return (f"⚠️ 审核 #{review_id} 重抓未能完成（{failure_code}），"
-            "当前稿件保持不变，可以再次重抓。")
+        return (tr('⚠️ 审核 #{p0} 重抓请求未被 PixivFlow 接受（已等待约 {p1} 分钟），当前稿件未变，请重新点击重抓。').format(p0=review_id, p1=minutes))
+    return (tr('⚠️ 审核 #{p0} 重抓未能完成（{p1}），当前稿件保持不变，可以再次重抓。').format(p0=review_id, p1=failure_code))
 
 
 async def _refetch_recovery_sweep(bot, repo, *, current_time: float) -> int:
@@ -988,15 +979,12 @@ def _refetch_outcome_text(review_id: int, applied: str) -> str:
     :func:`_refetch_terminal_notify` rather than by each caller.
     """
     if applied == "no_alternative":
-        return (f"📭 审核 #{review_id} 没有找到新的可替换作品，"
-                "当前稿件保持不变，可以再次重抓。")
+        return (tr('📭 审核 #{p0} 没有找到新的可替换作品，当前稿件保持不变，可以再次重抓。').format(p0=review_id))
     if applied == "obsolete":
-        return (f"🔄 审核 #{review_id} 的重抓已取消：该审核已被处理"
-                "（驳回/通过/过期），不会产生替换稿，当前稿件保持不变。")
+        return (tr('🔄 审核 #{p0} 的重抓已取消：该审核已被处理（驳回/通过/过期），不会产生替换稿，当前稿件保持不变。').format(p0=review_id))
     if applied == "failed":
-        return (f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，"
-                "可以再次重抓。")
-    return f"ℹ️ 审核 #{review_id} 重抓已结束（{applied}）。"
+        return (tr('⚠️ 审核 #{p0} 重抓失败，当前稿件未变，可以再次重抓。').format(p0=review_id))
+    return tr('ℹ️ 审核 #{p0} 重抓已结束（{p1}）。').format(p0=review_id, p1=applied)
 
 
 async def _apply_remote_terminal(bot, repo, row, remote_state, *,
@@ -1189,7 +1177,7 @@ async def _poll_one_refetch_job(bot, repo, row, *, current_time: float,
     minutes = int(age // 60)
     state = fsm.normalize(row["state"])
     task_id = f"refetch-{review_id}-{int(created)}"
-    stage_label = fsm.label(state)
+    stage_label = tr(fsm.label(state))
     hard_seconds = REFETCH_HARD_TIMEOUT_MINUTES * 60
     stale_seconds = REFETCH_STALE_TIMEOUT_MINUTES * 60
     wake_seconds = REFETCH_WAKE_MINUTES * 60
@@ -1212,7 +1200,7 @@ async def _poll_one_refetch_job(bot, repo, row, *, current_time: float,
         await _refetch_terminal_notify(
             bot, repo, fresh if fresh is not None else row,
             review_id=review_id, task_id=task_id, text=text,
-            stage_label=fsm.label(target),
+            stage_label=tr(fsm.label(target)),
         )
         return 1
 
@@ -1222,8 +1210,7 @@ async def _poll_one_refetch_job(bot, repo, row, *, current_time: float,
     if source is None or source["status"] != "pending":
         return await _terminate(
             fsm.CANCELLED, "source_review_resolved",
-            f"🔄 审核 #{review_id} 的重抓已取消：该审核已被处理"
-            "（驳回/通过/过期），不会产生替换稿，当前稿件保持不变。",
+            tr('🔄 审核 #{p0} 的重抓已取消：该审核已被处理（驳回/通过/过期），不会产生替换稿，当前稿件保持不变。').format(p0=review_id),
         )
 
     next_poll = row["next_poll_at"]
@@ -1261,9 +1248,8 @@ async def _poll_one_refetch_job(bot, repo, row, *, current_time: float,
                 )
                 await _refetch_poll_notify(
                     bot,
-                    f"🔄 审核 #{review_id} 重抓任务此前未在 PixivFlow 落地，"
-                    "已用同一任务ID重新提交并开始处理，有新结果会第一时间"
-                    f"在本群通知。\n任务ID：{task_id}",
+                    tr("""🔄 审核 #{p0} 重抓任务此前未在 PixivFlow 落地，已用同一任务ID重新提交并开始处理，有新结果会第一时间在本群通知。
+任务ID：{p1}""").format(p0=review_id, p1=task_id),
                 )
                 return 1
             except Exception:
@@ -1337,9 +1323,8 @@ async def _poll_one_refetch_job(bot, repo, row, *, current_time: float,
                     _submit_pixivflow_refetch, source["target_id"], request_id)
                 if await _refetch_poll_notify(
                     bot,
-                    f"🔄 审核 #{review_id} 处理时间较长，已自动恢复任务"
-                    "（同一重抓请求），有新结果会第一时间通知。"
-                    f"\n任务ID：{task_id}",
+                    tr("""🔄 审核 #{p0} 处理时间较长，已自动恢复任务（同一重抓请求），有新结果会第一时间通知。
+任务ID：{p1}""").format(p0=review_id, p1=task_id),
                 ):
                     await repo.bump_progress_notified(request_id, current_time)
                 return 1
@@ -1408,7 +1393,7 @@ async def _poll_one_refetch_job(bot, repo, row, *, current_time: float,
         if await repo.advance_stage(request_id, stage,
                                     remote_state=remote_state,
                                     reason="remote_progress"):
-            stage_label = fsm.label(stage)
+            stage_label = tr(fsm.label(stage))
         state = stage or state
 
     # 5b. Absolute ceiling: no attempt may outlive HARD_MINUTES. It is judged
@@ -1471,9 +1456,8 @@ async def _poll_one_refetch_job(bot, repo, row, *, current_time: float,
         if not last or current_time - last >= remind_seconds:
             await _refetch_poll_notify(
                 bot,
-                f"🔄 审核 #{review_id} 重抓仍在处理中（当前阶段：{stage_label}，"
-                f"已等待约 {minutes} 分钟），有新结果会第一时间在本群通知。"
-                f"\n任务ID：{task_id}",
+                tr("""🔄 审核 #{p0} 重抓仍在处理中（当前阶段：{p1}，已等待约 {p2} 分钟），有新结果会第一时间在本群通知。
+任务ID：{p3}""").format(p0=review_id, p1=stage_label, p2=minutes, p3=task_id),
             )
             await repo.bump_progress_notified(request_id, current_time)
             await _refetch_refresh_card(bot, review_id, minutes=minutes,
@@ -1697,12 +1681,12 @@ async def _answer(query, text=None, **kwargs):
 async def toggle_review_spoiler(update, context):
     query = update.callback_query
     if update.effective_user.id not in ADMIN_IDS:
-        await _answer(query, "你没有审核权限", show_alert=True)
+        await _answer(query, tr('你没有审核权限'), show_alert=True)
         return
     try:
         review_id = int(query.data.split(":", 1)[1])
     except (ValueError, IndexError):
-        await _answer(query, "无效的审核记录", show_alert=True)
+        await _answer(query, tr('无效的审核记录'), show_alert=True)
         return
 
     try:
@@ -1710,16 +1694,16 @@ async def toggle_review_spoiler(update, context):
             review_id, actor=update.effective_user.id
         )
     except ReviewNotFoundError:
-        await _answer(query, "审核记录不存在", show_alert=True)
+        await _answer(query, tr('审核记录不存在'), show_alert=True)
         return
     except ReviewError as error:
-        await _answer(query, "该投稿已处理，无法修改遮罩", show_alert=True)
+        await _answer(query, tr('该投稿已处理，无法修改遮罩'), show_alert=True)
         logger.debug("审核遮罩切换失败: %s", error)
         return
 
     row = await _load_review_for_action(query, review_id)
     new_spoiler = bool(row["spoiler"])
-    await _answer(query, f"遮罩已{'开启' if new_spoiler else '关闭'}")
+    await _answer(query, tr('遮罩已{p0}').format(p0=tr('开启') if new_spoiler else tr('关闭')))
     # §review-group-mask (on-demand): flip the mask on the review-group media
     # that is already on screen. The DB flag + card button alone never re-masks
     # the already-sent preview images.
@@ -1752,7 +1736,7 @@ async def toggle_review_spoiler(update, context):
         )
         await _answer(
             query,
-            f"已遮罩，但按钮无法刷新（状态已{'开启' if new_spoiler else '关闭'}）。",
+            tr('已遮罩，但按钮无法刷新（状态已{p0}）。').format(p0=tr('开启') if new_spoiler else tr('关闭')),
             show_alert=True,
         )
 
@@ -1843,13 +1827,13 @@ async def _record_refetch_event(event: str, *, review_id: int, request_id: str,
 def _refetch_replay_text(row) -> str:
     state = row["state"]
     return {
-        "requested": "正在重抓，请稍候",
-        "admitted": "正在重抓，请稍候",
-        "replaced": "重抓已完成，新候选已进入审核队列",
-        "no_alternative": "没有找到新的可替换作品，当前稿件保持不变。稍后有新候选时可以再次重抓。",
-        "failed": "重抓失败，当前稿件未变，请稍后重试",
-        "obsolete": "该审核稿已结束，请操作最新审核稿",
-    }.get(state, "正在重抓，请稍候")
+        "requested": tr('正在重抓，请稍候'),
+        "admitted": tr('正在重抓，请稍候'),
+        "replaced": tr('重抓已完成，新候选已进入审核队列'),
+        "no_alternative": tr('没有找到新的可替换作品，当前稿件保持不变。稍后有新候选时可以再次重抓。'),
+        "failed": tr('重抓失败，当前稿件未变，请稍后重试'),
+        "obsolete": tr('该审核稿已结束，请操作最新审核稿'),
+    }.get(state, tr('正在重抓，请稍候'))
 
 
 async def refetch_review(update, context):
@@ -1862,12 +1846,12 @@ async def refetch_review(update, context):
     """
     query = update.callback_query
     if update.effective_user.id not in ADMIN_IDS:
-        await _answer(query, "你没有审核权限", show_alert=True)
+        await _answer(query, tr('你没有审核权限'), show_alert=True)
         return
     try:
         review_id = int(query.data.split(":", 1)[1])
     except (ValueError, IndexError):
-        await _answer(query, "无效的审核记录", show_alert=True)
+        await _answer(query, tr('无效的审核记录'), show_alert=True)
         return
 
     from telepost.application.refetch import (
@@ -1893,11 +1877,10 @@ async def refetch_review(update, context):
     async def _notify_review_group(outcome: str, payload) -> None:
         if outcome == "accepted":
             text = (
-                f"🔄 审核 #{review_id} 已提交重抓，PixivFlow 正在查找新的候选作品；"
-                "有新作品时会替换进审核队列。"
+                tr('🔄 审核 #{p0} 已提交重抓，PixivFlow 正在查找新的候选作品；有新作品时会替换进审核队列。').format(p0=review_id)
             )
         else:
-            text = f"⚠️ 审核 #{review_id} 重抓失败，当前稿件未变，请稍后重试。"
+            text = tr('⚠️ 审核 #{p0} 重抓失败，当前稿件未变，请稍后重试。').format(p0=review_id)
         try:
             await context.bot.send_message(chat_id=REVIEW_CHAT_ID, text=text)
         except Exception:
@@ -1912,13 +1895,13 @@ async def refetch_review(update, context):
             on_remote_result=_notify_review_group,
         )
     except RefetchNotFoundError:
-        await _answer(query, "审核记录不存在", show_alert=True)
+        await _answer(query, tr('审核记录不存在'), show_alert=True)
         return
     except RefetchStateError as exc:
         await _answer(query, str(exc), show_alert=True)
         return
     except RefetchAlreadyRunningError:
-        await _answer(query, "正在重抓，请稍候", show_alert=True)
+        await _answer(query, tr('正在重抓，请稍候'), show_alert=True)
         return
     except RefetchNotConfiguredError as exc:
         await _answer(query, str(exc), show_alert=True)
@@ -1937,26 +1920,26 @@ async def refetch_review(update, context):
     # can take a second or two, and an unmoved post is what reads as “卡死”.
     await refresh_refetch_card(context.bot, review_id)
 
-    await _answer(query, "已提交重抓，找到新候选后会替换进本群", show_alert=True)
+    await _answer(query, tr('已提交重抓，找到新候选后会替换进本群'), show_alert=True)
 
 
 async def approve_review(update, context):
     query = update.callback_query
     if update.effective_user.id not in ADMIN_IDS:
-        await _answer(query, "你没有审核权限", show_alert=True)
+        await _answer(query, tr('你没有审核权限'), show_alert=True)
         return
     await _answer(query)
     try:
         review_id = int(query.data.split(":", 1)[1])
     except (ValueError, IndexError):
-        await query.edit_message_text("❌ 无效的审核记录")
+        await query.edit_message_text(tr('❌ 无效的审核记录'))
         return
 
     async def _show_publishing(row):
         try:
             from telegram import InlineKeyboardMarkup
             await query.edit_message_text(
-                f"🚀 审核 #{review_id} 正在发布…多图+评论串可能要几十秒，请勿重复点击。",
+                tr('🚀 审核 #{p0} 正在发布…多图+评论串可能要几十秒，请勿重复点击。').format(p0=review_id),
                 reply_markup=InlineKeyboardMarkup([]),
             )
         except Exception:
@@ -1969,10 +1952,10 @@ async def approve_review(update, context):
             on_claim=_show_publishing,
         )
     except ReviewNotFoundError:
-        await query.edit_message_text("❌ 审核记录不存在")
+        await query.edit_message_text(tr('❌ 审核记录不存在'))
         return
     except ReviewBusyError:
-        await query.edit_message_text("ℹ️ 该投稿当前状态：publishing")
+        await query.edit_message_text(tr('ℹ️ 该投稿当前状态：publishing'))
         return
     except ReviewStateError as error:
         await query.edit_message_text(f"ℹ️ {error.message}")
@@ -1980,7 +1963,8 @@ async def approve_review(update, context):
     except PublishFailedError as error:
         row = await _load_review_for_action(query, review_id)
         await query.edit_message_text(
-            f"⚠️ 审核 #{review_id} {error.retry_hint}：\n{error.message}",
+            tr("""⚠️ 审核 #{p0} {p1}：
+{p2}""").format(p0=review_id, p1=error.retry_hint, p2=error.message),
             reply_markup=_review_keyboard(
                 review_id, row["link"],
                 spoiler=bool(row["spoiler"]), source=row["source"],
@@ -1994,7 +1978,8 @@ async def approve_review(update, context):
         return
 
     await query.edit_message_text(
-        f"✅ 审核 #{review_id} 已发布\n{result.link or ''}",
+        tr("""✅ 审核 #{p0} 已发布
+{p1}""").format(p0=review_id, p1=result.link or ''),
         disable_web_page_preview=True,
     )
 
@@ -2002,13 +1987,13 @@ async def approve_review(update, context):
 async def reject_review(update, context):
     query = update.callback_query
     if update.effective_user.id not in ADMIN_IDS:
-        await _answer(query, "你没有审核权限", show_alert=True)
+        await _answer(query, tr('你没有审核权限'), show_alert=True)
         return
     await _answer(query)
     try:
         review_id = int(query.data.split(":", 1)[1])
     except (ValueError, IndexError):
-        await query.edit_message_text("❌ 无效的审核记录")
+        await query.edit_message_text(tr('❌ 无效的审核记录'))
         return
 
     try:
@@ -2017,29 +2002,29 @@ async def reject_review(update, context):
             actor=update.effective_user.id, source="telegram",
         )
     except ReviewNotFoundError:
-        await query.edit_message_text("❌ 审核记录不存在")
+        await query.edit_message_text(tr('❌ 审核记录不存在'))
         return
     except ReviewStateError as error:
         await query.edit_message_text(f"ℹ️ {error.message}")
         return
 
-    await query.edit_message_text(f"❌ 审核 #{review_id} 已拒绝")
+    await query.edit_message_text(tr('❌ 审核 #{p0} 已拒绝').format(p0=review_id))
 
 
 async def block_review_user(update, context):
     """🚫 封禁投稿人 — insert a moderation block for a review's human submitter."""
     query = update.callback_query
     if update.effective_user.id not in ADMIN_IDS:
-        await _answer(query, "你没有审核权限", show_alert=True)
+        await _answer(query, tr('你没有审核权限'), show_alert=True)
         return
     try:
         review_id = int(query.data.split(":", 1)[1])
     except (ValueError, IndexError):
-        await _answer(query, "无效的审核记录", show_alert=True)
+        await _answer(query, tr('无效的审核记录'), show_alert=True)
         return
     row = await _load_review_for_action(query, review_id)
     if row is None:
-        await _answer(query, "审核记录不存在", show_alert=True)
+        await _answer(query, tr('审核记录不存在'), show_alert=True)
         return
     from telepost.storage.sqlite.moderation import ModerationRepository, user_subject
     subject = user_subject(
@@ -2047,7 +2032,7 @@ async def block_review_user(update, context):
         or 0
     )
     if subject == "user:0":
-        await _answer(query, "该投稿没有可封禁的投稿人", show_alert=True)
+        await _answer(query, tr('该投稿没有可封禁的投稿人'), show_alert=True)
         return
     from telepost.observability import audit
     await ModerationRepository().add_block(
@@ -2058,10 +2043,12 @@ async def block_review_user(update, context):
         actor=update.effective_user.id,
         detail={"subject": subject, "reason": "review card"},
     )
-    await _answer(query, "已封禁该投稿人：后续投稿将被自动拒绝")
+    await _answer(query, tr('已封禁该投稿人：后续投稿将被自动拒绝'))
     try:
         await query.edit_message_text(
-            f"{query.message.text}\n\n🚫 投稿人封禁已由管理员 {update.effective_user.id} 记录"
+            tr("""{p0}
+
+🚫 投稿人封禁已由管理员 {p1} 记录""").format(p0=query.message.text, p1=update.effective_user.id)
         )
     except Exception as exc:
         logger.debug("封禁后更新审核卡失败: %s", exc)
@@ -2071,23 +2058,23 @@ async def block_review_api(update, context):
     """🔑 禁用API — insert a moderation block for the review's API token actor."""
     query = update.callback_query
     if update.effective_user.id not in ADMIN_IDS:
-        await _answer(query, "你没有审核权限", show_alert=True)
+        await _answer(query, tr('你没有审核权限'), show_alert=True)
         return
     try:
         review_id = int(query.data.split(":", 1)[1])
     except (ValueError, IndexError):
-        await _answer(query, "无效的审核记录", show_alert=True)
+        await _answer(query, tr('无效的审核记录'), show_alert=True)
         return
     row = await _load_review_for_action(query, review_id)
     if row is None:
-        await _answer(query, "审核记录不存在", show_alert=True)
+        await _answer(query, tr('审核记录不存在'), show_alert=True)
         return
     actor_subject = str(_row_value(row, "actor_subject") or "")
     from telepost.storage.sqlite.moderation import ModerationRepository
     from telepost.storage.sqlite.moderation import canonical_actor_subject
     subject = canonical_actor_subject(actor_subject)
     if not subject or not subject.startswith("api:"):
-        await _answer(query, "该投稿来自私聊/MiniApp，不是API来源", show_alert=True)
+        await _answer(query, tr('该投稿来自私聊/MiniApp，不是API来源'), show_alert=True)
         return
     from telepost.observability import audit
     await ModerationRepository().add_block(
@@ -2098,10 +2085,12 @@ async def block_review_api(update, context):
         actor=update.effective_user.id,
         detail={"subject": subject, "reason": "review card"},
     )
-    await _answer(query, "已禁用该API token：后续将停止接受其自动投稿")
+    await _answer(query, tr('已禁用该API token：后续将停止接受其自动投稿'))
     try:
         await query.edit_message_text(
-            f"{query.message.text}\n\n🔑 API token 禁用已由管理员 {update.effective_user.id} 记录"
+            tr("""{p0}
+
+🔑 API token 禁用已由管理员 {p1} 记录""").format(p0=query.message.text, p1=update.effective_user.id)
         )
     except Exception as exc:
         logger.debug("禁用API后更新审核卡失败: %s", exc)

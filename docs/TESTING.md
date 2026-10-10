@@ -87,6 +87,23 @@ npx playwright test --project=mobile
 
 ## 发布验证
 
+### 更新中英文文案
+
+Bot 的中文原文标记为 `tr("…")`，英文目录位于 `ui/locales/en/LC_MESSAGES/telepost.po`。
+安装开发依赖后，用 Babel 编译并提交对应 `.mo`；运行时由标准库 gettext 读取：
+
+```bash
+python -m pip install -e '.[dev]'
+pybabel compile -d ui/locales -D telepost
+pytest -q tests/test_bot_language.py tests/test_production_handler_graph.py
+```
+
+Mini App 的目录在 `webapp/src/locales/zh.json` 和 `en.json`，使用 react-i18next。
+两个目录的插值字段必须一致；动态用户名、标题、标签和正文只作为参数传入，绝不当作待翻译文案。
+附件选择、去重和进度仍由 Uppy 管理，语言切换只调用 `setOptions({ locale })`。
+运行 `npm run typecheck`、`npm run lint`、`npm test` 和 `npm run build`，
+英文界面还由 `e2e/language.spec.ts` 验证小屏导航、投稿和审核。
+
 Tag 流程除测试外还会：
 
 - 校验 tag 与代码版本一致

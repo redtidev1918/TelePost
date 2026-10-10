@@ -33,6 +33,15 @@ HTTP API ─────────┘
 
 ## Quick start
 
+Have your bot token, target channel, numeric user ID and a separate review group ready.
+Give the bot permission to post in the channel, then add it to the review group.
+
+Prefer no Python installation? [Download a standalone program](https://redtidev1918.github.io/TelePost/#/en/download).
+On Windows, run `.\telepost-windows-x64.exe --setup` in PowerShell, complete the review configuration
+below, then run `.\telepost-windows-x64.exe`. Keep `config.ini` and `data` when upgrading.
+
+For Python / pip:
+
 1. Create a bot with [@BotFather](https://t.me/BotFather), add it to your channel, and grant it permission to post.
 2. Install Python 3.10+. Image processing requires system libvips; see
    [system dependencies](docs/en/INSTALL.md#libvips-system-dependency).
@@ -59,8 +68,21 @@ API and Mini App review settings default to enabled; the three-field wizard does
 the review group. For private-chat-only use, see the [installation guide](docs/en/INSTALL.md#1-pip-install-recommended).
 Save the configuration as UTF-8. On Windows, start with `.\.venv\Scripts\telepost.exe`.
 
-Send `/start` → `/submit` → upload media → `/done_media`, check the preview,
-then follow the submission prompts. See the [command guide](docs/en/COMMANDS.md).
+Set these values in the existing `[BOT]` section, replacing the group ID:
+
+```ini
+LANGUAGE = en
+REVIEW_CHAT_ID = <your-review-group-ID>
+```
+
+Your first submission:
+
+1. Chat privately with the bot, send `/start`, then tap “New submission” or send `/submit`.
+2. Upload images, videos, audio or files, then send `/done_media`.
+3. Add tags in the preview. Edit the title, note, link, anonymous mode or spoiler settings as needed.
+4. Check and tap “Publish”; with chat review enabled, the button says “Submit for review”.
+
+Send `/cancel` at any step to cancel. See the [command guide](docs/en/COMMANDS.md).
 
 Bot private-chat submissions publish directly by default and can be configured
 for review. Automated HTTP API submissions always require review. Mini App submissions require
@@ -110,7 +132,24 @@ admins get the moderation and admin features.
 The Mini App shares the same backend, permissions, and submission state as the Bot. Setup:
 [Mini App (Chinese)](docs/MINIAPP.md).
 
-## Multi-bot & deployment
+## Chinese bots, English bots and deployment
+
+One program supports both languages, with Chinese as the default. For a single bot, set
+`LANGUAGE = en` under `[BOT]` in `config.ini`, or set `BOT_LANGUAGE=en` in your deployment
+environment. Restart to apply the change.
+
+To run a Chinese bot and an English bot together, configure their separate credentials,
+channels and review groups, then set:
+
+```dotenv
+BOT1_LANGUAGE=zh
+BOT2_LANGUAGE=en
+```
+
+Add these settings to your deployment environment or Compose `.env`. Welcome messages, help,
+menus, submission prompts and review actions use the selected language. The Mini App follows
+its bot by default; submitted titles, tags and content keep their original language.
+See [Bot language and multiple bots](docs/en/CONFIGURATION.md#bot-language-and-multiple-bots).
 
 `run.py` manages separate bot processes, each with its own configuration and data directory.
 The parent router exposes `/webhook/botN` and `/api/botN/v1/*`; child ports are local only.

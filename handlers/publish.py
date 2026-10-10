@@ -17,6 +17,7 @@
 旧式 ``"kind:file_id[:filename]"`` 输入与 raw PTB Message 输出在此边界转换，
 新代码内部一律使用 domain 的 MediaItem / DeliveryResult。
 """
+from ui.i18n import tr
 import json
 import logging
 import os
@@ -1130,7 +1131,7 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
         )
         if await ModerationRepository().is_blocked(user_subject(user_id)):
             await update.effective_message.reply_text(
-                "🚫 你的投稿权限已被限制，如有疑问请联系管理员。"
+                tr('🚫 你的投稿权限已被限制，如有疑问请联系管理员。')
             )
             return ConversationHandler.END
     except Exception as exc:
@@ -1162,14 +1163,14 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
             data = await c.fetchone()
 
         if not data:
-            await _reply_to_user("❌ 数据异常，请重新发送 /start")
+            await _reply_to_user(tr('❌ 数据异常，请重新发送 /start'))
             return ConversationHandler.END
 
         if not (data["tags"] or "").strip():
             if is_callback:
-                await update.callback_query.answer("请先填写标签", show_alert=True)
+                await update.callback_query.answer(tr('请先填写标签'), show_alert=True)
             else:
-                await _reply_to_user("⚠️ 发布前必须填写标签")
+                await _reply_to_user(tr('⚠️ 发布前必须填写标签'))
             return STATE['PREVIEW']
 
         media_list, doc_list = [], []
@@ -1208,7 +1209,7 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
         caption = channel_caption(caption_data)
 
         if not media_list and not doc_list:
-            await _reply_to_user("❌ 未检测到任何上传文件，请重新发送 /start")
+            await _reply_to_user(tr('❌ 未检测到任何上传文件，请重新发送 /start'))
             async with get_db() as conn:
                 await conn.execute(
                     "DELETE FROM submissions WHERE user_id=?", (user_id,)
@@ -1315,8 +1316,8 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
 
         if not sent_message:
             await _reply_to_user(
-                "❌ 内容发送失败。\n"
-                "您的投稿数据已保留，请稍后重新发送 /submit 并完成相同步骤，或联系管理员处理。"
+                tr("""❌ 内容发送失败。
+您的投稿数据已保留，请稍后重新发送 /submit 并完成相同步骤，或联系管理员处理。""")
             )
             return ConversationHandler.END
 
@@ -1326,11 +1327,15 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
                 f"https://t.me/{channel_username}/{sent_message.message_id}"
             )
         else:
-            submission_link = "频道无公开链接"
+            submission_link = tr('频道无公开链接')
 
         await _reply_to_user(
-            f"🎉 投稿已成功发布到频道！\n\n🔗 查看发布内容：\n{submission_link}\n\n"
-            "感谢你的投稿，欢迎再次光临～"
+            tr("""🎉 投稿已成功发布到频道！
+
+🔗 查看发布内容：
+{p0}
+
+感谢你的投稿，欢迎再次光临～""").format(p0=submission_link)
         )
         publish_success = True
 
@@ -1389,7 +1394,7 @@ async def publish_submission(update: Update, context: CallbackContext) -> int:
     except Exception as exc:
         logger.error("发布投稿失败: %s", exc, exc_info=True)
         try:
-            await _reply_to_user("❌ 发布失败，您的投稿数据已保留，请稍后重试或联系管理员。")
+            await _reply_to_user(tr('❌ 发布失败，您的投稿数据已保留，请稍后重试或联系管理员。'))
         except Exception as notify_err:
             logger.error("发送失败通知时出错: %s", notify_err)
     finally:

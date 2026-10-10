@@ -1,3 +1,5 @@
+import { tr } from "../../lib/i18n";
+import { useTranslation } from 'react-i18next';
 import { useBotNavigate } from '../../lib/useBotNavigate';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -10,6 +12,8 @@ import {
   Textarea,
 } from '@telegram-apps/telegram-ui';
 import Uppy from '@uppy/core';
+import englishLocale from '@uppy/locales/lib/en_US';
+import chineseLocale from '@uppy/locales/lib/zh_CN';
 import { Dashboard, UppyContextProvider, useFileInput, useUppyState } from '@uppy/react';
 import '@uppy/core/dist/style.min.css';
 import '@uppy/dashboard/dist/style.min.css';
@@ -49,8 +53,7 @@ type PickedFile = { id: string; data: unknown; name?: string; size?: number | nu
 const MAX_FILES = 20;
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
-const TAG_HINT =
-  '例如：ボテ腹, R18 pregnancy\n空格、英文逗号、中文逗号均可，无需输入 #';
+const TAG_HINT = () => (tr("例如：ボテ腹, R18 pregnancy\n空格、英文逗号、中文逗号均可，无需输入 #"));
 
 function formatSize(bytes?: number | null): string {
   if (!bytes) return '';
@@ -105,11 +108,13 @@ function useObjectUrls(files: Array<{ id: string; data: unknown }>): Map<string,
 }
 
 export function SubmitPage() {
+  const { i18n } = useTranslation();
   const navigate = useBotNavigate();
   // One Uppy instance per mounted page, destroyed on unmount (§uppy lifecycle).
   const uppy = useMemo(
     () =>
       new Uppy({
+        locale: chineseLocale,
         autoProceed: false,
         restrictions: {
           maxNumberOfFiles: MAX_FILES,
@@ -119,6 +124,9 @@ export function SubmitPage() {
     [],
   );
   useEffect(() => () => uppy.destroy(), [uppy]);
+  useEffect(() => {
+    uppy.setOptions({ locale: i18n.language === 'en' ? englishLocale : chineseLocale });
+  }, [uppy, i18n.language]);
 
   const idempotencyKey = useMemo(
     () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)),
@@ -183,6 +191,7 @@ interface FormProps {
 }
 
 function SubmitForm(props: FormProps) {
+  useTranslation();
   const { uppy, idempotencyKey } = props;
   const files = useUppyState(uppy, (state) => state.files);
   const fileInput = useFileInput({ multiple: true });
@@ -209,17 +218,17 @@ function SubmitForm(props: FormProps) {
       });
       setPreviewHtml(result.caption);
     } catch (error) {
-      props.setSnack(`预览失败：${(error as Error).message}`);
+      props.setSnack(tr("预览失败：{{p0}}", {p0: (error as Error).message}));
     }
   };
 
   const openPreview = () => {
     if (selected.length === 0) {
-      props.setSnack('请先添加至少一个文件');
+      props.setSnack(tr("请先添加至少一个文件"));
       return;
     }
     if (!props.tags.trim()) {
-      props.setSnack('标签为必填项');
+      props.setSnack(tr("标签为必填项"));
       return;
     }
     void refreshCaption();
@@ -230,19 +239,19 @@ function SubmitForm(props: FormProps) {
   const submit = async () => {
     if (inFlight.current) return;
     if (selected.length === 0) {
-      props.setSnack('请先添加至少一个文件');
+      props.setSnack(tr("请先添加至少一个文件"));
       return;
     }
     if (!props.tags.trim()) {
-      props.setSnack('标签为必填项');
+      props.setSnack(tr("标签为必填项"));
       return;
     }
     if (props.link && !/^https?:\/\//i.test(props.link)) {
-      props.setSnack('链接必须以 http:// 或 https:// 开头');
+      props.setSnack(tr("链接必须以 http:// 或 https:// 开头"));
       return;
     }
     if (!hasSession()) {
-      props.setSnack('会话已过期，请关闭并重新打开小程序');
+      props.setSnack(tr("会话已过期，请关闭并重新打开小程序"));
       return;
     }
     // TelePost business adapter: one multipart request for all files + metadata.
@@ -264,18 +273,18 @@ function SubmitForm(props: FormProps) {
     form.append('idempotency_key', idempotencyKey);
     inFlight.current = true;
     props.setSubmitting(true);
-    props.setSnack('提交中…');
+    props.setSnack(tr("提交中…"));
     try {
       const result = await apiFetch<{ status: string; review_id?: number }>('/submissions', { method: 'POST', body: form });
       if (!result?.review_id || !['pending_review', 'pending', 'published', 'publishing'].includes(result.status)) {
-        throw new Error('尚未确认进入审核队列，请保留草稿并重试');
+        throw new Error(tr("尚未确认进入审核队列，请保留草稿并重试"));
       }
       void queryClient.invalidateQueries({ queryKey: ['my-submissions'] });
-      props.setSnack('投稿已提交 ✅');
+      props.setSnack(tr("投稿已提交 ✅"));
       window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
       setTimeout(props.onSubmitted, 900);
     } catch (error) {
-      props.setSnack(`提交失败：${(error as Error).message}`);
+      props.setSnack(tr("提交失败：{{p0}}", {p0: (error as Error).message}));
       window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
     } finally {
       inFlight.current = false;
@@ -286,8 +295,8 @@ function SubmitForm(props: FormProps) {
   if (previewOpen) {
     return (
       <div className="stack" data-testid="preview-panel">
-        <PageHeader title="投稿预览" subtitle="这是频道里将会出现的样子，确认无误后再提交。" />
-        <PageSection title="附件">
+        <PageHeader title={tr("投稿预览")} subtitle={tr("这是频道里将会出现的样子，确认无误后再提交。")} />
+        <PageSection title={tr("附件")}>
           <div className="attach-grid" data-testid="preview-media">
             {selected.map((file, index) => {
               const kind = fileKind(file);
@@ -298,7 +307,7 @@ function SubmitForm(props: FormProps) {
                     <img
                       className="attach-tile__media"
                       src={url}
-                      alt={file.name ?? `附件 ${index + 1}`}
+                      alt={file.name ?? tr("附件 {{p0}}", {p0: index + 1})}
                     />
                   ) : kind === 'video' ? (
                     <video className="attach-tile__media" src={url || undefined} controls />
@@ -308,14 +317,14 @@ function SubmitForm(props: FormProps) {
                     <div className="attach-tile__placeholder">📄</div>
                   )}
                   <div className="attach-tile__name">
-                    {file.name ?? `附件 ${index + 1}`} · {formatSize(file.size)}
+                    {file.name ?? tr("附件 {{p0}}", {p0: index + 1})} · {formatSize(file.size)}
                   </div>
                 </div>
               );
             })}
           </div>
         </PageSection>
-        <PageSection title="频道文案">
+        <PageSection title={tr("频道文案")}>
           {previewHtml ? (
             <div
               data-testid="preview-caption"
@@ -338,7 +347,7 @@ function SubmitForm(props: FormProps) {
               data-testid="preview-submit"
               onClick={() => void submit()}
             >
-              {props.submitting ? '提交中…' : '提交审核'}
+              {props.submitting ? tr("提交中…") : tr("提交审核")}
             </Button>
           }
           secondary={
@@ -349,8 +358,7 @@ function SubmitForm(props: FormProps) {
               data-testid="preview-back"
               onClick={() => setPreviewOpen(false)}
             >
-              返回修改
-            </Button>
+              {tr("返回修改")}</Button>
           }
         />
         {props.snack && (
@@ -362,18 +370,17 @@ function SubmitForm(props: FormProps) {
 
   return (
     <div className="stack">
-      <PageHeader title="投稿" subtitle="添加附件，填写信息，然后提交审核。" />
+      <PageHeader title={tr("投稿")} subtitle={tr("添加附件，填写信息，然后提交审核。")} />
 
       {/* ① 附件 */}
       <PageSection
-        title={`① 附件${selected.length ? ` · ${selected.length} 个` : ''}`}
-        action={selected.length > 0 ? '清空' : undefined}
+        title={tr("① 附件{{p0}}", {p0: selected.length ? ` · ${selected.length} 个` : ''})}
+        action={selected.length > 0 ? tr("清空") : undefined}
         onAction={selected.length > 0 ? () => uppy.removeFiles(Object.keys(files)) : undefined}
       >
         <div className="stack">
           <Button size="m" mode="outline" stretched data-testid="add-files" {...fileInput.getButtonProps()}>
-            ＋ 添加附件
-          </Button>
+            {tr("＋ 添加附件")}</Button>
           <input {...fileInput.getInputProps()} data-testid="file-input" style={{ display: 'none' }} />
           <Button
             size="m"
@@ -382,8 +389,7 @@ function SubmitForm(props: FormProps) {
             data-testid="clear-files"
             onClick={() => uppy.removeFiles(Object.keys(files))}
           >
-            清空附件
-          </Button>
+            {tr("清空附件")}</Button>
           {selected.length > 0 ? (
             <div className="attach-grid" data-testid="attachment-grid">
               {selected.map((file) => {
@@ -392,7 +398,7 @@ function SubmitForm(props: FormProps) {
                 return (
                   <div key={file.id} className="attach-tile">
                     {kind === 'image' && url ? (
-                      <img className="attach-tile__media" src={url} alt={file.name ?? '附件'} />
+                      <img className="attach-tile__media" src={url} alt={file.name ?? tr("附件")} />
                     ) : (
                       <div className="attach-tile__placeholder">
                         {kind === 'video' ? '🎬' : kind === 'audio' ? '🎧' : '📄'}
@@ -401,13 +407,13 @@ function SubmitForm(props: FormProps) {
                     <button
                       type="button"
                       className="attach-tile__remove"
-                      aria-label={`移除 ${file.name ?? '附件'}`}
+                      aria-label={tr("移除 {{p0}}", {p0: file.name ?? '附件'})}
                       onClick={() => uppy.removeFile(file.id)}
                     >
                       ×
                     </button>
                     <div className="attach-tile__name">
-                      {file.name ?? '附件'} · {formatSize(file.size)}
+                      {file.name ?? tr("附件")} · {formatSize(file.size)}
                     </div>
                   </div>
                 );
@@ -416,10 +422,10 @@ function SubmitForm(props: FormProps) {
           ) : null}
           <div className="mutation-help" data-testid="selected-files">
             {selected.length
-              ? `已选择 ${selected.length} 个文件\n${selected
+              ? tr("已选择 {{p0}} 个文件\n{{p1}}", {p0: selected.length, p1: selected
                   .map((file) => `${file.name ?? 'file'} · ${formatSize(file.size)}`)
-                  .join('\n')}`
-              : `尚未选择文件 · 最多 ${MAX_FILES} 个，单文件 ≤ 50MB`}
+                  .join('\n')})
+              : tr("尚未选择文件 · 最多 {{p0}} 个，单文件 ≤ 50MB", {p0: MAX_FILES})}
           </div>
           <button
             type="button"
@@ -427,7 +433,7 @@ function SubmitForm(props: FormProps) {
             data-testid="uppy-toggle"
             onClick={() => setUppyOpen((value) => !value)}
           >
-            {uppyOpen ? '收起附件管理器' : '附件管理器（拖拽 / 进度）'}
+            {uppyOpen ? tr("收起附件管理器") : tr("附件管理器（拖拽 / 进度）")}
           </button>
           <div className={`uppy-panel${uppyOpen ? ' uppy-panel--open' : ''}`} data-testid="uppy-panel">
             {/* @uppy/react renders the Dashboard inline (React-owned mount/unmount). */}
@@ -443,33 +449,33 @@ function SubmitForm(props: FormProps) {
       </PageSection>
 
       {/* ② 投稿信息 */}
-      <PageSection title="② 投稿信息">
+      <PageSection title={tr("② 投稿信息")}>
         <div className="stack">
           <div className="field">
             <Input
-              placeholder="标签（必填，可用空格或逗号分隔）"
+              placeholder={tr("标签（必填，可用空格或逗号分隔）")}
               value={props.tags}
               onChange={(e) => props.setTags(e.target.value)}
             />
-            <div className="tag-hint" data-testid="tag-hint">{TAG_HINT}</div>
+            <div className="tag-hint" data-testid="tag-hint">{TAG_HINT()}</div>
           </div>
           <div className="field">
             <Input
-              placeholder="标题（可选）"
+              placeholder={tr("标题（可选）")}
               value={props.title}
               onChange={(e) => props.setTitle(e.target.value)}
             />
           </div>
           <div className="field">
             <Textarea
-              placeholder="备注（可选）"
+              placeholder={tr("备注（可选）")}
               value={props.note}
               onChange={(e) => props.setNote(e.target.value)}
             />
           </div>
           <div className="field">
             <Input
-              placeholder="来源链接（可选，http/https）"
+              placeholder={tr("来源链接（可选，http/https）")}
               value={props.link}
               onChange={(e) => props.setLink(e.target.value)}
             />
@@ -478,11 +484,11 @@ function SubmitForm(props: FormProps) {
       </PageSection>
 
       {/* ③ 发布设置 */}
-      <PageSection title="③ 发布设置">
+      <PageSection title={tr("③ 发布设置")}>
         <Section>
           <div className="card__row card__row--static">
-            <div className="card__row-title">匿名投稿</div>
-            <div className="card__row-meta">{props.anonymous ? '不展示署名' : '展示署名'}</div>
+            <div className="card__row-title">{tr("匿名投稿")}</div>
+            <div className="card__row-meta">{props.anonymous ? tr("不展示署名") : tr("展示署名")}</div>
             <div className="card__row-foot">
               <Switch
                 checked={props.anonymous}
@@ -491,8 +497,8 @@ function SubmitForm(props: FormProps) {
             </div>
           </div>
           <div className="card__row card__row--static">
-            <div className="card__row-title">剧透</div>
-            <div className="card__row-meta">{props.spoiler ? '通过后以剧透发布' : '正常发布'}</div>
+            <div className="card__row-title">{tr("剧透")}</div>
+            <div className="card__row-meta">{props.spoiler ? tr("通过后以剧透发布") : tr("正常发布")}</div>
             <div className="card__row-foot">
               <Switch
                 checked={props.spoiler}
@@ -514,7 +520,7 @@ function SubmitForm(props: FormProps) {
             data-testid="submit"
             onClick={() => void submit()}
           >
-            {props.submitting ? '提交中…' : '提交审核'}
+            {props.submitting ? tr("提交中…") : tr("提交审核")}
           </Button>
         }
         secondary={
@@ -524,10 +530,9 @@ function SubmitForm(props: FormProps) {
             disabled={props.submitting}
             onClick={openPreview}
           >
-            预览投稿
-          </Button>
+            {tr("预览投稿")}</Button>
         }
-        note="提交失败时会保留附件和文字，可直接重试。"
+        note={tr("提交失败时会保留附件和文字，可直接重试。")}
       />
 
       {props.snack && (

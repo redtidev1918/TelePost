@@ -3,6 +3,7 @@
 Admin-only. Declarative action types only. No eval.
 """
 from __future__ import annotations
+from ui.i18n import tr
 
 import html as _html
 import logging
@@ -33,7 +34,7 @@ def _is_admin(update: Update) -> bool:
 
 
 async def _deny(update: Update) -> None:
-    await update.effective_message.reply_text("⛔ 此命令仅限管理员使用")
+    await update.effective_message.reply_text(tr('⛔ 此命令仅限管理员使用'))
 
 
 async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -46,14 +47,14 @@ async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await automation_store.ensure_tables()
     except Exception as exc:
         logger.error('automation ensure_tables failed: %s', exc, exc_info=True)
-        await update.effective_message.reply_text('定时任务表初始化失败，请检查日志')
+        await update.effective_message.reply_text(tr('定时任务表初始化失败，请检查日志'))
         return
 
     try:
         await automation_store.ensure_tables()
     except Exception as exc:
         logger.error('automation ensure_tables failed: %s', exc, exc_info=True)
-        await update.effective_message.reply_text('定时任务表初始化失败，请检查日志')
+        await update.effective_message.reply_text(tr('定时任务表初始化失败，请检查日志'))
         return
 
     args = context.args or []
@@ -80,15 +81,16 @@ async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await _preview_task(update, context, rest)
     else:
         await update.effective_message.reply_text(
-            "⏰ 定时任务\n\n"
-            "/schedule — 查看所有任务\n"
-            "/schedule add weekly-hot <星期> <HH:MM> <TOP N>\n"
-            "  例：/schedule add weekly-hot sunday 20:00 10\n"
-            "/schedule enable <id> — 启用\n"
-            "/schedule disable <id> — 停用\n"
-            "/schedule run <id> — 立即执行\n"
-            "/schedule preview <id> — 预览输出\n"
-            "/schedule delete <id> — 删除"
+            tr("""⏰ 定时任务
+
+/schedule — 查看所有任务
+/schedule add weekly-hot <星期> <HH:MM> <TOP N>
+  例：/schedule add weekly-hot sunday 20:00 10
+/schedule enable <id> — 启用
+/schedule disable <id> — 停用
+/schedule run <id> — 立即执行
+/schedule preview <id> — 预览输出
+/schedule delete <id> — 删除""")
         )
 
 
@@ -96,11 +98,13 @@ async def _list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     tasks = await automation_store.list_tasks()
     if not tasks:
         await update.effective_message.reply_text(
-            "⏰ 定时任务\n\n"
-            "还没有任务。\n\n"
-            "点击下方按钮创建，或发送 /schedule add weekly-hot 星期日 20:00 10",
+            tr("""⏰ 定时任务
+
+还没有任务。
+
+点击下方按钮创建，或发送 /schedule add weekly-hot 星期日 20:00 10"""),
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔥 创建每周热榜", callback_data="autowiz_start"),
+                InlineKeyboardButton(tr('🔥 创建每周热榜'), callback_data="autowiz_start"),
             ]]),
         )
         return
@@ -108,18 +112,20 @@ async def _list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     from telepost.domain.hot import active_timezone
     tz = active_timezone()
 
-    lines = ["⏰ 定时任务\n"]
+    lines = [tr("""⏰ 定时任务
+""")]
     for i, t in enumerate(tasks, 1):
-        status = "✅ 已启用" if t.enabled else "⛔ 已停用"
+        status = tr('✅ 已启用') if t.enabled else tr('⛔ 已停用')
         last = "—" if not t.last_run_at else _fmt_ts(t.last_run_at)
         last_status = t.last_run_status or "—"
         next_run = t.next_run_at()
         next_str = "—" if not next_run else _fmt_ts(next_run)
         lines.append(
-            f"{i}. {t.action_label}\n"
-            f"   ⏰ {t.schedule_label}  {status}\n"
-            f"   上次：{last} {last_status}\n"
-            f"   下次：{next_str}\n"
+            tr("""{p0}. {p1}
+   ⏰ {p2}  {p3}
+   上次：{p4} {p5}
+   下次：{p6}
+""").format(p0=i, p1=t.action_label, p2=t.schedule_label, p3=status, p4=last, p5=last_status, p6=next_str)
         )
         # Buttons per task
     text = "\n".join(lines)
@@ -128,11 +134,11 @@ async def _list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     for t in tasks:
         row = []
         if t.enabled:
-            row.append(InlineKeyboardButton("⏸ 停用", callback_data=f"autod_{t.id}"))
+            row.append(InlineKeyboardButton(tr('⏸ 停用'), callback_data=f"autod_{t.id}"))
         else:
-            row.append(InlineKeyboardButton("▶️ 启用", callback_data=f"autoe_{t.id}"))
-        row.append(InlineKeyboardButton("▶️ 执行", callback_data=f"autorun_{t.id}"))
-        row.append(InlineKeyboardButton("🗑 删除", callback_data=f"autodel_{t.id}"))
+            row.append(InlineKeyboardButton(tr('▶️ 启用'), callback_data=f"autoe_{t.id}"))
+        row.append(InlineKeyboardButton(tr('▶️ 执行'), callback_data=f"autorun_{t.id}"))
+        row.append(InlineKeyboardButton(tr('🗑 删除'), callback_data=f"autodel_{t.id}"))
         keyboard.append(row)
 
     await update.effective_message.reply_text(
@@ -153,82 +159,84 @@ async def _add_task(update: Update, context: ContextTypes.DEFAULT_TYPE, args: li
 
     next_run = task.next_run_at()
     preview = (
-        f"⏰ 新任务预览\n\n"
-        f"任务：{task.action_label}\n"
-        f"执行：{task.schedule_label}\n"
-        f"目标：审核群\n"
-        f"时区：{task.timezone}\n"
-        f"下次：{_fmt_ts(next_run) if next_run else '—'}\n\n"
-        f"确认创建？"
+        tr("""⏰ 新任务预览
+
+任务：{p0}
+执行：{p1}
+目标：审核群
+时区：{p2}
+下次：{p3}
+
+确认创建？""").format(p0=task.action_label, p1=task.schedule_label, p2=task.timezone, p3=_fmt_ts(next_run) if next_run else '—')
     )
     # Store the pending task in user_data for the confirm callback
     context.user_data["pending_automation"] = task.to_json()
     await update.effective_message.reply_text(
         preview,
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅ 确认创建", callback_data="autoadd_confirm"),
-            InlineKeyboardButton("❌ 取消", callback_data="autoadd_cancel"),
+            InlineKeyboardButton(tr('✅ 确认创建'), callback_data="autoadd_confirm"),
+            InlineKeyboardButton(tr('❌ 取消'), callback_data="autoadd_cancel"),
         ]]),
     )
 
 
 async def _toggle_task(update: Update, context: ContextTypes.DEFAULT_TYPE, args: list, *, enabled: bool) -> None:
     if not args or not args[0].isdigit():
-        await update.effective_message.reply_text(f"用法：/schedule {'enable' if enabled else 'disable'} <id>")
+        await update.effective_message.reply_text(tr('用法：/schedule {p0} <id>').format(p0='enable' if enabled else 'disable'))
         return
     task_id = int(args[0])
     ok = await automation_store.set_enabled(task_id, enabled)
     if not ok:
-        await update.effective_message.reply_text(f"❌ 任务 {task_id} 不存在")
+        await update.effective_message.reply_text(tr('❌ 任务 {p0} 不存在').format(p0=task_id))
         return
     await record_event("automation_toggle", task_id=task_id, enabled=enabled, actor_id=update.effective_user.id)
     await _sync(update, context)
-    await update.effective_message.reply_text(f"✅ 任务 {task_id} {'已启用' if enabled else '已停用'}")
+    await update.effective_message.reply_text(tr('✅ 任务 {p0} {p1}').format(p0=task_id, p1='已启用' if enabled else '已停用'))
 
 
 async def _delete_task(update: Update, context: ContextTypes.DEFAULT_TYPE, args: list) -> None:
     if not args or not args[0].isdigit():
-        await update.effective_message.reply_text("用法：/schedule delete <id>")
+        await update.effective_message.reply_text(tr('用法：/schedule delete <id>'))
         return
     task_id = int(args[0])
     ok = await automation_store.delete_task(task_id)
     if not ok:
-        await update.effective_message.reply_text(f"❌ 任务 {task_id} 不存在")
+        await update.effective_message.reply_text(tr('❌ 任务 {p0} 不存在').format(p0=task_id))
         return
     await record_event("automation_delete", task_id=task_id, actor_id=update.effective_user.id)
     await _sync(update, context)
-    await update.effective_message.reply_text(f"✅ 任务 {task_id} 已删除")
+    await update.effective_message.reply_text(tr('✅ 任务 {p0} 已删除').format(p0=task_id))
 
 
 async def _run_task(update: Update, context: ContextTypes.DEFAULT_TYPE, args: list) -> None:
     if not args or not args[0].isdigit():
-        await update.effective_message.reply_text("用法：/schedule run <id>")
+        await update.effective_message.reply_text(tr('用法：/schedule run <id>'))
         return
     task_id = int(args[0])
     task = await automation_store.get_task(task_id)
     if not task:
-        await update.effective_message.reply_text(f"❌ 任务 {task_id} 不存在")
+        await update.effective_message.reply_text(tr('❌ 任务 {p0} 不存在').format(p0=task_id))
         return
     from telepost.application.automation import manual_run
     status, error = await manual_run(task, context.bot)
     await record_event("automation_manual_run", task_id=task_id, status=status, error=error, actor_id=update.effective_user.id)
     if status == "success":
-        await update.effective_message.reply_text(f"✅ 任务 {task_id} 已执行")
+        await update.effective_message.reply_text(tr('✅ 任务 {p0} 已执行').format(p0=task_id))
     else:
-        await update.effective_message.reply_text(f"⚠️ 任务 {task_id} 执行失败：{error or status}")
+        await update.effective_message.reply_text(tr('⚠️ 任务 {p0} 执行失败：{p1}').format(p0=task_id, p1=error or status))
 
 
 async def _preview_task(update: Update, context: ContextTypes.DEFAULT_TYPE, args: list) -> None:
     if not args or not args[0].isdigit():
-        await update.effective_message.reply_text("用法：/schedule preview <id>")
+        await update.effective_message.reply_text(tr('用法：/schedule preview <id>'))
         return
     task_id = int(args[0])
     task = await automation_store.get_task(task_id)
     if not task:
-        await update.effective_message.reply_text(f"❌ 任务 {task_id} 不存在")
+        await update.effective_message.reply_text(tr('❌ 任务 {p0} 不存在').format(p0=task_id))
         return
     if task.action_type != ACTION_HOT:
-        await update.effective_message.reply_text("⚠️ 该任务类型暂不支持预览")
+        await update.effective_message.reply_text(tr('⚠️ 该任务类型暂不支持预览'))
         return
     payload = task.action_payload or {}
     from telepost.domain.hot import HotQuery
@@ -250,7 +258,7 @@ async def _sync(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ─── Wizard ───
 
-WIZ_DAYS = [("周一",0),("周二",1),("周三",2),("周四",3),("周五",4),("周六",5),("周日",6)]
+WIZ_DAYS = [(tr('周一'),0),(tr('周二'),1),(tr('周三'),2),(tr('周四'),3),(tr('周五'),4),(tr('周六'),5),(tr('周日'),6)]
 WIZ_TIMES = ["20:00","21:00","08:00","12:00"]
 WIZ_LIMITS = [5,10,20]
 
@@ -259,7 +267,7 @@ async def handle_automation_wizard(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     data = query.data or ""
     if not _is_admin(update):
-        await query.answer("⛔ 仅管理员", show_alert=True)
+        await query.answer(tr('⛔ 仅管理员'), show_alert=True)
         return
     ud = context.user_data
     wiz = ud.get("autowiz", {})
@@ -275,29 +283,29 @@ async def handle_automation_wizard(update: Update, context: ContextTypes.DEFAULT
                 row = []
         if row:
             rows.append(row)
-        await query.edit_message_text("① 选择星期", reply_markup=InlineKeyboardMarkup(rows))
+        await query.edit_message_text(tr('① 选择星期'), reply_markup=InlineKeyboardMarkup(rows))
     elif data.startswith("autowiz_day_"):
         day = int(data.replace("autowiz_day_", ""))
         wiz["day"] = day
         ud["autowiz"] = wiz
         day_label = next(l for l, d in WIZ_DAYS if d == day)
         rows = [[InlineKeyboardButton(t, callback_data=f"autowiz_time_{t}") for t in WIZ_TIMES]]
-        rows.append([InlineKeyboardButton("⌨️ 输入其他时间", callback_data="autowiz_time_custom")])
+        rows.append([InlineKeyboardButton(tr('⌨️ 输入其他时间'), callback_data="autowiz_time_custom")])
         await query.edit_message_text(
-            f"② 选择时间（已选：{day_label}）",
+            tr('② 选择时间（已选：{p0}）').format(p0=day_label),
             reply_markup=InlineKeyboardMarkup(rows),
         )
     elif data == "autowiz_time_custom":
         wiz["awaiting_time"] = True
         ud["autowiz"] = wiz
-        await query.edit_message_text("② 请直接发送时间，格式 HH:MM（如 20:30）")
+        await query.edit_message_text(tr('② 请直接发送时间，格式 HH:MM（如 20:30）'))
     elif data.startswith("autowiz_time_"):
         t = data.replace("autowiz_time_", "")
         try:
             from telepost.domain.hot import parse_schedule_time
             h, m = parse_schedule_time(t)
         except ValueError:
-            await query.answer("时间格式不对，请重选", show_alert=True)
+            await query.answer(tr('时间格式不对，请重选'), show_alert=True)
             return
         wiz["hour"] = h
         wiz["minute"] = m
@@ -305,7 +313,7 @@ async def handle_automation_wizard(update: Update, context: ContextTypes.DEFAULT
         ud["autowiz"] = wiz
         rows = [[InlineKeyboardButton(f"TOP {n}", callback_data=f"autowiz_limit_{n}") for n in WIZ_LIMITS]]
         await query.edit_message_text(
-            f"③ 选择数量（已选：{t}）",
+            tr('③ 选择数量（已选：{p0}）').format(p0=t),
             reply_markup=InlineKeyboardMarkup(rows),
         )
     elif data.startswith("autowiz_limit_"):
@@ -315,13 +323,15 @@ async def handle_automation_wizard(update: Update, context: ContextTypes.DEFAULT
         day_label = next((l for l, d in WIZ_DAYS if d == wiz.get("day")), "?")
         hour, minute = wiz.get("hour", 20), wiz.get("minute", 0)
         preview = (
-            f"⏰ 新任务预览\n\n"
-            f"任务：每周热榜\n"
-            f"执行：{day_label} {hour:02d}:{minute:02d}\n"
-            f"范围：本周\n"
-            f"数量：TOP {n}\n"
-            f"目标：审核群\n\n"
-            f"确认创建？"
+            tr("""⏰ 新任务预览
+
+任务：每周热榜
+执行：{p0} {p1:02d}:{p2:02d}
+范围：本周
+数量：TOP {p3}
+目标：审核群
+
+确认创建？""").format(p0=day_label, p1=hour, p2=minute, p3=n)
         )
         wiz["confirmed_payload"] = {
             "schedule_day": wiz.get("day", 6),
@@ -333,20 +343,20 @@ async def handle_automation_wizard(update: Update, context: ContextTypes.DEFAULT
         await query.edit_message_text(
             preview,
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("✅ 创建", callback_data="autowiz_confirm"),
-                InlineKeyboardButton("❌ 取消", callback_data="autowiz_cancel"),
+                InlineKeyboardButton(tr('✅ 创建'), callback_data="autowiz_confirm"),
+                InlineKeyboardButton(tr('❌ 取消'), callback_data="autowiz_cancel"),
             ]]),
         )
     elif data == "autowiz_confirm":
         payload = wiz.get("confirmed_payload")
         if not payload:
-            await query.answer("会话已过期，请重新创建", show_alert=True)
+            await query.answer(tr('会话已过期，请重新创建'), show_alert=True)
             return
         from config.settings import REVIEW_CHAT_ID, CHANNEL_ID
         target = str(REVIEW_CHAT_ID or CHANNEL_ID)
         from telepost.domain.automation import ACTION_HOT
         task = AutomationTask(
-            id=None, name="每周热榜", enabled=True,
+            id=None, name=tr('每周热榜'), enabled=True,
             schedule_type="weekly",
             schedule_day=payload.get("schedule_day", 6),
             schedule_hour=payload.get("schedule_hour", 20),
@@ -364,23 +374,24 @@ async def handle_automation_wizard(update: Update, context: ContextTypes.DEFAULT
         next_run = created.next_run_at()
         next_str = _fmt_ts(next_run) if next_run else "—"
         await query.edit_message_text(
-            f"✅ 任务已创建（#{created.id}）\n下次执行：{next_str}"
+            tr("""✅ 任务已创建（#{p0}）
+下次执行：{p1}""").format(p0=created.id, p1=next_str)
         )
     elif data == "autowiz_cancel":
         ud.pop("autowiz", None)
-        await query.edit_message_text("已取消")
+        await query.edit_message_text(tr('已取消'))
 
 async def handle_automation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     data = query.data or ""
     if not _is_admin(update):
-        await query.answer("⛔ 仅管理员", show_alert=True)
+        await query.answer(tr('⛔ 仅管理员'), show_alert=True)
         return
 
     if data == "autoadd_confirm":
         pending = context.user_data.get("pending_automation")
         if not pending:
-            await query.answer("预览已过期，请重新创建", show_alert=True)
+            await query.answer(tr('预览已过期，请重新创建'), show_alert=True)
             return
         task = AutomationTask(**pending)
         created = await automation_store.create_task(task)
@@ -388,43 +399,47 @@ async def handle_automation_callback(update: Update, context: ContextTypes.DEFAU
         await record_event("automation_create", task_id=created.id, actor_id=update.effective_user.id)
         await _sync(update, context)
         await query.edit_message_text(
-            f"✅ 任务已创建（#{created.id}）\n"
-            f"下次执行：{_fmt_ts(created.next_run_at())}"
+            tr("""✅ 任务已创建（#{p0}）
+下次执行：{p1}""").format(p0=created.id, p1=_fmt_ts(created.next_run_at()))
         )
     elif data == "autoadd_cancel":
         context.user_data.pop("pending_automation", None)
-        await query.edit_message_text("已取消")
+        await query.edit_message_text(tr('已取消'))
     elif data.startswith("autoe_"):
         task_id = int(data.replace("autoe_", ""))
         await automation_store.set_enabled(task_id, True)
         await _sync(update, context)
-        await query.answer("✅ 已启用")
-        await query.edit_message_text(query.message.text + "\n\n✅ 已启用", parse_mode="HTML")
+        await query.answer(tr('✅ 已启用'))
+        await query.edit_message_text(query.message.text + tr("""
+
+✅ 已启用"""), parse_mode="HTML")
     elif data.startswith("autod_"):
         task_id = int(data.replace("autod_", ""))
         await automation_store.set_enabled(task_id, False)
         await _sync(update, context)
-        await query.answer("⏸ 已停用")
+        await query.answer(tr('⏸ 已停用'))
     elif data.startswith("autorun_"):
         task_id = int(data.replace("autorun_", ""))
         task = await automation_store.get_task(task_id)
         if not task:
-            await query.answer("任务不存在", show_alert=True)
+            await query.answer(tr('任务不存在'), show_alert=True)
             return
         from telepost.application.automation import manual_run
         status, error = await manual_run(task, context.bot)
         await record_event("automation_manual_run", task_id=task_id, status=status, error=error, actor_id=update.effective_user.id)
-        await query.answer("✅ 已执行" if status == "success" else f"⚠️ {error or status}", show_alert=(status != "success"))
+        await query.answer(tr('✅ 已执行') if status == "success" else f"⚠️ {error or status}", show_alert=(status != "success"))
     elif data.startswith("autodel_"):
         task_id = int(data.replace("autodel_", ""))
         ok = await automation_store.delete_task(task_id)
         await _sync(update, context)
         if ok:
             await record_event("automation_delete", task_id=task_id, actor_id=update.effective_user.id)
-            await query.answer("🗑 已删除")
-            await query.edit_message_text(query.message.text + "\n\n🗑 已删除", parse_mode="HTML")
+            await query.answer(tr('🗑 已删除'))
+            await query.edit_message_text(query.message.text + tr("""
+
+🗑 已删除"""), parse_mode="HTML")
         else:
-            await query.answer("任务不存在", show_alert=True)
+            await query.answer(tr('任务不存在'), show_alert=True)
 
 
 def _fmt_ts(ts) -> str:

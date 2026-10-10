@@ -1,6 +1,7 @@
 """
 帖子统计和热度排行模块
 """
+from ui.i18n import tr
 import json
 import html as _html
 import logging
@@ -50,7 +51,7 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
         scope = hq.scope
         limit = hq.limit
         time_filter = scope
-        time_desc = hq.scope_label
+        time_desc = tr(hq.scope_label)
 
         # Canonical HotService: Bot and Mini App MUST NOT drift.
         from telepost.application.hot import HotService
@@ -62,7 +63,7 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
         pages = page_result.pages
         hot_posts = page_result.items
         if not hot_posts:
-            empty_text = f"📊 暂无{time_desc}热门帖子数据"
+            empty_text = tr('📊 暂无{p0}热门帖子数据').format(p0=time_desc)
             if edit_message and update.callback_query:
                 try:
                     await update.callback_query.edit_message_text(empty_text)
@@ -94,7 +95,7 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
                     valid_hot_posts.append(post)
         
         if not valid_hot_posts:
-            empty_text = f"📊 暂无{time_desc}热门帖子数据（或所有结果已被删除）"
+            empty_text = tr('📊 暂无{p0}热门帖子数据（或所有结果已被删除）').format(p0=time_desc)
             if edit_message and update.callback_query:
                 try:
                     await update.callback_query.edit_message_text(empty_text)
@@ -105,7 +106,8 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
             return
         
         # 构建消息 - 优化显示格式
-        message = f"🔥 <b>{time_desc}热榜 TOP {len(valid_hot_posts)}</b>\n"
+        message = tr("""🔥 <b>{p0}热榜 TOP {p1}</b>
+""").format(p0=time_desc, p1=len(valid_hot_posts))
         if scope == "week":
             from telepost.domain.hot import week_range_label
             message += f"📅 {week_range_label()}\n"
@@ -117,7 +119,7 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
                 channel_username = CHANNEL_ID.lstrip('@')
                 post_link = f"https://t.me/{channel_username}/{post.message_id}"
             else:
-                post_link = f"消息ID: {post.message_id}"
+                post_link = tr('消息ID: {p0}').format(p0=post.message_id)
             
             # 解析标签
             tags_display = ""
@@ -135,7 +137,7 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
                     tags_display = ' '.join([f"#{tag.lstrip('#')}" for tag in tags_list])
             
             # 处理标题（纯文本上截断，转义后再进 HTML，防止 < > & 破坏解析）
-            title = post.title or '无标题'
+            title = post.title or tr('无标题')
             if len(title) > 40:
                 title = title[:37] + '...'
             title = _html.escape(str(title))
@@ -181,16 +183,19 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
                 message += f"   📊 {' | '.join(stats_parts)}\n"
             
             # 热度和时间
-            message += f"   🔥 热度: <code>{post.heat_score:.1f}</code> • 🕐 {time_ago}\n"
+            message += tr("""   🔥 热度: <code>{p0:.1f}</code> • 🕐 {p1}
+""").format(p0=post.heat_score, p1=time_ago)
             message += "\n"
             
             # 防止消息过长
             if len(message) > 3500:
-                message += "...\n\n💡 更多帖子请使用 /search 搜索"
+                message += tr("""...
+
+💡 更多帖子请使用 /search 搜索""")
                 break
         
         message += f"━━━━━━━━━━━━━━━\n"
-        message += f"💡 /hot 全部 · /hot 20 · /hotweek 本周 · /hotweek 10"
+        message += tr('💡 /hot 全部 · /hot 20 · /hotweek 本周 · /hotweek 10')
         
         
         # 分页导航：多页时附加 ⬅️/➡️ 按钮，并记录翻页上下文
@@ -230,7 +235,7 @@ async def get_hot_posts(update: Update, context: CallbackContext, edit_message: 
         logger.error(f"获取热门帖子失败: {e}")
         try:
             target = update.callback_query if update.callback_query else update.effective_message
-            await target.reply_text("❌ 获取热门帖子失败，请稍后重试")
+            await target.reply_text(tr('❌ 获取热门帖子失败，请稍后重试'))
         except Exception:
             pass
 
@@ -250,17 +255,17 @@ def _format_time_ago(publish_time: datetime) -> str:
     
     if delta.days > 30:
         months = delta.days // 30
-        return f"{months}月前"
+        return tr('{p0}月前').format(p0=months)
     elif delta.days > 0:
-        return f"{delta.days}天前"
+        return tr('{p0}天前').format(p0=delta.days)
     elif delta.seconds >= 3600:
         hours = delta.seconds // 3600
-        return f"{hours}小时前"
+        return tr('{p0}小时前').format(p0=hours)
     elif delta.seconds >= 60:
         minutes = delta.seconds // 60
-        return f"{minutes}分钟前"
+        return tr('{p0}分钟前').format(p0=minutes)
     else:
-        return "刚刚"
+        return tr('刚刚')
 
 
 def _format_number(num: int) -> str:
@@ -306,7 +311,7 @@ async def get_user_stats(update: Update, context: CallbackContext):
             user_posts = await cursor.fetchall()
         
         if not user_posts:
-            await update.message.reply_text("📊 您还没有发布过投稿")
+            await update.message.reply_text(tr('📊 您还没有发布过投稿'))
             return
         
         # 统计数据
@@ -321,24 +326,27 @@ async def get_user_stats(update: Update, context: CallbackContext):
             channel_username = CHANNEL_ID.lstrip('@')
             hottest_link = f"https://t.me/{channel_username}/{hottest_post['message_id']}"
         else:
-            hottest_link = f"消息ID: {hottest_post['message_id']}"
+            hottest_link = tr('消息ID: {p0}').format(p0=hottest_post['message_id'])
         
         message = (
-            f"📊 您的投稿统计\n\n"
-            f"📝 总投稿数：{total_posts}\n"
-            f"❤️ 总反应数：{total_reactions}\n\n"
-            f"🔥 最热帖子：\n"
-            f"   标题：{hottest_post['title'] or '无标题'}\n"
-            f"   热度：{hottest_post['heat_score']:.1f}\n"
-            f"   链接：{hottest_link}\n\n"
-            f"💡 使用 /hot 查看全站热门帖子"
+            tr("""📊 您的投稿统计
+
+📝 总投稿数：{p0}
+❤️ 总反应数：{p1}
+
+🔥 最热帖子：
+   标题：{p2}
+   热度：{p3:.1f}
+   链接：{p4}
+
+💡 使用 /hot 查看全站热门帖子""").format(p0=total_posts, p1=total_reactions, p2=hottest_post['title'] or '无标题', p3=hottest_post['heat_score'], p4=hottest_link)
         )
         
         await update.message.reply_text(message, disable_web_page_preview=True)
         
     except Exception as e:
         logger.error(f"获取用户统计失败: {e}")
-        await update.message.reply_text("❌ 获取统计失败，请稍后重试")
+        await update.message.reply_text(tr('❌ 获取统计失败，请稍后重试'))
 
 
 
@@ -385,7 +393,7 @@ async def stats_command(update: Update, context: CallbackContext):
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as exc:
         logger.error("全局统计失败: %s", exc, exc_info=True)
-        await update.message.reply_text("❌ 获取全局统计失败，请稍后重试。")
+        await update.message.reply_text(tr('❌ 获取全局统计失败，请稍后重试。'))
 
 
 
@@ -407,9 +415,10 @@ async def build_hot_message(hq=None, *, scope: str = "all", limit: int = 10) -> 
     posts = page.items
 
     if not posts:
-        return f"📊 暂无{time_desc}热榜数据"
+        return tr('📊 暂无{p0}热榜数据').format(p0=time_desc)
 
-    message = f"🔥 <b>{time_desc}热榜 TOP {len(posts)}</b>\n"
+    message = tr("""🔥 <b>{p0}热榜 TOP {p1}</b>
+""").format(p0=time_desc, p1=len(posts))
     if hq.scope == "week":
         message += f"📅 {week_range_label()}\n"
     message += "\n"
@@ -419,8 +428,8 @@ async def build_hot_message(hq=None, *, scope: str = "all", limit: int = 10) -> 
             channel_username = CHANNEL_ID.lstrip('@')
             post_link = f"https://t.me/{channel_username}/{post.message_id}"
         else:
-            post_link = f"消息ID: {post.message_id}"
-        title = post.title or '无标题'
+            post_link = tr('消息ID: {p0}').format(p0=post.message_id)
+        title = post.title or tr('无标题')
         if len(title) > 40:
             title = title[:37] + '...'
         title = _html.escape(str(title))

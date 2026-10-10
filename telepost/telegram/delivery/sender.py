@@ -123,8 +123,9 @@ class PTBSender:
         if not nav_items:
             return None
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        from ui.i18n import tr
         buttons = [
-            InlineKeyboardButton(text=item.label, url=item.url)
+            InlineKeyboardButton(text=tr(item.label), url=item.url)
             for item in nav_items
         ]
         return InlineKeyboardMarkup([[btn] for btn in buttons])
