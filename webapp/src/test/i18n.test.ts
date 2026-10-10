@@ -18,7 +18,7 @@ describe('Mini App languages', () => {
       ok: true, data: { token: 'synthetic-session', expires_in: 1800, bot_language: 'en', user: { telegram_user_id: 42 } },
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     await bootstrapSession('synthetic-init-data');
-    expect(navigationForSpace(true).map((item) => item.label)).toEqual(['Home', 'Popular', 'Submit', 'Mine', 'Review']);
+    expect(navigationForSpace(true).map((item) => item.label)).toEqual(['Home', 'Hot', 'Submit', 'Mine', 'Review']);
     expect(reviewStatusLabel('superseded')).toBe('Superseded');
     expect(document.documentElement.lang).toBe('en');
     expect(tr('附件 {{p0}}', { p0: '中文图片.png' })).toBe('Attachment 中文图片.png');
