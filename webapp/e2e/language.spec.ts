@@ -4,10 +4,12 @@ import { openApp } from './support';
 test('English submission preserves content and fits the viewport', async ({ page }, testInfo) => {
   await openApp(page, '/submit', ['submitter'], 'en');
   await expect(page.getByTestId('bottom-nav')).toContainText('Home');
-  expect(await page.getByTestId('nav-home').evaluate((button) => {
-    const label = button.lastElementChild as HTMLElement;
-    return label.scrollWidth <= label.clientWidth;
-  })).toBe(true);
+  for (const button of await page.getByTestId('bottom-nav').getByRole('button').all()) {
+    expect(await button.evaluate((node) => {
+      const label = node.lastElementChild as HTMLElement;
+      return label.scrollWidth <= label.clientWidth;
+    })).toBe(true);
+  }
   await expect(page.getByTestId('tag-hint')).toContainText('Separate tags with spaces');
   await page.getByTestId('file-input').setInputFiles({
     name: '中文图片.png', mimeType: 'image/png', buffer: Buffer.from('fake-image'),
