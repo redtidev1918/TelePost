@@ -3,6 +3,7 @@
 
 # Force LF for shell scripts
 *.sh text eol=lf
+scripts/build-release text eol=lf
 
 # Windows batch needs CRLF
 *.bat text eol=crlf
