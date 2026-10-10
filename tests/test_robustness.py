@@ -188,26 +188,28 @@ class TestDatabaseRobustness:
         db_path = os.path.join(temp_dir, 'test.db')
         
         # 创建数据库
-        conn = sqlite3.connect(db_path)
-        conn.execute('''
-            CREATE TABLE test (
-                id INTEGER PRIMARY KEY,
-                value TEXT
-            )
-        ''')
-        conn.commit()
-        conn.close()
+        with closing(sqlite3.connect(db_path)) as conn:
+            # Match get_db(): WAL/NORMAL avoids testing disk fsync throughput.
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute('''
+                CREATE TABLE test (
+                    id INTEGER PRIMARY KEY,
+                    value TEXT
+                )
+            ''')
+            conn.commit()
         
         import threading
         errors = []
         
         def write_data(thread_id):
             try:
-                conn = sqlite3.connect(db_path, timeout=10)
-                for i in range(10):
-                    conn.execute("INSERT INTO test (value) VALUES (?)", (f"thread{thread_id}_{i}",))
-                    conn.commit()
-                conn.close()
+                with closing(sqlite3.connect(db_path, timeout=10)) as conn:
+                    conn.execute("PRAGMA synchronous=NORMAL")
+                    for i in range(10):
+                        conn.execute("INSERT INTO test (value) VALUES (?)", (f"thread{thread_id}_{i}",))
+                        conn.commit()
             except Exception as e:
                 errors.append(e)
         
@@ -219,6 +221,12 @@ class TestDatabaseRobustness:
         
         # 检查是否有错误
         assert len(errors) == 0, f"Errors occurred: {errors}"
+        with closing(sqlite3.connect(db_path)) as conn:
+            rows = conn.execute("SELECT value FROM test").fetchall()
+        assert len(rows) == 50
+        assert {row[0] for row in rows} == {
+            f"thread{thread_id}_{i}" for thread_id in range(5) for i in range(10)
+        }
     
     @pytest.mark.robustness
     @pytest.mark.unit
