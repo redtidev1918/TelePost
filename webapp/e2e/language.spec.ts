@@ -8,7 +8,7 @@ test('English submission preserves content and fits the viewport', async ({ page
     expect(await button.evaluate((node) => {
       const label = node.lastElementChild as HTMLElement;
       return label.scrollWidth <= label.clientWidth;
-    })).toBe(true);
+    }), await button.textContent() ?? 'navigation label').toBe(true);
   }
   await expect(page.getByTestId('tag-hint')).toContainText('Separate tags with spaces');
   await page.getByTestId('file-input').setInputFiles({
