@@ -52,7 +52,8 @@ SECRET_TOKEN = replace-with-random-secret
 - `GET /health`
 - `/api/botN/v1/*`
 
-多 Bot 子进程端口从 8081 开始，只有父路由对外。不要把 8081/8082 暴露到公网。
+多 Bot 子进程使用 `WEBHOOK_PORT+N`（默认从 8081 开始），只有父路由对外。
+不要把子进程端口暴露到公网。
 
 ## Webhook 生命周期
 
@@ -60,8 +61,8 @@ SECRET_TOKEN = replace-with-random-secret
 - 正常关机时只关闭本地服务器，**不会删除 Webhook**；重启后继续接收 Telegram 已排队的更新。
 - 改用 Polling 时，PTB 会处理 Webhook/Polling 切换；不要并行运行第二个相同 Token 实例。
 
-这是 2.10.39 的关键行为。旧版本在关机时删除 Webhook，会让已停止的 Fly Machine
-失去唯一唤醒来源。
+Webhook 的注册由 `utils/webhook_server.py` 管理。Fly.io 部署保持 TelePost 常驻，
+配置见 [Fly.io 生命周期与健康检查](FLYIO_DEPLOYMENT.md#生命周期与健康检查)。
 
 ## 反向代理
 

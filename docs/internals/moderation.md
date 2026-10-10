@@ -3,7 +3,7 @@
 ## 入口
 
 - Owner 在搜索或个人投稿列表点删除并确认。
-- Owner/Admin 使用 `/delete_posts <ID...>` 批量处理；支持单 ID、范围，单次最多 50 个。
+- Owner 使用 `/delete_posts <ID...>` 批量处理；支持单 ID、范围，单次最多 50 个。
 
 二者最终都删除频道主消息及关联回复、移除搜索索引，并把
 `published_posts.is_deleted` 设为 `1`。审核记录从 `published` 同步为 `deleted`，原

@@ -1,8 +1,8 @@
-# Telegram Mini App（TelePost 小程序）部署与架构
+# Telegram Mini App
 
-Mini App 是 TelePost 的**可选增强层**：它是纯 Presentation/UI Adapter，不拥有任何
-业务状态。所有 mutation 都进入与 Telegram Bot 完全相同的
-`domain → application → storage` 链路（同一个状态机、同一套幂等、同一个审计系统）。
+Mini App 提供网页投稿、个人投稿历史、内容浏览、审核和管理功能。
+它通过 TelePost HTTP API 操作业务，与 Bot 共用应用服务、持久数据、权限与审计。
+先完成下面的配置与部署，再从真实 Telegram 入口验证登录和操作。
 
 ```text
 Telegram
@@ -14,7 +14,7 @@ Telegram
         ReviewQueueService / ReviewService / RefetchService
 ```
 
-## 架构不变量（写入 AGENTS，勿违反）
+## 业务与认证边界
 
 1. Mini App 是 presentation adapter；业务状态只在 TelePost domain/application/storage。
 2. Bot 与 Mini App 共用同一组 command/service；禁止复制业务逻辑到前端或后端第二套。
@@ -24,12 +24,11 @@ Telegram
 5. 授权只认服务器（RBAC：submitter / reviewer / admin，reviewer 身份复用
    `ADMIN_IDS`/`OWNER_ID`，单一来源）。
 6. Mini App deep link（`startapp=review_123`）只表达导航意图，不构成授权。
-7. TelePost 仍是后端 SSOT；Mini App 不是第二个 backend。
 
 ## 空间与导航（§mine-admin-split, §ia）
 
-Mini App 只有**一个**工作空间，并且底部导航对**任何角色都最多 5 项**——手机上不允许出现
-6～7 个 Tab。路由与底部导航单一来源是 `webapp/src/lib/navigation.ts` 的
+用户、审核员和管理员共用一个应用外壳，底部导航最多 5 项。
+审核和管理各有自己的工作区。路由与底部导航来源是 `webapp/src/lib/navigation.ts` 的
 `navigationForSpace(isReviewer, isAdmin)`，Tab 归属判定是同文件的 `isNavItemActive()`：
 
 - **普通用户**（submitter）：`首页 | 热门 | 投稿 | 我的 | 更多`。
@@ -100,8 +99,6 @@ BottomNav，二级及以下只用 Telegram BackButton，页面内不再重复放
 这是上线安全开关（§152-§153）。
 注意：Bot 侧入口开关（`config/settings.MINIAPP_ENABLED`）与 session 认证开关
 （`telepost/miniapp/auth.init_data_enabled()`）共用同一份契约——**默认启用，仅显式关闭**。
-生产回归（v2.73.9）：此前 Bot 侧默认 `false` 而认证侧默认 `true`，两份默认值分叉导致
-Bot 私聊入口误报「Mini App 尚未启用」、同时小程序实际可用；现在两侧默认一致，不再分叉。
 当前投稿界面按审核流程工作；`MINIAPP_REVIEW_REQUIRED` 内置默认即为 `true`，且与 API 审核开关相互独立。
 
 ### 入口模型（§miniapp-entries，生产回归 m16459 后）
@@ -132,7 +129,7 @@ Telegram 用户身份才能创建 session，而不同的 Telegram 入口传递�
 
 ```bash
 cd webapp
-npm install
+npm ci
 npm run typecheck && npm run lint && npm test
 npm run build        # → webapp/dist/
 ```
@@ -155,14 +152,14 @@ npm run build        # → webapp/dist/
    Mini App；命令通过输入 `/` 使用。chat 菜单按钮在启用 Mini App 时挂
    `MenuButtonWebApp`（一个认证可靠的菜单入口，`main.py` 内 `setup_bot_commands`）。
    如需 `?startapp=` 深链直接启动 app，必须在 BotFather 单独配置 Main Mini App。
-5. 频道 footer：默认 `?startapp=miniapp` 直接打开 Main Mini App。若 BotFather
-   配置了 Direct Mini App short name，并设置 `MINIAPP_SHORT_NAME`，可使用
-   更专用的直达链接。
+5. 频道 footer：设置有效的 `CHANNEL_FOOTER_LINK` 并启用 `MINIAPP_SUBMIT_CTA` 后，
+   默认使用 `?startapp=miniapp` 直达 Main Mini App，需要先完成 BotFather 配置。
+   配置 `MINIAPP_SHORT_NAME` 后使用 `https://t.me/<bot>/<short_name>?startapp=submit`。
 6. **Main Mini App（Deep Link 前提）**：`t.me/<bot>?startapp=` 只在 BotFather
-   为该 bot 配置了 **Main Mini App** 时才直接启动 app。对 `vorePost_bot` 应在
-   BotFather（`/mybots → vorePost_bot → Mini App/Bot Settings`）把 Main Mini App
-   指向 `https://telesubmit-multi-bot.fly.dev/app/?bot=bot2`（`xgdPost_bot` 对应
-   `?bot=bot1`）。这只是导航/启动入口，不含任何会话凭据。
+   为该 bot 配置了 **Main Mini App** 时才直接启动 app。在 BotFather 的
+   `/mybots → <bot> → Mini App/Bot Settings` 设置自己的 HTTPS 应用地址；
+   多 Bot 分别使用 `https://<host>/app/?bot=botN`。没有配置 Main Mini App 时，
+   使用 Bot 私聊菜单或 Inline Web App 按钮；链接只提供导航，不含会话凭据。
 7. 健康检查 `/api/v1/health` 返回 `miniapp_review_required`（`utils/api_server.py`，不是
    `miniapp_enabled`）；`miniapp_enabled` 不单独暴露，运行态仅能从 Telegram 真机菜单实际打开确认。
 
@@ -207,7 +204,7 @@ connect-src 'self';
 - 审核队列第一版用 15s polling，不引入 WebSocket/SSE（§37）。
 - Attachment Menu 不在本轮上线前置（Bot API 限制），deep link 已覆盖直达入口（§171）。
 
-## Framework ownership（本轮硬约束）
+## 前端组件职责
 
 - Telegram 平台能力（viewport/safe-area/launch data）来自 `@telegram-apps/sdk`；
   TelegramUI 负责通用视觉组件（Tabbar/Section/Cell/Badge…）。

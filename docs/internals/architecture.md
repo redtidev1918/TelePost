@@ -1,8 +1,7 @@
 # 架构与职责边界
 
-本页描述 `refactor/architecture-delivery` 引入的分层。目标：频道投递只有
-一个核心，Telegram handler 只做协议适配，领域逻辑不依赖 python-telegram-bot
-（PTB）与 SQLite。
+Telegram 与 HTTP 入口通过应用服务编排投稿、审核和发布。投递核心使用端口隔离
+python-telegram-bot（PTB）与 SQLite，处理器负责协议适配。
 
 ## 分层
 
@@ -47,8 +46,8 @@ telepost.telegram.delivery
 
 * 调用方提供 `idempotency_key`（归一化、截断 240）。
 * `delivery_ledger.idempotency_key` 唯一：第二次同 key 直接回放首次结果。
-* 作品级去重：7 天窗口内 `(target_id, work_type, pixiv_id)` 命中则回
-  `duplicate_existing`。
+* 作品级去重：7 天窗口内 `(target_id, work_type, work_id)` 命中则回
+  `duplicate_existing`；存储列仍用兼容名称 `pixiv_id`，repository 边界映射。
 * 同进程并发同 key 由 `PublicationService` 内的 key 锁串行化；跨进程由
   SQLite UNIQUE + WAL 兜底。
 * 只有 confirmed delivery 才写账本；uncertain 不污染未来重试。
@@ -56,7 +55,8 @@ telepost.telegram.delivery
 ## 审核状态机
 
 `pending / failed → publishing → published | failed`；
-`rejected / expired / deleted` 终态。
+`rejected / expired / deleted / superseded` 为终态。重抓成功后旧代成为 `superseded`，
+新代成为链头；旧代上的批准、拒绝、剧透与编辑操作均由后端拒绝。
 
 * `publishing` 只能由条件 UPDATE 抢到（`WHERE id=? AND status IN
   ('pending','failed') OR (status='publishing' AND ?-updated_at > 过期阈值))`。
@@ -69,7 +69,8 @@ telepost.telegram.delivery
 频道 root 发首组图片 + 首组文件（图片在前、文件在后）→ 分别等待两个频道消息自动
 转发到关联讨论组（registry 记录 `(channel_id, msg_id) →
 (discussion_chat_id, discussion_msg_id)`）→ 溢出图片回复图片锚点、溢出文件回复
-文件锚点。确定性失败回滚后重试一次；uncertain（超时等）回滚已知消息后直接上抛。
+文件锚点。root 未确认时允许按已确认消息保守处理并重试一次；root 确认后，
+overflow 失败保留频道主贴，按可确定部分清理讨论区并提示人工核验，不能整组重跑。
 转发采集在 **webhook 与 polling 两条摄入路径**都注册（webhook 在入队前；polling 用
 `TypeHandler` group `-1000`）。
 
@@ -87,9 +88,9 @@ chat / HTTP API / 审核审批不存在第二套发布逻辑。
 
 ## 启动
 
-数据库 schema 初始化是 readiness 前置；Whoosh 索引初始化/重建、PixivFlow
-子进程管理等非关键工作一律在 readiness 之后后台执行，失败可降级，不阻塞
-webhook 绑定与健康检查。
+数据库 schema 初始化、未完成审核修复与重抓作业恢复是 readiness 前置。
+Whoosh 索引初始化/重建在后台执行，失败可降级。PixivFlow 使用独立运行单元，
+不参与 TelePost 的启动就绪判断。
 
 ## Novel TXT Telegraph 预览（可选发布增强）
 
@@ -120,15 +121,15 @@ Final Publication Snapshot
 
 ## Rich Novel 富媒体预览（PixivFlow → TelePress → Telegraph）
 
-生产富媒体小说链路使用独立 TelePress 服务（app `telepress-publish`），经由 HTTP
-`/publish/rich-novel` 接收 PixivFlow 生成的 `md` + `images`，上传 Catbox，渲染
-Telegraph，返回 `novel_preview_url`：
+上游可通过独立 TelePress 服务的 `/publish/rich-novel` 生成 `novel_preview_url`。
+TelePost 的 provider 也可从最终发布快照与媒体引用生成预览；渲染、分页和媒体 provider
+由 TelePress 负责。具体生产服务与 provider 配置以部署仓库为准。
 
 ```text
 PixivFlow Novel Artifact (txt / md / images / zip)
         │
         ▼
-TelePress /publish/rich-novel → Catbox → Telegraph
+TelePress /publish/rich-novel → media provider → Telegraph
         │
         ▼
 novel_preview_url
@@ -147,9 +148,11 @@ TelePost channel root  →  [ 📖 在线阅读 ]
   库，与上面这条 HTTP 富媒体链路是两个独立入口，共享同一个 `novel_preview_url`
   展示契约。
 
-当前**不拆**。投递核心确实已 PTB-free（domain/planner/executor），但：
+## 投递核心的包边界
 
-1. 仓库内只有 TelePost 一个真实消费者，YAGNI；
+投递核心暂时保留在 TelePost 仓库内：
+
+1. 仓库内只有 TelePost 一个真实消费者；
 2. 讨论组策略、file_id 账本、caption 构建仍带 TelePost 业务语义；
 3. 包边界还没有跨仓库稳定 API 的发布/版本化需求。
 

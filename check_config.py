@@ -9,9 +9,9 @@ import sys
 def check_python_version():
     """检查 Python 版本"""
     major, minor = sys.version_info[:2]
-    if major < 3 or (major == 3 and minor < 8):
+    if (major, minor) < (3, 10):
         print(f"❌ Python 版本过低: {major}.{minor}")
-        print("   需要 Python 3.8 或更高版本")
+        print("   需要 Python 3.10 或更高版本")
         return False
     print(f"✅ Python 版本: {major}.{minor}")
     return True
@@ -44,7 +44,7 @@ def check_config_file():
         try:
             import configparser
             config = configparser.ConfigParser()
-            config.read('config.ini')
+            config.read('config.ini', encoding="utf-8-sig")
             
             # 检查必要配置
             if config.has_option('BOT', 'TOKEN'):
@@ -197,4 +197,3 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
-

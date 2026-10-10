@@ -29,7 +29,7 @@ config = configparser.ConfigParser()
 
 # 安全读取配置文件
 if os.path.exists(CONFIG_PATH):
-    config.read(CONFIG_PATH)
+    config.read(CONFIG_PATH, encoding="utf-8-sig")
     logger.info(f"已加载配置文件: {CONFIG_PATH}")
 else:
     logger.warning(f"⚠️ 配置文件 {CONFIG_PATH} 不存在，将仅使用环境变量")

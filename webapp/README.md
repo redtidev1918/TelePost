@@ -1,8 +1,7 @@
 # TelePost Mini App (webapp)
 
 Telegram Mini App frontend for TelePost: submission, personal submission
-history, and the review/moderation console. It is a **presentation adapter**
-only — every mutation flows through the TelePost canonical HTTP API, which
+history, and the review/moderation console. Every mutation flows through the TelePost HTTP API, which
 shares one domain / application / repository / state machine with the
 Telegram Bot.
 
@@ -12,7 +11,8 @@ Telegram Bot.
 - [@telegram-apps/sdk-react](https://www.npmjs.com/package/@telegram-apps/sdk-react)
   + [@telegram-apps/telegram-ui](https://www.npmjs.com/package/@telegram-apps/telegram-ui)
 - [TanStack Query](https://tanstack.com/query) for server state
-- [Uppy](https://uppy.io) for upload UX (progress / retry / cancel)
+- [Uppy](https://uppy.io) for attachment selection, limits, removal, progress, and errors;
+  TelePost submits one multipart request with a stable idempotency key
 - Vitest + Testing Library for unit tests
 
 ## Information architecture (mobile first)
@@ -41,9 +41,8 @@ Single source of truth: `src/lib/navigation.ts` (`navigationForSpace`,
 
 `src/components/ui/` holds the small presentation primitives every page shares
 (PageHeader, PageSection, StatusBadge, ActionBar, Segmented, EmptyState,
-MediaThumb) plus the design tokens in `src/index.css`. No UI framework: the
-palette comes from Telegram theme variables (`--tgui--*`), so light and dark
-stay native.
+MediaThumb) plus the design tokens in `src/index.css`. These wrap TelegramUI
+components and use Telegram theme variables (`--tgui--*`) for light and dark mode.
 
 - Media is lazy: `MediaThumb` only requests bytes when a card approaches the
   viewport, and always renders a placeholder on failure.
@@ -54,7 +53,7 @@ stay native.
 ## Development
 
 ```bash
-npm install
+npm ci
 npm run dev        # http://localhost:3000/app/ — proxies /api to a local TelePost
 ```
 
@@ -67,7 +66,8 @@ npx playwright test --update-snapshots   # only when a UI change is intended
 ```
 
 A dev mock Telegram environment is injected automatically (`import.meta.env.DEV`).
-In production the real Telegram WebView provides `window.Telegram.WebApp`.
+Production reads raw launch `initData` from `@telegram-apps/sdk` and uses
+`window.Telegram.WebApp` as a compatibility fallback. The server verifies it.
 
 ## Commands
 
@@ -92,4 +92,5 @@ npm run build       # vite build → dist/ (assets hash-cached)
 
 The `dist/` output is served from the same domain as TelePost's API (e.g.
 `https://telepost.example/app/`), removing CORS/cookie/session friction (§68-§69).
-See `docs/` in the repository root for the full deployment walkthrough.
+See the [Mini App guide](../docs/MINIAPP.md) for configuration and deployment,
+and the [testing guide](../docs/TESTING.md) for backend and browser checks.
