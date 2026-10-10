@@ -108,7 +108,7 @@ describe('SubmitPage (Uppy React integration)', () => {
     fireEvent.change(screen.getByTestId('file-input'), {
       target: { files: [new File(['image'], '中文图片.png', { type: 'image/png' })] },
     });
-    await waitFor(() => expect(screen.getByTestId('selected-files').textContent).toContain('1 files selected'));
+    await waitFor(() => expect(screen.getByTestId('selected-files').textContent).toContain('Selected files: 1'));
     fireEvent.change(screen.getByPlaceholderText('Tags (required; spaces or commas)'), { target: { value: '#中文标签' } });
     fireEvent.change(screen.getByPlaceholderText('Title (optional)'), { target: { value: '中文标题' } });
     fireEvent.click(screen.getByTestId('submit'));

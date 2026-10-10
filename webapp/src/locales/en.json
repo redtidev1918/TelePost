@@ -284,7 +284,7 @@
   "＋ 添加附件": "+ Add attachments",
   "清空附件": "Clear attachments",
   "移除 {{p0}}": "Remove {{p0}}",
-  "已选择 {{p0}} 个文件\n{{p1}}": "{{p0}} files selected\n{{p1}}",
+  "已选择 {{p0}} 个文件\n{{p1}}": "Selected files: {{p0}}\n{{p1}}",
   "尚未选择文件 · 最多 {{p0}} 个，单文件 ≤ 50MB": "No files selected · Up to {{p0}} files, max 50MB each",
   "收起附件管理器": "Hide attachment manager",
   "附件管理器（拖拽 / 进度）": "Attachment manager (drag / progress)",
