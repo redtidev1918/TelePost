@@ -59,7 +59,10 @@ def update_runtime_policy(path: str, changes: dict) -> dict[str, str]:
     os.makedirs(directory, exist_ok=True)
     fd, temp_path = tempfile.mkstemp(prefix=".runtime-policy-", dir=directory, text=True)
     try:
-        os.fchmod(fd, 0o600)
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        else:  # Windows Python before 3.13 has no descriptor-based chmod.
+            os.chmod(temp_path, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(policy, handle, ensure_ascii=False, indent=2, sort_keys=True)
             handle.write("\n")

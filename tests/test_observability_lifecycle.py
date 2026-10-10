@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -334,10 +335,10 @@ def test_cli_reviews_inspect_on_seeded_db(tmp_path, monkeypatch):
     result = subprocess.run(
         [sys.executable, "-m", "telepost.observability.cli",
          "reviews", "inspect", str(rid)],
-        cwd=__import__("telepost").__path__[0].rsplit("/telepost", 1)[0],
-        capture_output=True, text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True, text=True, encoding="utf-8",
         env={**os.environ, "DB_PATH": str(db_path), "TOKEN": "x",
-             "CHANNEL_ID": "@c", "OWNER_ID": "1"},
+             "CHANNEL_ID": "@c", "OWNER_ID": "1", "PYTHONIOENCODING": "utf-8"},
     )
     assert result.returncode == 0, result.stderr
     assert "review.created" in result.stdout

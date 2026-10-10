@@ -12,12 +12,17 @@ permissions:
 
 jobs:
   python:
+    timeout-minutes: 20
     # Skip release-please PRs (authored by github-actions[bot]): GitHub holds their
     # workflow runs for approval so they never start, which shows a permanent failed
     # check on every release PR. Self-healing: once RELEASE_PLEASE_TOKEN (a real user
     # PAT) authors the release PR, this guard no longer matches and CI returns.
     if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'github-actions[bot]'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -25,15 +30,17 @@ jobs:
           python-version: '3.12'
           cache: pip
       - name: Install libvips
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips42
       - name: Install deps
         run: pip install -r requirements-dev.txt -r requirements-mcp.txt
       - name: Run Python suite
         env:
+          PYTHONIOENCODING: utf-8
           TOKEN: test_token_123456789
           CHANNEL_ID: '@test'
           OWNER_ID: '123456789'
-        run: pytest -q
+        run: python -m pytest -q ${{ runner.os == 'Windows' && '--no-cov -o log_cli=false' || '' }}
 
   webapp:
     # Skip release-please PRs (authored by github-actions[bot]): GitHub holds their

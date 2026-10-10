@@ -17,6 +17,8 @@
 
 ## 当前不做
 
-- Web 管理面板：Bot 内管理已覆盖核心操作。
 - 更换数据库：当前规模下 SQLite + WAL 足够。
 - 为单一部署方式再造一套配置系统：环境变量、`config.ini` 与运行时策略已覆盖。
+
+Mini App 已提供审核与管理面板，见 [Mini App 文档](docs/MINIAPP.md)。拆分部署已经落地：
+TelePost 常驻、PixivFlow 使用独立 App 与卷，见 [Fly.io 部署](docs/FLYIO_DEPLOYMENT.md)。

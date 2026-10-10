@@ -346,7 +346,8 @@ def _load_or_create_persisted_webhook_secret() -> str:
     """Return a stable webhook secret persisted next to the database.
 
     Survives machine stop/restart so the secret Telegram already has stays
-    valid even before the first setWebhook of a fresh process. File is 0600.
+    valid even before the first setWebhook of a fresh process. File is 0600
+    on POSIX; Windows access permissions follow the parent directory ACL.
     """
     try:
         secret_path = os.path.join(os.path.dirname(DB_PATH) or "data", "webhook.secret")
@@ -930,7 +931,6 @@ def entrypoint() -> None:
 
 if __name__ == "__main__":
     entrypoint()
-
 
 
 

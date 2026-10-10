@@ -1,6 +1,7 @@
 # HTTP API v1
 
-外部程序可通过 TelePost 发布文件、复用 Telegram `file_id`，或向审核群发送状态通知。
+外部程序可通过 TelePost 提交文件、复用 Telegram `file_id`，或向审核群发送状态通知。
+自动化投稿固定进入审核，人工批准后才发布；Mini App 使用独立的审核策略。
 Polling 与 Webhook 模式提供同一套 API。
 
 ## 地址
@@ -22,7 +23,7 @@ Polling 与 Webhook 模式提供同一套 API。
 ```
 
 明文只显示一次。服务端只保存 SHA-256 哈希；用 `/tokens` 查看编号，
-`/revoke_token <编号>` 吊销。除健康检查外，请求都需要：
+`/revoke_token <编号>` 吊销。健康、版本与计划状态端点无需认证；其他端点使用：
 
 ```http
 Authorization: Bearer tp_xxxxxxxx
@@ -145,7 +146,7 @@ curl -X POST 'https://example.com/api/bot1/v1/submissions' \
 
 ## `file_id` 投稿
 
-已有由同一个 Bot 获得的 Telegram `file_id` 时，可零传输发布：
+已有由同一个 Bot 获得的 Telegram `file_id` 时，可复用媒体提交审核，省去文件重传：
 
 ```bash
 curl -X POST 'https://example.com/api/bot1/v1/submissions' \
@@ -347,7 +348,7 @@ curl -X POST 'https://example.com/api/bot1/v1/notifications' \
 
 超时/网络失败时 `ok=false`、`data` 形如
 `{"business_status":"retryable_failure","reason":"…"}`。完整契约见
-仓库规范 [api/openapi.yaml](../api/openapi.yaml)。
+仓库规范 [api/openapi.yaml](https://github.com/redtidev1918/TelePost/blob/main/api/openapi.yaml)。
 
 ## 审核管理 API（MCP/内部工具）
 
@@ -381,13 +382,18 @@ pending ──批准──▶ publishing ──▶ published ──删帖──�
    └─超时────────────────────────▶ expired
 ```
 
+重抓替换成功时，旧稿进入 `superseded`，新稿成为同一审核链的 `pending` 链头。
+旧稿的审核与编辑操作返回 `review_superseded` / `editorial_stale`，不会通知投稿人“已拒绝”。
+
 批准/拒绝使用条件更新原子抢占，重复点击不会重复发布。管理员可在审核群切换剧透；
 带 `target_id` 的 Pixiv 来源审核稿还可触发目标级重抓。TelePost 将请求发到独立 PixivFlow 的受认证手动入口；按钮返回“提交中”后，以审核群通知确认是否已受理。受理不等于下载或投稿成功，新稿到达时会再次进入审核队列。
 
 ## 发布布局
 
 频道发布和审核预览共用同一布局：图片/视频相册 → GIF/音频 → 文档组；每组最多 10
-个，caption 只在首条。大于 10 MiB 的本地图片会先压缩，失败才改按文档发送；相册失败
-会降级逐条发送。生产频道采用 `discussion`：频道 root 保留首组图片 + 首组文件（图片在
+个，caption 只在首条。大于 10 MiB 的本地图片会先压缩，失败才改按文档发送。
+仅确定性的相册错误会降级逐条发送；超时或网络错误须先核验是否已送达。
+`CHANNEL_ALBUM_REPLY=discussion` 时，频道 root 保留首组图片 + 首组文件（图片在
 前、文件在后），溢出图片/文件分别进入关联讨论组的图片串/文件串。小说投稿只把 TXT
-document 发频道，正文内嵌图片只渲染在 Telegraph 在线阅读页。
+document 作为下载附件，主贴优先使用真实封面、其次使用 fallback 卡片，生成失败时回退 TXT。
+正文内嵌图片只渲染在 Telegraph 在线阅读页。

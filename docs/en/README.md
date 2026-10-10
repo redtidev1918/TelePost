@@ -1,46 +1,59 @@
-# TelePost Documentation
+# TelePost documentation
 
-**Language / 语言:** [中文](/) · English
+TelePost accepts submissions from a Telegram Bot, Mini App, and HTTP API, then handles review
+and channel publication. Choose a guide by task.
 
-> TelePost is a submission, moderation, and automated publishing platform for Telegram channels,
-> with Chat, Mini App, multi-bot, and HTTP API support.
+[中文](../README.md) · [Repository](https://github.com/redtidev1918/TelePost)
 
-> **Mirror policy**: user-facing docs (install, configuration, commands, API, download) are
-> bilingual; internals, architecture notes and RFCs are Chinese-only by policy. The remaining
-> Chinese guides are indexed below with English summaries.
+## Get started
 
-## Start here
+See [Install and deploy](INSTALL.md) for installation, upgrades, and removal.
+Install `telepost-bot` with Python 3.10+ and configure it with `telepost --setup`.
+Standalone programs are available on the [download page](download.md).
 
-**Recommended install: `pip install telepost-bot`** (CLI `telepost`, Python import `telepost`,
-Python 3.10+). Every install method, upgrades and uninstall: [Install & deploy](INSTALL.md).
+| Task | Guide |
+| --- | --- |
+| Install, upgrade, or uninstall | [Install and deploy](INSTALL.md) |
+| Submit or manage content in the bot | [Commands](COMMANDS.md) |
+| Configure channels, review, and multiple bots | [Configuration](CONFIGURATION.md) |
+| Integrate scripts and automation | [HTTP API](API.md) |
 
-| Document | Content |
-| :-- | :-- |
-| [📥 Download](download.md) | Single-file builds for Windows / macOS / Linux, auto-updated on every release |
-| [README (English)](https://github.com/redtidev1918/TelePost/blob/main/README.en.md) | Overview, quickest start and common commands |
-| [Install & deploy](INSTALL.md) | Single file, source, Docker and Fly.io |
-| [Commands](COMMANDS.md) | User, admin and owner commands |
-| [Configuration](CONFIGURATION.md) | Environment variables, `config.ini`, multi-bot |
-| [HTTP API](API.md) | Tokens, submissions, notifications and error codes |
+Private-chat submissions publish directly by default. Mini App submissions require review by
+default and have an independent setting. Automated API submissions always require human review.
+See [Review configuration](CONFIGURATION.md#review).
 
-## Chinese guides (English index)
+## Deployment and operations
 
-The detailed guides below are currently written in Chinese. Start from the
-[documentation home](/), or jump directly to:
+These guides are currently in Chinese. Installation, configuration, commands, API, and downloads
+have English versions; architecture notes and design records are maintained in Chinese.
 
-| Document | Content |
-| :-- | :-- |
-| [Mini App (中文)](/MINIAPP.md) | Mini App setup, build and security boundaries |
-| [MCP review (中文)](/MCP_REVIEW.md) | AI-assisted review sidecar, media preview and read-only mode |
-| [Fly.io deployment (中文)](/FLYIO_DEPLOYMENT.md) | Deploying TelePost itself on Fly.io |
-| [Webhook and Polling (中文)](/WEBHOOK_MODE.md) | Mode selection, routing and security |
-| [Operations (中文)](/OPERATIONS.md) | Backups, upgrades, monitoring and releases |
-| [Troubleshooting (中文)](/TROUBLESHOOTING.md) | Unresponsive bot, OOM, submissions and search |
-| [Performance (中文)](/PERFORMANCE.md) | Resource tiers and capacity limits |
-| [Testing (中文)](/TESTING.md) | Local and CI verification |
+| Task | Guide |
+| --- | --- |
+| Enable web submission and moderation | [Mini App](../MINIAPP.md) |
+| Let an agent inspect submissions and suggest review decisions | [MCP review](../MCP_REVIEW.md) |
+| Configure update delivery and a reverse proxy | [Webhook and Polling](../WEBHOOK_MODE.md) |
+| Deploy on Fly.io | [Fly.io deployment](../FLYIO_DEPLOYMENT.md) |
+| Back up, upgrade, roll back, or inspect runtime state | [Operations](../OPERATIONS.md) |
+| Diagnose an unresponsive bot or failed publication | [Troubleshooting](../TROUBLESHOOTING.md) |
+| Assess memory, uploads, and disk capacity | [Performance and capacity](../PERFORMANCE.md) |
 
-## Links
+TelePost stays running on Fly.io. Collectors such as PixivFlow use separate apps and volumes;
+see the [deployment repository](https://github.com/redtidev1918/pixivflow-telepost-deploy)
+for the combined topology.
 
-- Repository: <https://github.com/redtidev1918/TelePost>
-- Releases: <https://github.com/redtidev1918/TelePost/releases>
-- Optional integration, PixivFlow: <https://github.com/redtidev1918/PixivFlow>
+## Development reference
+
+| Topic | Guide (Chinese unless noted) |
+| --- | --- |
+| Local tests and CI | [Testing](../TESTING.md) |
+| Application layers, delivery, and previews | [Runtime architecture](../internals/architecture.md) |
+| Request identity and submission ownership | [Identity and provenance](../architecture/identity-and-provenance.md) |
+| Chat state and persistence | [Submission flow](../internals/submission-flow.md) |
+| Admission and admin permissions | [Admin control plane](../internals/admin-control-plane.md) |
+| Deletion and history | [Moderation](../internals/moderation.md) |
+| Submit the same content for review again | [Resubmit contract (English)](../RESUBMIT.md) |
+
+Before contributing, read [AGENTS.md](https://github.com/redtidev1918/TelePost/blob/main/AGENTS.md)
+and the [contribution guide](https://github.com/redtidev1918/TelePost/blob/main/CONTRIBUTING.md).
+Report problems through [Issues](https://github.com/redtidev1918/TelePost/issues), with the version,
+deployment method, reproduction steps, and redacted logs.

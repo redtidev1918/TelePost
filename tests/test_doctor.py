@@ -640,7 +640,8 @@ def test_cli_missing_db_is_exit_2_without_traceback(tmp_path):
         cwd=str(ROOT),
         capture_output=True,
         text=True,
-        env={**os.environ, "BOT9_DB_PATH": missing},
+        encoding="utf-8",
+        env={**os.environ, "BOT9_DB_PATH": missing, "PYTHONIOENCODING": "utf-8"},
     )
 
     assert result.returncode == 2, result.stderr

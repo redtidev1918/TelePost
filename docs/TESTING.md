@@ -8,8 +8,21 @@ python3 -m venv .venv
 ./.venv/bin/python -m pytest -q --no-cov -o log_cli=false
 ```
 
-2.10.39 发布时的基线是 437 passed、1 skipped；以后以当前测试输出为准，不要把固定
-数量当成功条件。CI 使用 Python 3.11 和同一条免覆盖率命令。
+测试不需要真实 Telegram Token，以当前测试输出和退出码判断结果。
+`Mini App CI` 在 Linux 和 Windows 上使用 Python 3.12 运行全量测试；本地使用上面的命令可省略覆盖率统计。
+Windows 用 `py -3 -m venv .venv` 创建环境，将 `./.venv/bin/python` 换成 `.\.venv\Scripts\python.exe`。
+
+全量测试可在 Windows 运行。supervisor 测试调用实际注册的信号处理器验证关闭流程，
+避免 `os.kill(..., SIGTERM)` 终止 Windows 测试解释器；`0600` 文件权限只在 POSIX 上断言，
+Windows 文件访问权限由目录 ACL 决定。数据库测试会显式关闭连接，释放临时文件。
+运行策略在没有 `os.fchmod` 的 Windows Python 上使用路径式 `os.chmod`，保持原子替换。
+平台差异见 [Python 文件权限接口](https://docs.python.org/3.13/library/os.html#os.fchmod)；
+子进程中文输出测试显式使用 UTF-8，避免依赖系统代码页。
+配置读取支持 UTF-8 与带 BOM 的 UTF-8，中文配置不依赖 Windows 系统代码页。
+协议目录固定 LF，保留上游样本的字节校验；压力测试使用受控时钟与固定场景分配，
+排队和停滞预算不受 Windows 建库耗时影响。
+并发落盘测试验证所有线程的数据完整性，不设与 runner 磁盘绑定的秒数门槛；
+Python CI 整体限时 20 分钟。Linux 保留覆盖率报告，Windows 省略覆盖率和实时日志。
 
 ## 常用选择
 
@@ -61,7 +74,11 @@ npx playwright test --project=mobile
 - `sqlite3.Row` 没有 `.get()`，缺列访问会抛 `IndexError`。
 - 模拟 `get_db()` 时使用 `asynccontextmanager`。
 - 不发真实 Telegram 请求；需要网络语义时 mock 边界。
-- 状态机测试复用生产的 `build_submission_conversation()`，不要复制一套 handler 图。
+- 状态机测试复用生产的 `build_submission_conversation()`；更新路由测试还要复用
+  `setup_application()`，验证会话处理后停止向后续 handler groups 传播。
+
+配置自检使用 `python check_config.py`，只报告凭据是否配置。该脚本检查基础依赖与
+单 Bot 配置，不能代替多 Bot、审核和 Mini App 的启动验证。
 
 ## 发布验证
 

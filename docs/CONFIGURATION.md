@@ -4,7 +4,7 @@
 
 `/botconfig` 写入的运行时策略 > 环境变量 > `config.ini` > 内置默认值。
 
-运行时策略只覆盖频道、审核群、两类审核开关和署名开关；`/botconfig reset` 删除覆盖。
+运行时策略只覆盖频道、审核群、审核开关和署名开关；`/botconfig reset` 删除覆盖。
 敏感值始终通过环境变量、Secrets 或 `config.ini` 管理。
 
 ## 核心配置
@@ -19,8 +19,8 @@
 | `ALLOWED_FILE_TYPES` | `*` | 文档扩展名或 MIME，逗号分隔 |
 | `SHOW_SUBMITTER` | `true` | 频道是否显示投稿人 |
 | `NOTIFY_OWNER` | `true` | 是否 durable 私聊 Owner：审核稿入队成功或直发成功后各按 logical submission 通知一次；refetch/editorial 不重复 |
-| `CHANNEL_FOOTER_LINK` | 空 | **正式发布到频道**时，在 caption 最下方追加文本导航 footer（`✉️ TG 投稿` → `https://t.me/<bot>?start=submit`；Mini App 开启时再加 `📱 Mini App` → `?start=miniapp`；配置 `MINIAPP_SHORT_NAME` 后为 Direct Mini App `?startapp=submit`）。空 = 关闭。审核预览/排队**不**带 footer |
-| `MINIAPP_SUBMIT_CTA` | `false` | 频道 footer 额外追加 Mini App 导航项；默认回退到 `?start=miniapp`，由 Bot 在私聊发送 Web App 按钮。未启用/链接缺失时省略，绝不生成坏链接 |
+| `CHANNEL_FOOTER_LINK` | 空 | 频道 caption 页脚的 Bot 地址（`https://t.me/<bot>`）：生成 `✉️ TG 投稿` → `?start=submit`；启用 Mini App CTA 后增加 `📱 Mini App`。空值关闭页脚，审核控制卡不携带公共投稿 CTA |
+| `MINIAPP_SUBMIT_CTA` | `false` | 频道页脚增加 Mini App 入口；默认 `?startapp=miniapp`，需要 BotFather 配置 Main Mini App。配置 `MINIAPP_SHORT_NAME` 后走 Direct Mini App；未启用或链接缺失时省略 |
 | `MINIAPP_SHORT_NAME` | 空 | BotFather Direct Mini App short name；配置后频道 footer 使用 `https://t.me/<bot>/<short_name>?startapp=submit` 直接打开应用 |
 | `MINIAPP_PUBLIC_URL` | 空 | 私聊 chat 菜单按钮与 Inline Web App 按钮的入口 URL；留空时从 `WEBHOOK_URL` 推导 `<公网根地址>/app/` |
 | `MEDIA_PROXY_BASE_URL` | 空 | 公网媒体反代根地址；DeliveryPlanner 只重写 `MEDIA_PROXY_HOSTS` 内的精确主机。空时 remote URL 原样交给 Telegram |
@@ -43,6 +43,7 @@
 | `HEALTH_PORT` | `8080` | Polling 单 Bot 的健康/API 端口 |
 | `API_ENABLED` | `true` | 是否挂载 `/api/v1/*` |
 | `ROUTER_TIMEOUT_SECONDS` | `300` | 多 Bot 父路由的上游总超时 |
+| `ROUTER_CHILD_READY_TIMEOUT` | `30` | 父路由等待 Bot 子进程就绪的秒数；Fly 参考配置显式设为 120 |
 | `UPLOAD_SESSION_MAX_AGE_SECONDS` | `3600` | 强制中断后遗留上传目录的清理年龄 |
 | `TELEPOST_IMAGE_DECODE_BUDGET_MB` | `64` | 常规压缩路径的估算峰值预算；超出后仅 JPEG 仍可用降采样解码 |
 | `TELEPOST_UNBOUNDED_DECODE_BUDGET_MB` | 自动 | 没有 Image.draft 能力的格式（如 PNG）在压缩前允许的硬峰值；未配置时按容器 memory limit 推导（64–192 MiB），显式设置时覆盖默认 |
@@ -89,6 +90,11 @@ API（自动化）固定进入审核；Mini App 由 `MINIAPP_REVIEW_REQUIRED` �
 原生 Telegram Chat 默认直接发布到频道（`CHAT_REVIEW_REQUIRED=false`）。
 三者共享同一 domain/service（`QueueCommand → ReviewQueueService`）；每次路由都必须基于该来源
 的处置，不得把 Mini App 与 API 绑定到同一开关。
+
+### 预览、发布与保留
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
 | `REVIEW_ALBUM_SIZE` | `10` | 审核预览每组 1–10 个 |
 | `REVIEW_PREVIEW_INTERVAL_SECONDS` | `0.75` | 预览组之间的节流间隔 |
 | `REVIEW_PREVIEW_TIMEOUT_SECONDS` | `120` | 单次审核预览 Telegram I/O 超时 |
@@ -105,10 +111,13 @@ API（自动化）固定进入审核；Mini App 由 `MINIAPP_REVIEW_REQUIRED` �
 | `PENDING_REVIEW_CLEANUP_BATCH_SIZE` | `100` | 每轮最多过期 1–200 条 |
 | `REVIEW_RETENTION_DAYS` | `30` | 已决审核和 API 通知幂等记录保留天数 |
 | `SUPERSEDED_RETENTION_DAYS` | `30` | 被替换（重抓成功）的旧审核卡保留天数；到期后删除其 Telegram 预览/控制消息与记录，血缘（attempt/seen）保留；`0` 不清理 |
-| `REFETCH_PROGRESS_REMIND_MINUTES` | `2` | 重抓受理后超过该分钟数仍无终态，向审核群最多提醒一次（提醒同时把控制卡改写为「重抓中」并带已等待时长）；`0` 关闭提醒 |
+| `REFETCH_PROGRESS_REMIND_MINUTES` | `2` | 每隔该分钟数向审核群播报阶段、已等待时长与任务 ID；`0` 关闭提醒 |
 | `REFETCH_WAKE_MINUTES` | `12` | 远端机器不可达且超过该分钟数无进展时，watchdog 用同一 request UUID 幂等唤醒（不创建新 attempt） |
-| `REFETCH_HARD_TIMEOUT_MINUTES` | `90` | 超过该分钟数仍无终态则 attempt 标 `failed(stalled_after_hard_timeout)` 并通知；`0` 关闭硬超时 |
-| `REFETCH_STALE_TIMEOUT_MINUTES` | `20` | 无终态时开始核查 PixivFlow durable slot；未受理请求可判超时，已受理且仍在执行/投递的 attempt 不凭本地时间判失败；`0` 关闭核查 |
+| `REFETCH_HARD_TIMEOUT_MINUTES` | `90` | 自创建起超过该分钟数仍无终态，标记 `timeout(stalled_after_hard_timeout)` 并通知；`0` 关闭硬超时 |
+| `REFETCH_STALE_TIMEOUT_MINUTES` | `20` | 未受理的 `requested` 超时为 `timeout(admission_timeout)`；已有本机心跳但过期则为 `failed(watchdog_no_heartbeat)`。空心跳先轮询，不据此判死；`0` 关闭该预算 |
+| `REFETCH_QUEUED_TIMEOUT_MINUTES` | `30` | 远端一直为 `pending`、未被认领时的排队上限；超时为 `timeout(queued_too_long)` |
+| `REFETCH_STAGE_TIMEOUT_MINUTES` | `15` | 无远端状态变化且无新远端心跳的停滞上限；超时为 `timeout(stalled_no_progress)`，本机轮询不算远端进展 |
+| `REFETCH_POLL_INTERVAL_SECONDS` | `30` | 持久作业轮询周期（最小 5 秒）；启动恢复和维护任务共用同一轮询实现 |
 | `API_MAX_FILES` | `100` | HTTP API 单次投稿文件数上限；父路由只限总字节不数文件 |
 
 Telegram 只保证 Bot 可删除 48 小时内消息；需要自动清理审核群时通常把待审保留设为 1 天。
@@ -133,7 +142,7 @@ preview 时直接回退。
 已跑起来的部署改这两项**不用改代码/重建镜像**，直接改环境变量后重启生效：
 
 ```bash
-# 多相册投稿改为「都回复主贴」（不再逐级嵌套成链）
+# 首组留在频道，溢出内容进入关联讨论组
 fly secrets set -a <app> CHANNEL_ALBUM_REPLY=discussion
 
 # 单次投稿文件数上限（代码默认已为 100；可继续按需调大）
@@ -149,7 +158,7 @@ fly secrets set -a <app> API_MAX_FILES=100
 - 频道 root 未确认（发送失败 / 响应丢失且反查不到转发）时允许回滚并自动重试一次；root 一旦确认，linked-discussion overflow 失败**绝不删除或重跑 root**，只按可确定部分清理讨论区并保留主贴，需人工核验对应评论串。仅评论相册"发了没成功"这类无法判断是否重复的情况不自动重试。
 - 审核发布若进程中途崩溃，记录会卡在 `publishing`；超过 `PUBLISHING_STALE_SECONDS`（默认 300）秒后点「重试发布」会自动解锁重发。
 - `API_MAX_FILES` 放宽的是 HTTP API 投稿入口（PixivFlow 等）；单个 Telegram 相册仍 ≤10，发布侧自动分批。
-- 设置会触发应用重启；生产现网（telesubmit-multi-bot）已启用 `discussion`，单个 Telegram 相册仍 ≤10。
+- 设置会触发应用重启；单个 Telegram 相册仍最多 10 项。
 
 ## 编辑后发布（Editorial Revision，§editorial）
 
@@ -232,7 +241,7 @@ requestId 作 `idempotency_key`），读取走 `GET /jobs?idempotency_key=`（�
   记录（尝试删消息失败不阻断）；attempt 与候选历史永久保留作审计。
 - 进度可感知：点击重抓后控制卡立刻切到「重抓中」（发布/拒绝/遮罩隐藏，重抓与查看原链接保留），
   受理后超过 `REFETCH_PROGRESS_REMIND_MINUTES` 无终态会发「仍在处理中」提醒并在同一张卡上
-  更新已等待时长；`REFETCH_STALE_TIMEOUT_MINUTES` 仍无终态则判定 failed 并通知，用户可再次点击；
+  更新已等待时长；排队、停滞、心跳和硬上限按上表分别判定，远端新心跳或状态变化会重置停滞时钟；
   成功替换、无候选、失败都各有明确群消息并交还正常可操作卡片，不会看起来卡死。
   源审核**不会**因为点击重抓被提前驳回（那是终态结论，会让自己的替换稿变 `obsolete`）。
 - 不接受 `target_id` 为空、或未配置上面的两个变量；不要用 `PIXIVFLOW_ENABLED=true`
@@ -241,18 +250,9 @@ requestId 作 `idempotency_key`），读取走 `GET /jobs?idempotency_key=`（�
 
 ## PixivFlow 联合进程（兼容模式）
 
-`PIXIVFLOW_ENABLED=true` 会让 TelePost supervisor 同时拉起 PixivFlow。相关变量：
-
-| 变量 | 默认 |
-|---|---|
-| `PIXIVFLOW_CONFIG` | `/app/data/pixivflow/config.json` |
-| `PIXIVFLOW_CONFIG_TEMPLATE` | 镜像内模板 |
-| `PIXIVFLOW_COMMAND` | `pixivflow scheduler` |
-
-该模式需要包含 Node/PixivFlow 的 `runtime-pixivflow` 镜像，并且必须常驻才能运行 Cron。
-合一台镜像需带 `ffmpeg`：PixivFlow 处理 ugoira（Pixiv 动图）时会把帧 ZIP 转成循环 GIF，
-运行时 spawn `python3` + `ffmpeg`；缺 ffmpeg 时动图只会以 ZIP + 帧 JSON 文档形式投递。
-Fly.io 拆分部署由独立 PixivFlow Machine 按需唤醒；TelePost 常驻。此兼容模式不用于该拓扑。
+历史代码仍识别 `PIXIVFLOW_ENABLED`、`PIXIVFLOW_CONFIG`、
+`PIXIVFLOW_CONFIG_TEMPLATE` 与 `PIXIVFLOW_COMMAND`。这些变量仅供识别旧部署；
+新部署使用独立 PixivFlow 服务，不要启用 `PIXIVFLOW_ENABLED=true` 或恢复混部拓扑。
 
 ## `config.ini`
 
@@ -313,6 +313,7 @@ webhook secret / PixivFlow secret），审计事件只统计数量与最新时�
 |---|---|---|
 | `db_integrity` | CRIT/OK | 每个数据库的 `PRAGMA integrity_check`；非 `ok` 即无法验证（退出码 2） |
 | `refetch_stuck` | CRIT/WARN/OK | `refetch_attempts` 中活跃的 attempt（**先经 `telepost/domain/refetch_state.py` 归一化**，兼容旧库的 `requested`/`admitted`）；依据 `created_at`（缺失时 `started_at`）：> 30 分钟 CRIT，> 15 分钟 WARN，并逐条列出 `request_id`/`state`/`source_review_id`/等待分钟数 |
+| `refetch_jobs` | CRIT/WARN/OK | 运行数、心跳过期数、超硬上限数、24 小时失败原因与终态通知补发数。心跳超过 20 分钟或任务超过硬上限为 CRIT；新代码终态缺原因为 WARN，legacy 缺原因单独统计 |
 | `refetch_active_invariant` | CRIT/OK | partial UNIQUE 索引 `idx_refetch_one_active` 必须存在；任一条 `review_chain_id` 同时出现 ≥2 个活跃 attempt 即 CRIT |
 | `review_queue_orphans` | CRIT/WARN/OK | `pending_reviews.status='pending'` 且 `control_message_id` 为空/NULL：> 15 分钟 WARN，> 60 分钟 CRIT（最多列出 5 个 id） |
 | `review_queue_publishing` | CRIT/OK | `status='publishing'` 超过 `PUBLISHING_STALE_SECONDS`（复用 `services.review_service` 的常量，未改定义）即 CRIT——说明清理任务没有回收它 |
