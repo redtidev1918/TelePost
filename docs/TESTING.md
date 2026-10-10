@@ -19,6 +19,8 @@ Windows 文件访问权限由目录 ACL 决定。数据库测试会显式关闭�
 平台差异见 [Python 文件权限接口](https://docs.python.org/3.13/library/os.html#os.fchmod)；
 子进程中文输出测试显式使用 UTF-8，避免依赖系统代码页。
 配置读取支持 UTF-8 与带 BOM 的 UTF-8，中文配置不依赖 Windows 系统代码页。
+协议目录固定 LF，保留上游样本的字节校验；压力测试使用受控时钟与固定场景分配，
+排队和停滞预算不受 Windows 建库耗时影响。
 
 ## 常用选择
 

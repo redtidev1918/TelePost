@@ -524,6 +524,9 @@ async def test_thousand_attempts_all_reach_a_reported_terminal_state(
 
     total = 1000
     base = time.time()
+    clock = {"now": base}
+    monkeypatch.setattr(time, "time", lambda: clock["now"])
+    scenario = {}
     monkeypatch.setattr(review, "REFETCH_PROGRESS_REMIND_MINUTES", 0)
     monkeypatch.setattr(review, "REFETCH_WAKE_MINUTES", 0)
     monkeypatch.setattr(review, "REFETCH_STAGE_TIMEOUT_MINUTES", 15)
@@ -543,14 +546,20 @@ async def test_thousand_attempts_all_reach_a_reported_terminal_state(
         )
         assert refused is None
         await RefetchRepository().mark_admitted(attempt["request_id"], "slot-1")
-
-    scenario = {}
-    seen = {}
+        scenario[attempt["request_id"]] = index % 5
+        if index % 10 == 2:
+            # Half the queued cases have already exhausted the queue budget;
+            # the other half must reach the shorter stall budget on a later tick.
+            aged = base - 31 * 60
+            async with db_manager.get_db() as conn:
+                await conn.execute(
+                    "UPDATE refetch_attempts SET created_at=?, started_at=?, updated_at=? "
+                    "WHERE request_id=?",
+                    (aged, aged, aged, attempt["request_id"]),
+                )
 
     def _handler(target_id, request_id):
-        mode = scenario.setdefault(request_id, abs(hash(request_id)) % 5)
-        count = seen.get(request_id, 0)
-        seen[request_id] = count + 1
+        mode = scenario[request_id]
         if mode == 0:
             return "failed"
         if mode == 1:
@@ -581,6 +590,7 @@ async def test_thousand_attempts_all_reach_a_reported_terminal_state(
     # ticks that must NOT notify anybody a second time.
     ticks = [0, 5, 16 * 60, 31 * 60, 32 * 60, 33 * 60]
     for offset in ticks:
+        clock["now"] = base + offset
         await review.poll_refetch_jobs(bot, now=base + offset)
     # Deterministic by construction: the lifecycle clock is injected
     # (``now=base + offset``), so correctness is proven by the state
