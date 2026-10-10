@@ -14,7 +14,7 @@ test('English submission preserves content and fits the viewport', async ({ page
   await page.getByTestId('file-input').setInputFiles({
     name: '中文图片.png', mimeType: 'image/png', buffer: Buffer.from('fake-image'),
   });
-  await expect(page.getByTestId('selected-files')).toContainText('1 files selected');
+  await expect(page.getByTestId('selected-files')).toContainText('Selected files: 1');
   await page.getByPlaceholder('Tags (required; spaces or commas)').fill('#中文标签');
   await page.getByPlaceholder('Title (optional)').fill('中文标题');
   await page.getByTestId('submit').scrollIntoViewIfNeeded();
