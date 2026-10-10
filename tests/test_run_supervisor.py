@@ -1,10 +1,21 @@
 """
 run_multi 监督循环回归测试（覆盖曾漏测的执行路径）
 """
-import os
 import signal
 
+import pytest
+
 import run
+
+
+@pytest.fixture
+def stop_handlers(monkeypatch):
+    handlers = {}
+    monkeypatch.setattr(
+        run.signal, "signal",
+        lambda signum, handler: handlers.__setitem__(signum, handler),
+    )
+    return handlers
 
 
 class FakeProc:
@@ -29,7 +40,7 @@ class FakeProc:
         return 0
 
 
-def test_run_multi_spawns_both_bots_and_stops(monkeypatch):
+def test_run_multi_spawns_both_bots_and_stops(monkeypatch, stop_handlers):
     FakeProc.instances = []
     monkeypatch.setattr(run.subprocess, "Popen", FakeProc)
     monkeypatch.setenv("BOT1_TOKEN", "t1")
@@ -45,8 +56,8 @@ def test_run_multi_spawns_both_bots_and_stops(monkeypatch):
 
     def fake_sleep(seconds):
         ticks["n"] += 1
-        if ticks["n"] >= 2:  # 第二轮循环时发 SIGTERM 触发优雅停止
-            os.kill(os.getpid(), signal.SIGTERM)
+        if ticks["n"] >= 2:  # 调用注册的处理器，避免 Windows SIGTERM 杀死测试进程。
+            stop_handlers[signal.SIGTERM](signal.SIGTERM, None)
 
     monkeypatch.setattr(run.time, "sleep", fake_sleep)
 
@@ -65,7 +76,7 @@ def test_run_multi_spawns_both_bots_and_stops(monkeypatch):
     assert routers == [(8080, [1, 2])]
 
 
-def test_run_multi_supervises_pixivflow_without_exposing_bot_tokens(monkeypatch, tmp_path):
+def test_run_multi_supervises_pixivflow_without_exposing_bot_tokens(monkeypatch, tmp_path, stop_handlers):
     FakeProc.instances = []
     monkeypatch.setattr(run.subprocess, "Popen", FakeProc)
     monkeypatch.setenv("BOT1_TOKEN", "t1")
@@ -84,7 +95,7 @@ def test_run_multi_supervises_pixivflow_without_exposing_bot_tokens(monkeypatch,
     def fake_sleep(seconds):
         ticks["n"] += 1
         if ticks["n"] >= 2:
-            os.kill(os.getpid(), signal.SIGTERM)
+            stop_handlers[signal.SIGTERM](signal.SIGTERM, None)
 
     monkeypatch.setattr(run.time, "sleep", fake_sleep)
 

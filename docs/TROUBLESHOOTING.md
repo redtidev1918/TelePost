@@ -61,7 +61,8 @@ min_machines_running = 1
 
 - 404：单 Bot 是 `/webhook`，父路由/多 Bot 是 `/webhook/botN`。
 - 403：`WEBHOOK_SECRET_TOKEN` 与 Telegram 当前设置不一致。
-- 502：父路由已等待子进程端口最多 5 秒；若仍失败，检查健康宽限、子进程崩溃和同一时段日志。
+- 502：父路由等待子进程就绪的预算由 `ROUTER_CHILD_READY_TIMEOUT` 控制（代码默认 30 秒，
+  Fly 参考配置 120 秒）；检查实际预算、健康宽限、子进程崩溃和同一时段日志。
 - 待处理数持续增加：查看同一时段应用日志，不要先 `deleteWebhook`。
 
 切换配置后由 TelePost 重新 `setWebhook`。排障时不要先手工删除 Webhook，避免中断更新接收。
@@ -101,8 +102,9 @@ Machine；同一 Token 不能同时 Polling，也不能同时使用 Polling 与 
   `publishing`。等待 `PUBLISHING_STALE_SECONDS`（默认 300 秒）后再点重试会自动
   解锁；无需手改数据库。
 - **`CHANNEL_ALBUM_REPLY=discussion`（频道首贴 + 评论串）**：
-  - 等转发超时、非网络错误会**自动回滚已发消息并重试一次**，大多瞬时网络抖动
-    （`httpx.ReadError`）能自愈，无需人工。
+  - root 未确认时，按已确认消息保守处理，允许自动重试一次。
+  - root 已确认后，等转发超时或溢出发送失败会保留频道主贴，提示核验评论串；
+    不会删除主贴或重跑整组。
   - 提示「评论区发布结果不确定」时，表示评论相册可能已部分送达：先到**频道**确认
     首贴、到**该帖评论串**确认图片是否齐，缺图再点重试；若有重复相册请手动删多余
     的，不要盲目反复重试（会重复整个相册）。

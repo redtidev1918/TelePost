@@ -2,7 +2,10 @@
 
 > Phase 对齐：纯 UX/文案重构，不改变数据模型、命令集、状态机或对外回调契约。
 >
-> 状态：Telegram 文案契约 `IMPLEMENTED`；Mini App 移动端视觉基线 `IMPLEMENTED`；
+> 本文保留设计背景；当前行为见 [聊天投稿状态机](internals/submission-flow.md) 和
+> [Mini App](MINIAPP.md)。
+>
+> 状态：Telegram 文案契约 `IMPLEMENTED_NOT_VERIFIED`；Mini App 移动端视觉基线 `IMPLEMENTED_NOT_VERIFIED`；
 > 真人 Telegram / Mini App 验收 `EXTERNAL_ACCEPTANCE_REQUIRED`。
 
 ## 1. 目标

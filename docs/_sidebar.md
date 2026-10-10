@@ -1,6 +1,6 @@
 - 开始使用
   - [概览](/)
-  - [📥 下载](/download.md)
+  - [下载](/download.md)
   - [安装与部署](/INSTALL.md)
   - [命令参考](/COMMANDS.md)
   - [English](/en/)
@@ -23,4 +23,3 @@
   - [投稿状态机](/internals/submission-flow.md)
   - [管理控制面与治理](/internals/admin-control-plane.md)
   - [删帖与软删除](/internals/moderation.md)
-  - [私聊文案与投稿流程 RFC](/private-chat-ux-rfc.md)

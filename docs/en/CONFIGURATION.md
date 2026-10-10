@@ -4,7 +4,7 @@
 
 Runtime policy written by `/botconfig` > environment variables > `config.ini` > built-in defaults.
 
-Runtime policy only overrides the channel, review chat, the two review switches, and the attribution switch; `/botconfig reset` removes the overrides.
+Runtime policy only overrides the channel, review chat, review switches, and the attribution switch; `/botconfig reset` removes the overrides.
 Sensitive values are always managed via environment variables, Secrets, or `config.ini`.
 
 ## Core configuration
@@ -19,8 +19,8 @@ Sensitive values are always managed via environment variables, Secrets, or `conf
 | `ALLOWED_FILE_TYPES` | `*` | Document extensions or MIME types, comma-separated |
 | `SHOW_SUBMITTER` | `true` | Whether the channel shows the submitter |
 | `NOTIFY_OWNER` | `true` | Whether to durably DM the owner: notified once per logical submission after a review item is queued or a direct post succeeds; refetch/editorial do not re-notify |
-| `CHANNEL_FOOTER_LINK` | empty | When **formally publishing to the channel**, appends a text navigation footer at the bottom of the caption (`✉️ TG 投稿` → `https://t.me/<bot>?start=submit`; with Mini App enabled also `📱 Mini App` → `?start=miniapp`; with `MINIAPP_SHORT_NAME` configured, Direct Mini App `?startapp=submit`). Empty = off. Review previews/queued items do **not** carry the footer |
-| `MINIAPP_SUBMIT_CTA` | `false` | Adds a Mini App navigation item to the channel footer; falls back to `?start=miniapp` by default, with the bot sending a Web App button in private chat. Omitted when not enabled or the link is missing — never generates a broken link |
+| `CHANNEL_FOOTER_LINK` | empty | Bot address (`https://t.me/<bot>`) for the channel caption footer: generates `✉️ TG 投稿` → `?start=submit`, plus `📱 Mini App` when its CTA is enabled. Empty disables the footer; review control cards carry no public submission CTA |
+| `MINIAPP_SUBMIT_CTA` | `false` | Adds a Mini App footer entry; defaults to `?startapp=miniapp`, requiring a Main Mini App configured in BotFather. With `MINIAPP_SHORT_NAME`, uses Direct Mini App instead; omitted when disabled or the link is missing |
 | `MINIAPP_SHORT_NAME` | empty | BotFather Direct Mini App short name; once configured the channel footer uses `https://t.me/<bot>/<short_name>?startapp=submit` to open the app directly |
 | `MINIAPP_PUBLIC_URL` | empty | Entry URL for the private-chat menu button and inline Web App button; when empty, derived from `WEBHOOK_URL` as `<public root>/app/` |
 | `MEDIA_PROXY_BASE_URL` | empty | Public media reverse-proxy root; DeliveryPlanner only rewrites exact hosts listed in `MEDIA_PROXY_HOSTS`. When empty, remote URLs are handed to Telegram as-is |
@@ -43,6 +43,7 @@ Sensitive values are always managed via environment variables, Secrets, or `conf
 | `HEALTH_PORT` | `8080` | Health/API port for single-bot polling |
 | `API_ENABLED` | `true` | Whether to mount `/api/v1/*` |
 | `ROUTER_TIMEOUT_SECONDS` | `300` | Upstream total timeout of the multi-bot parent router |
+| `ROUTER_CHILD_READY_TIMEOUT` | `30` | Seconds the parent router waits for a bot child to become ready; the Fly reference configuration sets 120 |
 | `UPLOAD_SESSION_MAX_AGE_SECONDS` | `3600` | Cleanup age for upload directories left behind by forced interruptions |
 | `TELEPOST_IMAGE_DECODE_BUDGET_MB` | `64` | Estimated peak budget for the regular compression path; beyond it only JPEG can still be decoded with downsampling |
 | `TELEPOST_UNBOUNDED_DECODE_BUDGET_MB` | auto | Hard peak allowed before compression for formats without Image.draft capability (e.g. PNG); when unset, derived from the container memory limit (64–192 MiB); an explicit value overrides the default |
@@ -88,7 +89,12 @@ The database uses WAL. When backing up, run a checkpoint, or copy `.db`, `-wal`,
 API (automation) always enters review; Mini App is independently controlled by `MINIAPP_REVIEW_REQUIRED` (default true);
 native Telegram Chat publishes directly to the channel by default (`CHAT_REVIEW_REQUIRED=false`).
 All three share the same domain/service (`QueueCommand → ReviewQueueService`); every routing decision must be based on
-the source's disposition — Mini App and API must never be bound to the same switch.
+the source's disposition. Mini App and API use independent settings.
+
+### Preview, publication, and retention
+
+| Variable | Default | Description |
+| --- | --- | --- |
 | `REVIEW_ALBUM_SIZE` | `10` | 1–10 items per review preview group |
 | `REVIEW_PREVIEW_INTERVAL_SECONDS` | `0.75` | Throttle interval between preview groups |
 | `REVIEW_PREVIEW_TIMEOUT_SECONDS` | `120` | Telegram I/O timeout for a single review preview |
@@ -105,10 +111,13 @@ the source's disposition — Mini App and API must never be bound to the same sw
 | `PENDING_REVIEW_CLEANUP_BATCH_SIZE` | `100` | At most 1–200 items expired per round |
 | `REVIEW_RETENTION_DAYS` | `30` | Retention days for decided reviews and API notification idempotency records |
 | `SUPERSEDED_RETENTION_DAYS` | `30` | Retention days for old review cards superseded (successful refetch); on expiry their Telegram preview/control messages and records are deleted, while lineage (attempt/seen) is kept; `0` disables cleanup |
-| `REFETCH_PROGRESS_REMIND_MINUTES` | `2` | If no terminal state this many minutes after a refetch is admitted, remind the review chat at most once (the reminder rewrites the control card to "refetching" with the elapsed wait); `0` disables reminders |
+| `REFETCH_PROGRESS_REMIND_MINUTES` | `2` | Repeat progress reminders at this interval, including stage, elapsed wait, and task ID; `0` disables reminders |
 | `REFETCH_WAKE_MINUTES` | `12` | When the remote machine is unreachable and no progress for this many minutes, the watchdog idempotently wakes it with the same request UUID (no new attempt is created) |
-| `REFETCH_HARD_TIMEOUT_MINUTES` | `90` | Beyond this many minutes without a terminal state, the attempt is marked `failed(stalled_after_hard_timeout)` and notified; `0` disables the hard timeout |
-| `REFETCH_STALE_TIMEOUT_MINUTES` | `20` | Without a terminal state, start checking the PixivFlow durable slot; unadmitted requests may be judged timed out, but admitted attempts still executing/delivering are not failed on local time alone; `0` disables the check |
+| `REFETCH_HARD_TIMEOUT_MINUTES` | `90` | Absolute limit from creation; an attempt without a terminal outcome becomes `timeout(stalled_after_hard_timeout)` and is notified; `0` disables this budget |
+| `REFETCH_STALE_TIMEOUT_MINUTES` | `20` | An unadmitted `requested` attempt becomes `timeout(admission_timeout)`; an existing but stale local heartbeat yields `failed(watchdog_no_heartbeat)`. A null heartbeat triggers polling, not failure; `0` disables this budget |
+| `REFETCH_QUEUED_TIMEOUT_MINUTES` | `30` | Queue budget for a remote job that remains unclaimed in `pending`; expires as `timeout(queued_too_long)` |
+| `REFETCH_STAGE_TIMEOUT_MINUTES` | `15` | Stall budget with neither a remote state change nor a new remote heartbeat; expires as `timeout(stalled_no_progress)`. Local polling is not remote progress |
+| `REFETCH_POLL_INTERVAL_SECONDS` | `30` | Durable job polling interval (minimum 5 seconds); startup recovery and maintenance use the same polling implementation |
 | `API_MAX_FILES` | `100` | File count cap per HTTP API submission; the parent router limits total bytes only, not file count |
 
 Telegram only guarantees a bot can delete messages within 48 hours; when automatic cleanup of the review chat is needed, pending retention is usually set to 1 day.
@@ -133,7 +142,7 @@ or dropped entirely when there is no preview.
 For an already-running deployment, changing these two requires **no code change / image rebuild** — set environment variables and restart:
 
 ```bash
-# Switch multi-album submissions to "all reply to the root post" (no more nested chain)
+# Keep the first groups in the channel; send overflow to the linked discussion group
 fly secrets set -a <app> CHANNEL_ALBUM_REPLY=discussion
 
 # File count cap per submission (code default is already 100; raise as needed)
@@ -149,7 +158,7 @@ fly secrets set -a <app> API_MAX_FILES=100
 - When the channel root is unconfirmed (send failure / response lost and no forward found on recheck), one rollback and automatic retry is allowed; once the root is confirmed, linked-discussion overflow failure **never deletes or reruns the root** — only the determinable part of the discussion area is cleaned up, the root post is kept, and the corresponding comment thread needs manual verification. Cases like "comment album sent but not confirmed", where duplication cannot be judged, are not auto-retried.
 - If the process crashes mid-review-publish, the record stays in `publishing`; after `PUBLISHING_STALE_SECONDS` (default 300) seconds, clicking "retry publish" automatically unlocks and resends.
 - `API_MAX_FILES` relaxes the HTTP API submission entry (PixivFlow etc.); a single Telegram album is still ≤10, and the publish side batches automatically.
-- Changing secrets triggers an app restart; the production deployment (telesubmit-multi-bot) has `discussion` enabled, and a single Telegram album is still ≤10.
+- Changing secrets triggers an app restart; a single Telegram album still holds at most 10 items.
 
 ## Editorial Revision (§editorial)
 
@@ -232,7 +241,8 @@ Review chat clicks "refetch" → TelePost persists one attempt (only one active 
   records in the chat (failure to delete a message does not block); attempts and candidate history are kept forever for audit.
 - Progress-aware: after clicking refetch the control card immediately switches to "refetching" (publish/reject/mask hidden, refetch and view-original kept);
   if no terminal state beyond `REFETCH_PROGRESS_REMIND_MINUTES` after admission, a "still processing" reminder is sent and the elapsed
-  wait is updated on the same card; if `REFETCH_STALE_TIMEOUT_MINUTES` passes with no terminal state it is judged failed and notified, and the user may click again;
+  wait is updated on the same card. Queue, stall, heartbeat, and hard-limit budgets follow the table above;
+  a new remote heartbeat or state change resets the stall clock;
   successful replacement, no candidate, and failure each get a clear chat message and return a normal actionable card — nothing looks stuck.
   The source review is **not** rejected early because of a refetch click (that is a terminal verdict and would make its own replacement `obsolete`).
 - Empty `target_id` is rejected, as is running without the two variables above; do not use `PIXIVFLOW_ENABLED=true`
@@ -241,18 +251,10 @@ Review chat clicks "refetch" → TelePost persists one attempt (only one active 
 
 ## PixivFlow co-process (compatibility mode)
 
-`PIXIVFLOW_ENABLED=true` makes the TelePost supervisor also launch PixivFlow. Related variables:
-
-| Variable | Default |
-|---|---|
-| `PIXIVFLOW_CONFIG` | `/app/data/pixivflow/config.json` |
-| `PIXIVFLOW_CONFIG_TEMPLATE` | in-image template |
-| `PIXIVFLOW_COMMAND` | `pixivflow scheduler` |
-
-This mode needs the `runtime-pixivflow` image containing Node/PixivFlow, and must stay resident to run Cron.
-The all-in-one image needs `ffmpeg`: when PixivFlow processes ugoira (Pixiv animations) it converts frame ZIPs into looping GIFs,
-spawning `python3` + `ffmpeg` at runtime; without ffmpeg, animations are delivered only as ZIP + frame JSON documents.
-The Fly.io split deployment wakes an independent PixivFlow Machine on demand; TelePost stays resident. This compatibility mode is not used in that topology.
+Historical code still recognizes `PIXIVFLOW_ENABLED`, `PIXIVFLOW_CONFIG`,
+`PIXIVFLOW_CONFIG_TEMPLATE`, and `PIXIVFLOW_COMMAND`. These names identify old deployments.
+Use a separate PixivFlow service for new deployments; do not enable
+`PIXIVFLOW_ENABLED=true` or restore the combined topology.
 
 ## `config.ini`
 
@@ -314,6 +316,7 @@ Checks (degrade to `SKIP` when a table/column is missing, never crash):
 | `db_integrity` | CRIT/OK | `PRAGMA integrity_check` per database; anything other than `ok` means cannot verify (exit code 2) |
 | `refetch_stuck` | CRIT/WARN/OK | Active attempts in `refetch_attempts` (**normalized via `telepost/domain/refetch_state.py` first**, compatible with legacy `requested`/`admitted`); based on `created_at` (`started_at` when missing): > 30 minutes CRIT, > 15 minutes WARN, listing `request_id`/`state`/`source_review_id`/minutes waited per row |
 | `refetch_active_invariant` | CRIT/OK | The partial UNIQUE index `idx_refetch_one_active` must exist; any `review_chain_id` with ≥2 active attempts at once is CRIT |
+| `refetch_jobs` | CRIT/WARN/OK | Running jobs, stale heartbeats, hard-budget overruns, failures in 24 hours, and queued terminal notices. A heartbeat older than 20 minutes or a hard-budget overrun is CRIT; missing terminal reasons in new code paths are WARN. Legacy missing reasons are counted separately |
 | `review_queue_orphans` | CRIT/WARN/OK | `pending_reviews.status='pending'` with empty/NULL `control_message_id`: > 15 minutes WARN, > 60 minutes CRIT (lists at most 5 ids) |
 | `review_queue_publishing` | CRIT/OK | `status='publishing'` older than `PUBLISHING_STALE_SECONDS` (reusing the constant from `services.review_service`, definition unchanged) is CRIT — meaning the cleanup task did not reclaim it |
 | `review_queue_counts` | WARN/OK | Counts grouped by `status` plus `oldest_pending_age_seconds`; oldest pending > 7 days is WARN |

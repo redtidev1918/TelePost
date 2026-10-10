@@ -27,7 +27,7 @@ def config_path() -> str:
 def _config_says_ready() -> bool:
     try:
         parser = configparser.ConfigParser()
-        parser.read(config_path())
+        parser.read(config_path(), encoding="utf-8-sig")
         token = parser.get("BOT", "TOKEN", fallback="")
         channel = parser.get("BOT", "CHANNEL_ID", fallback="")
         return bool(token and token != "your_bot_token_here" and channel)

@@ -1,10 +1,21 @@
-- Getting Started
+- Getting started
   - [Overview](/en/)
-  - [📥 Download](/en/download.md)
-  - [Install & Deploy](/en/INSTALL.md)
+  - [Download](/en/download.md)
+  - [Install and deploy](/en/INSTALL.md)
   - [Commands](/en/COMMANDS.md)
   - [Configuration](/en/CONFIGURATION.md)
   - [HTTP API](/en/API.md)
   - [中文](/)
-
-> Mirror policy: user-facing docs are bilingual; internals / architecture / RFCs are Chinese-only.
+- Deployment and operations (Chinese)
+  - [Mini App](/MINIAPP.md)
+  - [Fly.io deployment](/FLYIO_DEPLOYMENT.md)
+  - [Webhook and Polling](/WEBHOOK_MODE.md)
+  - [Operations](/OPERATIONS.md)
+  - [Troubleshooting](/TROUBLESHOOTING.md)
+  - [Performance and capacity](/PERFORMANCE.md)
+- Development
+  - [MCP review (Chinese)](/MCP_REVIEW.md)
+  - [Testing (Chinese)](/TESTING.md)
+  - [Resubmit contract](/RESUBMIT.md)
+  - [Runtime architecture (Chinese)](/internals/architecture.md)
+  - [Identity and provenance (Chinese)](/architecture/identity-and-provenance.md)

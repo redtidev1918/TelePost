@@ -1,18 +1,17 @@
 # 性能与容量
 
-## 推荐档位
+## 内存基线
 
 | 场景 | 内存 | 关键配置 |
 |---|---:|---|
-| 单 Bot、simple 搜索 | 256 MiB 起 | `SEARCH_ANALYZER=simple`、`DB_CACHE_KB=1024` |
-| 单 Bot、jieba 搜索 | 512 MiB | 默认 `jieba`、`DB_CACHE_KB=4096` |
-| 双 Bot TelePost | 512 MiB | 低配时 `SEARCH_ENABLED=false`、`DB_CACHE_KB=1024` |
-| 独立 PixivFlow scheduler | 256 MiB | `download.concurrency=1`、Node heap 96 MiB |
+| TelePost Fly.io 参考配置 | 512 MiB | `SEARCH_ENABLED=false`、`DB_CACHE_KB=1024` |
+| 开启搜索的 TelePost | 从 512 MiB 基线验收 | `simple` 比 `jieba` 占用更少；测试索引与上传峰值 |
 
-256 MiB 只描述 TelePost standalone 的起步档位，不是资源保证。双 Bot + PixivFlow combined
-runtime 的 Node、多个 Python 进程、图片上传和 ffmpeg 峰值相加，不能套用 standalone 数字。
-Fly.io 组合部署应拆分两个服务：TelePost 常驻，PixivFlow 独立管理执行生命周期；两端都应按
-实际 RSS 选择内存。
+512 MiB 是仓库 `fly.toml` 的实测规格。降内存前必须验收单/多 Bot、私聊投稿、多图上传、
+GIF/文档、审核发布和 HTTP 投稿，记录空闲 RSS、常规峰值与发布峰值；未经这些检查不要降到
+256 MiB。启用搜索或提高并发后应重新验收容量。
+
+PixivFlow 使用独立 App 和卷，其资源与执行生命周期由部署仓库管理。TelePost 保持常驻。
 
 ## 主要内存来源
 
@@ -20,7 +19,6 @@ Fly.io 组合部署应拆分两个服务：TelePost 常驻，PixivFlow 独立管
 - `jieba` 词典与 Whoosh 索引明显增加常驻内存。
 - SQLite cache 近似受 `DB_CACHE_KB` 控制。
 - API 请求是流式传输，但并发上传、Telegram 重发和预览仍会形成峰值。
-- PixivFlow 的 Node/V8 基线与下载解码峰值不能靠 Python 配置消除。
 
 压缩文件大小不等于解码内存。图片解码工作集至少约为 `width × height × bytes_per_pixel`；
 RGBA 按至少 4 B/px 估算，转换 RGB 还会产生额外工作集。TelePost 先读取文件大小、格式、
@@ -41,7 +39,7 @@ RGBA 按至少 4 B/px 估算，转换 RGB 还会产生额外工作集。TelePost
 - 父路由与子服务使用 64 KiB 分块，不整体缓存请求体。
 - 临时上传目录正常结束即删除；异常中断后按
   `UPLOAD_SESSION_MAX_AGE_SECONDS`（默认 3600）清扫。
-- 兼容模式下的 PixivFlow cache 与 delivery outbox 必须留在持久卷；拆分部署由上游自己的文档负责。
+- PixivFlow 的缓存与 outbox 在上游持久卷上，容量和清理由上游管理。
 
 1 GiB Volume 接收 500 MiB 单请求前要预留数据库、WAL、outbox 和快照之外的足够空间。
 高频大投稿应提高 Volume 容量，而不是依赖请求结束后的清理。
@@ -59,12 +57,6 @@ REVIEW_PREVIEW_THREAD=1
 
 `REVIEW_ALBUM_SIZE` 用于 Telegram FloodWait/分组行为，不是图片解码 OOM 的修复开关。
 不要把间隔设为 0 后再用更多重试掩盖 FloodWait。
-
-## PixivFlow 调度
-
-同一 PixivFlow 实例内多个计划不要同时点火。把 Bot 2 的 Cron 错开 15–20 分钟，通常
-比继续压 heap 更有效。保持 `download.concurrency=1`，并通过 delivery outbox 重试，
-不要用并发重复投递换速度。
 
 ## 观测
 

@@ -1,6 +1,6 @@
 # Fly.io 部署
 
-Fly.io 只是 TelePost 的一种部署方式，不是使用项目的前提。本页只介绍 TelePost 自身；
+本页介绍 TelePost 在 Fly.io 上的部署；
 PixivFlow + TelePost 的组合拓扑、调度和成本优化由
 [pixivflow-telepost-deploy](https://github.com/redtidev1918/pixivflow-telepost-deploy) 维护。
 
@@ -17,7 +17,7 @@ Telegram ── Webhook ──→ Fly Proxy ──→ TelePost（常驻）
 - 服务保持常驻，避免用户私聊投稿时遇到冷启动延迟。
 - 单 Bot 与多 Bot 使用同一个运行程序；是否启用 Mini App、审核和外部 API 由配置决定。
 
-仓库根目录的 [`fly.toml`](../fly.toml) 是 TelePost 的参考配置。它不包含 PixivFlow、外部调度器
+仓库根目录的 [`fly.toml`](https://github.com/redtidev1918/TelePost/blob/main/fly.toml) 是 TelePost 的参考配置。它不包含 PixivFlow、外部调度器
 或作者生产环境的应用名称。
 
 ## 0. 正式发版路径（唯一推荐）
@@ -53,11 +53,11 @@ merge Release PR
 
 每一步都要求上一步成功：**GHCR 或 PyPI 失败会让 ReleaseGraph 报告 release 不完整，
 生产部署根本不会被触发**；反过来，部署后未能达到验收条件的 release 会明确失败。
-这条链由 [`.release-policy.yml`](../.release-policy.yml) 的 `release.postRelease`
+这条链由 [`.release-policy.yml`](https://github.com/redtidev1918/TelePost/blob/main/.release-policy.yml) 的 `release.postRelease`
 按数组顺序串行驱动（ReleaseGraph 会逐个 dispatch 并等待结束）。
 
-版本唯一的来源是 `telepost/build_info.py`（release-please 改写），下面六个位置始终相等，
-不存在漂移：Git tag / GitHub Release / `build_info.py` / PyPI / GHCR image tag / 生产 `/health`。
+版本来源是 `telepost/build_info.py`（release-please 改写）。发版验收要求以下六处一致：
+Git tag / GitHub Release / `build_info.py` / PyPI / GHCR image tag / 生产 `/health`。
 
 ```text
 v<version> → <version> → <version> → <version> → <version> → <version>
@@ -108,10 +108,12 @@ flyctl secrets set --app <app> \
   TOKEN='123456:replace-me' \
   CHANNEL_ID='@your_channel' \
   OWNER_ID='123456789' \
+  REVIEW_CHAT_ID='<review-group-id>' \
   WEBHOOK_URL='https://<app>.fly.dev'
 ```
 
-需要审核时再添加 `REVIEW_CHAT_ID` 和对应审核开关；需要 Mini App 时按
+默认 API 与 Mini App 审核开启，因此需要独立的 `REVIEW_CHAT_ID`；仅私聊直发的配置见
+[安装指南](INSTALL.md#1-pip-安装推荐)。需要 Mini App 时按
 [Mini App 文档](MINIAPP.md)添加 session secret。不要把 Token 写入 `fly.toml`。
 
 多 Bot 使用连续的 `BOT1_*`、`BOT2_*` 配置：
@@ -120,6 +122,7 @@ flyctl secrets set --app <app> \
 flyctl secrets set --app <app> \
   BOT1_TOKEN='...' BOT1_CHANNEL_ID='@channel_one' BOT1_OWNER_ID='123456789' \
   BOT2_TOKEN='...' BOT2_CHANNEL_ID='@channel_two' BOT2_OWNER_ID='123456789' \
+  BOT1_REVIEW_CHAT_ID='<bot1-review-group-id>' BOT2_REVIEW_CHAT_ID='<bot2-review-group-id>' \
   WEBHOOK_URL='https://<app>.fly.dev'
 ```
 
@@ -173,6 +176,7 @@ TelePost 是用户可见的投稿入口，参考配置保持：
 
 ```toml
 [http_service]
+  force_https = false
   auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
@@ -181,8 +185,12 @@ TelePost 是用户可见的投稿入口，参考配置保持：
     path = "/health"
 ```
 
-不要把 TelePost 的生命周期与可选内容采集器混为一谈。若上游任务适合按需运行，应让上游独立管理
-自己的生命周期，TelePost 继续负责即时投稿、审核和发布。
+`force_https=false` 保留 Flycast 私网 HTTP 投稿路径，避免重定向打断上游投递；
+Telegram Webhook 仍走公网 HTTPS。参考配置使用 512 MiB 内存，降配前验收真实上传与发布峰值，
+见 [性能与容量](PERFORMANCE.md)。
+
+待审保留策略在 `fly.toml` 显式设置为 `PENDING_REVIEW_RETENTION_DAYS=1`、
+`PENDING_REVIEW_CLEANUP_BATCH_SIZE=20`，与代码默认值不同。迁移配置时一并保留。
 
 ## 与 PixivFlow 组合（可选）
 
@@ -196,10 +204,9 @@ TelePost（投稿 / 审核 / 发布，常驻）
 Telegram
 ```
 
-富媒体小说链路还可在 TelePost 与 PixivFlow 之间增加独立富媒体发布端 `telepress-publish`
-（负责 markdown 解析、Catbox 上传、Telegraph 渲染，返回 `novel_preview_url`）。它是独立
-App，有自己的卷与凭据边界：PixivFlow 只发送 artifact，TelePost 只消费 URL，TelePress
-不接触 Telegram 令牌与投稿审核。
+富媒体小说可使用 TelePress 渲染 Telegraph 阅读页。它既可作为独立预览服务供上游调用，
+也可通过 TelePost 的 Python provider 为最终发布快照生成预览。媒体代理与上传方式由 provider
+选择；预览失败不影响 TXT 发布。TelePress 不持有 Telegram 凭据或投稿审核状态。
 
 TelePost 不依赖 PixivFlow，PixivFlow 也可以投递到其他接收端。需要在 Fly.io 上组合两者时，
 使用部署仓库提供的独立 App、独立卷和凭据边界：

@@ -1,6 +1,7 @@
 # HTTP API v1
 
-External programs can publish files through TelePost, reuse Telegram `file_id`s, or send status notifications to the review chat.
+External programs can submit files through TelePost, reuse Telegram `file_id`s, or send status notifications to the review chat.
+Automated submissions always require human approval before publication; the Mini App has an independent review policy.
 Polling and Webhook modes expose the same API.
 
 ## Base path
@@ -22,7 +23,7 @@ Generate a token with the Telegram account configured as `OWNER_ID`:
 ```
 
 The plaintext is shown only once. The server stores only the SHA-256 hash; use `/tokens` to list token ids and
-`/revoke_token <id>` to revoke. Except for health checks, every request needs:
+`/revoke_token <id>` to revoke. Health, version, and schedule-status endpoints are public; other endpoints use:
 
 ```http
 Authorization: Bearer tp_xxxxxxxx
@@ -145,7 +146,7 @@ left behind by abnormal interruptions are swept in the background. The parent ro
 
 ## `file_id` submission
 
-When you already have Telegram `file_id`s obtained by the same bot, you can publish with zero transfer:
+When you already have Telegram `file_id`s obtained by the same bot, you can reuse them in a review submission without uploading the files again:
 
 ```bash
 curl -X POST 'https://example.com/api/bot1/v1/submissions' \
@@ -347,7 +348,7 @@ Submission endpoints report the formal business status in `data.business_status`
 
 On timeout/network failure, `ok=false` and `data` looks like
 `{"business_status":"retryable_failure","reason":"…"}`. The full contract is in the repository spec
-[api/openapi.yaml](../../api/openapi.yaml).
+[api/openapi.yaml](https://github.com/redtidev1918/TelePost/blob/main/api/openapi.yaml).
 
 ## Review management API (MCP/internal tools)
 
@@ -381,6 +382,10 @@ pending ──approve──▶ publishing ──▶ published ──delete──
    └─timeout──────────────────────▶ expired
 ```
 
+A successful refetch marks the old review `superseded` and installs a new `pending` chain head.
+Moderation and editorial mutations on the old review return `review_superseded` / `editorial_stale`;
+superseding never sends a rejection notice to the submitter.
+
 Approve/reject use conditional updates for atomic claiming, so repeated clicks never publish twice. Admins can toggle spoiler in the review chat;
 Pixiv-sourced review items with `target_id` can also trigger a target-level refetch. TelePost sends the request to the standalone PixivFlow's authenticated manual entry; after the button returns "submitting", a review-chat notification confirms whether it was admitted. Admission does not mean download or submission succeeded — when a new item arrives it enters the review queue again.
 
@@ -388,6 +393,8 @@ Pixiv-sourced review items with `target_id` can also trigger a target-level refe
 
 Channel publication and review preview share the same layout: image/video albums → GIF/audio → document group; each group has at most 10
 items, and the caption only appears on the first message. Local images larger than 10 MiB are compressed first, and only sent as documents on failure; album failures
-degrade to per-item sends. The production channel uses `discussion`: the channel root keeps the first image group + first file group (images
+degrade to per-item sends only for deterministic album errors. Check delivery before retrying timeouts or network errors.
+With `CHANNEL_ALBUM_REPLY=discussion`, the channel root keeps the first image group + first file group (images
 first, files after); overflow images/files go to the image/file threads of the linked discussion group respectively. For novel submissions only the TXT
-document goes to the channel; inline body images are rendered only on the Telegraph read-online page.
+document remains the download attachment. The root uses a real cover, then a fallback card, or the TXT alone
+if card generation is unavailable. Inline body images appear only on the Telegraph reading page.
