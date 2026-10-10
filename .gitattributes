@@ -19,6 +19,9 @@
 *.md text eol=lf
 *.txt text eol=lf
 
+# Vendored protocol bytes are checked against SOURCES.sha256 on every platform.
+protocol/v1/** text eol=lf
+
 # Docker files
 Dockerfile text eol=lf
 docker-compose.yml text eol=lf
@@ -30,4 +33,3 @@ docker-compose.yml text eol=lf
 
 # Makefile
 Makefile text eol=lf
-
