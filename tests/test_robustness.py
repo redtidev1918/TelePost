@@ -424,6 +424,10 @@ class TestStateManagement:
                 t.join()
             
             assert len(errors) == 0
+            for user_id in range(5):
+                state = get_user_state(user_id)
+                assert state["state"] == "STATE_9"
+                assert state["data"] == {"count": 9}
 
 
 class TestMemoryManagement:
