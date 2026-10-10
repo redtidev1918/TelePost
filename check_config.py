@@ -122,6 +122,8 @@ def check_project_structure():
 
 def main():
     """主函数"""
+    from utils.console import configure_windows_stdio
+    configure_windows_stdio()
     print("=" * 60)
     print("TelePost 配置检查")
     print("=" * 60)

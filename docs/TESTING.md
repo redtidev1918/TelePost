@@ -23,6 +23,11 @@ Windows 文件访问权限由目录 ACL 决定。数据库测试会显式关闭�
 排队和停滞预算不受 Windows 建库耗时影响。
 并发落盘测试验证所有线程的数据完整性，不设与 runner 磁盘绑定的秒数门槛；
 Python CI 整体限时 20 分钟。Linux 保留覆盖率报告，Windows 省略覆盖率和实时日志。
+控制台回归强制 GBK 输入/输出，再执行真实配置向导，验证 UTF-8 输出和 BOM 配置保留；
+Windows 构建自动运行 `scripts/smoke-windows-release.py`：在隔离目录内执行候选单文件程序的
+`--setup`，强制旧代码页环境，确认中文输出和 BOM 配置保留；版本仍由 `--version` 门禁核对。
+冻结解释器隔离环境变量的行为见 [PyInstaller 运行时选项](https://pyinstaller.org/en/stable/spec-files.html#specifying-python-interpreter-options)，
+控制台编码使用标准库 [TextIOWrapper.reconfigure](https://docs.python.org/3/library/io.html#io.TextIOWrapper.reconfigure)。
 
 ## 常用选择
 

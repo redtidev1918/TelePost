@@ -15,6 +15,9 @@ case "$RUNNER_OS" in
   Windows) asset=telepost-windows-x64.exe ;;
 esac
 cp dist/telepost "dist/release/$asset" 2>/dev/null || cp dist/telepost.exe "dist/release/$asset"
+if [ "$RUNNER_OS" = "Windows" ]; then
+  python scripts/smoke-windows-release.py "dist/release/$asset"
+fi
 # Versioned archive alongside the raw binary: a familiar double-click-to-extract
 # download with the version in the filename (bash + python exist on all 3 runners).
 python - "$asset" "$RELEASE_VERSION" <<'PY'
