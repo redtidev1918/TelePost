@@ -36,6 +36,8 @@ export type ApiErrorCode =
   | 'review_busy'
   | 'review_already_resolved'
   | 'session_expired'
+  | 'blocked_file_type'
+  | 'file_metadata_required'
   | 'unknown';
 
 export class ApiError extends Error {
@@ -44,7 +46,11 @@ export class ApiError extends Error {
   readonly body: unknown;
 
   constructor(status: number, code: ApiErrorCode, message: string, body?: unknown) {
-    super(message);
+    super(code === 'blocked_file_type'
+      ? tr("此文件类型已被拦截。请改发图片、视频或 TXT/PDF/MD 文档。")
+      : code === 'file_metadata_required'
+        ? tr("请提供文档文件名，以便检查文件类型。")
+        : message);
     this.status = status;
     this.code = code;
     this.body = body;

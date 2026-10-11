@@ -300,5 +300,7 @@
   "通过后以剧透发布": "Publish with spoiler protection after approval",
   "预览投稿": "Preview submission",
   "提交失败时会保留附件和文字，可直接重试。": "Attachments and text are kept if submission fails. You can retry.",
-  "拒绝": "Reject"
+  "拒绝": "Reject",
+  "此文件类型已被拦截。请改发图片、视频或 TXT/PDF/MD 文档。": "This file type is blocked. Send images, videos or TXT/PDF/MD documents instead.",
+  "请提供文档文件名，以便检查文件类型。": "Provide the document filename so its file type can be checked."
 }
