@@ -125,6 +125,16 @@ Machine；同一 Token 不能同时 Polling，也不能同时使用 Polling 与 
 3. 若错误码是 `recovery_already_running`，说明同一 target 已有活动恢复，等待
    `REFETCH_HARD_TIMEOUT_MINUTES` 后重试，不要重复点击造并行任务。
 
+## 审核图片变成逐张消息
+
+查看同一时段日志。若出现 `Request Entity Too Large`，说明整组上传被拒绝，
+不是图片顺序丢失。TelePost 会按原顺序把这组拆成较小相册再上传；只有继续拆分到
+单个文件时才单发。[Telegram 相册](https://core.telegram.org/bots/api#sendmediagroup)
+每组支持 2–10 个文件，数量合规并不保证整组上传成功。
+网络超时或连接中断不会触发重发，因为 Telegram 可能已经接收了原相册。
+
+已发布审核的重复投稿会复用原记录，不会重新上传媒体。不要用重投已发布作品验证修复。
+
 ## 搜索与统计
 
 - 搜索为空：确认 `SEARCH_ENABLED=true`，再运行 `python -m utils.index_manager status`。
