@@ -10,8 +10,8 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Documentation](https://img.shields.io/badge/docs-redtidev1918.github.io-6366f1)](https://redtidev1918.github.io/TelePost/)
 
-TelePost 自托管在你自己的服务器上。投稿来自 Telegram Bot、Mini App 或 HTTP API；
-三个入口共用投稿与发布服务，是否需要审核由各自的来源策略决定。
+TelePost 运行在你自己的电脑或服务器上。用户可以私聊 Bot 或打开 Mini App 投稿，
+自动化程序可以通过 HTTP API 提交。你可以直接发布聊天投稿，也可以交给审核员检查后发布。
 
 ```text
 Telegram Bot ─────┐
@@ -30,23 +30,47 @@ HTTP API ─────────┘
 | 自动化集成 | Bearer Token、文件上传、幂等提交，避免重复投稿 |
 | 自托管运行 | 多 Bot 独立配置与数据目录，SQLite 持久化，重启后恢复 |
 
-投稿默认拦截可执行文件、常见脚本和压缩包；图片、视频及 TXT/PDF/MD 等可正常投稿。管理员可配置[文件类型黑名单](docs/CONFIGURATION.md)。这是类型限制，不进行病毒扫描。
+默认文件黑名单拦截可执行文件、常见脚本和压缩包，不拦截图片、视频及 TXT/PDF/MD 等常用格式。
+管理员可调整[文件类型黑名单](docs/CONFIGURATION.md)；黑名单检查文件名和 MIME 类型，不扫描病毒内容。
+
+## 选择安装方式
+
+| 你的环境 | 安装方式 | 从这里开始 |
+| --- | --- | --- |
+| 本地电脑，不想安装 Python | 独立程序 | [选择平台并下载](https://redtidev1918.github.io/TelePost/#/download) |
+| 已有 Python 环境 | pip | [快速开始](#快速开始) |
+| 用 Docker 管理服务 | Docker / Compose | [容器部署](docs/INSTALL.md#3-docker--compose) |
+| 需要修改代码 | 源码 | [开发与测试](docs/TESTING.md) |
+
+生产环境请固定[正式发布版本](https://github.com/redtidev1918/TelePost/releases/latest)。
+完整安装、升级和卸载步骤见[安装与部署](docs/INSTALL.md)。
 
 ## 快速开始
 
-先准备 Bot Token、目标频道、你的数字 User ID，以及一个独立审核群。
-把 Bot 加为频道管理员并授予发帖权限，再加入审核群。
+### 1. 准备 Bot、频道和审核群
 
-不想安装 Python？[下载独立程序](https://redtidev1918.github.io/TelePost/#/download)。
-Windows 在 PowerShell 中运行 `.\telepost-windows-x64.exe --setup`，补齐下方审核配置后，
-运行 `.\telepost-windows-x64.exe`。升级时保留程序旁的 `config.ini` 和 `data` 文件夹。
+| 信息 | 用途 |
+| --- | --- |
+| Bot Token | 在 [@BotFather](https://t.me/BotFather) 创建 Bot 后取得 |
+| Channel ID | 接收发布内容的频道，可用 `@频道用户名` 或数字 ID |
+| Owner ID | 你的个人数字 User ID，用于识别所有者；不是群或频道 ID |
+| Review Chat ID | 独立审核群的数字 ID；不能与目标频道相同 |
 
-使用 Python / pip：
+把 Bot 加为频道管理员并授予发帖权限，再加入审核群，确保它能发送消息。
+默认配置需要审核群。只使用私聊直发时，可按[安装指南](docs/INSTALL.md#1-pip-安装推荐)配置。
 
-1. 用 [@BotFather](https://t.me/BotFather) 创建 Bot，加入目标频道并授予发帖权限。
-2. 安装 Python 3.10+。图片处理需要系统 libvips，安装方法见
-   [系统依赖](docs/INSTALL.md#libvips-系统依赖)。
-3. 在虚拟环境中安装并生成配置：
+### 2. 安装并运行配置向导
+
+**Windows 独立程序**：下载并解压到固定文件夹，在该文件夹打开 PowerShell：
+
+```powershell
+.\telepost-windows-x64.exe --setup
+```
+
+其他平台的独立程序命令见[安装指南](docs/INSTALL.md#2-release-单文件)。
+
+**Python / pip**：需要 Python 3.10+ 和系统 libvips，先按[系统依赖](docs/INSTALL.md#libvips-系统依赖)安装 libvips。
+Linux / macOS 在虚拟环境中安装：
 
 ```bash
 python3 -m venv .venv
@@ -55,7 +79,7 @@ python -m pip install telepost-bot
 telepost --setup
 ```
 
-Windows PowerShell 使用以下命令：
+Windows PowerShell 使用：
 
 ```powershell
 py -3 -m venv .venv
@@ -63,43 +87,64 @@ py -3 -m venv .venv
 .\.venv\Scripts\telepost.exe --setup
 ```
 
-配置向导填写 Bot Token、Channel ID、Owner ID。在生成的 `config.ini` 的 `[BOT]` 节中
-补充 `REVIEW_CHAT_ID`（独立审核群 ID），再运行 `telepost`。API 与 Mini App 的审核开关
-默认开启，三项向导配置尚不包含审核群。仅使用私聊直发时的配置见 [安装指南](docs/INSTALL.md#1-pip-安装推荐)。
-Windows 保存配置时使用 UTF-8，启动命令为 `.\.venv\Scripts\telepost.exe`。
+PyPI 包名是 `telepost-bot`，安装后的启动命令是 `telepost`。
+向导会依次询问 Bot Token、Channel ID 和 Owner ID。
 
-在已有的 `[BOT]` 节中修改或追加，群 ID 换成你自己的数字 ID：
+### 3. 补齐审核配置并启动
+
+打开向导生成的 `config.ini`，保留已有配置，在 `[BOT]` 节中修改或追加以下两项。
+把占位符换成你自己的审核群数字 ID，文件保存为 UTF-8：
 
 ```ini
 LANGUAGE = zh
 REVIEW_CHAT_ID = <你的审核群ID>
 ```
 
-第一篇投稿：
+| 安装方式 | 启动命令 |
+| --- | --- |
+| Windows 独立程序 | `.\telepost-windows-x64.exe` |
+| Windows pip | `.\.venv\Scripts\telepost.exe` |
+| Linux / macOS pip | 激活虚拟环境后运行 `telepost` |
+
+pip 安装后请始终从同一目录启动，配置和数据保存在该目录。
+独立程序升级时保留程序旁的 `config.ini` 和 `data` 文件夹。
+启动后，在 Telegram 私聊 Bot 发送 `/start`，确认它能回复。
+
+### 4. 完成第一篇投稿
 
 1. 私聊 Bot，发送 `/start`，点击「开始投稿」或发送 `/submit`。
 2. 上传图片、视频、音频或文件，完成后发送 `/done_media`。
 3. 在预览中填写标签，按需修改标题、简介、链接、匿名和剧透设置。
 4. 检查后点击发布按钮；开启聊天审核时，按钮显示「提交审核」。
 
-随时发送 `/cancel` 取消，完整命令见 [投稿流程](docs/COMMANDS.md)。
+随时发送 `/cancel` 取消。完整命令见[投稿流程](docs/COMMANDS.md)。
 
-Bot 私聊投稿默认直接发布，可配置为先审核；HTTP API 自动化投稿固定需要审核；
-Mini App 默认需要审核，由独立的 `MINIAPP_REVIEW_REQUIRED` 控制。默认值与开关见
-[配置参考](docs/CONFIGURATION.md)。
+## 默认审核规则
 
-## 选择安装方式
-
-| 方式 | 入口 | 适合 |
+| 投稿入口 | 默认行为 | 如何调整 |
 | --- | --- | --- |
-| Python / pip | `python -m pip install telepost-bot` | 自管服务器与本地运行 |
-| 独立程序 | [选择平台并下载](https://redtidev1918.github.io/TelePost/#/download) | 无需安装 Python |
-| Docker / Compose | `ghcr.io/redtidev1918/telepost:<version>` | 容器部署 |
-| 源码 | [开发与测试](docs/TESTING.md) | 修改代码或参与开发 |
+| Bot 私聊 | 用户确认后直接发布 | 设置 `CHAT_REVIEW_REQUIRED=true` 后先审核 |
+| Mini App | 提交审核，批准后发布 | 由 `MINIAPP_REVIEW_REQUIRED` 单独控制 |
+| HTTP API | 提交审核，批准后发布 | 固定需要审核，不能关闭 |
 
-PyPI 包名为 `telepost-bot`，启动命令和 Python 导入名均为 `telepost`。
-生产环境固定正式 Release 版本；完整安装、升级、卸载步骤以
-[安装与部署](docs/INSTALL.md) 为准。
+需要聊天投稿也先审核时，在 `[BOT]` 中加入 `CHAT_REVIEW_REQUIRED = true`，然后重启。
+其他配置见[配置参考](docs/CONFIGURATION.md)。
+
+## 中文 Bot、英文 Bot
+
+同一份程序支持两种语言，默认中文。单 Bot 在 `config.ini` 的 `[BOT]` 节中设置
+`LANGUAGE = en`，或部署时设置环境变量 `BOT_LANGUAGE=en`。改完重启生效。
+
+同时运行中文和英文 Bot 时，为两个 Bot 配置独立凭据、频道和审核群，再设置：
+
+```dotenv
+BOT1_LANGUAGE=zh
+BOT2_LANGUAGE=en
+```
+
+把这两项加到部署平台的环境变量或 Compose 的 `.env` 中。欢迎、帮助、菜单、投稿和审核提示
+使用所选语言，Mini App 默认跟随所属 Bot；用户的标题、标签和正文保留原文。
+完整配置见 [Bot 语言与多 Bot](docs/CONFIGURATION.md#bot-语言与多-bot)。
 
 ## HTTP API
 
@@ -126,22 +171,6 @@ Mini App 是 TelePost 的可选 Web 前端。
 普通用户可以投稿、浏览公开内容和查看自己的投稿；reviewer / admin 可以使用审核和管理功能。
 
 Mini App 与 Bot 共用同一套后端、权限和投稿状态。配置见 [Mini App](docs/MINIAPP.md)。
-
-## 中文 Bot、英文 Bot
-
-同一份程序支持两种语言，默认中文。单 Bot 在 `config.ini` 的 `[BOT]` 节中设置
-`LANGUAGE = en`，或部署时设置环境变量 `BOT_LANGUAGE=en`。改完重启生效。
-
-同时运行中文和英文 Bot 时，为两个 Bot 配置独立凭据、频道和审核群，再设置：
-
-```dotenv
-BOT1_LANGUAGE=zh
-BOT2_LANGUAGE=en
-```
-
-把这两项加到部署平台的环境变量或 Compose 的 `.env` 中。欢迎、帮助、菜单、投稿和审核提示
-使用所选语言，Mini App 默认跟随所属 Bot；用户的标题、标签和正文保留原文。
-完整配置见 [Bot 语言与多 Bot](docs/CONFIGURATION.md#bot-语言与多-bot)。
 
 ## 文档
 
