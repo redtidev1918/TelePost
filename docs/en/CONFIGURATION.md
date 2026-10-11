@@ -113,10 +113,10 @@ The database uses WAL. When backing up, run a checkpoint, or copy `.db`, `-wal`,
 
 | Variable | Default | Description |
 |---|---|---|
-| `API_REVIEW_REQUIRED` | `true` (kept for compatibility) | Automation API (service token) submissions: **always enter review**; this switch no longer disables review for the API |
+| `API_REVIEW_REQUIRED` | `true` (kept for compatibility) | Automation API (service token) submissions: **always enter review**; this switch no longer disables review for the API. Its only remaining roles are the "enabling review requires a review chat" startup check and the `/botconfig` display |
 | `MINIAPP_REVIEW_REQUIRED` | `true` | Whether Mini App human submissions enter the review chat (independent of the API switch) |
 | `CHAT_REVIEW_REQUIRED` | `false` | Telegram chat submissions enter the review chat |
-| `REVIEW_CHAT_ID` | empty | Required when any review switch is enabled, and must not equal the channel |
+| `REVIEW_CHAT_ID` | empty | Required when any review switch is enabled, and must not equal the channel. Without it, API submissions fail closed with `409 review_chat_not_configured` |
 
 **Default disposition invariant (`SubmissionDisposition`)**: decided by **source trust level**, not entry form:
 API (automation) always enters review; Mini App is independently controlled by `MINIAPP_REVIEW_REQUIRED` (default true);

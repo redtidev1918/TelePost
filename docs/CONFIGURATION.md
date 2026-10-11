@@ -89,8 +89,8 @@ Bot 的欢迎、帮助、菜单、命令说明、投稿与审核提示使用所�
 |---|---|---|
 | `MINIAPP_ENABLED` | `true` | 是否启用 Mini App surface。默认启用，与 Mini App session 认证开关（`telepost/miniapp/auth.py`）共用同一份「默认启用、仅显式关闭」契约；仅当显式设为 `false`/`0`/`no`/`off` 时关闭小程序入口，**不影响** Bot 与 HTTP API（上线安全开关） |
 | `MINIAPP_CONTENT_ENABLED` | `true` | Mini App 公开内容浏览（热门列表 / 帖子详情 / 已发布媒体代理）。关闭只影响内容 API（`/api/v1/posts/*`），不影响投稿与审核 |
-| `MINIAPP_SESSION_SECRET` | （无） | Mini App session 签名密钥（≥32 字符，独立随机 secret）。未配置时 `POST /miniapp/session` 直接 fail-closed |
-| `MINIAPP_SESSION_TTL` | `1800` | Session 生命周期秒数（60–43200） |
+| `MINIAPP_SESSION_SECRET` | （无） | Mini App session 签名密钥（≥32 字符，独立随机 secret）。**只从环境变量读取**，写进 `config.ini` 无效；未配置时 `POST /miniapp/session` 直接 fail-closed |
+| `MINIAPP_SESSION_TTL` | `1800` | Session 生命周期秒数（60–43200）。**只从环境变量读取**，写进 `config.ini` 无效 |
 
 完整架构、认证链路、构建与同域托管见 [`docs/MINIAPP.md`](MINIAPP.md)。
 
@@ -112,10 +112,10 @@ Bot 的欢迎、帮助、菜单、命令说明、投稿与审核提示使用所�
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `API_REVIEW_REQUIRED` | `true`（保留兼容） | 自动化 API（service token）投稿：**固定进入审核**，该开关不再关闭 API 的审核 |
+| `API_REVIEW_REQUIRED` | `true`（保留兼容） | 自动化 API（service token）投稿：**固定进入审核**，该开关不再关闭 API 的审核；它只参与「启用审核即要求审核群」的启动校验与 `/botconfig` 展示 |
 | `MINIAPP_REVIEW_REQUIRED` | `true` | Mini App 真人投稿是否进入审核群（独立于 API 开关） |
 | `CHAT_REVIEW_REQUIRED` | `false` | Telegram 聊天投稿进入审核群 |
-| `REVIEW_CHAT_ID` | 空 | 任一审核开关启用时必填，且不能等于频道 |
+| `REVIEW_CHAT_ID` | 空 | 任一审核开关启用时必填，且不能等于频道；未配置时 API 投稿以 `409 review_chat_not_configured` 失败关闭 |
 
 **默认处置不变量（`SubmissionDisposition`）**：按**来源可信度**决定，而非入口形式：
 API（自动化）固定进入审核；Mini App 由 `MINIAPP_REVIEW_REQUIRED` 独立控制（默认 true）；

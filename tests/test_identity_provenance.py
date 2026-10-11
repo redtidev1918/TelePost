@@ -291,6 +291,9 @@ def web_app_for(monkeypatch):
     bot = AsyncMock()
     bot.send_message.return_value = MagicMock(message_id=321)
     application.bot = bot
+    # Service submissions are always review-required: without a review group the
+    # endpoint fails closed with 409 before the body is even parsed.
+    monkeypatch.setattr(api_server, "REVIEW_CHAT_ID", -1001234567890)
     api_server.add_api_routes(app, application)
     return app
 
