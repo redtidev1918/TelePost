@@ -180,21 +180,42 @@ npm run build        # → webapp/dist/
 
 ### CSP（§71）
 
-不要 `script-src *`。允许：
+实现依据为 [W3C CSP](https://www.w3.org/TR/CSP/) 与
+[aiohttp middleware](https://docs.aiohttp.org/en/stable/web_advanced.html#middlewares)。
+复用既有 aiohttp 响应层，不引入独立代理或第二套静态服务器；保留 TelegramUI 的
+内联样式及 Uppy 的 blob 媒体，脚本和 API 请求仅允许同源。
+
+由 `utils/security_headers.py` 的 `security_headers_middleware` 对 webhook / polling 两个
+aiohttp 应用统一挂载，`/app` 与 `/app/*` 返回：
 
 ```text
-default-src 'self';
-script-src 'self';
-style-src 'self' 'unsafe-inline';
-img-src 'self' data:;
-connect-src 'self';
+default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self';
+connect-src 'self'; worker-src 'self' blob:; object-src 'none';
+base-uri 'none'; form-action 'self';
+frame-ancestors 'self' https://*.telegram.org
 ```
+
+- 不使用 `script-src *`，也不使用 `unsafe-eval`；前端无 inline script、无 `eval`/`new Function`。
+- 必须保留 `blob:`（本地预览用 `URL.createObjectURL`）与 `data:`（CSS 内联 SVG），
+  否则图片/视频预览会被拦截；`media-src` 不能省略。
+- `frame-ancestors` 允许 Telegram Web 客户端继续内嵌；**故意不发** `X-Frame-Options`，
+  它无法表达该白名单，`SAMEORIGIN` 会直接破坏 web.telegram.org 内嵌。
+- 同一中间件还发送 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、
+  最小化 `Permissions-Policy`（保留 camera/microphone/display-capture 给自身，Uppy 摄像头与
+  屏幕捕获需要）。媒体下载处理器自带的 `Content-Security-Policy: sandbox` 优先，不会被覆盖。
+- 回归测试：`pytest tests/test_security_headers.py`（响应头与指令、sandbox 不被覆盖）。
+- 浏览器回归：在 `webapp/` 执行 `npm run build` 后运行
+  `npx playwright test -c playwright.csp.config.ts`；生产 HTTP wiring 提供构建产物与 CSP，
+  Telegram bridge 与 API 使用测试夹具，验证登录引导、本地图片预览、提交及审核导航。
+  该测试不替代真实 Telegram WebView 的登录和审核验收。
 
 ### 安全要点
 
 - session token 只存在于内存，浏览器刷新后重新 `POST /miniapp/session` 引导（§12, §108）。
 - 审核 mutation 全部 `_review_auth`（server-side RBAC），普通用户 curl 获得 403（§14）。
-- 投稿内容一律按不可信文本渲染（无 `dangerouslySetInnerHTML`，§52）。
+- 投稿内容一律按不可信文本渲染；唯一的 `dangerouslySetInnerHTML` 用于服务端生成的
+  Telegram 预览 HTML（`SubmitPage.tsx`），输入来自 TelePost 自己的 caption formatter（§52）。
 - 外链仅允许 `http/https`（表单与展示两侧都过滤，§53）。
 - 上传继续复用 TelePost 的 size/type/filename 校验与服务端 multipart 流（§54）。
 - 所有破坏性操作审计 `surface=mini_app`，与 Bot 的 `surface=telegram_bot` 可区分（§56, §146）。

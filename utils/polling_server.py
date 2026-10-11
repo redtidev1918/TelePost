@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 def build_polling_app(application) -> web.Application:
     """Build the local HTTP surface used while Telegram updates use polling."""
     from utils.api_server import API_CLIENT_MAX_BYTES
+    from utils.security_headers import security_headers_middleware
 
     async def health(_request: web.Request) -> web.Response:
         payload = {
@@ -48,7 +49,10 @@ def build_polling_app(application) -> web.Application:
             status=200 if running else 503,
         )
 
-    app = web.Application(client_max_size=API_CLIENT_MAX_BYTES)
+    app = web.Application(
+        client_max_size=API_CLIENT_MAX_BYTES,
+        middlewares=[security_headers_middleware],
+    )
     app.router.add_get("/health", health)
     app.router.add_get("/live", live)
     app.router.add_get("/ready", ready)
