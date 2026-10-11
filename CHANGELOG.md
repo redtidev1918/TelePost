@@ -8,6 +8,18 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.83.0](https://github.com/redtidev1918/TelePost/compare/v2.82.0...v2.83.0) (2026-10-11)
+
+
+### Features
+
+* **upload:** block dangerous file types by default across all submission entries ([#322](https://github.com/redtidev1918/TelePost/issues/322)) ([874f916](https://github.com/redtidev1918/TelePost/commit/874f91605ac91df48b132a3a2449c86607b026e0))
+
+
+### Bug Fixes
+
+* retain ordered review albums after oversized uploads ([#324](https://github.com/redtidev1918/TelePost/issues/324)) ([2df1060](https://github.com/redtidev1918/TelePost/commit/2df1060865330b496929bdf873250b550b7b3b46))
+
 ## [2.82.0](https://github.com/redtidev1918/TelePost/compare/v2.81.6...v2.82.0) (2026-10-11)
 
 
