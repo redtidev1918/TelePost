@@ -8,7 +8,7 @@ RELEASE_COMMIT = "$GITHUB_SHA"
 BUILD_DATE = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 EOF
 python -m pip install -r requirements.txt pyinstaller
-pyinstaller --onefile --clean --name telepost --hidden-import _release_version run.py
+pyinstaller --onefile --clean --name telepost --hidden-import _release_version --collect-data ui run.py
 case "$RUNNER_OS" in
   Linux) asset=telepost-linux-x64 ;;
   macOS) asset=telepost-macos-arm64 ;;

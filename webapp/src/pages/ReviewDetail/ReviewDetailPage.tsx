@@ -1,3 +1,5 @@
+import { tr } from "../../lib/i18n";
+import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
 import { Button, Chip, Spinner, Textarea } from '@telegram-apps/telegram-ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -34,15 +36,15 @@ import { EmptyState } from '../../components/ui/EmptyState';
  * collapsed details panel — the reviewer sees the human stage first.
  */
 
-const STATUS_LABELS: Record<string, string> = {
-  pending: '待审核',
-  publishing: '发布中',
-  published: '已发布',
-  failed: '失败（可重试）',
-  rejected: '已拒绝',
-  expired: '已过期',
-  superseded: '已被替换',
-};
+const STATUS_LABELS = (): Record<string, string> => ({
+  pending: tr("待审核"),
+  publishing: tr("发布中"),
+  published: tr("已发布"),
+  failed: tr("失败（可重试）"),
+  rejected: tr("已拒绝"),
+  expired: tr("已过期"),
+  superseded: tr("已被替换"),
+});
 
 const STATUS_TONES: Record<string, StatusTone> = {
   pending: 'progress',
@@ -52,21 +54,21 @@ const STATUS_TONES: Record<string, StatusTone> = {
   rejected: 'bad',
 };
 
-const REFETCH_LABELS: Record<string, string> = {
-  requested: '正在重抓',
-  admitted: '正在重抓',
-  running: '正在重抓',
-  searching: '正在重抓：搜索候选',
-  filtering: '正在重抓：筛选候选',
-  candidate_found: '正在重抓：候选已就绪',
-  replaced: '已找到新的候选',
-  no_alternative: '没有新的可替换作品',
-  no_candidate: '没有新的可替换作品',
-  timeout: '重抓超时（当前稿件不变）',
-  cancelled: '当前稿件已过期',
-  failed: '重抓失败',
-  obsolete: '当前稿件已过期',
-};
+const REFETCH_LABELS = (): Record<string, string> => ({
+  requested: tr("正在重抓"),
+  admitted: tr("正在重抓"),
+  running: tr("正在重抓"),
+  searching: tr("正在重抓：搜索候选"),
+  filtering: tr("正在重抓：筛选候选"),
+  candidate_found: tr("正在重抓：候选已就绪"),
+  replaced: tr("已找到新的候选"),
+  no_alternative: tr("没有新的可替换作品"),
+  no_candidate: tr("没有新的可替换作品"),
+  timeout: tr("重抓超时（当前稿件不变）"),
+  cancelled: tr("当前稿件已过期"),
+  failed: tr("重抓失败"),
+  obsolete: tr("当前稿件已过期"),
+});
 
 /** Canonical + legacy active states: the button must stay disabled while the
  * job runs, whichever vocabulary the server reports (§refetch-lifecycle). */
@@ -82,11 +84,12 @@ const ACTIVE_REFETCH_STATES = new Set([
 function formatElapsed(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds));
   const minutes = Math.floor(total / 60);
-  if (minutes < 1) return `${total} 秒`;
-  return `${minutes} 分 ${total % 60} 秒`;
+  if (minutes < 1) return tr("{{p0}} 秒", {p0: total});
+  return tr("{{p0}} 分 {{p1}} 秒", {p0: minutes, p1: total % 60});
 }
 
 export function ReviewDetailPage() {
+  useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useBotNavigate();
   const queryClient = useQueryClient();
@@ -161,10 +164,10 @@ export function ReviewDetailPage() {
   if (review.isError || !review.data) {
     return (
       <div className="stack">
-        <PageHeader title="审核" />
+        <PageHeader title={tr("审核")} />
         <EmptyState
-          title={review.isError ? errorMessage(review.error) : '未找到该审核'}
-          hint="它可能已经被处理，或不在当前 bot 的范围内。"
+          title={review.isError ? errorMessage(review.error) : tr("未找到该审核")}
+          hint={tr("它可能已经被处理，或不在当前 bot 的范围内。")}
         />
       </div>
     );
@@ -177,22 +180,22 @@ export function ReviewDetailPage() {
   const refetchActive = ACTIVE_REFETCH_STATES.has(refetchStateName);
   const refetchFailed = refetchStateName === 'failed' || refetchStateName === 'timeout';
   const refetchLabel =
-    attempt?.label || REFETCH_LABELS[refetchStateName] || refetchStateName;
+    REFETCH_LABELS()[refetchStateName] || attempt?.label || refetchStateName;
   const actionable = item.status === 'pending' || item.status === 'failed';
 
   return (
     <div className="stack">
       <PageHeader
-        title={item.title || '（无标题）'}
-        subtitle={`审核 #${item.id}`}
+        title={item.title || tr("（无标题）")}
+        subtitle={tr("审核 #{{p0}}", {p0: item.id})}
       />
 
       <div className="card">
         <div className="card__row card__row--static">
-          <div className="card__row-meta">状态</div>
+          <div className="card__row-meta">{tr("状态")}</div>
           <div className="card__row-foot">
             <StatusBadge tone={STATUS_TONES[item.status] ?? 'neutral'}>
-              {STATUS_LABELS[item.status] || item.status}
+              {STATUS_LABELS()[item.status] || item.status}
             </StatusBadge>
           </div>
         </div>
@@ -207,13 +210,13 @@ export function ReviewDetailPage() {
         )}
         {item.note && (
           <div className="card__row card__row--static">
-            <div className="card__row-meta">备注</div>
+            <div className="card__row-meta">{tr("备注")}</div>
             <div className="card__row-title">{item.note}</div>
           </div>
         )}
         {item.link && (
           <div className="card__row card__row--static">
-            <div className="card__row-meta">来源链接</div>
+            <div className="card__row-meta">{tr("来源链接")}</div>
             <a href={item.link} target="_blank" rel="noopener noreferrer" style={{ overflowWrap: 'anywhere' }}>
               {item.link}
             </a>
@@ -221,15 +224,15 @@ export function ReviewDetailPage() {
         )}
         {item.source_label && (
           <div className="card__row card__row--static">
-            <div className="card__row-meta">来源</div>
+            <div className="card__row-meta">{tr("来源")}</div>
             <div className="card__row-title">{item.source_label}</div>
           </div>
         )}
         <div className="card__row card__row--static">
-          <div className="card__row-meta">剧透</div>
+          <div className="card__row-meta">{tr("剧透")}</div>
           <div className="card__row-foot">
             <StatusBadge tone={item.spoiler ? 'warn' : 'neutral'}>
-              {item.spoiler ? '开启' : '关闭'}
+              {item.spoiler ? tr("开启") : tr("关闭")}
             </StatusBadge>
           </div>
         </div>
@@ -242,13 +245,13 @@ export function ReviewDetailPage() {
 
       {/* Refetch state (§35-§36, §refetch-lifecycle): the human stage first. */}
       {refetchState.data && attempt && (
-        <PageSection title="重抓">
+        <PageSection title={tr("重抓")}>
           <div className="card">
             <div className="card__row card__row--static">
               <div className="card__row-title">{refetchLabel}</div>
               {attempt.progress && refetchActive && (
                 <div className="card__row-meta">
-                  已等待 {formatElapsed(attempt.progress.elapsed_seconds)}
+                  {tr("已等待 ")}{formatElapsed(attempt.progress.elapsed_seconds)}
                 </div>
               )}
               {refetchFailed && attempt.failure_code && (
@@ -263,7 +266,7 @@ export function ReviewDetailPage() {
               <div style={{ padding: '0 14px 12px' }}>
                 {(attempt.progress?.task_id || attempt.task_id) && (
                   <>
-                    <div className="card__row-meta">任务ID</div>
+                    <div className="card__row-meta">{tr("任务ID")}</div>
                     <div className="card__row-meta">
                       {attempt.progress?.task_id || attempt.task_id}
                     </div>
@@ -273,7 +276,7 @@ export function ReviewDetailPage() {
                 <div className="card__row-meta">{attempt.generation}</div>
                 {refetchState.data.lineage.length > 1 && (
                   <>
-                    <div className="card__row-meta">候选历史</div>
+                    <div className="card__row-meta">{tr("候选历史")}</div>
                     <div className="card__row-meta">
                       {refetchState.data.lineage
                         .map((l) => `G${l.generation}:${l.candidate_id}`)
@@ -302,8 +305,7 @@ export function ReviewDetailPage() {
                 data-testid="approve"
                 onClick={() => void approve.mutateAsync()}
               >
-                通过并发布
-              </Button>
+                {tr("通过并发布")}</Button>
             }
             secondary={
               <>
@@ -313,8 +315,7 @@ export function ReviewDetailPage() {
                   data-testid="edit-before-publish"
                   onClick={() => navigate(`/review/${item.id}/edit`)}
                 >
-                  编辑后发布
-                </Button>
+                  {tr("编辑后发布")}</Button>
                 <Button
                   size="m"
                   mode="bezeled"
@@ -322,26 +323,24 @@ export function ReviewDetailPage() {
                   disabled={refetch.isPending || refetchState.isPending || refetchState.isError || refetchActive}
                   onClick={() => void refetch.mutateAsync()}
                 >
-                  重抓
-                </Button>
+                  {tr("重抓")}</Button>
                 <Button
                   size="m"
                   mode="bezeled"
                   disabled={spoiler.isPending || item.spoiler}
                   onClick={() => void spoiler.mutateAsync(true)}
                 >
-                  剧透
-                </Button>
+                  {tr("剧透")}</Button>
               </>
             }
-            note="通过/拒绝后不可撤销；并发操作以服务端先到者为准。"
+            note={tr("通过/拒绝后不可撤销；并发操作以服务端先到者为准。")}
           />
 
-          <PageSection title="不通过">
+          <PageSection title={tr("不通过")}>
             {rejectOpen ? (
               <div className="stack">
                 <Textarea
-                  placeholder="拒绝原因（可选，仅审核记录）"
+                  placeholder={tr("拒绝原因（可选，仅审核记录）")}
                   value={rejectReason}
                   onChange={(e) => setRejectReason(e.target.value)}
                 />
@@ -356,8 +355,7 @@ export function ReviewDetailPage() {
                       data-testid="reject-confirm"
                       onClick={() => void reject.mutateAsync()}
                     >
-                      确认拒绝
-                    </Button>
+                      {tr("确认拒绝")}</Button>
                   }
                   secondary={
                     <Button
@@ -367,8 +365,7 @@ export function ReviewDetailPage() {
                       data-testid="reject-cancel"
                       onClick={() => setRejectOpen(false)}
                     >
-                      取消
-                    </Button>
+                      {tr("取消")}</Button>
                   }
                 />
               </div>
@@ -381,8 +378,7 @@ export function ReviewDetailPage() {
                 data-testid="reject"
                 onClick={() => setRejectOpen(true)}
               >
-                拒绝
-              </Button>
+                {tr("拒绝")}</Button>
             )}
           </PageSection>
         </>

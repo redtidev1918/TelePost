@@ -1,3 +1,5 @@
+import { tr } from "../lib/i18n";
+import { useTranslation } from 'react-i18next';
 import { useCallback, useEffect, useRef } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { initDataStartParam } from '@telegram-apps/sdk';
@@ -38,15 +40,15 @@ import { MorePage } from '../pages/More/MorePage';
  * uses the Telegram BackButton. No page renders its own back button.
  */
 
-const ERROR_TEXT: Partial<Record<ReturnType<typeof useAuth>['status'], { title: string; hint?: string }>> = {
+const ERROR_TEXT = (): Partial<Record<ReturnType<typeof useAuth>['status'], { title: string; hint?: string }>> => ({
   outside_telegram: {
-    title: '请在 Telegram 中打开 TelePost 小程序。',
-    hint: '浏览器直接访问仅用于调式；生产环境必须从 Telegram 进入。',
+    title: tr("请在 Telegram 中打开 TelePost 小程序。"),
+    hint: tr("浏览器直接访问仅用于调式；生产环境必须从 Telegram 进入。"),
   },
-  miniapp_disabled: { title: '小程序功能未启用，请稍后再试。' },
-  auth_failed: { title: '小程序登录失败，请关闭后重新打开。', hint: '如持续失败，请更新 Telegram 后重试。' },
-  server_unavailable: { title: '无法连接服务器，请稍后重试。' },
-};
+  miniapp_disabled: { title: tr("小程序功能未启用，请稍后再试。") },
+  auth_failed: { title: tr("小程序登录失败，请关闭后重新打开。"), hint: tr("如持续失败，请更新 Telegram 后重试。") },
+  server_unavailable: { title: tr("无法连接服务器，请稍后重试。") },
+});
 
 /**
  * Publish the fixed BottomNav's real height as a CSS variable so scrolling
@@ -85,6 +87,7 @@ function useBottomNavReserve() {
 }
 
 export function App() {
+  useTranslation();
   return (
     <AuthProvider>
       <Shell />
@@ -93,6 +96,7 @@ export function App() {
 }
 
 function Shell() {
+  useTranslation();
   const { status, isReviewer, isAdmin } = useAuth();
   const location = useLocation();
   const navigate = useBotNavigate();
@@ -119,16 +123,16 @@ function Shell() {
   if (status === 'loading' || status === 'authenticating') {
     // Never flash an error before we positively know it: session boot is
     // in-flight (or launch context is being detected).
-    return <div className="page-loading">正在打开 TelePost 小程序…</div>;
+    return <div className="page-loading">{tr("正在打开 TelePost 小程序…")}</div>;
   }
 
   // Only the ABSENCE of Telegram launch data may say "open in Telegram". A
   // server/auth failure inside Telegram shows its own precise message (§27).
   if (status !== 'authenticated') {
-    const entry = ERROR_TEXT[status];
+    const entry = ERROR_TEXT()[status];
     return (
       <div className="page-error">
-        {entry?.title ?? '小程序暂不可用，请稍后再试。'}
+        {entry?.title ?? tr("小程序暂不可用，请稍后再试。")}
         {entry?.hint ? <div className="mutation-help">{entry.hint}</div> : null}
       </div>
     );

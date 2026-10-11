@@ -1,3 +1,4 @@
+import { tr } from "../lib/i18n";
 /**
  * API client for the TelePost canonical HTTP API.
  *
@@ -13,6 +14,7 @@
  * absent (single-bot deployments, dev).
  */
 import { retrieveRawInitData } from '@telegram-apps/sdk';
+import { setBotLanguage } from '../lib/i18n';
 
 /** API base prefix for the bot this Mini App instance talks to. */
 export function apiBase(): string {
@@ -103,9 +105,10 @@ export async function bootstrapSession(
     if (!response.ok) {
       const code = (body?.error?.code as string) || 'unknown';
       throw new ApiError(response.status, (code as ApiErrorCode) || 'unknown',
-        body?.error?.message || '登录失败', body);
+        body?.error?.message || tr("登录失败"), body);
     }
     const data = body?.data;
+    await setBotLanguage(data?.bot_language);
     const user = (data?.user as SessionUserProfile | undefined) ?? undefined;
     setSession(data.token, data.expires_in || 1800, user);
     return currentSession!;
@@ -179,7 +182,7 @@ export async function waitForLaunchInitData(timeoutMs = LAUNCH_CONTEXT_WAIT_MS):
 
 async function authenticatedFetch(path: string, init?: RequestInit): Promise<Response> {
   if (!currentSession) {
-    throw new ApiError(401, 'invalid_token', '未登录');
+    throw new ApiError(401, 'invalid_token', tr("未登录"));
   }
   const headers: Record<string, string> = {
     ...(init?.headers as Record<string, string> | undefined),
@@ -190,14 +193,14 @@ async function authenticatedFetch(path: string, init?: RequestInit): Promise<Res
     // Session expired (natural TTL): clear so the caller can re-bootstrap
     // with the current Telegram initData (§108).
     clearSession();
-    throw new ApiError(401, 'session_expired', '会话已过期，请重新打开小程序');
+    throw new ApiError(401, 'session_expired', tr("会话已过期，请重新打开小程序"));
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new ApiError(
       response.status,
       ((body?.error?.code as string) || 'unknown') as ApiErrorCode,
-      body?.error?.message || `请求失败 (${response.status})`,
+      body?.error?.message || tr("请求失败 ({{p0}})", {p0: response.status}),
       body,
     );
   }
@@ -217,7 +220,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     throw new ApiError(
       400,
       (err.error?.code as ApiErrorCode) || 'unknown',
-      err.error?.message || '请求失败',
+      err.error?.message || tr("请求失败"),
       payload,
     );
   }

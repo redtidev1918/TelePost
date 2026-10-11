@@ -1,6 +1,7 @@
 """
 帖子搜索和标签管理模块
 """
+from ui.i18n import tr
 import json
 import logging
 from datetime import datetime, timedelta
@@ -25,12 +26,14 @@ _tag_cloud_cache = TTLCache(default_ttl=60, max_size=16)
 # 只拦依赖搜索引擎的入口；「我的投稿 / 标签云 / 热门内容」走数据库，不受
 # SEARCH_ENABLED 影响，因此提示里把它们作为仍然可用的替代路径。
 SEARCH_DISABLED_MESSAGE = (
-    "ℹ️ 搜索功能在当前机器人尚未启用。\n\n"
-    "你仍然可以：\n"
-    "• 📋 我的投稿 —— 查看自己发布过的内容\n"
-    "• 🏷️ 标签云 —— 按标签浏览\n"
-    "• 🔥 热门内容 —— 看看最近的热门\n\n"
-    "如需使用搜索，请联系频道管理员开启后再试。"
+    tr("""ℹ️ 搜索功能在当前机器人尚未启用。
+
+你仍然可以：
+• 📋 我的投稿 —— 查看自己发布过的内容
+• 🏷️ 标签云 —— 按标签浏览
+• 🔥 热门内容 —— 看看最近的热门
+
+如需使用搜索，请联系频道管理员开启后再试。""")
 )
 
 
@@ -99,22 +102,27 @@ async def search_posts(update: Update, context: CallbackContext):
         # 解析参数
         if not context.args:
             await update.message.reply_text(
-                "🔍 搜索帮助\n\n"
-                "使用方法：\n"
-                "/search <关键词> [选项]\n\n"
-                "示例：\n"
-                "• /search Python\n"
-                "• /search #编程\n"
-                "• /search 教程 -t week\n"
-                "• /search API -n 20\n"
-                "• /search 文件名.txt\n\n"
-                "搜索范围：\n"
-                "• 标题、简介、标签、文件名\n\n"
-                "选项：\n"
-                "• -t day/week/month - 时间范围\n"
-                "• -n <数量> - 结果数量（最多30）\n\n"
-                "💡 使用 /tags 查看所有标签\n"
-                "✨ 支持中文分词和文件名搜索！"
+                tr("""🔍 搜索帮助
+
+使用方法：
+/search <关键词> [选项]
+
+示例：
+• /search Python
+• /search #编程
+• /search 教程 -t week
+• /search API -n 20
+• /search 文件名.txt
+
+搜索范围：
+• 标题、简介、标签、文件名
+
+选项：
+• -t day/week/month - 时间范围
+• -n <数量> - 结果数量（最多30）
+
+💡 使用 /tags 查看所有标签
+✨ 支持中文分词和文件名搜索！""")
             )
             return
         
@@ -148,7 +156,7 @@ async def search_posts(update: Update, context: CallbackContext):
                 i += 1
         
         if not keyword:
-            await update.message.reply_text("❌ 请提供搜索关键词")
+            await update.message.reply_text(tr('❌ 请提供搜索关键词'))
             return
         
         # 检查是否是标签搜索
@@ -173,7 +181,7 @@ async def search_posts(update: Update, context: CallbackContext):
 
     except Exception as e:
         logger.error(f"搜索帖子失败: {e}", exc_info=True)
-        await update.effective_message.reply_text("❌ 搜索失败，请稍后重试")
+        await update.effective_message.reply_text(tr('❌ 搜索失败，请稍后重试'))
 
 
 def _build_time_filter(tf_key):
@@ -181,7 +189,7 @@ def _build_time_filter(tf_key):
     days = {'day': 1, 'week': 7, 'month': 30}
     if tf_key in days:
         start = datetime.now() - timedelta(days=days[tf_key])
-        desc = {'day': '今日', 'week': '本周', 'month': '本月'}[tf_key]
+        desc = {'day': tr('今日'), 'week': tr('本周'), 'month': tr('本月')}[tf_key]
         return DateRange("publish_time", start, None), desc
     return None, ""
 
@@ -225,8 +233,8 @@ async def _search_and_render(update, context, *, keyword, tag_filter, is_tag_sea
     page = min(max(1, page), pages)
 
     if not search_result.hits:
-        search_desc = f"标签 #{tag_filter}" if is_tag_search else f'关键词 "{keyword}"'
-        await _output(f"🔍 未找到匹配{time_desc}{search_desc}的帖子")
+        search_desc = tr('标签 #{p0}').format(p0=tag_filter) if is_tag_search else tr('关键词 "{p0}"').format(p0=keyword)
+        await _output(tr('🔍 未找到匹配{p0}{p1}的帖子').format(p0=time_desc, p1=search_desc))
         return
 
     # 验证搜索结果是否仍然存在于频道中（过滤已删除的帖子）
@@ -247,15 +255,18 @@ async def _search_and_render(update, context, *, keyword, tag_filter, is_tag_sea
                 valid_hits.append(hit)
 
     if not valid_hits:
-        search_desc = f"标签 #{tag_filter}" if is_tag_search else f'关键词 "{keyword}"'
-        await _output(f"🔍 未找到匹配{time_desc}{search_desc}的帖子（或所有结果已被删除）")
+        search_desc = tr('标签 #{p0}').format(p0=tag_filter) if is_tag_search else tr('关键词 "{p0}"').format(p0=keyword)
+        await _output(tr('🔍 未找到匹配{p0}{p1}的帖子（或所有结果已被删除）').format(p0=time_desc, p1=search_desc))
         return
 
     # 构建结果消息
     search_desc = f"#{tag_filter}" if is_tag_search else f'"{keyword}"'
     time_prefix = f"{time_desc} " if time_desc else ""
-    message = f"🔍 搜索结果：{time_prefix}{search_desc}\n"
-    message += f"共 {total} 个结果，第 {page}/{pages} 页\n\n"
+    message = tr("""🔍 搜索结果：{p0}{p1}
+""").format(p0=time_prefix, p1=search_desc)
+    message += tr("""共 {p0} 个结果，第 {p1}/{p2} 页
+
+""").format(p0=total, p1=page, p2=pages)
 
     # 存储消息ID用于删除按钮
     message_ids = []
@@ -266,7 +277,7 @@ async def _search_and_render(update, context, *, keyword, tag_filter, is_tag_sea
             channel_username = CHANNEL_ID.lstrip('@')
             post_link = f"https://t.me/{channel_username}/{hit.message_id}"
         else:
-            post_link = f"消息ID: {hit.message_id}"
+            post_link = tr('消息ID: {p0}').format(p0=hit.message_id)
 
         # 解析标签
         try:
@@ -277,7 +288,7 @@ async def _search_and_render(update, context, *, keyword, tag_filter, is_tag_sea
 
         # 高亮标题剥离标记后转义（防 parse_mode=HTML 解析失败）
         import re as _re
-        raw_title = hit.highlighted_title or hit.title or '无标题'
+        raw_title = hit.highlighted_title or hit.title or tr('无标题')
         title_plain = _re.sub(r'<[^>]+>', '', str(raw_title))
         if len(title_plain) > 40:
             title_plain = title_plain[:40] + '...'
@@ -292,21 +303,25 @@ async def _search_and_render(update, context, *, keyword, tag_filter, is_tag_sea
 
         matched_info = ""
         if hasattr(hit, 'matched_fields') and hit.matched_fields:
-            matched_info = f"   💡 匹配: {', '.join(hit.matched_fields)}\n"
+            matched_info = tr("""   💡 匹配: {p0}
+""").format(p0=', '.join(hit.matched_fields))
 
         message += (
-            f"{idx}. {title}\n"
-            f"   {tags_preview_display}\n"
-            f"{matched_info}"
-            f"   📅 {publish_date} | 🔥 热度 {hit.heat_score:.0f}\n"
-            f"   🔗 {post_link}\n\n"
+            tr("""{p0}. {p1}
+   {p2}
+{p3}   📅 {p4} | 🔥 热度 {p5:.0f}
+   🔗 {p6}
+
+""").format(p0=idx, p1=title, p2=tags_preview_display, p3=matched_info, p4=publish_date, p5=hit.heat_score, p6=post_link)
         )
 
         if hit.message_id:
             message_ids.append((idx, hit.message_id))
 
         if len(message) > 3500:
-            message += "...\n\n结果过多，请使用更具体的关键词"
+            message += tr("""...
+
+结果过多，请使用更具体的关键词""")
             break
 
     keyboard = None
@@ -376,11 +391,11 @@ async def handle_search_input(update: Update, context: CallbackContext):
 
     text = (update.message.text or '').strip()
     if not text:
-        await update.message.reply_text("❌ 请输入搜索关键词")
+        await update.message.reply_text(tr('❌ 请输入搜索关键词'))
         return
     # 提前给用户反馈，避免首次加载分词器带来的感知延迟
     try:
-        await update.message.reply_text("⏳ 正在搜索…")
+        await update.message.reply_text(tr('⏳ 正在搜索…'))
     except Exception:
         pass
     # 将文本转换为 /search 的参数形式并复用 search_posts 逻辑
@@ -411,7 +426,7 @@ async def search_posts_by_tag(update: Update, context: CallbackContext, tag: str
     # 如果没有提供标签，从context.args获取
     if tag is None:
         if not context.args:
-            await update.message.reply_text("❌ 请提供要搜索的标签")
+            await update.message.reply_text(tr('❌ 请提供要搜索的标签'))
             return
         tag = context.args[0]
     
@@ -434,9 +449,9 @@ async def search_posts_by_tag(update: Update, context: CallbackContext, tag: str
         if not search_result.hits:
             # 根据update类型选择回复方式
             if hasattr(update, 'callback_query') and update.callback_query:
-                await update.callback_query.message.reply_text(f"🔍 未找到标签 #{tag} 的帖子")
+                await update.callback_query.message.reply_text(tr('🔍 未找到标签 #{p0} 的帖子').format(p0=tag))
             else:
-                await update.message.reply_text(f"🔍 未找到标签 #{tag} 的帖子")
+                await update.message.reply_text(tr('🔍 未找到标签 #{p0} 的帖子').format(p0=tag))
             return
         
         # 验证搜索结果是否仍然存在于频道中（过滤已删除的帖子）
@@ -464,14 +479,17 @@ async def search_posts_by_tag(update: Update, context: CallbackContext, tag: str
         if not valid_hits:
             # 根据update类型选择回复方式
             if hasattr(update, 'callback_query') and update.callback_query:
-                await update.callback_query.message.reply_text(f"🔍 未找到标签 #{tag} 的帖子（或所有结果已被删除）")
+                await update.callback_query.message.reply_text(tr('🔍 未找到标签 #{p0} 的帖子（或所有结果已被删除）').format(p0=tag))
             else:
-                await update.message.reply_text(f"🔍 未找到标签 #{tag} 的帖子（或所有结果已被删除）")
+                await update.message.reply_text(tr('🔍 未找到标签 #{p0} 的帖子（或所有结果已被删除）').format(p0=tag))
             return
         
         # 构建结果消息
-        message = f"🏷️ 标签搜索结果：#{tag}\n"
-        message += f"找到 {len(valid_hits)} 个结果（显示前 {len(valid_hits)} 个）\n\n"
+        message = tr("""🏷️ 标签搜索结果：#{p0}
+""").format(p0=tag)
+        message += tr("""找到 {p0} 个结果（显示前 {p1} 个）
+
+""").format(p0=len(valid_hits), p1=len(valid_hits))
         
         for idx, hit in enumerate(valid_hits, 1):
             # 生成帖子链接
@@ -479,9 +497,9 @@ async def search_posts_by_tag(update: Update, context: CallbackContext, tag: str
                 channel_username = CHANNEL_ID.lstrip('@')
                 post_link = f"https://t.me/{channel_username}/{hit.message_id}"
             else:
-                post_link = f"消息ID: {hit.message_id}"
+                post_link = tr('消息ID: {p0}').format(p0=hit.message_id)
             
-            title = hit.title or '无标题'
+            title = hit.title or tr('无标题')
             if len(title) > 40:
                 title = title[:37] + '...'
             
@@ -489,14 +507,18 @@ async def search_posts_by_tag(update: Update, context: CallbackContext, tag: str
             publish_date = hit.publish_time.strftime('%Y-%m-%d')
             
             message += (
-                f"{idx}. {title}\n"
-                f"   📅 {publish_date} | 🔥 热度 {hit.heat_score:.0f}\n"
-                f"   🔗 {post_link}\n\n"
+                tr("""{p0}. {p1}
+   📅 {p2} | 🔥 热度 {p3:.0f}
+   🔗 {p4}
+
+""").format(p0=idx, p1=title, p2=publish_date, p3=hit.heat_score, p4=post_link)
             )
             
             # 防止消息过长
             if len(message) > 3500:
-                message += "...\n\n结果过多，请使用更具体的关键词"
+                message += tr("""...
+
+结果过多，请使用更具体的关键词""")
                 break
         
         # 根据update类型选择回复方式
@@ -509,9 +531,9 @@ async def search_posts_by_tag(update: Update, context: CallbackContext, tag: str
         logger.error(f"按标签搜索失败: {e}", exc_info=True)
         # 根据update类型选择回复方式
         if hasattr(update, 'callback_query') and update.callback_query:
-            await update.callback_query.message.reply_text("❌ 搜索失败，请稍后重试")
+            await update.callback_query.message.reply_text(tr('❌ 搜索失败，请稍后重试'))
         else:
-            await update.message.reply_text("❌ 搜索失败，请稍后重试")
+            await update.message.reply_text(tr('❌ 搜索失败，请稍后重试'))
 
 
 async def get_tag_cloud(update: Update, context: CallbackContext):
@@ -543,7 +565,7 @@ async def get_tag_cloud(update: Update, context: CallbackContext):
             posts = await cursor.fetchall()
         
         if not posts:
-            await update.message.reply_text("📊 暂无标签数据")
+            await update.message.reply_text(tr('📊 暂无标签数据'))
             return
         
         # 统计标签使用次数
@@ -566,7 +588,7 @@ async def get_tag_cloud(update: Update, context: CallbackContext):
                             tag_counts[tag_clean] = tag_counts.get(tag_clean, 0) + 1
         
         if not tag_counts:
-            await update.message.reply_text("📊 暂无标签数据")
+            await update.message.reply_text(tr('📊 暂无标签数据'))
             return
         
         # 按使用次数排序
@@ -580,7 +602,9 @@ async def get_tag_cloud(update: Update, context: CallbackContext):
             return
 
         # 构建标签云消息
-        message = f"🏷️ 标签云 TOP {len(sorted_tags)}\n\n"
+        message = tr("""🏷️ 标签云 TOP {p0}
+
+""").format(p0=len(sorted_tags))
         
         for idx, (tag, count) in enumerate(sorted_tags, 1):
             # 使用不同的表情符号表示热度
@@ -597,14 +621,15 @@ async def get_tag_cloud(update: Update, context: CallbackContext):
             if idx % 10 == 0 and idx < len(sorted_tags):
                 message += "\n"
         
-        message += f"\n💡 使用 /search #{sorted_tags[0][0]} 搜索该标签的帖子"
+        message += tr("""
+💡 使用 /search #{p0} 搜索该标签的帖子""").format(p0=sorted_tags[0][0])
         
         _tag_cloud_cache.set(cache_key, message, ttl=60)
         await update.message.reply_text(message)
         
     except Exception as e:
         logger.error(f"获取标签云失败: {e}")
-        await update.message.reply_text("❌ 获取标签云失败，请稍后重试")
+        await update.message.reply_text(tr('❌ 获取标签云失败，请稍后重试'))
 
 
 async def get_my_posts(update: Update, context: CallbackContext):
@@ -654,15 +679,17 @@ async def get_my_posts(update: Update, context: CallbackContext):
         
         if not user_posts:
             await reply_target.reply_text(
-                "📝 您还没有发布过投稿\n\n"
-                "使用 /submit 开始创建您的第一篇投稿！"
+                tr("""📝 您还没有发布过投稿
+
+使用 /submit 开始创建您的第一篇投稿！""")
             )
             return
         
         # 逐条发送帖子，每个帖子带操作按钮
         await reply_target.reply_text(
-            f"📝 我的投稿（最近 {len(user_posts)} 篇）\n\n"
-            f"{'💡 提示：作为管理员，您可以直接删除帖子' if is_owner else '💡 提示：点击按钮查看帖子详情'}"
+            tr("""📝 我的投稿（最近 {p0} 篇）
+
+{p1}""").format(p0=len(user_posts), p1='💡 提示：作为管理员，您可以直接删除帖子' if is_owner else '💡 提示：点击按钮查看帖子详情')
         )
         
         for idx, post in enumerate(user_posts, 1):
@@ -671,7 +698,7 @@ async def get_my_posts(update: Update, context: CallbackContext):
                 channel_username = CHANNEL_ID.lstrip('@')
                 post_link = f"https://t.me/{channel_username}/{post['message_id']}"
             else:
-                post_link = f"消息ID: {post['message_id']}"
+                post_link = tr('消息ID: {p0}').format(p0=post['message_id'])
             
             # 解析标签
             try:
@@ -680,7 +707,7 @@ async def get_my_posts(update: Update, context: CallbackContext):
             except (json.JSONDecodeError, TypeError, KeyError):
                 tags_preview = ""
             
-            title = post['title'] or '无标题'
+            title = post['title'] or tr('无标题')
             # 标题过长则截断
             if len(title) > 40:
                 title = title[:37] + '...'
@@ -689,24 +716,24 @@ async def get_my_posts(update: Update, context: CallbackContext):
             publish_date = datetime.fromtimestamp(post['publish_time']).strftime('%Y-%m-%d %H:%M')
             
             message = (
-                f"📄 {idx}. {title}\n"
-                f"{tags_preview}\n"
-                f"📅 {publish_date}\n"
-                f"📊 ❤️ 反应 {post['reactions']} | 热度 {post['heat_score']:.0f}\n"
-                f"🔗 {post_link}"
+                tr("""📄 {p0}. {p1}
+{p2}
+📅 {p3}
+📊 ❤️ 反应 {p4} | 热度 {p5:.0f}
+🔗 {p6}""").format(p0=idx, p1=title, p2=tags_preview, p3=publish_date, p4=post['reactions'], p5=post['heat_score'], p6=post_link)
             )
             
             # 构建内联键盘
             keyboard = []
             
             # 第一行：查看帖子按钮
-            row1 = [InlineKeyboardButton("👁️ 查看原帖", url=post_link)]
+            row1 = [InlineKeyboardButton(tr('👁️ 查看原帖'), url=post_link)]
             keyboard.append(row1)
             
             # 第二行：仅 OWNER 可见的删除按钮
             if is_owner and post['message_id']:
                 row2 = [
-                    InlineKeyboardButton("🗑️ 删除", callback_data=f"delete_post_{post['message_id']}")
+                    InlineKeyboardButton(tr('🗑️ 删除'), callback_data=f"delete_post_{post['message_id']}")
                 ]
                 keyboard.append(row2)
             
@@ -722,17 +749,19 @@ async def get_my_posts(update: Update, context: CallbackContext):
             # 防止消息过多，最多显示前20篇
             if idx >= 20:
                 await reply_target.reply_text(
-                    f"...\n\n还有更多投稿，使用 /myposts {limit + 10} 查看更多"
+                    tr("""...
+
+还有更多投稿，使用 /myposts {p0} 查看更多""").format(p0=limit + 10)
                 )
                 break
         
         # 最后发送统计提示
-        await reply_target.reply_text("💡 使用 /mystats 查看完整统计")
+        await reply_target.reply_text(tr('💡 使用 /mystats 查看完整统计'))
         
     except Exception as e:
         logger.error(f"获取用户帖子失败: {e}", exc_info=True)
         try:
-            await reply_target.reply_text("❌ 获取帖子列表失败，请稍后重试")
+            await reply_target.reply_text(tr('❌ 获取帖子列表失败，请稍后重试'))
         except Exception:
             pass
 
@@ -752,14 +781,16 @@ async def search_by_user(update: Update, context: CallbackContext):
     
     # 仅管理员可用（使用is_owner函数确保正确比较）
     if not is_owner(update.effective_user.id):
-        await update.message.reply_text("❌ 此命令仅管理员可用")
+        await update.message.reply_text(tr('❌ 此命令仅管理员可用'))
         return
     
     try:
         if not context.args or not context.args[0].isdigit():
             await update.message.reply_text(
-                "使用方法：\n/searchuser <user_id>\n\n"
-                "示例：/searchuser 123456789"
+                tr("""使用方法：
+/searchuser <user_id>
+
+示例：/searchuser 123456789""")
             )
             return
         
@@ -776,7 +807,7 @@ async def search_by_user(update: Update, context: CallbackContext):
             user_posts = await cursor.fetchall()
         
         if not user_posts:
-            await update.message.reply_text(f"🔍 用户 {target_user_id} 没有发布过帖子")
+            await update.message.reply_text(tr('🔍 用户 {p0} 没有发布过帖子').format(p0=target_user_id))
             return
         
         # 统计数据
@@ -784,11 +815,15 @@ async def search_by_user(update: Update, context: CallbackContext):
         total_reactions = sum(post['reactions'] for post in user_posts)
         
         message = (
-            f"👤 用户 {target_user_id} 的投稿\n\n"
-            f"📊 统计：\n"
-            f"• 总投稿：{total_posts}\n"
-            f"• ❤️ 总反应：{total_reactions}\n\n"
-            f"最近投稿：\n\n"
+            tr("""👤 用户 {p0} 的投稿
+
+📊 统计：
+• 总投稿：{p1}
+• ❤️ 总反应：{p2}
+
+最近投稿：
+
+""").format(p0=target_user_id, p1=total_posts, p2=total_reactions)
         )
         
         # 显示最近10篇
@@ -797,9 +832,9 @@ async def search_by_user(update: Update, context: CallbackContext):
                 channel_username = CHANNEL_ID.lstrip('@')
                 post_link = f"https://t.me/{channel_username}/{post['message_id']}"
             else:
-                post_link = f"消息ID: {post['message_id']}"
+                post_link = tr('消息ID: {p0}').format(p0=post['message_id'])
             
-            title = post['title'] or '无标题'
+            title = post['title'] or tr('无标题')
             if len(title) > 30:
                 title = title[:27] + '...'
             
@@ -812,13 +847,13 @@ async def search_by_user(update: Update, context: CallbackContext):
             )
         
         if len(user_posts) > 10:
-            message += f"... 还有 {len(user_posts) - 10} 篇投稿"
+            message += tr('... 还有 {p0} 篇投稿').format(p0=len(user_posts) - 10)
         
         await update.message.reply_text(message, disable_web_page_preview=True)
         
     except Exception as e:
         logger.error(f"按用户搜索失败: {e}")
-        await update.message.reply_text("❌ 搜索失败，请稍后重试")
+        await update.message.reply_text(tr('❌ 搜索失败，请稍后重试'))
 
 
 async def delete_posts_batch(update: Update, context: CallbackContext):
@@ -850,27 +885,32 @@ async def delete_posts_batch(update: Update, context: CallbackContext):
     
     # 检查权限：只有 OWNER 可以批量删除
     if not is_owner(user_id):
-        await update.message.reply_text("⛔ 权限不足：只有管理员可以批量删除帖子")
+        await update.message.reply_text(tr('⛔ 权限不足：只有管理员可以批量删除帖子'))
         logger.warning(f"用户 {user_id} 尝试批量删除但权限不足")
         return
     
     # 检查参数
     if not context.args:
         await update.message.reply_text(
-            "📝 <b>批量删除帮助</b>\n\n"
-            "<b>命令格式：</b>\n"
-            "/delete_posts [message_id1] [message_id2] ...\n"
-            "/delete_posts [start_id-end_id]\n\n"
-            "<b>示例：</b>\n"
-            "• /delete_posts 123 456 789\n"
-            "  删除消息 123、456、789\n\n"
-            "• /delete_posts 100-110\n"
-            "  删除消息 100 到 110\n\n"
-            "• /delete_posts 100-110 150 200-205\n"
-            "  混合使用范围和单个ID\n\n"
-            "<b>⚠️ 注意：</b>\n"
-            "• 会删除频道消息、数据库记录和搜索索引（双向同步删除）\n"
-            "• 一次最多删除 50 个帖子",
+            tr("""📝 <b>批量删除帮助</b>
+
+<b>命令格式：</b>
+/delete_posts [message_id1] [message_id2] ...
+/delete_posts [start_id-end_id]
+
+<b>示例：</b>
+• /delete_posts 123 456 789
+  删除消息 123、456、789
+
+• /delete_posts 100-110
+  删除消息 100 到 110
+
+• /delete_posts 100-110 150 200-205
+  混合使用范围和单个ID
+
+<b>⚠️ 注意：</b>
+• 会删除频道消息、数据库记录和搜索索引（双向同步删除）
+• 一次最多删除 50 个帖子"""),
             parse_mode=ParseMode.HTML
         )
         return
@@ -893,25 +933,26 @@ async def delete_posts_batch(update: Update, context: CallbackContext):
                 # 单个ID
                 message_ids.add(int(arg))
             else:
-                await update.message.reply_text(f"❌ 无效的参数: {arg}")
+                await update.message.reply_text(tr('❌ 无效的参数: {p0}').format(p0=arg))
                 return
         
         # 限制数量
         if len(message_ids) > 50:
             await update.message.reply_text(
-                f"❌ 一次最多删除 50 个帖子，当前请求删除 {len(message_ids)} 个\n\n"
-                "请分批删除或缩小范围"
+                tr("""❌ 一次最多删除 50 个帖子，当前请求删除 {p0} 个
+
+请分批删除或缩小范围""").format(p0=len(message_ids))
             )
             return
         
         if len(message_ids) == 0:
-            await update.message.reply_text("❌ 未指定有效的消息ID")
+            await update.message.reply_text(tr('❌ 未指定有效的消息ID'))
             return
         
         # 发送确认消息
         await update.message.reply_text(
-            f"⏳ 开始批量删除 {len(message_ids)} 个帖子记录...\n"
-            "请稍候..."
+            tr("""⏳ 开始批量删除 {p0} 个帖子记录...
+请稍候...""").format(p0=len(message_ids))
         )
         
         # 执行批量删除
@@ -1021,25 +1062,35 @@ async def delete_posts_batch(update: Update, context: CallbackContext):
             await conn.commit()
         
         # 构建结果消息
-        result_message = "✅ <b>批量删除完成</b>\n\n"
-        result_message += f"📊 <b>统计：</b>\n"
-        result_message += f"• 成功删除：{success_count} 个\n"
+        result_message = tr("""✅ <b>批量删除完成</b>
+
+""")
+        result_message += tr("""📊 <b>统计：</b>
+""")
+        result_message += tr("""• 成功删除：{p0} 个
+""").format(p0=success_count)
         if deleted_from_channel > 0:
-            result_message += f"• 从频道删除：{deleted_from_channel} 个消息\n"
+            result_message += tr("""• 从频道删除：{p0} 个消息
+""").format(p0=deleted_from_channel)
         if deleted_from_index > 0:
-            result_message += f"• 从索引删除：{deleted_from_index} 个\n"
+            result_message += tr("""• 从索引删除：{p0} 个
+""").format(p0=deleted_from_index)
         if already_deleted_count > 0:
-            result_message += f"• 已删除：{already_deleted_count} 个（之前已标记为删除）\n"
+            result_message += tr("""• 已删除：{p0} 个（之前已标记为删除）
+""").format(p0=already_deleted_count)
         if not_found_count > 0:
-            result_message += f"• 未找到：{not_found_count} 个\n"
+            result_message += tr("""• 未找到：{p0} 个
+""").format(p0=not_found_count)
         if failed_count > 0:
-            result_message += f"• 失败：{failed_count} 个\n"
+            result_message += tr("""• 失败：{p0} 个
+""").format(p0=failed_count)
         if channel_delete_failed > 0:
-            result_message += f"• 频道删除失败：{channel_delete_failed} 个（可能无权限或消息已不存在）\n"
+            result_message += tr("""• 频道删除失败：{p0} 个（可能无权限或消息已不存在）
+""").format(p0=channel_delete_failed)
         
         await update.message.reply_text(result_message, parse_mode=ParseMode.HTML)
         
     except Exception as e:
         logger.error(f"批量删除失败: {e}", exc_info=True)
-        await update.message.reply_text(f"❌ 批量删除失败: {str(e)[:100]}")
+        await update.message.reply_text(tr('❌ 批量删除失败: {p0}').format(p0=str(e)[:100]))
 

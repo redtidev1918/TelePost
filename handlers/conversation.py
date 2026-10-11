@@ -46,7 +46,7 @@ def build_submission_conversation() -> ConversationHandler:
             # 底部菜单按钮"📝 开始投稿"（ReplyKeyboard 文本）必须作为 entry 进入
             # 状态机，否则只建 DB 会话、不建立内存状态，随后媒体会掉出状态机。
             MessageHandler(
-                filters.TEXT & ~filters.COMMAND & filters.Regex(r"开始投稿\s*$"),
+                filters.TEXT & ~filters.COMMAND & filters.Regex(r"(?:开始投稿|New submission)\s*$"),
                 _exclusive(submit),
             ),
         ],

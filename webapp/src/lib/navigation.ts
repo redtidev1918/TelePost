@@ -1,3 +1,4 @@
+import { tr } from "./i18n";
 /**
  * Mini App information architecture (§ia).
  *
@@ -21,14 +22,14 @@ export const MAX_TAB_COUNT = 5;
 
 export function navigationForSpace(isReviewer: boolean, isAdmin = false): NavItem[] {
   const nav: NavItem[] = [
-    { path: '/', label: '首页' },
-    { path: '/hot', label: '热门' },
-    { path: '/submit', label: '投稿' },
-    { path: '/mine', label: '我的' },
+    { path: '/', label: tr("首页") },
+    { path: '/hot', label: tr("热门") },
+    { path: '/submit', label: tr("投稿") },
+    { path: '/mine', label: tr("我的") },
   ];
   // The 5th slot is the reviewer/admin workspace when the session has one,
   // otherwise the catch-all 更多 hub.
-  nav.push(isReviewer ? { path: '/review', label: '审核' } : { path: '/more', label: '更多' });
+  nav.push(isReviewer ? { path: '/review', label: tr("审核") } : { path: '/more', label: tr("更多") });
   if (nav.length > MAX_TAB_COUNT) nav.length = MAX_TAB_COUNT;
   void isAdmin; // admin reaches 管理 from 更多 / the 审核 workspace, never a 6th tab
   return nav;

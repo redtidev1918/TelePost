@@ -13,6 +13,7 @@ that a stale reclaim already moved again.
 """
 
 from __future__ import annotations
+from ui.i18n import tr
 
 import asyncio
 import io
@@ -83,7 +84,7 @@ class ReviewSupersededError(ReviewStateError):
     mutations. The reviewer is directed to the current chain head."""
     code = "review_superseded"
     http_status = 409
-    message = "该审核稿已被重抓结果替代，请审核最新版本。"
+    message = tr('该审核稿已被重抓结果替代，请审核最新版本。')
 
 
 class MediaNotFoundError(ReviewError):
@@ -840,9 +841,9 @@ class ReviewService:
             if target_id:
                 try:
                     resubmitted = bool(_row_value(row, "generation") or 0) and                         bool(_row_value(row, "supersedes_review_id"))
-                    text = ("❌ 重新提交的作品审核未通过。如需了解原因，请联系频道管理员。"
+                    text = (tr('❌ 重新提交的作品审核未通过。如需了解原因，请联系频道管理员。')
                             if resubmitted
-                            else "❌ 你的投稿未通过审核。如需了解原因，请联系频道管理员。")
+                            else tr('❌ 你的投稿未通过审核。如需了解原因，请联系频道管理员。'))
                     await bot.send_message(
                         chat_id=target_id,
                         text=text,
@@ -863,17 +864,16 @@ class ReviewService:
             from handlers.publish import DiscussionPublishError
             from telegram.error import NetworkError
         except Exception:
-            return "发布失败，可重试"
+            return tr('发布失败，可重试')
         if isinstance(error, DiscussionPublishError):
             if getattr(error, "uncertain", False):
                 return (
-                    "评论区发布结果不确定：请到频道确认首贴、到该帖评论串确认图片是否齐；"
-                    "确认缺图后再点重试（重试只补发，重复请手动删多余相册）"
+                    tr('评论区发布结果不确定：请到频道确认首贴、到该帖评论串确认图片是否齐；确认缺图后再点重试（重试只补发，重复请手动删多余相册）')
                 )
-            return "发布失败，已自动重试一次仍未成功，可再点重试"
+            return tr('发布失败，已自动重试一次仍未成功，可再点重试')
         if isinstance(error, NetworkError):
-            return "发送结果不确定，请先检查频道；确认未发布后再重试"
-        return "发布失败，可重试"
+            return tr('发送结果不确定，请先检查频道；确认未发布后再重试')
+        return tr('发布失败，可重试')
 
     async def approve(self, bot, review_id: int, *,
                       spoiler: Optional[bool] = None,

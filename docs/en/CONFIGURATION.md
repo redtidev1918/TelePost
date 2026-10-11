@@ -9,6 +9,37 @@ Sensitive values are always managed via environment variables, Secrets, or `conf
 
 ## Core configuration
 
+### Bot language and multiple bots
+
+For one bot, set `LANGUAGE = zh` or `LANGUAGE = en` under `[BOT]` in `config.ini`,
+or set `BOT_LANGUAGE` in the environment. The default is Chinese; restart after changing it.
+For multiple bots: `BOTn_LANGUAGE` > `BOT_LANGUAGE` > INI `LANGUAGE` > `zh`.
+
+Create two bots and configure the deployment environment:
+
+```dotenv
+BOT1_TOKEN=<Chinese-bot-token>
+BOT1_CHANNEL_ID=@your_chinese_channel
+BOT1_OWNER_ID=<your-numeric-user-ID>
+BOT1_REVIEW_CHAT_ID=<Chinese-review-group-ID>
+BOT1_LANGUAGE=zh
+BOT2_TOKEN=<English-bot-token>
+BOT2_CHANNEL_ID=@your_english_channel
+BOT2_OWNER_ID=<your-numeric-user-ID>
+BOT2_REVIEW_CHAT_ID=<English-review-group-ID>
+BOT2_LANGUAGE=en
+```
+
+Compose reads these values from `.env`; use environment variables or Secrets on other platforms.
+When starting the program directly, set the variables in your terminal first; `run.py` does not load `.env`.
+On Fly.io, add language settings to the existing `fly.toml` `[env]` section and keep tokens in Secrets.
+
+Welcome messages, help, menus, command descriptions, submission prompts and review actions use the selected
+language. After verifying Telegram `initData`, the Mini App reads `bot_language` from the session response.
+Submitted text, tags, usernames and filenames keep their original language. Routes, command names,
+callback data, API states and review rules do not change. Operational logs retain their original language.
+Aliases `zh-CN`, `zh-Hans`, `en-US` and `en-GB` are accepted; unsupported languages fail at startup.
+
 | Variable | Default | Description |
 |---|---|---|
 | `TOKEN` | required | Bot token; also accepts `BOT_TOKEN`, `TELEGRAM_BOT_TOKEN` |
@@ -16,6 +47,7 @@ Sensitive values are always managed via environment variables, Secrets, or `conf
 | `OWNER_ID` | empty | The single owner ID; automatically added to `ADMIN_IDS` |
 | `ADMIN_IDS` | empty | Comma-separated; only used for operations explicitly marked Admin |
 | `BOT_MODE` | `MIXED` | `MEDIA`, `DOCUMENT`, or `MIXED` |
+| `BOT_LANGUAGE` | `zh` | Bot and Mini App interface: `zh` / `en`; INI setting is `[BOT] LANGUAGE` |
 | `ALLOWED_FILE_TYPES` | `*` | Document extensions or MIME types, comma-separated |
 | `SHOW_SUBMITTER` | `true` | Whether the channel shows the submitter |
 | `NOTIFY_OWNER` | `true` | Whether to durably DM the owner: notified once per logical submission after a review item is queued or a direct post succeeds; refetch/editorial do not re-notify |

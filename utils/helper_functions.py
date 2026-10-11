@@ -1,6 +1,7 @@
 """
 工具函数模块
 """
+from ui.i18n import tr
 import re
 import json
 import html as _html
@@ -196,14 +197,16 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
             return ""
 
     def get_link_part(link: str) -> str:
-        return f"🔗 链接： {esc(link)}" if link else ""
+        return tr('🔗 链接： {p0}').format(p0=esc(link)) if link else ""
     
     def get_title_part(title: str) -> str:
-        return f"🔖 标题： \n【{esc(title)}】" if title else ""
+        return tr("""🔖 标题：\x20
+【{p0}】""").format(p0=esc(title)) if title else ""
     
     def get_note_part(note: str) -> str:
         # "简介"部分要求第一行为标签，后面跟内容
-        return f"📝 简介：\n{esc(note)}" if note else ""
+        return tr("""📝 简介：
+{p0}""").format(p0=esc(note)) if note else ""
     
     def get_tags_part(tags: str) -> str:
         return f"🏷 Tags: {esc(tags)}" if tags else ""
@@ -216,7 +219,7 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
         url = _field(data, "novel_preview_url")
         if not url or not str(url).startswith(("http://", "https://")):
             return ""
-        return f'🔗 在线阅读： <a href="{esc(url)}">在线阅读</a>'
+        return tr('🔗 在线阅读： <a href="{p0}">在线阅读</a>').format(p0=esc(url))
     
     def get_spoiler_part(spoiler: str) -> str:
         # A "click to reveal" hint is a MEDIA action: it only makes sense when
@@ -225,7 +228,7 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
         # directly in Telegram, so they must not grow this hint (§presentation).
         if str(spoiler).lower() != "true" or not previewable_media:
             return ""
-        return "⚠️点击查看⚠️"
+        return tr('⚠️点击查看⚠️')
 
     def get_submitter_part() -> str:
         if not SHOW_SUBMITTER or surface == "system":
@@ -253,12 +256,15 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
             if submitter_username:
                 label = f"@{str(submitter_username).strip().lstrip('@')}"
             return (
-                f'\n\n投稿人：<a href="tg://user?id={int(submitter_user_id)}">'
-                f"{esc(label)}</a>"
+                tr("""
+
+投稿人：<a href="tg://user?id={p0}">{p1}</a>""").format(p0=int(submitter_user_id), p1=esc(label))
             )
         # Review/system status remains plain text: only the public attribution
         # and manager-new-submission contexts intentionally create identity links.
-        return f"\n\n投稿人：{esc(label)}"
+        return tr("""
+
+投稿人：{p0}""").format(p0=esc(label))
 
     def get_source_part() -> str:
         """Internal-only provenance. Public surfaces never show it, and it is
@@ -277,7 +283,9 @@ def build_caption(data, *, max_length: int = 1024, surface: str = "channel") -> 
         # System surfaces stay silent about provenance too (bot notices).
         if not label or surface == "system":
             return ""
-        return f"\n\n来源：{esc(label)}"
+        return tr("""
+
+来源：{p0}""").format(p0=esc(label))
 
     # 收集各部分，只有内容不为空时才添加，避免产生多余的换行
     parts = []
@@ -433,11 +441,11 @@ def validate_state(expected_state: int):
                             "会话外触发 %s(user_id=%s)，无 submissions 行 -> 已过期",
                             getattr(func, "__name__", "?"), user_id,
                         )
-                        await update.message.reply_text("❌ 会话已过期，请重新发送 /start")
+                        await update.message.reply_text(tr('❌ 会话已过期，请重新发送 /start'))
                         return ConversationHandler.END
             except Exception as e:
                 logger.error(f"状态验证错误: {e}")
-                await update.message.reply_text("❌ 内部错误，请稍后再试")
+                await update.message.reply_text(tr('❌ 内部错误，请稍后再试'))
                 return ConversationHandler.END
             return await func(update, context)
         return wrapper

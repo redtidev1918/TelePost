@@ -4,6 +4,18 @@ Mini App 提供网页投稿、个人投稿历史、内容浏览、审核和管�
 它通过 TelePost HTTP API 操作业务，与 Bot 共用应用服务、持久数据、权限与审计。
 先完成下面的配置与部署，再从真实 Telegram 入口验证登录和操作。
 
+## 中英文界面
+
+Mini App 默认跟随所属 Bot 的语言：`BOT_LANGUAGE=zh|en`，多 Bot 使用
+`BOT1_LANGUAGE`、`BOT2_LANGUAGE` 等独立配置。修改后重启后端并重新打开 Mini App。
+首页、投稿、个人历史、审核、编辑与管理界面都支持两种语言；投稿内容保留原文。
+
+服务器在 `POST /api/v1/miniapp/session` 验证 `initData` 后返回非敏感字段
+`bot_language`（`zh` / `en`）。旧服务器未返回时网页默认中文，语言不参与鉴权或业务判断。
+前端使用 [react-i18next](https://react.i18next.com/latest)；附件管理器使用
+[Uppy 官方语言包](https://uppy.io/docs/uppy/#locale)，保留现有 Uppy 上传状态与生命周期。
+Bot 采用 [Python gettext](https://docs.python.org/3/library/gettext.html)，运行时无需翻译服务。
+
 ```text
 Telegram
   ├── Bot      （quick actions / notifications / fallback）

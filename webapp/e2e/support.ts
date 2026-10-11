@@ -30,7 +30,7 @@ function launchUrl(path: string): string {
   return `/app${route}?bot=bot1${LAUNCH_HASH}`;
 }
 
-async function mockApi(page: Page, roles: string[] = ['submitter', 'reviewer', 'admin']) {
+async function mockApi(page: Page, roles: string[] = ['submitter', 'reviewer', 'admin'], language = 'zh') {
   await page.route('**/api/bot1/v1/**', async (route: Route) => {
     const url = route.request().url();
     const method = route.request().method();
@@ -45,6 +45,7 @@ async function mockApi(page: Page, roles: string[] = ['submitter', 'reviewer', '
           data: {
             token: 'ma_v1.e2e.token',
             expires_in: 3600,
+            bot_language: language,
             user: { telegram_user_id: 99999, username: 'e2e', display_name: 'E2E' },
           },
         }),
@@ -312,8 +313,8 @@ async function mockApi(page: Page, roles: string[] = ['submitter', 'reviewer', '
   });
 }
 
-async function openApp(page: Page, path = '/', roles?: string[]) {
-  await mockApi(page, roles);
+async function openApp(page: Page, path = '/', roles?: string[], language = 'zh') {
+  await mockApi(page, roles, language);
   await page.goto(launchUrl(path));
   await expect(page.getByTestId('bottom-nav')).toBeVisible();
   // Shell rendered means auth bootstrapped through the mocked session.

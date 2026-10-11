@@ -1,3 +1,5 @@
+import { tr } from "../../lib/i18n";
+import { useTranslation } from 'react-i18next';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Button,
@@ -44,6 +46,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
  * disabled until the revision is finalized.
  */
 export function ReviewEditPage() {
+  useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useBotNavigate();
   const queryClient = useQueryClient();
@@ -95,7 +98,7 @@ export function ReviewEditPage() {
     onSuccess: (rev) => {
       setRevisionId(rev.id);
       void queryClient.invalidateQueries({ queryKey: ['review-revisions', id] });
-      setMessage('已创建新版本草稿');
+      setMessage(tr("已创建新版本草稿"));
     },
     onError: (error) => setMessage(errorMessage(error)),
   });
@@ -109,7 +112,7 @@ export function ReviewEditPage() {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['review-revisions', id] });
-      setMessage('草稿已保存');
+      setMessage(tr("草稿已保存"));
     },
     onError: (error) => setMessage(errorMessage(error)),
   });
@@ -118,7 +121,7 @@ export function ReviewEditPage() {
     mutationFn: () => finalizeEditorialRevision(id!, active!.id, active!.version),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['review-revisions', id] });
-      setMessage('已定稿，可以发布此版本');
+      setMessage(tr("已定稿，可以发布此版本"));
     },
     onError: (error) => setMessage(errorMessage(error)),
   });
@@ -157,8 +160,8 @@ export function ReviewEditPage() {
   if (review.isError || !review.data) {
     return (
       <div className="stack">
-        <PageHeader title="编辑后发布" />
-        <EmptyState title="未找到该审核" />
+        <PageHeader title={tr("编辑后发布")} />
+        <EmptyState title={tr("未找到该审核")} />
       </div>
     );
   }
@@ -182,10 +185,10 @@ export function ReviewEditPage() {
   if (!active) {
     return (
       <div className="stack">
-        <PageHeader title="编辑后发布" subtitle={`审核 #${item.id}`} />
+        <PageHeader title={tr("编辑后发布")} subtitle={tr("审核 #{{p0}}", {p0: item.id})} />
         <EmptyState
-          title="还没有编辑版本"
-          hint="创建一个版本后即可修改标题、标签、简介和附件顺序，原稿不会被删除。"
+          title={tr("还没有编辑版本")}
+          hint={tr("创建一个版本后即可修改标题、标签、简介和附件顺序，原稿不会被删除。")}
           action={
             <Button
               stretched
@@ -193,8 +196,7 @@ export function ReviewEditPage() {
               data-testid="create-revision"
               onClick={() => void create.mutateAsync()}
             >
-              开始编辑（创建版本 1）
-            </Button>
+              {tr("开始编辑（创建版本 1）")}</Button>
           }
         />
       </div>
@@ -204,56 +206,56 @@ export function ReviewEditPage() {
   return (
     <div className="stack">
       <PageHeader
-        title="编辑后发布"
-        subtitle={`审核 #${item.id} · ${item.title || '（无标题）'}`}
+        title={tr("编辑后发布")}
+        subtitle={tr("审核 #{{p0}} · {{p1}}", {p0: item.id, p1: item.title || '（无标题）'})}
       />
 
       <div className="card">
         <div className="card__row card__row--static">
-          <div className="card__row-meta">当前版本</div>
+          <div className="card__row-meta">{tr("当前版本")}</div>
           <div className="card__row-foot">
             <StatusBadge tone={active.status === 'finalized' ? 'good' : 'progress'}>
-              版本 {active.revision_number} · {active.status}
+              {tr("版本 ")}{active.revision_number} · {active.status}
             </StatusBadge>
           </div>
         </div>
       </div>
 
       {/* 内容 */}
-      <PageSection title="内容">
+      <PageSection title={tr("内容")}>
         <div className="stack">
           <div className="field">
-            <Input placeholder="标题" value={title} disabled={!editable}
+            <Input placeholder={tr("标题")} value={title} disabled={!editable}
               onChange={(e) => setTitle(e.target.value)} />
           </div>
           <div className="field">
             <Input
-              placeholder="标签（空格 / 英文逗号 / 中文逗号分隔）"
+              placeholder={tr("标签（空格 / 英文逗号 / 中文逗号分隔）")}
               value={tags} disabled={!editable}
               onChange={(e) => setTags(e.target.value)}
             />
           </div>
           <div className="field">
-            <Textarea placeholder="简介" value={note} disabled={!editable}
+            <Textarea placeholder={tr("简介")} value={note} disabled={!editable}
               onChange={(e) => setNote(e.target.value)} />
           </div>
           <div className="field">
-            <Input placeholder="来源链接" value={link} disabled={!editable}
+            <Input placeholder={tr("来源链接")} value={link} disabled={!editable}
               onChange={(e) => setLink(e.target.value)} />
           </div>
           <div className="card">
             <div className="card__row card__row--static">
-              <div className="card__row-title">剧透</div>
-              <div className="card__row-meta">{spoiler ? '发布为剧透' : '正常发布'}</div>
+              <div className="card__row-title">{tr("剧透")}</div>
+              <div className="card__row-meta">{spoiler ? tr("发布为剧透") : tr("正常发布")}</div>
               <div className="card__row-foot">
                 <Switch checked={spoiler} disabled={!editable}
                   onChange={(e) => setSpoiler(e.target.checked)} />
               </div>
             </div>
             <div className="card__row card__row--static">
-              <div className="card__row-title">标记为实质修改</div>
+              <div className="card__row-title">{tr("标记为实质修改")}</div>
               <div className="card__row-meta">
-                {severity === 'substantive' ? '实质修改：将提示确认' : '轻微修改'}
+                {severity === 'substantive' ? tr("实质修改：将提示确认") : tr("轻微修改")}
               </div>
               <div className="card__row-foot">
                 <Switch checked={severity === 'substantive'} disabled={!editable}
@@ -265,7 +267,7 @@ export function ReviewEditPage() {
       </PageSection>
 
       {/* 媒体 */}
-      <PageSection title="媒体（排序 / 移除，原稿不会被删除）">
+      <PageSection title={tr("媒体（排序 / 移除，原稿不会被删除）")}>
         <div className="stack">
           {order.map((index, position) => {
             const attachment = media.find((m) => m.index === index) || media[position];
@@ -278,17 +280,17 @@ export function ReviewEditPage() {
                   <div className="card__row card__row--static">
                     <div className="card__row-title">#{position + 1}</div>
                     <div className="card__row-meta">
-                      {isRemoved ? '本次发布已移除（原稿保留）' : attachment.filename || `附件 ${index + 1}`}
+                      {isRemoved ? tr("本次发布已移除（原稿保留）") : attachment.filename || tr("附件 {{p0}}", {p0: index + 1})}
                     </div>
                     <div className="card__row-foot">
                       <Button size="s" mode="outline" disabled={!editable || position === 0}
-                        data-testid={`move-up-${index}`} onClick={() => move(index, -1)}>上移</Button>
+                        data-testid={`move-up-${index}`} onClick={() => move(index, -1)}>{tr("上移")}</Button>
                       <Button size="s" mode="outline"
                         disabled={!editable || position === order.length - 1}
-                        data-testid={`move-down-${index}`} onClick={() => move(index, 1)}>下移</Button>
+                        data-testid={`move-down-${index}`} onClick={() => move(index, 1)}>{tr("下移")}</Button>
                       <Button size="s" mode="outline" disabled={!editable}
                         data-testid={`toggle-remove-${index}`} onClick={() => toggleRemoved(index)}>
-                        {isRemoved ? '恢复' : '移除'}
+                        {isRemoved ? tr("恢复") : tr("移除")}
                       </Button>
                     </div>
                   </div>
@@ -302,21 +304,21 @@ export function ReviewEditPage() {
       </PageSection>
 
       {/* 修改摘要 */}
-      <PageSection title="修改摘要（服务端生成）">
+      <PageSection title={tr("修改摘要（服务端生成）")}>
         <div className="card">
           <div className="card__row card__row--static" data-testid="change-summary">
             <div className="card__row-title">
-              {Object.keys(changeSet).length ? '已修改字段' : '尚无修改'}
+              {Object.keys(changeSet).length ? tr("已修改字段") : tr("尚无修改")}
             </div>
             {active.summary && <div className="card__row-meta">{active.summary}</div>}
             <div className="tag-list">
-              {changeSet.title && <Chip>标题</Chip>}
-              {changeSet.note && <Chip>简介</Chip>}
-              {changeSet.tags && <Chip>标签</Chip>}
-              {changeSet.link && <Chip>链接</Chip>}
-              {changeSet.spoiler && <Chip>剧透</Chip>}
-              {changeSet.media?.reordered && <Chip>顺序</Chip>}
-              {!!changeSet.media?.removed?.length && <Chip>移除附件</Chip>}
+              {changeSet.title && <Chip>{tr("标题")}</Chip>}
+              {changeSet.note && <Chip>{tr("简介")}</Chip>}
+              {changeSet.tags && <Chip>{tr("标签")}</Chip>}
+              {changeSet.link && <Chip>{tr("链接")}</Chip>}
+              {changeSet.spoiler && <Chip>{tr("剧透")}</Chip>}
+              {changeSet.media?.reordered && <Chip>{tr("顺序")}</Chip>}
+              {!!changeSet.media?.removed?.length && <Chip>{tr("移除附件")}</Chip>}
             </div>
           </div>
         </div>
@@ -325,8 +327,7 @@ export function ReviewEditPage() {
       {/* 发布前警告 */}
       {severity === 'substantive' && (
         <div className="error-box" data-testid="substantive-warning">
-          此修改可能改变投稿原意，请确认后发布。
-        </div>
+          {tr("此修改可能改变投稿原意，请确认后发布。")}</div>
       )}
       {message && <div className="error-box" data-testid="edit-message">{message}</div>}
 
@@ -340,27 +341,24 @@ export function ReviewEditPage() {
             data-testid="publish-revision"
             onClick={() => void publish.mutateAsync()}
           >
-            发布此版本
-          </Button>
+            {tr("发布此版本")}</Button>
         }
         secondary={
           <>
             <Button size="m" mode="outline" loading={save.isPending} disabled={!editable}
-              data-testid="save-draft" onClick={() => void save.mutateAsync()}>保存草稿</Button>
+              data-testid="save-draft" onClick={() => void save.mutateAsync()}>{tr("保存草稿")}</Button>
             <Button size="m" mode="bezeled" data-testid="preview" onClick={() => void runPreview()}>
-              预览
-            </Button>
+              {tr("预览")}</Button>
             <Button size="m" mode="bezeled" loading={finalize.isPending} disabled={!editable}
               data-testid="finalize" onClick={() => void finalize.mutateAsync()}>
-              定稿
-            </Button>
+              {tr("定稿")}</Button>
           </>
         }
-        note={active.status === 'finalized' ? undefined : '定稿后才能发布此版本。'}
+        note={active.status === 'finalized' ? undefined : tr("定稿后才能发布此版本。")}
       />
 
       {preview && (
-        <PageSection title="发布效果">
+        <PageSection title={tr("发布效果")}>
           <div data-testid="edit-preview" className="post-detail__note">
             {preview}
           </div>
@@ -372,7 +370,7 @@ export function ReviewEditPage() {
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError && error.status === 409) {
-    return '此投稿已被其他审核员更新，请刷新后继续编辑。';
+    return tr("此投稿已被其他审核员更新，请刷新后继续编辑。");
   }
   return error instanceof ApiError ? error.message : (error as Error).message;
 }

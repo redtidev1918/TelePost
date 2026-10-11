@@ -2,6 +2,7 @@
 Telegram 投稿机器人主程序
 支持媒体和文档投稿
 """
+from ui.i18n import tr
 import sys
 import signal
 import asyncio
@@ -144,7 +145,7 @@ async def check_conversation_timeout(update: Update, context: CallbackContext) -
     # 检查用户是否在黑名单中
     if is_blacklisted(user_id):
         logger.warning(f"黑名单用户 {user_id} 尝试发送消息")
-        await update.message.reply_text("❌ 您已被列入黑名单，无法使用此机器人。")
+        await update.message.reply_text(tr('❌ 您已被列入黑名单，无法使用此机器人。'))
         # 必须 raise：return 不会中断后续 group，用户会再收到一条兜底回复
         raise ApplicationHandlerStop()
     
@@ -181,7 +182,7 @@ async def check_conversation_timeout(update: Update, context: CallbackContext) -
             # 向用户发送超时通知
             try:
                 await update.message.reply_text(
-                    "⏱️ 您的投稿会话已超时，未发布的内容已被清理。请发送 /submit 重新开始。"
+                    tr('⏱️ 您的投稿会话已超时，未发布的内容已被清理。请发送 /submit 重新开始。')
                 )
             except Exception as e:
                 logger.error(f"发送超时通知失败: {e}")
@@ -231,7 +232,7 @@ async def orphan_media_guard(update: Update, context: CallbackContext) -> None:
     _orphan_media_cache.set(key, "1", ttl=600)
     try:
         await update.message.reply_text(
-            "⚠️ 当前没有进行中的投稿。请先发送 /submit 开始投稿，再上传媒体或文件。"
+            tr('⚠️ 当前没有进行中的投稿。请先发送 /submit 开始投稿，再上传媒体或文件。')
         )
     except Exception as e:
         logger.warning("发送会话外媒体提示失败: %s", e)
@@ -253,41 +254,41 @@ async def setup_bot_commands(application):
     ReplyKeyboard「📱 Mini App」按钮与 /start 进入。命令全量可用。
     """
     user_commands = [
-        BotCommand("start", "🚀 启动机器人"),
-        BotCommand("submit", "📝 发起投稿"),
-        BotCommand("search", "🔍 搜索投稿内容"),
-        BotCommand("tags", "🏷️ 查看标签云"),
-        BotCommand("myposts", "📋 查看我的投稿"),
-        BotCommand("mystats", "📊 查看个人统计"),
-        BotCommand("hot", "🔥 全部时间热榜"),
-        BotCommand("hotweek", "🔥 本周热榜"),
-        BotCommand("help", "❓ 查看帮助信息"),
-        BotCommand("about", "ℹ️ 关于机器人"),
-        BotCommand("cancel", "❌ 取消当前操作"),
-        BotCommand("settings", "⚙️ 机器人设置"),
-        BotCommand("status", "📌 查看最近计划状态"),
+        BotCommand("start", tr('🚀 启动机器人')),
+        BotCommand("submit", tr('📝 发起投稿')),
+        BotCommand("search", tr('🔍 搜索投稿内容')),
+        BotCommand("tags", tr('🏷️ 查看标签云')),
+        BotCommand("myposts", tr('📋 查看我的投稿')),
+        BotCommand("mystats", tr('📊 查看个人统计')),
+        BotCommand("hot", tr('🔥 全部时间热榜')),
+        BotCommand("hotweek", tr('🔥 本周热榜')),
+        BotCommand("help", tr('❓ 查看帮助信息')),
+        BotCommand("about", tr('ℹ️ 关于机器人')),
+        BotCommand("cancel", tr('❌ 取消当前操作')),
+        BotCommand("settings", tr('⚙️ 机器人设置')),
+        BotCommand("status", tr('📌 查看最近计划状态')),
     ]
     admin_commands = user_commands + [
-        BotCommand("schedule", "⏰ 定时任务"),
-        BotCommand("stats", "📊 全局统计"),
-        BotCommand("searchuser", "🔍 查询用户投稿"),
-        BotCommand("delete_posts", "🗑 批量删除投稿"),
-        BotCommand("gen_token", "🔑 生成 API Token"),
-        BotCommand("tokens", "🔑 查看 API Token"),
-        BotCommand("revoke_token", "🔑 撤销 API Token"),
-        BotCommand("ban_user", "🚫 封禁用户"),
-        BotCommand("ban_api", "🚫 禁用 API"),
-        BotCommand("blacklist_add", "🚫 添加黑名单"),
-        BotCommand("blacklist_remove", "✅ 移除黑名单"),
-        BotCommand("blacklist_list", "📋 查看黑名单"),
-        BotCommand("blacklist", "📋 管理黑名单"),
-        BotCommand("rebuild_index", "🔧 重建索引"),
-        BotCommand("sync_index", "🔧 同步索引"),
-        BotCommand("index_stats", "📊 索引统计"),
-        BotCommand("optimize_index", "🔧 优化索引"),
-        BotCommand("botconfig", "⚙️ Bot 配置"),
-        BotCommand("debug", "🔧 调试"),
-        BotCommand("pin_status", "📌 置顶状态"),
+        BotCommand("schedule", tr('⏰ 定时任务')),
+        BotCommand("stats", tr('📊 全局统计')),
+        BotCommand("searchuser", tr('🔍 查询用户投稿')),
+        BotCommand("delete_posts", tr('🗑 批量删除投稿')),
+        BotCommand("gen_token", tr('🔑 生成 API Token')),
+        BotCommand("tokens", tr('🔑 查看 API Token')),
+        BotCommand("revoke_token", tr('🔑 撤销 API Token')),
+        BotCommand("ban_user", tr('🚫 封禁用户')),
+        BotCommand("ban_api", tr('🚫 禁用 API')),
+        BotCommand("blacklist_add", tr('🚫 添加黑名单')),
+        BotCommand("blacklist_remove", tr('✅ 移除黑名单')),
+        BotCommand("blacklist_list", tr('📋 查看黑名单')),
+        BotCommand("blacklist", tr('📋 管理黑名单')),
+        BotCommand("rebuild_index", tr('🔧 重建索引')),
+        BotCommand("sync_index", tr('🔧 同步索引')),
+        BotCommand("index_stats", tr('📊 索引统计')),
+        BotCommand("optimize_index", tr('🔧 优化索引')),
+        BotCommand("botconfig", tr('⚙️ Bot 配置')),
+        BotCommand("debug", tr('🔧 调试')),
+        BotCommand("pin_status", tr('📌 置顶状态')),
     ]
 
     try:

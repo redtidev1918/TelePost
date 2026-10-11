@@ -1,5 +1,6 @@
 """Review-chat UI: inline keyboard + control card text (PTB adapter)."""
 from __future__ import annotations
+from ui.i18n import tr
 
 import json
 from typing import Optional, Tuple
@@ -15,35 +16,35 @@ def review_keyboard(review_id: int, link: str = "", *,
                     work_id: str = "", failed: bool = False,
                     submitter_user_id=None, actor_kind: str = "user",
                     actor_subject: str = "") -> InlineKeyboardMarkup:
-    approve_label = "🔄 重试发布" if failed else "✅ 发布到频道"
+    approve_label = tr('🔄 重试发布') if failed else tr('✅ 发布到频道')
     rows = [[
         InlineKeyboardButton(approve_label, callback_data=f"review_approve:{review_id}"),
-        InlineKeyboardButton("❌ 拒绝", callback_data=f"review_reject:{review_id}"),
+        InlineKeyboardButton(tr('❌ 拒绝'), callback_data=f"review_reject:{review_id}"),
     ]]
     rows.append([
         InlineKeyboardButton(
-            f"🔇 遮罩：{'开' if spoiler else '关'}",
+            tr('🔇 遮罩：{p0}').format(p0=tr('开') if spoiler else tr('关')),
             callback_data=f"review_spoiler:{review_id}",
         ),
     ])
     if source == "api" and work_id:
         rows[-1].append(
             InlineKeyboardButton(
-                "🔄 重抓/换一张",
+                tr('🔄 重抓/换一张'),
                 callback_data=f"review_refetch:{review_id}",
             )
         )
     if link:
-        rows.append([InlineKeyboardButton("🔗 查看原链接", url=link)])
+        rows.append([InlineKeyboardButton(tr('🔗 查看原链接'), url=link)])
     # §moderation: operator governance is a first-class review action. Only
     # subjects that exist on the card get a button (human submitter and/or
     # API/service actor); everything that is blocked is recorded who/when/why.
     mod_row = []
     if submitter_user_id:
-        mod_row.append(InlineKeyboardButton("🚫 封禁投稿人",
+        mod_row.append(InlineKeyboardButton(tr('🚫 封禁投稿人'),
                                             callback_data=f"review_block_user:{review_id}"))
     if source == "api" or actor_kind == "service":
-        mod_row.append(InlineKeyboardButton("🔑 禁用API",
+        mod_row.append(InlineKeyboardButton(tr('🔑 禁用API'),
                                             callback_data=f"review_block_api:{review_id}"))
     if mod_row:
         rows.append(mod_row)
@@ -56,7 +57,7 @@ def review_keyboard(review_id: int, link: str = "", *,
 def source_label(source: str) -> str:
     if source == "miniapp":
         return "Mini App"
-    return "Telegram 聊天" if source == "chat" else "HTTP API"
+    return tr('Telegram 聊天') if source == "chat" else "HTTP API"
 
 
 def control_text(*, review_id: int, command, media_count: int,
@@ -76,22 +77,25 @@ def control_text(*, review_id: int, command, media_count: int,
         getattr(command, "submitter_display_name", ""),
     )
     if display:
-        submitter_line = f"投稿人：{display}\n"
+        submitter_line = tr("""投稿人：{p0}
+""").format(p0=display)
     # 文件行：媒体写真 + 文档；保留的「原图」单独标注，避免用户误以为
     # 内容重复（例如因分辨率超限而原样保留为文档的原图副本）。
-    documents_bit = f"{document_count} 个文档"
+    documents_bit = tr('{p0} 个文档').format(p0=document_count)
     if document_count and original_count:
         documents_bit = (
-            f"{document_count} 个文档（含 {original_count} 份原图）"
+            tr('{p0} 个文档（含 {p1} 份原图）').format(p0=document_count, p1=original_count)
         )
     return (
-        f"🕵️ 投稿待审核 #{review_id}\n"
+        tr("""🕵️ 投稿待审核 #{p0}
+""").format(p0=review_id)
         + provenance_line
-        + f"投稿方式：{source_label(command.source)}\n"
+        + tr("""投稿方式：{p0}
+""").format(p0=source_label(command.source))
         + submitter_line
-        + f"标题：{command.title or '（无）'}\n"
-        f"标签：{command.tags or '（无）'}\n"
-        f"文件：{media_count} 个媒体 / {documents_bit}"
+        + tr("""标题：{p0}
+标签：{p1}
+文件：{p2} 个媒体 / {p3}""").format(p0=command.title or tr('（无）'), p1=command.tags or tr('（无）'), p2=media_count, p3=documents_bit)
     )
 
 
@@ -100,23 +104,26 @@ def superseded_notice_text(*, new_review_id: int, source_review_id: int = 0) -> 
 
     Superseded ≠ rejected: the generation was replaced by a refetch result, so
     the card becomes history and points at the new chain head."""
-    head = f"♻️ 此审核稿已被重抓结果替代\n\n新的审核稿：#{new_review_id}"
+    head = tr("""♻️ 此审核稿已被重抓结果替代
+
+新的审核稿：#{p0}""").format(p0=new_review_id)
     if source_review_id:
-        head += f"（原审核 #{source_review_id}）"
-    return head + "\n请在新审核稿上继续审核。"
+        head += tr('（原审核 #{p0}）').format(p0=source_review_id)
+    return head + tr("""
+请在新审核稿上继续审核。""")
 
 
 def reused_notice_text(row) -> str:
     labels = {
-        "pending": "待审核",
-        "failed": "发布失败，可重试",
-        "published": "已发布，本次未重复发布",
+        "pending": tr('待审核'),
+        "failed": tr('发布失败，可重试'),
+        "published": tr('已发布，本次未重复发布'),
     }
     return (
-        "♻️ 收到重复投稿，已复用现有审核\n"
-        f"审核：#{row['id']}\n"
-        f"状态：{labels.get(row['status'], row['status'])}\n"
-        "媒体未重复上传，原审核记录仍有效。"
+        tr("""♻️ 收到重复投稿，已复用现有审核
+审核：#{p0}
+状态：{p1}
+媒体未重复上传，原审核记录仍有效。""").format(p0=row['id'], p1=labels.get(row['status'], row['status']))
     )
 
 
@@ -131,16 +138,20 @@ def refetch_pending_text(*, review_id: int, minutes: Optional[int] = None,
     current stage, how long it has been waiting, and the quotable task id."""
     progress = ""
     if stage_label:
-        progress += f"\n当前阶段：{stage_label}"
+        progress += tr("""
+当前阶段：{p0}""").format(p0=stage_label)
     if minutes:
-        progress += f"\n已等待约 {minutes} 分钟，仍在查找…"
+        progress += tr("""
+已等待约 {p0} 分钟，仍在查找…""").format(p0=minutes)
     if task_id:
-        progress += f"\n任务ID：{task_id}"
+        progress += tr("""
+任务ID：{p0}""").format(p0=task_id)
     return (
-        f"🔄 审核 #{review_id} 已提交重抓\n\n"
-        "当前候选已作废（视为已拒绝），不会再被发布。\n"
-        "正在查找新的候选作品…通常 1–3 分钟。\n"
-        "找到后会自动替换进审核队列；没有找到时本卡片会恢复。"
+        tr("""🔄 审核 #{p0} 已提交重抓
+
+当前候选已作废（视为已拒绝），不会再被发布。
+正在查找新的候选作品…通常 1–3 分钟。
+找到后会自动替换进审核队列；没有找到时本卡片会恢复。""").format(p0=review_id)
         + progress
     )
 
@@ -148,10 +159,10 @@ def refetch_pending_text(*, review_id: int, minutes: Optional[int] = None,
 def refetch_pending_keyboard(review_id: int,
                              link: str = "") -> InlineKeyboardMarkup:
     """Keyboard while a refetch is running: publish/reject are gone on purpose."""
-    rows = [[InlineKeyboardButton("🔄 重抓/换一张",
+    rows = [[InlineKeyboardButton(tr('🔄 重抓/换一张'),
                                   callback_data=f"review_refetch:{review_id}")]]
     if link:
-        rows.append([InlineKeyboardButton("🔗 查看原链接", url=link)])
+        rows.append([InlineKeyboardButton(tr('🔗 查看原链接'), url=link)])
     return InlineKeyboardMarkup(rows)
 
 
@@ -169,14 +180,14 @@ def refetch_failure_reason(attempt_row) -> str:
             return None
     state = _get(attempt_row, "state")
     if not state or state == "no_candidate":
-        base = "未找到新的可替换作品"
+        base = tr('未找到新的可替换作品')
     else:
         label = {
-            "failed": "重抓提交失败",
-            "timeout": "重抓超时",
-            "cancelled": "重抓已取消",
-            "replaced": "已由新作品替代",
-        }.get(state, f"重抓结束（{state}）")
+            "failed": tr('重抓提交失败'),
+            "timeout": tr('重抓超时'),
+            "cancelled": tr('重抓已取消'),
+            "replaced": tr('已由新作品替代'),
+        }.get(state, tr('重抓结束（{p0}）').format(p0=state))
         base = label
     code = _get(attempt_row, "failure_code")
     return f"{base}：{code}" if code else base
@@ -194,15 +205,17 @@ def refetch_voided_text(*, review_id: int, reason: str = "",
     """
     detail = ""
     if reason:
-        detail += f"\n原因：{reason}"
+        detail += tr("""
+原因：{p0}""").format(p0=reason)
     if task_id:
-        detail += f"\n任务ID：{task_id}"
+        detail += tr("""
+任务ID：{p0}""").format(p0=task_id)
     return (
-        f"🕳️ 审核 #{review_id} 已作废（视为已拒绝）\n\n"
-        f"当前候选不会再被发布。\n"
-        "上次重抓未能找到新的可替换作品。\n"
-        "可再次点击「重抓/换一张」直接抓取一个新作品（序号递增），"
-        "找到后会作为新的审核稿。"
+        tr("""🕳️ 审核 #{p0} 已作废（视为已拒绝）
+
+当前候选不会再被发布。
+上次重抓未能找到新的可替换作品。
+可再次点击「重抓/换一张」直接抓取一个新作品（序号递增），找到后会作为新的审核稿。""").format(p0=review_id)
         + detail
     )
 
@@ -210,10 +223,10 @@ def refetch_voided_text(*, review_id: int, reason: str = "",
 def refetch_voided_keyboard(review_id: int,
                             link: str = "") -> InlineKeyboardMarkup:
     """Keyboard for a voided refetch card: keep 重抓 + original link only."""
-    rows = [[InlineKeyboardButton("🔄 重抓/换一张",
+    rows = [[InlineKeyboardButton(tr('🔄 重抓/换一张'),
                                   callback_data=f"review_refetch:{review_id}")]]
     if link:
-        rows.append([InlineKeyboardButton("🔗 查看原链接", url=link)])
+        rows.append([InlineKeyboardButton(tr('🔗 查看原链接'), url=link)])
     return InlineKeyboardMarkup(rows)
 
 

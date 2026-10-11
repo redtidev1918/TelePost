@@ -1,3 +1,5 @@
+import { tr } from "../../lib/i18n";
+import { useTranslation } from 'react-i18next';
 import { Button } from '@telegram-apps/telegram-ui';
 import { useBotNavigate } from '../../lib/useBotNavigate';
 import { useAuth } from '../../auth/AuthProvider';
@@ -13,35 +15,36 @@ import { PageSection } from '../../components/ui/PageSection';
  * page still re-verifies the session.
  */
 
-const ROLE_LABELS: Record<string, string> = {
-  submitter: '投稿者',
-  reviewer: '审核员',
-  admin: '管理员',
-};
+const ROLE_LABELS = (): Record<string, string> => ({
+  submitter: tr("投稿者"),
+  reviewer: tr("审核员"),
+  admin: tr("管理员"),
+});
 
 export function MorePage() {
+  useTranslation();
   const navigate = useBotNavigate();
   const { user, isReviewer, isAdmin } = useAuth();
-  const roles = (user?.roles ?? []).map((role) => ROLE_LABELS[role] || role);
+  const roles = (user?.roles ?? []).map((role) => ROLE_LABELS()[role] || role);
 
   return (
     <div className="stack">
-      <PageHeader title="更多" />
+      <PageHeader title={tr("更多")} />
 
-      <PageSection title="账号">
+      <PageSection title={tr("账号")}>
         <div className="card">
           <div className="card__row card__row--static">
             <div className="card__row-title">
-              {user?.username ? `@${user.username}` : `用户 ${user?.telegram_user_id ?? ''}`}
+              {user?.username ? `@${user.username}` : tr("用户 {{p0}}", {p0: user?.telegram_user_id ?? ''})}
             </div>
             <div className="card__row-meta">
-              {roles.length ? roles.join(' / ') : '尚未分配额外角色'}
+              {roles.length ? roles.join(' / ') : tr("尚未分配额外角色")}
             </div>
           </div>
         </div>
       </PageSection>
 
-      <PageSection title="快捷入口">
+      <PageSection title={tr("快捷入口")}>
         <div className="card">
           <div
             className="card__row"
@@ -56,8 +59,8 @@ export function MorePage() {
               }
             }}
           >
-            <div className="card__row-title">投稿</div>
-            <div className="card__row-meta">添加附件并提交审核</div>
+            <div className="card__row-title">{tr("投稿")}</div>
+            <div className="card__row-meta">{tr("添加附件并提交审核")}</div>
           </div>
           <div
             className="card__row"
@@ -72,8 +75,8 @@ export function MorePage() {
               }
             }}
           >
-            <div className="card__row-title">我的投稿</div>
-            <div className="card__row-meta">查看进度、结果和编辑记录</div>
+            <div className="card__row-title">{tr("我的投稿")}</div>
+            <div className="card__row-meta">{tr("查看进度、结果和编辑记录")}</div>
           </div>
           <div
             className="card__row"
@@ -88,14 +91,14 @@ export function MorePage() {
               }
             }}
           >
-            <div className="card__row-title">热门</div>
-            <div className="card__row-meta">浏览频道里最受关注的内容</div>
+            <div className="card__row-title">{tr("热门")}</div>
+            <div className="card__row-meta">{tr("浏览频道里最受关注的内容")}</div>
           </div>
         </div>
       </PageSection>
 
       {isReviewer && (
-        <PageSection title="审核">
+        <PageSection title={tr("审核")}>
           <div className="card">
             <div
               className="card__row"
@@ -110,32 +113,30 @@ export function MorePage() {
                 }
               }}
             >
-              <div className="card__row-title">审核工作区</div>
-              <div className="card__row-meta">待处理与审核历史</div>
+              <div className="card__row-title">{tr("审核工作区")}</div>
+              <div className="card__row-meta">{tr("待处理与审核历史")}</div>
             </div>
           </div>
         </PageSection>
       )}
 
       {isAdmin && (
-        <PageSection title="管理">
+        <PageSection title={tr("管理")}>
           <Button
             mode="outline"
             stretched
             data-testid="more-admin"
             onClick={() => navigate('/admin')}
           >
-            管理面板
-          </Button>
+            {tr("管理面板")}</Button>
         </PageSection>
       )}
 
-      <PageSection title="关于">
+      <PageSection title={tr("关于")}>
         <div className="card">
           <div className="card__row card__row--static">
             <div className="mutation-help">
-              TelePost Mini App：投稿、查看进度、审核与发布都在同一个 Telegram 小程序里完成。
-            </div>
+              {tr("TelePost Mini App：投稿、查看进度、审核与发布都在同一个 Telegram 小程序里完成。")}</div>
           </div>
         </div>
       </PageSection>

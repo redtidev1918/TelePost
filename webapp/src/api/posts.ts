@@ -1,3 +1,4 @@
+import { tr } from "../lib/i18n";
 import { apiBlob, apiFetch } from './client';
 
 /** Public hot post DTO. Internal identity and file_ids never cross the wire. */
@@ -54,5 +55,5 @@ export function formatHeat(value: number): string {
 export function formatPublishedAt(seconds: number): string {
   if (!seconds) return '';
   const date = new Date(seconds * 1000);
-  return `${date.getMonth() + 1}月${date.getDate()}日 ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  return tr("{{p0}}月{{p1}}日 {{p2}}:{{p3}}", {p0: date.getMonth() + 1, p1: date.getDate(), p2: String(date.getHours()).padStart(2, '0'), p3: String(date.getMinutes()).padStart(2, '0')});
 }

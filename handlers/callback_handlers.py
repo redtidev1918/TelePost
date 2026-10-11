@@ -1,6 +1,7 @@
 """
 回调查询处理器 - 处理所有按钮点击事件
 """
+from ui.i18n import tr
 import logging
 from telegram import Update
 from telegram.ext import CallbackContext, ConversationHandler
@@ -120,12 +121,14 @@ async def handle_callback_query(update: Update, context: CallbackContext):
                 context.user_data['time_filter'] = time_key
                 context.user_data['search_mode'] = 'fulltext'
                 if time_key == 'all':
-                    await query.edit_message_text("🔍 已选择时间范围：全部\n请输入搜索关键词：")
+                    await query.edit_message_text(tr("""🔍 已选择时间范围：全部
+请输入搜索关键词："""))
                 else:
-                    zh = {'day': '今日', 'week': '本周', 'month': '本月'}[time_key]
-                    await query.edit_message_text(f"🔍 已选择时间范围：{zh}\n请输入搜索关键词：")
+                    zh = {'day': tr('今日'), 'week': tr('本周'), 'month': tr('本月')}[time_key]
+                    await query.edit_message_text(tr("""🔍 已选择时间范围：{p0}
+请输入搜索关键词：""").format(p0=zh))
             else:
-                await query.edit_message_text("❌ 无效的时间范围")
+                await query.edit_message_text(tr('❌ 无效的时间范围'))
         
         # 帖子操作
         elif data.startswith("view_post_"):
@@ -137,7 +140,7 @@ async def handle_callback_query(update: Update, context: CallbackContext):
         
         # 管理面板（已移除）：给予提示并返回主菜单
         elif data.startswith("admin_"):
-            await _safe_answer(query, "管理面板已下线", show_alert=True)
+            await _safe_answer(query, tr('管理面板已下线'), show_alert=True)
             await handle_back_to_main(update, context)
         
         # 黑名单操作
@@ -177,7 +180,7 @@ async def handle_callback_query(update: Update, context: CallbackContext):
 
 async def handle_unknown_callback(update: Update, context: CallbackContext):
     """Final fallback for callback data unclaimed by every business namespace."""
-    await update.callback_query.edit_message_text("❌ 未知操作")
+    await update.callback_query.edit_message_text(tr('❌ 未知操作'))
 
 
 async def handle_hot_filter(update: Update, context: CallbackContext):
@@ -210,7 +213,7 @@ async def handle_hot_refresh(update: Update, context: CallbackContext):
     """刷新热门帖子"""
     query = update.callback_query
     
-    await _safe_answer(query, "🔄 正在刷新...")
+    await _safe_answer(query, tr('🔄 正在刷新...'))
     
     # Bot API 无法无副作用读取任意频道帖统计；这里只重新读取本地记录。
     await get_hot_posts(update, context, edit_message=True)
@@ -229,14 +232,14 @@ async def handle_search_action(update: Update, context: CallbackContext):
     
     if action == "fulltext":
         await query.edit_message_text(
-            "🔍 请输入搜索关键词：",
+            tr('🔍 请输入搜索关键词：'),
             reply_markup=None
         )
         context.user_data['search_mode'] = 'fulltext'
         
     elif action == "tag":
         await query.edit_message_text(
-            "🏷️ 请输入要搜索的标签：",
+            tr('🏷️ 请输入要搜索的标签：'),
             reply_markup=None
         )
         context.user_data['search_mode'] = 'tag'
@@ -247,9 +250,9 @@ async def handle_search_action(update: Update, context: CallbackContext):
         
     elif action == "time":
             # 先回应回调，避免界面长时间 loading
-            await _safe_answer(query, "请选择时间范围")
+            await _safe_answer(query, tr('请选择时间范围'))
             await query.edit_message_text(
-                "📅 请选择时间范围：",
+                tr('📅 请选择时间范围：'),
                 reply_markup=Keyboards.time_filter()
             )
 
@@ -264,7 +267,7 @@ async def handle_tag_search(update: Update, context: CallbackContext):
 
     tag = query.data.replace("tag_search_", "")
     
-    await _safe_answer(query, f"正在搜索标签: {tag}")
+    await _safe_answer(query, tr('正在搜索标签: {p0}').format(p0=tag))
     
     # 调用标签搜索
     await search_posts_by_tag(update, context, tag)
@@ -294,17 +297,17 @@ async def handle_view_post(update: Update, context: CallbackContext):
                 channel_username = CHANNEL_ID.replace('@', '')
                 link = f"https://t.me/{channel_username}/{message_id}"
                 
-                await _safe_answer(query, "正在跳转...")
+                await _safe_answer(query, tr('正在跳转...'))
                 await query.edit_message_text(
-                    f"📱 <a href='{link}'>点击查看原帖</a>",
+                    tr("📱 <a href='{p0}'>点击查看原帖</a>").format(p0=link),
                     parse_mode=ParseMode.HTML
                 )
             else:
-                await _safe_answer(query, "❌ 帖子未找到", show_alert=True)
+                await _safe_answer(query, tr('❌ 帖子未找到'), show_alert=True)
                 
     except Exception as e:
         logger.error(f"查看帖子时出错: {e}")
-        await _safe_answer(query, "❌ 操作失败", show_alert=True)
+        await _safe_answer(query, tr('❌ 操作失败'), show_alert=True)
 
 
 async def handle_stats_post(update: Update, context: CallbackContext):
@@ -331,25 +334,25 @@ async def handle_stats_post(update: Update, context: CallbackContext):
                 try:
                     publish_time_str = datetime.fromtimestamp(row["publish_time"]).strftime("%Y-%m-%d %H:%M")
                 except (TypeError, ValueError):
-                    publish_time_str = "未知"
-                stats_text = f"""
+                    publish_time_str = tr('未知')
+                stats_text = tr("""
 📊 <b>帖子统计</b>
 
-❤️ 反应数: {row['reactions']:,}
-🔥 热度分: {row['heat_score']:.2f}
+❤️ 反应数: {p0:,}
+🔥 热度分: {p1:.2f}
 
-📅 发布时间: {publish_time_str}
-"""
+📅 发布时间: {p2}
+""").format(p0=row['reactions'], p1=row['heat_score'], p2=publish_time_str)
                 await query.edit_message_text(
                     stats_text,
                     parse_mode=ParseMode.HTML
                 )
             else:
-                await _safe_answer(query, "❌ 统计数据未找到", show_alert=True)
+                await _safe_answer(query, tr('❌ 统计数据未找到'), show_alert=True)
                 
     except Exception as e:
         logger.error(f"查看统计时出错: {e}")
-        await _safe_answer(query, "❌ 操作失败", show_alert=True)
+        await _safe_answer(query, tr('❌ 操作失败'), show_alert=True)
 
 
 async def handle_delete_post(update: Update, context: CallbackContext):
@@ -366,19 +369,22 @@ async def handle_delete_post(update: Update, context: CallbackContext):
     
     # 检查权限：只有 OWNER 可以删除
     if not is_owner(user_id):
-        await _safe_answer(query, "⛔ 权限不足：只有管理员可以删除帖子", show_alert=True)
+        await _safe_answer(query, tr('⛔ 权限不足：只有管理员可以删除帖子'), show_alert=True)
         logger.warning(f"用户 {user_id} 尝试删除帖子但权限不足")
         return
     
     # 显示确认对话框
     await query.edit_message_text(
-        "⚠️ <b>删除确认</b>\n\n"
-        f"确定要删除消息 ID 为 <code>{message_id}</code> 的帖子记录吗？\n\n"
-        "⚠️ 此操作将：\n"
-        "• ✅ 从频道删除消息（双向同步删除）\n"
-        "• ✅ 从数据库标记为已删除（保留历史数据）\n"
-        "• ✅ 从搜索索引删除\n\n"
-        "💡 注意：数据会保留在数据库中，可通过数据库操作恢复",
+        tr("""⚠️ <b>删除确认</b>
+
+确定要删除消息 ID 为 <code>{p0}</code> 的帖子记录吗？
+
+⚠️ 此操作将：
+• ✅ 从频道删除消息（双向同步删除）
+• ✅ 从数据库标记为已删除（保留历史数据）
+• ✅ 从搜索索引删除
+
+💡 注意：数据会保留在数据库中，可通过数据库操作恢复""").format(p0=message_id),
         reply_markup=Keyboards.yes_no("delete_post", message_id),
         parse_mode=ParseMode.HTML
     )
@@ -395,19 +401,19 @@ async def handle_unblock_user(update: Update, context: CallbackContext):
     
     # 检查权限
     if not is_owner(user_id):
-        await _safe_answer(query, "⛔ 权限不足", show_alert=True)
+        await _safe_answer(query, tr('⛔ 权限不足'), show_alert=True)
         return
     
     # 移除黑名单
     success = await remove_from_blacklist(target_user_id)
     
     if success:
-        await _safe_answer(query, "✅ 已移除黑名单", show_alert=True)
+        await _safe_answer(query, tr('✅ 已移除黑名单'), show_alert=True)
         await query.edit_message_text(
-            f"✅ 用户 {target_user_id} 已从黑名单移除"
+            tr('✅ 用户 {p0} 已从黑名单移除').format(p0=target_user_id)
         )
     else:
-        await _safe_answer(query, "❌ 操作失败", show_alert=True)
+        await _safe_answer(query, tr('❌ 操作失败'), show_alert=True)
 
 
 async def handle_user_info(update: Update, context: CallbackContext):
@@ -424,12 +430,12 @@ async def handle_user_info(update: Update, context: CallbackContext):
             )
             row = await c.fetchone()
             
-            info_text = f"""
+            info_text = tr("""
 👤 <b>用户信息</b>
 
-🆔 用户ID: <code>{target_user_id}</code>
-📝 投稿数: {row['count'] if row else 0}
-"""
+🆔 用户ID: <code>{p0}</code>
+📝 投稿数: {p1}
+""").format(p0=target_user_id, p1=row['count'] if row else 0)
             await query.edit_message_text(
                 info_text,
                 parse_mode=ParseMode.HTML
@@ -437,7 +443,7 @@ async def handle_user_info(update: Update, context: CallbackContext):
             
     except Exception as e:
         logger.error(f"查看用户信息时出错: {e}")
-        await _safe_answer(query, "❌ 操作失败", show_alert=True)
+        await _safe_answer(query, tr('❌ 操作失败'), show_alert=True)
 
 
 async def handle_pagination(update: Update, context: CallbackContext):
@@ -465,7 +471,7 @@ async def handle_pagination(update: Update, context: CallbackContext):
         return
 
     # 无可用上下文（例如上下文已过期）：仅提示，不报错。
-    await _safe_answer(query, f"跳转到第 {page} 页")
+    await _safe_answer(query, tr('跳转到第 {p0} 页').format(p0=page))
 
 
 async def handle_confirm_action(update: Update, context: CallbackContext):
@@ -482,7 +488,7 @@ async def handle_confirm_action(update: Update, context: CallbackContext):
     
     # 检查权限：只有 OWNER 可以确认危险操作
     if not is_owner(user_id):
-        await _safe_answer(query, "⛔ 权限不足：只有管理员可以执行此操作", show_alert=True)
+        await _safe_answer(query, tr('⛔ 权限不足：只有管理员可以执行此操作'), show_alert=True)
         logger.warning(f"用户 {user_id} 尝试确认操作但权限不足")
         return
     
@@ -492,7 +498,7 @@ async def handle_confirm_action(update: Update, context: CallbackContext):
         await execute_delete_post(query, message_id, context)
     else:
         # 其他确认操作
-        await query.edit_message_text("✅ 操作已确认")
+        await query.edit_message_text(tr('✅ 操作已确认'))
 
 
 async def handle_cancel_action(update: Update, context: CallbackContext):
@@ -502,9 +508,9 @@ async def handle_cancel_action(update: Update, context: CallbackContext):
     action_data = query.data.replace("cancel_", "")
     
     if action_data.startswith("delete_post_"):
-        await query.edit_message_text("❌ 已取消删除操作")
+        await query.edit_message_text(tr('❌ 已取消删除操作'))
     else:
-        await query.edit_message_text("❌ 操作已取消")
+        await query.edit_message_text(tr('❌ 操作已取消'))
 
 
 async def execute_delete_post(query, message_id: str, context: CallbackContext):
@@ -518,7 +524,7 @@ async def execute_delete_post(query, message_id: str, context: CallbackContext):
     """
     # 检查 message_id 是否有效
     if not message_id or message_id == 'None':
-        await query.edit_message_text("❌ 无效的帖子ID")
+        await query.edit_message_text(tr('❌ 无效的帖子ID'))
         logger.error(f"尝试删除无效的帖子ID: {message_id}")
         return
     
@@ -534,7 +540,7 @@ async def execute_delete_post(query, message_id: str, context: CallbackContext):
             post_row = await cursor.fetchone()
             
             if not post_row:
-                await query.edit_message_text("❌ 帖子不存在或已被删除")
+                await query.edit_message_text(tr('❌ 帖子不存在或已被删除'))
                 logger.warning(f"尝试删除不存在的帖子: message_id={message_id}")
                 return
             
@@ -543,7 +549,7 @@ async def execute_delete_post(query, message_id: str, context: CallbackContext):
             row_keys = post_row.keys() if hasattr(post_row, "keys") else []
             is_deleted = post_row["is_deleted"] if "is_deleted" in row_keys else 0
             if is_deleted == 1:
-                await query.edit_message_text("ℹ️ 该帖子已被标记为删除")
+                await query.edit_message_text(tr('ℹ️ 该帖子已被标记为删除'))
                 logger.info(f"帖子 {message_id} 已经被标记为删除")
                 return
             
@@ -628,36 +634,48 @@ async def execute_delete_post(query, message_id: str, context: CallbackContext):
             logger.info(f"已标记帖子为已删除: ID={post_id}, message_id={message_id}")
             
             # 构建响应消息
-            channel_link = f"https://t.me/{CHANNEL_ID.lstrip('@')}/{message_id}" if CHANNEL_ID.startswith('@') else f"消息ID: {message_id}"
+            channel_link = f"https://t.me/{CHANNEL_ID.lstrip('@')}/{message_id}" if CHANNEL_ID.startswith('@') else tr('消息ID: {p0}').format(p0=message_id)
             
-            response = "✅ <b>删除操作完成</b>\n\n"
-            response += f"📝 消息ID: <code>{message_id}</code>\n"
-            response += f"🔗 频道链接: {channel_link}\n\n"
-            response += "<b>已完成：</b>\n"
+            response = tr("""✅ <b>删除操作完成</b>
+
+""")
+            response += tr("""📝 消息ID: <code>{p0}</code>
+""").format(p0=message_id)
+            response += tr("""🔗 频道链接: {p0}
+
+""").format(p0=channel_link)
+            response += tr("""<b>已完成：</b>
+""")
             
             # 频道消息删除状态
             if channel_deleted:
                 if related_channel_deleted > 0:
-                    response += f"✅ 从频道删除消息（包含 {related_channel_deleted} 个关联消息）\n"
+                    response += tr("""✅ 从频道删除消息（包含 {p0} 个关联消息）
+""").format(p0=related_channel_deleted)
                 else:
-                    response += "✅ 从频道删除消息\n"
+                    response += tr("""✅ 从频道删除消息
+""")
             elif channel_delete_failed:
-                response += "⚠️ 频道消息删除失败（可能无权限或消息已不存在）\n"
+                response += tr("""⚠️ 频道消息删除失败（可能无权限或消息已不存在）
+""")
             else:
-                response += "⚠️ 频道消息删除状态未知\n"
+                response += tr("""⚠️ 频道消息删除状态未知
+""")
             
             # 数据库和索引删除状态
-            response += "✅ 从数据库标记为已删除（保留历史数据）\n"
+            response += tr("""✅ 从数据库标记为已删除（保留历史数据）
+""")
             if index_deleted:
-                response += f"✅ 从搜索索引删除" + (f"（包含 {related_count} 个关联消息）" if related_count > 0 else "") + "\n"
+                response += tr('✅ 从搜索索引删除') + (tr('（包含 {p0} 个关联消息）').format(p0=related_count) if related_count > 0 else "") + "\n"
             else:
-                response += "⚠️ 搜索索引删除失败\n"
+                response += tr("""⚠️ 搜索索引删除失败
+""")
             
             await query.edit_message_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
             
     except Exception as e:
         logger.error(f"删除帖子时出错: {e}", exc_info=True)
-        await query.edit_message_text(f"❌ 删除失败: {str(e)[:100]}")
+        await query.edit_message_text(tr('❌ 删除失败: {p0}').format(p0=str(e)[:100]))
 
 
 async def handle_back_to_main(update: Update, context: CallbackContext):
@@ -678,7 +696,7 @@ async def handle_back_to_main(update: Update, context: CallbackContext):
     )
     # 统一返回主菜单（不再显示管理员菜单提示文案）
     try:
-        await query.message.reply_text("主菜单：", reply_markup=Keyboards.main_menu())
+        await query.message.reply_text(tr('主菜单：'), reply_markup=Keyboards.main_menu())
     except Exception:
         pass
 
@@ -689,6 +707,6 @@ async def handle_back(update: Update, context: CallbackContext):
     await _safe_answer(query)
     
     await query.edit_message_text(
-        "🔙 返回上一页",
+        tr('🔙 返回上一页'),
         reply_markup=None
     )

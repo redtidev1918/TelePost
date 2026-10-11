@@ -880,6 +880,11 @@ export interface paths {
                                 /** @description Bearer session (ma_v1.*) */
                                 token: string;
                                 expires_in: number;
+                                /**
+                                 * @description Presentation language configured for this Bot; defaults to zh on older servers
+                                 * @enum {string}
+                                 */
+                                bot_language?: "zh" | "en";
                                 user: {
                                     telegram_user_id?: number;
                                     username?: string;

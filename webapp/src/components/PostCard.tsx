@@ -1,3 +1,5 @@
+import { tr } from "../lib/i18n";
+import { useTranslation } from 'react-i18next';
 import { formatHeat, formatPublishedAt, PostSummary } from '../api/posts';
 import { MediaThumb } from './ui/MediaThumb';
 
@@ -22,13 +24,14 @@ export function PostCard({
   layout?: 'grid' | 'row';
   showMedia?: boolean;
 }) {
+  useTranslation();
   const time = formatPublishedAt(post.publish_time);
   const meta = [
     `🔥 ${formatHeat(post.heat_score)}`,
     post.reactions > 0 ? `❤️ ${post.reactions}` : '',
     time,
   ].filter(Boolean).join(' · ');
-  const title = post.title || '无标题';
+  const title = post.title || tr("无标题");
   const hasMedia = showMedia && post.media_count > 0;
 
   if (layout === 'row') {

@@ -1,3 +1,5 @@
+import { tr } from "../../lib/i18n";
+import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
 import { Button, Spinner } from '@telegram-apps/telegram-ui';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -27,15 +29,15 @@ import { EmptyState } from '../../components/ui/EmptyState';
  */
 
 /** User-facing status text (§38): database states never reach the list. */
-const STATUS_LABELS: Record<string, string> = {
-  preparing: '准备中',
-  in_review: '审核中',
-  publishing: '发布中',
-  published: '已发布',
-  rejected: '未通过',
-  failed: '处理失败',
-  expired: '已过期',
-};
+const STATUS_LABELS = (): Record<string, string> => ({
+  preparing: tr("准备中"),
+  in_review: tr("审核中"),
+  publishing: tr("发布中"),
+  published: tr("已发布"),
+  rejected: tr("未通过"),
+  failed: tr("处理失败"),
+  expired: tr("已过期"),
+});
 
 const STATUS_TONES: Record<string, StatusTone> = {
   published: 'good',
@@ -46,12 +48,12 @@ const STATUS_TONES: Record<string, StatusTone> = {
   publishing: 'progress',
 };
 
-const FILTERS: { value: MineFilter; label: string }[] = [
-  { value: 'all', label: '全部' },
-  { value: 'active', label: '进行中' },
-  { value: 'done', label: '已完成' },
-  { value: 'other', label: '其他' },
-];
+const FILTERS = (): { value: MineFilter; label: string }[] => ([
+  { value: 'all', label: tr("全部") },
+  { value: 'active', label: tr("进行中") },
+  { value: 'done', label: tr("已完成") },
+  { value: 'other', label: tr("其他") },
+]);
 
 function formatDay(seconds: number): string {
   if (!seconds) return '';
@@ -60,11 +62,12 @@ function formatDay(seconds: number): string {
   const time = `${String(date.getHours()).padStart(2, '0')}:${String(
     date.getMinutes(),
   ).padStart(2, '0')}`;
-  if (date.toDateString() === today.toDateString()) return `今天 ${time}`;
-  return `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
+  if (date.toDateString() === today.toDateString()) return tr("今天 {{p0}}", {p0: time});
+  return tr("{{p0}}月{{p1}}日 {{p2}}", {p0: date.getMonth() + 1, p1: date.getDate(), p2: time});
 }
 
 function SubmissionRow({ item, onOpen }: { item: LogicalSubmission; onOpen: () => void }) {
+  useTranslation();
   const [open, setOpen] = useState(false);
   const qc = useQueryClient();
   const del = useMutation({
@@ -89,21 +92,21 @@ function SubmissionRow({ item, onOpen }: { item: LogicalSubmission; onOpen: () =
           }
         }}
       >
-        <div className="card__row-title">{item.title || '未命名投稿'}</div>
+        <div className="card__row-title">{item.title || tr("未命名投稿")}</div>
         <div className="card__row-meta">
-          {fileCount > 0 ? `${fileCount} 个文件 · ` : ''}
+          {fileCount > 0 ? tr("{{p0}} 个文件 · ", {p0: fileCount}) : ''}
           {formatDay(item.updated_at)}
-          {item.refetch_count > 0 ? ` · 已重抓/换图 ${item.refetch_count} 次` : ''}
+          {item.refetch_count > 0 ? tr(" · 已重抓/换图 {{p0}} 次", {p0: item.refetch_count}) : ''}
         </div>
         <div className="card__row-foot">
           <StatusBadge tone={STATUS_TONES[item.status] ?? 'neutral'}>
-            {STATUS_LABELS[item.status] || item.status}
+            {STATUS_LABELS()[item.status] || item.status}
           </StatusBadge>
           {deletable ? (
             <button
               type="button"
               className="page-section__action"
-              aria-label="更多操作"
+              aria-label={tr("更多操作")}
               data-testid={`mine-row-more-${item.current_review_id}`}
               onClick={(event) => {
                 event.stopPropagation();
@@ -127,8 +130,7 @@ function SubmissionRow({ item, onOpen }: { item: LogicalSubmission; onOpen: () =
               onClick={() => void del.mutateAsync()}
               data-testid={`mine-delete-${item.current_review_id}`}
             >
-              删除这条记录
-            </Button>
+              {tr("删除这条记录")}</Button>
           </div>
         </div>
       ) : null}
@@ -137,6 +139,7 @@ function SubmissionRow({ item, onOpen }: { item: LogicalSubmission; onOpen: () =
 }
 
 export function MySubmissionsPage() {
+  useTranslation();
   const navigate = useBotNavigate();
   const qc = useQueryClient();
   const [filter, setFilter] = useState<MineFilter>('all');
@@ -163,8 +166,8 @@ export function MySubmissionsPage() {
   if (query.isError) {
     return (
       <div className="stack">
-        <PageHeader title="我的投稿" />
-        <EmptyState title="暂时无法加载投稿记录" hint={(query.error as Error).message} />
+        <PageHeader title={tr("我的投稿")} />
+        <EmptyState title={tr("暂时无法加载投稿记录")} hint={(query.error as Error).message} />
       </div>
     );
   }
@@ -175,8 +178,8 @@ export function MySubmissionsPage() {
   return (
     <div className="stack">
       <PageHeader
-        title="我的投稿"
-        subtitle={all.length > 0 ? `共 ${all.length} 条记录` : undefined}
+        title={tr("我的投稿")}
+        subtitle={all.length > 0 ? tr("共 {{p0}} 条记录", {p0: all.length}) : undefined}
         action={
           all.length > 0 ? (
             <button
@@ -185,20 +188,18 @@ export function MySubmissionsPage() {
               data-testid="mine-more"
               onClick={() => setMoreOpen((value) => !value)}
             >
-              更多
-            </button>
+              {tr("更多")}</button>
           ) : null
         }
       />
 
       {all.length === 0 ? (
         <EmptyState
-          title="还没有投稿"
-          hint="发布第一条内容后，这里会保留你的投稿进度和结果。"
+          title={tr("还没有投稿")}
+          hint={tr("发布第一条内容后，这里会保留你的投稿进度和结果。")}
           action={
             <Button size="m" stretched onClick={() => navigate('/submit')}>
-              去投稿
-            </Button>
+              {tr("去投稿")}</Button>
           }
         />
       ) : (
@@ -206,7 +207,7 @@ export function MySubmissionsPage() {
           <Segmented<MineFilter>
             testId="filter"
             value={filter}
-            options={FILTERS}
+            options={FILTERS()}
             onChange={setFilter}
           />
           <div className={`overflow-panel${moreOpen ? ' overflow-panel--open' : ''}`}>
@@ -220,22 +221,20 @@ export function MySubmissionsPage() {
                   loading={clearHistory.isPending}
                   data-testid="mine-clear-history"
                   onClick={() => {
-                    if (window.confirm('隐藏所有已结束的投稿记录？频道内容不受影响。')) {
+                    if (window.confirm(tr("隐藏所有已结束的投稿记录？频道内容不受影响。"))) {
                       void clearHistory.mutate();
                     }
                   }}
                 >
-                  清理已结束的记录
-                </Button>
+                  {tr("清理已结束的记录")}</Button>
                 <div className="mutation-help" style={{ marginTop: 6 }}>
-                  只隐藏你自己的历史记录，不会删除频道里已发布的内容。
-                </div>
+                  {tr("只隐藏你自己的历史记录，不会删除频道里已发布的内容。")}</div>
               </div>
             </div>
           </div>
 
           {items.length === 0 ? (
-            <EmptyState title="该分类下暂无投稿" />
+            <EmptyState title={tr("该分类下暂无投稿")} />
           ) : (
             <div className="stack">
               {items.map((item) => (
@@ -256,10 +255,9 @@ export function MySubmissionsPage() {
               loading={query.isFetchingNextPage}
               onClick={() => void query.fetchNextPage()}
             >
-              加载更多
-            </Button>
+              {tr("加载更多")}</Button>
           )}
-          <div className="mutation-help">点击一条记录可以查看详情、重投或编辑记录。</div>
+          <div className="mutation-help">{tr("点击一条记录可以查看详情、重投或编辑记录。")}</div>
         </>
       )}
     </div>

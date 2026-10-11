@@ -1,3 +1,5 @@
+import { tr } from "../../lib/i18n";
+import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Cell, Input, Section, Spinner, Switch } from '@telegram-apps/telegram-ui';
@@ -38,10 +40,11 @@ function useAdminStatus() {
 }
 
 function mutationError(error: unknown): string {
-  return (error as Error).message || '操作失败';
+  return (error as Error).message || tr("操作失败");
 }
 
 export function AdminPage() {
+  useTranslation();
   const status = useAdminStatus();
   useBackButton('/more');
 
@@ -55,8 +58,8 @@ export function AdminPage() {
   if (status.isError) {
     return (
       <div className="stack">
-        <PageHeader title="管理" />
-        <EmptyState title="加载失败" hint={mutationError(status.error)} />
+        <PageHeader title={tr("管理")} />
+        <EmptyState title={tr("加载失败")} hint={mutationError(status.error)} />
       </div>
     );
   }
@@ -64,7 +67,7 @@ export function AdminPage() {
   const snapshot = status.data as AdminStatusSnapshot;
   return (
     <div className="stack">
-      <PageHeader title="管理" subtitle="运行状态、审核策略、角色与黑名单。" />
+      <PageHeader title={tr("管理")} subtitle={tr("运行状态、审核策略、角色与黑名单。")} />
       <StatusSection snapshot={snapshot} />
       <PolicySection embedded={snapshot.policy} restartManaged={snapshot.restart_managed} />
       <RolesSection />
@@ -74,45 +77,41 @@ export function AdminPage() {
 }
 
 function StatusSection({ snapshot }: { snapshot: AdminStatusSnapshot }) {
+  useTranslation();
   const q = snapshot.queue;
   return (
-    <Section header="运行状态" data-testid="admin-status">
+    <Section header={tr("运行状态")} data-testid="admin-status">
       <Cell subtitle={`${snapshot.version.version} @ ${snapshot.version.commit.slice(0, 8) || '-'}`}>
-        服务版本
-      </Cell>
-      <Cell subtitle={`${q.pending} 待审 · ${q.published} 已发布 · ${q.rejected} 已拒绝`}>
-        审核队列
-      </Cell>
-      <Cell subtitle={`${q.staging} 准备中 · ${q.failed} 失败 · ${q.superseded} 已更换`}>
-        投稿处理
-      </Cell>
-      <Cell subtitle={`近 24 小时 ${snapshot.submissions_24h} 次投稿`}>活跃度</Cell>
+        {tr("服务版本")}</Cell>
+      <Cell subtitle={tr("{{p0}} 待审 · {{p1}} 已发布 · {{p2}} 已拒绝", {p0: q.pending, p1: q.published, p2: q.rejected})}>
+        {tr("审核队列")}</Cell>
+      <Cell subtitle={tr("{{p0}} 准备中 · {{p1}} 失败 · {{p2}} 已更换", {p0: q.staging, p1: q.failed, p2: q.superseded})}>
+        {tr("投稿处理")}</Cell>
+      <Cell subtitle={tr("近 24 小时 {{p0}} 次投稿", {p0: snapshot.submissions_24h})}>{tr("活跃度")}</Cell>
       <Cell
         subtitle={
           snapshot.refetch.active
-            ? `${snapshot.refetch.active} 个进行中`
-            : '没有进行中的重抓/换图'
+            ? tr("{{p0}} 个进行中", {p0: snapshot.refetch.active})
+            : tr("没有进行中的重抓/换图")
         }
       >
-        重抓/换图
-      </Cell>
+        {tr("重抓/换图")}</Cell>
       {snapshot.refetch.recent_failures.length > 0 && (
         <Cell subtitle={snapshot.refetch.recent_failures
           .map((f) => `#${f.source_review_id} ${f.failure_code || f.state}`)
           .join(' · ')}>
-          最近重抓失败
-        </Cell>
+          {tr("最近重抓失败")}</Cell>
       )}
-      <Cell subtitle={`${snapshot.blacklist_size} 人`}>黑名单</Cell>
+      <Cell subtitle={tr("{{p0}} 人", {p0: snapshot.blacklist_size})}>{tr("黑名单")}</Cell>
     </Section>
   );
 }
 
 /** Server only accepts these toggles from the Mini App API (§admin-api). */
-const TOGGLES = [
-  { key: 'chat_review' as const, label: 'TG 聊天投稿先审核', testid: 'admin-policy-chat-review' },
-  { key: 'show_submitter' as const, label: '公开投稿人', testid: 'admin-policy-show-submitter' },
-];
+const TOGGLES = () => ([
+  { key: 'chat_review' as const, label: tr("TG 聊天投稿先审核"), testid: 'admin-policy-chat-review' },
+  { key: 'show_submitter' as const, label: tr("公开投稿人"), testid: 'admin-policy-show-submitter' },
+]);
 
 function PolicySection({
   embedded,
@@ -121,6 +120,7 @@ function PolicySection({
   embedded: AdminStatusSnapshot['policy'];
   restartManaged: boolean;
 }) {
+  useTranslation();
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
 
@@ -139,10 +139,10 @@ function PolicySection({
 
   return (
     <Section
-      header={restartManaged ? '运行策略（保存后服务自动重启生效）' : '运行策略'}
+      header={restartManaged ? tr("运行策略（保存后服务自动重启生效）") : tr("运行策略")}
       data-testid="admin-policy"
     >
-      {TOGGLES.map((toggle) => (
+      {TOGGLES().map((toggle) => (
         <Cell
           key={toggle.key}
           after={
@@ -160,16 +160,16 @@ function PolicySection({
           {toggle.label}
         </Cell>
       ))}
-      <Cell subtitle="API 投稿必须审核（固定开启）">API 投稿先审核</Cell>
-      <Cell subtitle="Mini App 投稿必须审核（在 Bot 侧调整）">
-        Mini App 投稿先审核
-      </Cell>
+      <Cell subtitle={tr("API 投稿必须审核（固定开启）")}>{tr("API 投稿先审核")}</Cell>
+      <Cell subtitle={tr("Mini App 投稿必须审核（在 Bot 侧调整）")}>
+        {tr("Mini App 投稿先审核")}</Cell>
       {error && <div className="mutation-help">{error}</div>}
     </Section>
   );
 }
 
 function RolesSection() {
+  useTranslation();
   const queryClient = useQueryClient();
   const [userId, setUserId] = useState('');
   const [error, setError] = useState('');
@@ -202,11 +202,11 @@ function RolesSection() {
   const parsed = Number(userId);
 
   return (
-    <Section header="角色管理" data-testid="admin-roles">
-      {bindings.isLoading && <Cell>加载中…</Cell>}
-      {bindings.isError && <Cell>加载失败：{mutationError(bindings.error)}</Cell>}
+    <Section header={tr("角色管理")} data-testid="admin-roles">
+      {bindings.isLoading && <Cell>{tr("加载中…")}</Cell>}
+      {bindings.isError && <Cell>{tr("加载失败：")}{mutationError(bindings.error)}</Cell>}
       {(bindings.data ?? []).length === 0 && !bindings.isLoading && (
-        <Cell subtitle="通过 env 引导的管理员不在此列">暂无持久化角色绑定</Cell>
+        <Cell subtitle={tr("通过 env 引导的管理员不在此列")}>{tr("暂无持久化角色绑定")}</Cell>
       )}
       {(bindings.data ?? []).map((binding) => (
         <Cell
@@ -218,21 +218,20 @@ function RolesSection() {
               loading={remove.isPending && remove.variables?.telegram_user_id === binding.telegram_user_id}
               onClick={() => remove.mutate(binding)}
             >
-              移除
-            </Button>
+              {tr("移除")}</Button>
           }
           subtitle={
-            `${binding.role} · 授予者 ${binding.created_by || '-'}`
+            tr("{{p0}} · 授予者 {{p1}}", {p0: binding.role, p1: binding.created_by || '-'})
           }
           data-testid="admin-role-item"
         >
-          用户 {binding.telegram_user_id}
+          {tr("用户 ")}{binding.telegram_user_id}
         </Cell>
       ))}
       <Cell>
         <Input
           inputMode="numeric"
-          placeholder="Telegram 用户 ID（数字）"
+          placeholder={tr("Telegram 用户 ID（数字）")}
           value={userId}
           data-testid="admin-role-add-input"
           onChange={(e) => setUserId(e.target.value)}
@@ -247,8 +246,7 @@ function RolesSection() {
             onClick={() => add.mutate('reviewer')}
             data-testid="admin-role-add-reviewer"
           >
-            授予审核员
-          </Button>
+            {tr("授予审核员")}</Button>
           <Button
             size="s"
             disabled={!Number.isInteger(parsed) || parsed <= 0 || add.isPending}
@@ -256,8 +254,7 @@ function RolesSection() {
             onClick={() => add.mutate('admin')}
             data-testid="admin-role-add-admin"
           >
-            授予管理员
-          </Button>
+            {tr("授予管理员")}</Button>
         </div>
       </Cell>
       {error && <div className="mutation-help">{error}</div>}
@@ -266,6 +263,7 @@ function RolesSection() {
 }
 
 function BlacklistSection() {
+  useTranslation();
   const queryClient = useQueryClient();
   const [userId, setUserId] = useState('');
   const [reason, setReason] = useState('');
@@ -300,11 +298,11 @@ function BlacklistSection() {
   const canAdd = Number.isInteger(parsed) && parsed > 0 && add.isPending === false;
 
   return (
-    <Section header="黑名单" data-testid="admin-blacklist">
-      {entries.isLoading && <Cell>加载中…</Cell>}
-      {entries.isError && <Cell>加载失败：{mutationError(entries.error)}</Cell>}
+    <Section header={tr("黑名单")} data-testid="admin-blacklist">
+      {entries.isLoading && <Cell>{tr("加载中…")}</Cell>}
+      {entries.isError && <Cell>{tr("加载失败：")}{mutationError(entries.error)}</Cell>}
       {(entries.data ?? []).length === 0 && !entries.isLoading && (
-        <Cell>黑名单为空。</Cell>
+        <Cell>{tr("黑名单为空。")}</Cell>
       )}
       {(entries.data ?? []).map((entry) => (
         <Cell
@@ -316,19 +314,18 @@ function BlacklistSection() {
               loading={remove.isPending && remove.variables?.user_id === entry.user_id}
               onClick={() => remove.mutate(entry)}
             >
-              移除
-            </Button>
+              {tr("移除")}</Button>
           }
-          subtitle={entry.reason || '未填写原因'}
+          subtitle={entry.reason || tr("未填写原因")}
           data-testid="admin-blacklist-item"
         >
-          用户 {entry.user_id}
+          {tr("用户 ")}{entry.user_id}
         </Cell>
       ))}
       <Cell>
         <Input
           inputMode="numeric"
-          placeholder="要拉黑的 Telegram 用户 ID"
+          placeholder={tr("要拉黑的 Telegram 用户 ID")}
           value={userId}
           data-testid="admin-blacklist-add-input"
           onChange={(e) => setUserId(e.target.value)}
@@ -336,7 +333,7 @@ function BlacklistSection() {
       </Cell>
       <Cell>
         <Input
-          placeholder="原因（可选）"
+          placeholder={tr("原因（可选）")}
           value={reason}
           data-testid="admin-blacklist-add-reason"
           onChange={(e) => setReason(e.target.value)}
@@ -349,8 +346,7 @@ function BlacklistSection() {
           onClick={() => add.mutate()}
           data-testid="admin-blacklist-add-button"
         >
-          加入黑名单
-        </Button>
+          {tr("加入黑名单")}</Button>
       </Cell>
       {error && <div className="mutation-help">{error}</div>}
     </Section>
