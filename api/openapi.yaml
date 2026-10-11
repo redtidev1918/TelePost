@@ -283,6 +283,9 @@ paths:
         `application/json` sends Telegram file_ids (zero re-upload).
         `multipart/form-data` uploads files; repeat a `files` part per file,
         up to 100 files and 500 MiB aggregate.
+        Service-token submissions always require review. User Mini App submissions
+        follow MINIAPP_REVIEW_REQUIRED independently. A review-required request
+        without REVIEW_CHAT_ID fails closed with 409 review_chat_not_configured.
       requestBody:
         required: true
         content:
@@ -338,6 +341,11 @@ paths:
                   - {$ref: '#/components/schemas/ErrorResponse'}
                   - {$ref: '#/components/schemas/BusinessFailure'}
         '401': {$ref: '#/components/responses/unauthorized'}
+        '409':
+          description: review_chat_not_configured (review-required submission without a configured review group)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
         '413':
           description: File or request too large
           content:

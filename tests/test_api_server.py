@@ -48,6 +48,11 @@ def _make_app(monkeypatch, authenticate_return, principal=None):
     })
     monkeypatch.setattr("handlers.publish.publish_from_files", publish_mock)
     monkeypatch.setattr(api_server, "_rate_cache", TTLCache(default_ttl=3600, max_size=4096))
+    # A review-required source cannot be admitted without a review group, so the
+    # endpoint fails closed with 409 before any parsing (see
+    # tests/test_review_chat_contract.py for the unconfigured-admission contract).
+    # Every other API test therefore models production: a configured review chat.
+    monkeypatch.setattr(api_server, "REVIEW_CHAT_ID", -1001234567890)
 
     application = MagicMock()
     application.bot = AsyncMock()

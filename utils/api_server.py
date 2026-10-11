@@ -1584,6 +1584,19 @@ def add_api_routes(web_app, application) -> None:
         source = "miniapp" if principal_kind == "user" else "api"
         api_review = _entry_review_required(source)
 
+        # §review-chat-contract: a review-required submission cannot be admitted
+        # without a review group. Fail closed here (409) instead of persisting a
+        # queue row the operators can never see, and never fall through to
+        # direct publish for an API token. API submissions are ALWAYS
+        # review-required (telepost/domain/submission.py); API_REVIEW_REQUIRED
+        # is a legacy compatibility key and does not lift this requirement.
+        from telepost.domain.review_chat import is_configured
+        if api_review and not is_configured(REVIEW_CHAT_ID):
+            return _error(
+                409, "review_chat_not_configured",
+                "未配置审核群：该投稿需要人工审核，请先设置 REVIEW_CHAT_ID",
+            )
+
         # §moderation: an operator deny-list may stop a user or an API token
         # from creating NEW submissions. History stays intact; only entry is
         # rejected up front (before rate limiting / staging), with a clear code

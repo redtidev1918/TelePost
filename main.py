@@ -250,8 +250,14 @@ async def setup_bot_commands(application):
     """
     设置 Telegram 主入口。
 
-    聊天菜单按钮固定为默认命令菜单（不再挂 Mini App）；Mini App 通过
-    ReplyKeyboard「📱 Mini App」按钮与 /start 进入。命令全量可用。
+    - 命令：按 scope 下发；默认 scope 给所有用户 ``user_commands``，
+      admin 的私聊 scope 追加 ``admin_commands``。
+    - Chat 菜单按钮：Mini App 配置可用时为 ``MenuButtonWebApp``，
+      否则回退 ``MenuButtonDefault``（默认命令菜单）。
+
+    注意边界：``MenuButtonWebApp`` 只是 chat 菜单入口，**不等于** Telegram 的
+    "Main Mini App"；``t.me/<bot>?startapp=`` Deep Link 能否直接启动 app 取决于
+    BotFather 单独配置的 Main Mini App，与本调用无关。
     """
     user_commands = [
         BotCommand("start", tr('🚀 启动机器人')),

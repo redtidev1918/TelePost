@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, List, Optional, Protocol, Tuple
 
 from ..domain.media import is_novel_cover_asset
+from ..domain.review_chat import normalize_review_chat_id
 from ..observability import audit
 from ..observability.errors import classify as classify_error
 from ..storage.sqlite.reviews import NewReview, ReviewRepository
@@ -207,6 +208,11 @@ class QueueCommand:
     # producer never materializes locally, so the review-group preview can only
     # show it by URL — it is never part of the staged media.
     media_assets: tuple = ()
+
+    def __post_init__(self) -> None:
+        # §review-chat-contract: normalise at the single point every command
+        # passes through, so no caller can reintroduce the ``"None"`` row.
+        self.review_chat_id = normalize_review_chat_id(self.review_chat_id)
 
 
 def novel_cover_preview_url(command: QueueCommand) -> Optional[str]:
@@ -923,7 +929,7 @@ def _command_from_row(row) -> QueueCommand:
         # (see telepost/storage/sqlite/columns.py).
         work_id=row["pixiv_id"] or "", source_label=row["source_label"] or "",
         source_ref=row["source_ref"] or "", scheduled_at=row["scheduled_at"] or "",
-        review_chat_id=str(row["review_chat_id"] or ""),
+        review_chat_id=normalize_review_chat_id(row["review_chat_id"]),
         refetch_request_id=row["refetch_request_id"] or "",
         submitter_user_id=(
             row["submitter_user_id"]

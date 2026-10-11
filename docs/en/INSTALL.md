@@ -60,8 +60,10 @@ telepost
 
 For private-chat-only use without the API or Mini App, explicitly set `API_REVIEW_REQUIRED=false`
 and `MINIAPP_REVIEW_REQUIRED=false`, leaving `CHAT_REVIEW_REQUIRED=false`.
-The compatibility switch does not let API submissions bypass review; automated submissions still
-need a configured review group.
+The compatibility switch does not let API submissions bypass review: HTTP API submissions are
+**always** reviewed, so without a configured `REVIEW_CHAT_ID` the API fails closed with
+`409 review_chat_not_configured` (it never publishes directly and never writes an invisible review
+row). If you do not need the API at all, turn the entrypoint off with `API_ENABLED=false`.
 
 Upgrade:
 
@@ -71,7 +73,9 @@ python -m pip install --upgrade telepost-bot
 
 ### libvips system dependency
 
-`pyvips` is a ctypes wrapper and does not bundle libvips itself. Install it at the OS level:
+libvips is an **optional** backend for streaming downscaling of very large images;
+without it those images are sent as documents, and the Bot can still start.
+`pyvips` is a ctypes wrapper and does not bundle libvips itself. Install it at the OS level if you need this capability:
 
 | OS | Command |
 |---|---|
@@ -132,7 +136,7 @@ do not rely on `latest`. Plain `docker run` works too:
 
 ```bash
 docker run -d --name telepost --restart unless-stopped \
-  --env-file .env -p 8080:8080 \
+  --env-file .env -p 127.0.0.1:8080:8080 \
   -v "$PWD/data:/app/data" -v "$PWD/logs:/app/logs" \
   ghcr.io/redtidev1918/telepost:<version>
 ```
@@ -140,8 +144,27 @@ docker run -d --name telepost --restart unless-stopped \
 Replace example IDs with your own configuration; the review group and channel must be different
 chats. The container mounts `./data` and `./logs`; back up `data/` before upgrading.
 
+`docker-compose.yml` deliberately **publishes no host port**, so health checks happen inside the
+container and `curl 127.0.0.1:8080/health` on the host is refused. Check health either way:
+
+```bash
+docker compose ps          # the STATUS column reports the healthcheck result
+docker compose exec telepost python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8080/health').read().decode())"
+```
+
+If you really need the HTTP API from the host, bind loopback only — never all interfaces:
+
+```yaml
+# docker-compose.override.yml
+services:
+  telepost:
+    ports:
+      - "127.0.0.1:8080:8080"   # host-local only; "0.0.0.0:8080" exposes the submission API to the network
+```
+
 If you need webhooks, map 8080 yourself and put a public HTTPS reverse proxy in front. Without
-a public address, keep `RUN_MODE=AUTO` or `POLLING`.
+a public address, keep `RUN_MODE=AUTO` or `POLLING`. The submission API is Bearer-token
+authenticated, but exposing it to the internet still widens the attack surface.
 
 ## 4. Run from source
 
@@ -181,7 +204,9 @@ pipeline deploys the same GHCR image to Fly and verifies health and version — 
 1. The bot has joined the channel and may post there.
 2. `OWNER_ID` is a personal user ID, not a group or channel ID.
 3. The review group and the submission channel are different chats.
-4. `curl http://127.0.0.1:8080/health` returns 200.
+4. Health check returns 200: use `curl -fsS http://127.0.0.1:8080/health` for Fly, webhook, and
+   source deployments; Compose publishes no host port, so use `docker compose ps` or
+   `docker compose exec telepost python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8080/health').read().decode())"`.
 5. Send `/start` and one test submission to the bot.
 6. For a webhook deployment, also check the URL, pending count and last error from `getWebhookInfo`.
 

@@ -56,7 +56,9 @@ telepost
 
 仅使用私聊直发、暂不接入 API 和 Mini App 时，可显式设置 `API_REVIEW_REQUIRED=false` 与
 `MINIAPP_REVIEW_REQUIRED=false`，并保持 `CHAT_REVIEW_REQUIRED=false`。
-兼容开关不会允许 API 绕过审核；要接入自动化投稿仍须配置审核群。
+兼容开关不会允许 API 绕过审核：HTTP API 投稿**始终**进入审核，因此只要没有配置
+`REVIEW_CHAT_ID`，API 接口会以 `409 review_chat_not_configured` 失败关闭（不会直发、也不会
+写入看不见的审核行）。确实不需要 API 时，用 `API_ENABLED=false` 关掉 API 入口即可。
 
 升级：
 
@@ -66,7 +68,8 @@ python -m pip install --upgrade telepost-bot
 
 ### libvips 系统依赖
 
-`pyvips` 是 ctypes 封装，不打包 libvips 本体。需要在操作系统层面安装：
+libvips 是**可选**的超大图片流式缩放后端，缺失时自动按文档发送，不阻止 Bot 启动。
+`pyvips` 是 ctypes 封装，不打包 libvips 本体；需要这项能力时在操作系统层面安装：
 
 | 系统 | 命令 |
 |---|---|
@@ -124,7 +127,7 @@ docker compose logs -f telepost
 
 ```bash
 docker run -d --name telepost --restart unless-stopped \
-  --env-file .env -p 8080:8080 \
+  --env-file .env -p 127.0.0.1:8080:8080 \
   -v "$PWD/data:/app/data" -v "$PWD/logs:/app/logs" \
   ghcr.io/redtidev1918/telepost:<version>
 ```
@@ -132,8 +135,26 @@ docker run -d --name telepost --restart unless-stopped \
 将示例 ID 换成自己的配置；审核群与频道必须是不同的会话。
 容器会把 `./data`、`./logs` 挂载出来；升级前备份 `data/`。
 
+`docker-compose.yml` 默认**不映射宿主机端口**，健康检查在容器内完成，直接从宿主机
+`curl 127.0.0.1:8080/health` 会连接被拒绝。用这两种方式检查：
+
+```bash
+docker compose ps          # STATUS 列会显示 healthcheck 结果
+docker compose exec telepost python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8080/health').read().decode())"
+```
+
+确实需要从宿主机访问 HTTP API 时，只绑本机回环地址，不要暴露到所有网卡：
+
+```yaml
+# docker-compose.override.yml
+services:
+  telepost:
+    ports:
+      - "127.0.0.1:8080:8080"   # 仅本机可访问；写成 0.0.0.0:8080 会把投稿 API 暴露给整个网络
+```
+
 需要 Webhook 时自行映射 8080 并提供公网 HTTPS 反向代理；无公网地址保持
-`RUN_MODE=AUTO` 或 `POLLING`。
+`RUN_MODE=AUTO` 或 `POLLING`。投稿 API 有 Bearer token 鉴权，但暴露到公网仍然会扩大攻击面。
 
 ## 4. 源码运行
 
@@ -168,7 +189,9 @@ Fly 并校验健康与版本，详见 [FLYIO_DEPLOYMENT.md § 0](FLYIO_DEPLOYMEN
 1. Bot 已加入频道并有发帖权限。
 2. `OWNER_ID` 是个人用户 ID，不是群或频道 ID。
 3. 审核群与投稿频道不是同一个会话。
-4. `curl http://127.0.0.1:8080/health` 返回 200。
+4. 健康检查返回 200：Fly、Webhook 与源码部署用 `curl -fsS http://127.0.0.1:8080/health`；
+   Compose 未映射宿主机端口，改用 `docker compose ps`，或
+   `docker compose exec telepost python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8080/health').read().decode())"`。
 5. 向 Bot 发送 `/start` 和一次测试投稿。
 6. Webhook 部署再检查 `getWebhookInfo` 的 URL、待处理数和最近错误。
 

@@ -236,7 +236,12 @@ try:
 except (ValueError, TypeError):
     SUBMIT_LIMIT_PER_HOUR = 10
 
-# 投稿审核来源开关。两个开关相互独立，可只审核 API、只审核聊天，或同时审核。
+# 投稿审核来源开关。CHAT_/MINIAPP_ 相互独立，决定对应入口是否进入审核群。
+# API_REVIEW_REQUIRED 是兼容保留键：HTTP API（service token，含 PixivFlow 自动稿）
+# 的处置在 telepost/domain/submission.py 中恒为 REVIEW_REQUIRED，此键既不改变
+# 路由也不改变发布路径；它只参与下面的「启用审核就要求审核群」启动校验与
+# /botconfig 展示。真正的前提是：要接收 API 投稿就必须配置 REVIEW_CHAT_ID，
+# 否则 API 入口以 409 review_chat_not_configured 失败关闭（绝不直发）。
 _api_review_required = get_env_or_config(
     'API_REVIEW_REQUIRED', 'BOT', 'API_REVIEW_REQUIRED', fallback='true'
 )

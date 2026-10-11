@@ -662,6 +662,8 @@ async def test_submission_api_passes_refetch_request_id(refetch_db, monkeypatch)
         return {"id": 1, "telegram_user_id": 7, "name": "pixivflow"} if bearer else None
 
     monkeypatch.setattr(api_server, "authenticate", _authenticate)
+    # API submissions are always review-required → a review group must exist.
+    monkeypatch.setattr(api_server, "REVIEW_CHAT_ID", -100123)
     queue_mock = AsyncMock(return_value={"status": "pending_review", "review_id": 42})
     monkeypatch.setattr("handlers.review.queue_review_from_file_ids", queue_mock)
     application = MagicMock()
@@ -713,6 +715,9 @@ async def test_submission_rejects_unresolved_refetch_provenance(refetch_db, monk
 
     monkeypatch.setattr(api_server, "authenticate", _authenticate)
     monkeypatch.chdir(tmp_path)
+    # Validation still runs before queueing, so a configured review group is
+    # required to observe the 400 provenance contract rather than the 409.
+    monkeypatch.setattr(api_server, "REVIEW_CHAT_ID", -100123)
     queue_mock = AsyncMock()
     monkeypatch.setattr("handlers.review.queue_review_from_file_ids", queue_mock)
     monkeypatch.setattr("handlers.review.queue_review_from_files", queue_mock)

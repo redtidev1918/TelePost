@@ -13,6 +13,22 @@ from telegram import Update
 logger = logging.getLogger(__name__)
 
 
+def build_web_app() -> web.Application:
+    """Create the aiohttp app used by webhook mode.
+
+    All construction goes through this factory (including tests) so the
+    security-header middleware (§71) is wired exactly once and exactly as it
+    runs in production.
+    """
+    from utils.api_server import API_CLIENT_MAX_BYTES
+    from utils.security_headers import security_headers_middleware
+
+    return web.Application(
+        client_max_size=API_CLIENT_MAX_BYTES,
+        middlewares=[security_headers_middleware],
+    )
+
+
 class WebhookServer:
     """Webhook 服务器类"""
     
@@ -172,9 +188,7 @@ class WebhookServer:
 
     async def start(self):
         """启动 Webhook 服务器"""
-        from utils.api_server import API_CLIENT_MAX_BYTES
-
-        self.web_app = web.Application(client_max_size=API_CLIENT_MAX_BYTES)
+        self.web_app = build_web_app()
         
         # 注册路由
         self.web_app.router.add_post(self.path, self.webhook_handler)

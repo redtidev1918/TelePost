@@ -42,6 +42,7 @@ from telepost.application.review_queue import (
     QueueCommand,
     ReviewQueueService,
     normalize_idempotency_key,
+    normalize_review_chat_id,
     work_id_from_link as _work_id_impl,
 )
 from telepost.telegram.delivery.preparation import PHOTO_MAX_BYTES
@@ -333,6 +334,18 @@ def _cleanup_local_files(files):
 
 
 # ---- enqueue --------------------------------------------------------------
+def _row_review_chat_id(source: str) -> str:
+    """Review chat id to persist on the queue row (§review-chat-contract).
+
+    Reject missing configuration before reserving a durable review or staging
+    Telegram messages. Storage still accepts empty values for legacy rows.
+    """
+    chat_id = normalize_review_chat_id(globals().get("REVIEW_CHAT_ID"))
+    if not chat_id:
+        raise ValueError("REVIEW_CHAT_ID is required for review submissions")
+    return chat_id
+
+
 async def queue_review_from_file_ids(
     bot, media, documents, *, tags="", title="", note="", link="",
     anonymous=False, spoiler=False, user_id, username="",
@@ -352,7 +365,7 @@ async def queue_review_from_file_ids(
         link=link, anonymous=anonymous, spoiler=spoiler, source=source,
         idempotency_key=key, target_id=target_id, work_type=work_type,
         work_id=work_id, source_label=source_label, source_ref=source_ref,
-        scheduled_at=scheduled_at, review_chat_id=str(REVIEW_CHAT_ID),
+        scheduled_at=scheduled_at, review_chat_id=_row_review_chat_id(source),
         refetch_request_id=refetch_request_id,
         submitter_user_id=submitter_user_id,
         submitter_username=submitter_username,
@@ -391,7 +404,7 @@ async def queue_review_from_files(
         idempotency_key=key, target_id=target_id, work_type=work_type,
         work_id=resolved_work_id, source_label=source_label,
         source_ref=source_ref, scheduled_at=scheduled_at,
-        review_chat_id=str(REVIEW_CHAT_ID),
+        review_chat_id=_row_review_chat_id(source),
         refetch_request_id=refetch_request_id,
         submitter_user_id=submitter_user_id,
         submitter_username=submitter_username,
@@ -1634,7 +1647,9 @@ async def _apply_review_group_mask(bot, row, mask_on: bool):
     except (TypeError, ValueError, json.JSONDecodeError) as error:
         logger.warning("解析审核群遮罩规格失败，跳过即时改掩: %s", error)
         return
-    chat_id = _row_value(row, "review_chat_id") or REVIEW_CHAT_ID
+    # §review-chat-contract: a legacy row may hold the literal "None"; treat it
+    # as unconfigured so the module-level fallback still applies.
+    chat_id = normalize_review_chat_id(_row_value(row, "review_chat_id")) or REVIEW_CHAT_ID
     async with _MASK_EDIT_LOCK:
         total = len(ids)
         for index, (message_id, spec) in enumerate(zip(ids, specs)):

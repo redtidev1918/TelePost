@@ -626,7 +626,8 @@ Each action appears EXACTLY ONCE in the footer.
   `with_readonline_preview`、`SubmissionText.link_preview_url` 已删除；
   `LinkPreviewOptions` 的「在线阅读」专用分支已移除，其它合法用途不受影响。
 - Telegram 主菜单契约：Mini App 配置可用时主菜单是 `MenuButtonWebApp`；
-  `/commands` 仍全量可用但不再抢主菜单按钮。未配置 Mini App 时回退默认命令菜单。
+  未配置 Mini App 时回退默认命令菜单（`MenuButtonDefault`）。`MenuButtonWebApp`
+  只是 chat 菜单入口，不等于 Telegram 的 "Main Mini App"。
 - 热度契约：views/forwards 是 Telegram Bot API 不提供的字段，禁止在用户界面
   展示恒为 0 的假指标；当前唯一真实互动信号是 `message_reaction_count`，
   ingestion 必须可观测。
