@@ -21,31 +21,19 @@ rankings and tags.
 
 ## What it does
 
-**Submitting** — Readers send photos, videos, GIFs, audio, documents or plain text through the
-bot's private chat or the Mini App. Everything lands in a preview first: add tags, adjust the
-title, note and source link, and turn anonymous or spoiler mode on.
+| Feature | Description |
+| --- | --- |
+| Easy submissions | Send photos, videos, GIFs, audio, documents or plain text from the bot's private chat or the Mini App; the preview fixes tags, title, note and link, and switches on anonymous or spoiler mode. |
+| Review and publishing | The submission and its preview go to your private review group with **✅ Publish to channel / ❌ Reject / 🔇 Spoiler** buttons; automated submissions can **🔄 Refetch** a different candidate, which still needs a human decision. |
+| Mini App | Optional web interface: browse published content, submit and follow your own work on a phone; reviewers and admins handle the review queue, edit text and attachment order, and manage roles and the blacklist. |
+| Search and rankings | `/search` by keyword (with `#tag` and time-range filters), `/tags` for the tag cloud, `/hot` and `/hotweek` for rankings, `/myposts` and `/mystats` for your own submissions and statistics. |
+| Scheduled posts | Commands such as `/schedule add weekly-hot` publish rankings on a schedule. |
+| Automated submissions | An owner generates a token with `/gen_token` and programs submit through the HTTP API; an `idempotency_key` makes retries safe. |
+| AI-assisted review | An optional MCP sidecar lets agents such as Codex or Claude read pending submissions and suggest decisions; no language model is bundled and a human always decides. |
+| Multiple bots, self-hosted | Run several bots on one machine, each with its own channel, review group, language and data directory. |
 
-**Review and publishing** — With review enabled, the submission and its preview go to your private
-review group together with **✅ Publish to channel / ❌ Reject / 🔇 Spoiler** buttons. Automated
-submissions can also use **🔄 Refetch** to ask the upstream service for a different candidate; the
-replacement still needs a human decision. Approved submissions are published in the channel's
-format.
-
-**Mini App** — A web interface that ships with the same program. Readers browse published content,
-submit and follow their own work on a phone; reviewers and admins handle the review queue, edit
-text and attachment order, and manage roles and the blacklist. It is optional and has to be
-enabled.
-
-**Channel content management** — `/search` searches by keyword (with `#tag` and time-range
-filters), `/tags` opens the tag cloud, `/hot` and `/hotweek` show rankings, `/myposts` and
-`/mystats` cover your own submissions and statistics, and `/schedule add weekly-hot` posts a
-ranking on a schedule.
-
-**Automation and AI assistance** — An owner generates an API token with `/gen_token`; programs then
-submit through the HTTP API, where an `idempotency_key` makes retries safe. An optional MCP sidecar
-lets an MCP-capable AI agent read pending submissions and suggest decisions.
-
-Multiple bots, self-hosting and deployment options: [More capabilities](#more-capabilities).
+Default review rules per entry point: [How it works](#how-it-works). Integrations and deployment:
+[More capabilities](#more-capabilities).
 
 ## How it works
 
@@ -53,9 +41,9 @@ Multiple bots, self-hosting and deployment options: [More capabilities](#more-ca
 Reader submits ──▶ Preview and edit ──▶ Review (per entry point) ──▶ Published to the channel
 ```
 
-A reader uploads content in the bot's private chat or the Mini App, confirms tags, title, note,
-link, anonymous and spoiler in the preview, and submits. Whether it goes through review depends on
-the entry point:
+A reader uploads content in the bot's private chat or the Mini App, then confirms tags, title, note,
+link, anonymous and spoiler in the preview. Whether it goes through review depends on the entry
+point:
 
 | Entry point | Default |
 | --- | --- |
@@ -144,9 +132,9 @@ All commands: [Command reference](https://github.com/redtidev1918/TelePost/blob/
 
 ## Mini App (optional)
 
-The Mini App adds a web interface next to the bot: readers browse published content, submit and
-follow their own work on a phone; reviewers and admins handle the review queue, edit text and
-attachment order, and manage roles and the blacklist.
+The Mini App is a web interface that ships with the same program: readers browse published content,
+submit and follow their own work on a phone; reviewers and admins handle the review queue, edit text
+and attachment order, and manage roles and the blacklist.
 
 It does not appear just because the bot is running. It needs a public HTTPS address, a
 `MINIAPP_SESSION_SECRET` and a Telegram-side entry; the frontend is served by the program's own HTTP
@@ -154,9 +142,8 @@ service, so it is only mounted in Webhook mode. If any of that is missing, the e
 does not show up.
 
 Identity comes from Telegram and is verified server-side from `initData`. Opening the URL in a
-normal browser is not a login, and it grants no review or admin rights.
-
-Setup steps: [Telegram Mini App](https://github.com/redtidev1918/TelePost/blob/main/docs/MINIAPP.md) (Chinese).
+normal browser is not a login, and it grants no review or admin rights. Setup steps:
+[Telegram Mini App](https://github.com/redtidev1918/TelePost/blob/main/docs/MINIAPP.md) (Chinese).
 
 ## AI-assisted review (MCP, optional)
 
@@ -176,42 +163,76 @@ and connection setup: [MCP review](https://github.com/redtidev1918/TelePost/blob
   [HTTP API](https://github.com/redtidev1918/TelePost/blob/main/docs/en/API.md).
 - **Multiple bots** — run several bots on one machine, each with its own channel, review group,
   language and data directory.
-- **TXT novels and online reading** — TXT submissions are published as documents; TelePress can
-  optionally build a Telegraph reading page, and a failure never affects the publication.
+- **TXT novels and online reading** — TXT is published as a document; TelePress can optionally build
+  a Telegraph reading page, and a failure never affects the publication.
 - **Webhook and Polling** — Webhook when a public HTTPS address is available, Polling otherwise.
 - **File type filtering** — executables, common scripts and archives are blocked by default in all
   three submission entry points.
 - **Server deployment** — Docker images and a Fly.io setup; backups and runtime state are covered in
   [Operations](https://github.com/redtidev1918/TelePost/blob/main/docs/OPERATIONS.md) (Chinese).
 
+<details>
+<summary>HTTP API submission example</summary>
+
+An owner generates a token in the bot with `/gen_token <name>`; the plaintext is shown only once:
+
+```bash
+curl -X POST 'https://example.com/api/v1/submissions' \
+  -H 'Authorization: Bearer tp_xxxx' \
+  -F 'files=@image.jpg' \
+  -F 'title=Example post' \
+  -F 'tags=illustration' \
+  -F 'idempotency_key=source:123'
+```
+
+Multi-bot deployments use `/api/botN/v1/submissions` instead. API submissions always go through
+review; full fields and limits are in
+[HTTP API](https://github.com/redtidev1918/TelePost/blob/main/docs/en/API.md).
+
+</details>
+
 ## FAQ
 
-**Do I need a server and a domain?**
+<details>
+<summary>Do I need a server and a domain?</summary>
 
 No domain or public HTTPS is required: a machine that stays on, Polling mode, the bot's private chat
 and a review group are enough. Only Webhook mode and the Mini App need a public HTTPS address. See
 [Install and deploy](https://github.com/redtidev1918/TelePost/blob/main/docs/en/INSTALL.md).
 
-**Why was my private-chat submission published directly?**
+</details>
+
+<details>
+<summary>Why was my private-chat submission published directly?</summary>
 
 Private-chat submissions are published after the reader confirms by default
-(`CHAT_REVIEW_REQUIRED=false`). Set it to `true` to send them to the review group first. See
+(`CHAT_REVIEW_REQUIRED=false`). Set it to `true` to send them to the review group first. The Mini App
+and the HTTP API are not affected by this switch and always go through review by default. See
 [Configuration](https://github.com/redtidev1918/TelePost/blob/main/docs/en/CONFIGURATION.md#review).
 
-**Why doesn't the Mini App show up?**
+</details>
+
+<details>
+<summary>Why doesn't the Mini App show up?</summary>
 
 It is optional and needs a public HTTPS address, `MINIAPP_SESSION_SECRET`, Webhook mode and a
 Telegram-side entry; without all of them the entry is not shown. See
 [Telegram Mini App](https://github.com/redtidev1918/TelePost/blob/main/docs/MINIAPP.md) (Chinese).
 
-**Why does the bot not respond?**
+</details>
+
+<details>
+<summary>Why does the bot not respond?</summary>
 
 Check that only one instance uses the bot token, then look at the process, the recent logs and
 `/health`; in Webhook mode also check `getWebhookInfo`. Running the source, a container and an old
 machine at the same time causes a Polling conflict. See
 [Troubleshooting](https://github.com/redtidev1918/TelePost/blob/main/docs/TROUBLESHOOTING.md#bot-完全无响应) (Chinese).
 
-**Where are submission files stored?**
+</details>
+
+<details>
+<summary>Where are submission files stored?</summary>
 
 Under the program's `data/` directory: the submission database `submissions.db`, session state
 `persistence.pickle`, runtime policy `runtime-policy.json`, the search index `search_index` and API
@@ -219,13 +240,18 @@ temporary uploads `api_uploads/`; multiple bots use `data/botN/`. Media itself s
 side and the database only stores references. Keep the whole `data/` directory when upgrading or
 moving. See [Operations](https://github.com/redtidev1918/TelePost/blob/main/docs/OPERATIONS.md) (Chinese).
 
-**Will MCP approve content for me?**
+</details>
+
+<details>
+<summary>Will MCP approve content for me?</summary>
 
 No. TelePost bundles no language model, and MCP is optional: the moderation write tools are only
 registered when the mode is not read-only, and they are limited by both the MCP and review API
 switches. Human confirmation is the recommended workflow, not an enforced one; keeping both layers
 read-only leaves the agent advisory only. See
 [MCP review](https://github.com/redtidev1918/TelePost/blob/main/docs/MCP_REVIEW.md) (Chinese).
+
+</details>
 
 ## Documentation
 
