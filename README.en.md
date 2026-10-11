@@ -10,9 +10,9 @@ Submissions, moderation, and publishing for Telegram channels.
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Documentation](https://img.shields.io/badge/docs-redtidev1918.github.io-6366f1)](https://redtidev1918.github.io/TelePost/)
 
-TelePost is a self-hosted service for submissions, moderation, and publishing on Telegram channels.
-People submit from the Telegram Bot or the Mini App, and other programs submit through the HTTP API;
-every entry point ends up in the same submission, moderation, and publishing flow.
+TelePost runs on your own server. People submit from the Telegram Bot or the Mini App, and other
+programs submit through the HTTP API; whichever entry point they use, every submission goes through
+the same pipeline.
 
 ```text
 Telegram Bot ─────┐
@@ -86,8 +86,7 @@ Send `/cancel` at any step to cancel. See the [command guide](docs/en/COMMANDS.m
 
 Bot private-chat submissions publish directly by default and can be configured
 for review. Automated HTTP API submissions always require review. Mini App submissions require
-review by default, controlled independently by `MINIAPP_REVIEW_REQUIRED`.
-Configure the review chat and reviewers before using moderation; see
+review by default, controlled independently by `MINIAPP_REVIEW_REQUIRED`. Defaults and switches:
 [configuration](docs/en/CONFIGURATION.md).
 
 ## Choose an installation method
