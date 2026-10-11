@@ -22,7 +22,7 @@ from telegram import (
     InputMediaPhoto,
     InputMediaVideo,
 )
-from telegram.error import RetryAfter
+from telegram.error import BadRequest, NetworkError, RetryAfter
 
 from ..application.review_queue import work_id_from_link
 from .delivery.preparation import (
@@ -650,7 +650,7 @@ class TelegramReviewStager:
         last_message_id = None
         album_index = 0
 
-        for family, chunk in runs:
+        for run_index, (family, chunk) in enumerate(runs):
             reply_to = (
                 last_message_id
                 if (self._thread and last_message_id is not None) else None
@@ -669,12 +669,31 @@ class TelegramReviewStager:
                         self._file_id_album(chunk, chunk_caption, spoiler, reply_to)
                     )
                 except Exception as exc:
+                    # A 413 explicitly rejects the request. Keep smaller albums
+                    # in source order rather than degrading the entire gallery
+                    # to singles. Process each part through this loop so sent
+                    # IDs remain available for cleanup if a later part fails.
+                    error_text = str(exc).lower()
+                    if (
+                        "request entity too large" in error_text
+                        or "payload too large" in error_text
+                        or getattr(exc, "status_code", None) == 413
+                    ):
+                        midpoint = len(chunk) // 2
+                        runs[run_index + 1:run_index + 1] = [
+                            (family, chunk[:midpoint]),
+                            (family, chunk[midpoint:]),
+                        ]
+                        logger.warning(
+                            "审核相册上传体积过大，将 %d 个文件拆为 %d + %d",
+                            len(chunk), midpoint, len(chunk) - midpoint,
+                        )
+                        continue
                     # TimedOut / network errors must never degrade to singles:
                     # Telegram may have accepted the album before the response
                     # was lost, and resending would duplicate it. RetryAfter is
                     # already handled (with backoff) inside _send_throttled.
-                    from telegram.error import TimedOut
-                    if isinstance(exc, TimedOut):
+                    if isinstance(exc, NetworkError) and not isinstance(exc, BadRequest):
                         raise
                     logger.warning(
                         "审核相册发送失败（%s），降级为逐张发送 %d 个文件",
