@@ -125,7 +125,7 @@ Mini App 是 TelePost 的可选 Web 前端。
 
 Mini App 与 Bot 共用同一套后端、权限和投稿状态。配置见 [Mini App](docs/MINIAPP.md)。
 
-## 中文 Bot、英文 Bot 与部署
+## 中文 Bot、英文 Bot
 
 同一份程序支持两种语言，默认中文。单 Bot 在 `config.ini` 的 `[BOT]` 节中设置
 `LANGUAGE = en`，或部署时设置环境变量 `BOT_LANGUAGE=en`。改完重启生效。
@@ -140,15 +140,6 @@ BOT2_LANGUAGE=en
 把这两项加到部署平台的环境变量或 Compose 的 `.env` 中。欢迎、帮助、菜单、投稿和审核提示
 使用所选语言，Mini App 默认跟随所属 Bot；用户的标题、标签和正文保留原文。
 完整配置见 [Bot 语言与多 Bot](docs/CONFIGURATION.md#bot-语言与多-bot)。
-
-`run.py` 管理多个 Bot 子进程，每个 Bot 使用独立配置和数据目录。
-父路由对外提供 `/webhook/botN` 和 `/api/botN/v1/*`，子进程端口仅供本机访问。
-
-可以部署在本地服务器、VPS、Docker / Compose 或 Fly.io。没有公网 HTTPS 时使用 Polling；
-需要接收 Telegram Webhook 时使用 Webhook。
-
-Fly.io 参考配置使用 512 MiB 内存、持久卷和常驻服务。PixivFlow 等内容采集器在独立服务中运行，
-通过 HTTP API 投稿。正式发版和生产部署见 [运维手册](docs/OPERATIONS.md)。
 
 ## 文档
 
