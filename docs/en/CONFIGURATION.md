@@ -49,6 +49,7 @@ Aliases `zh-CN`, `zh-Hans`, `en-US` and `en-GB` are accepted; unsupported langua
 | `BOT_MODE` | `MIXED` | `MEDIA`, `DOCUMENT`, or `MIXED` |
 | `BOT_LANGUAGE` | `zh` | Bot and Mini App interface: `zh` / `en`; INI setting is `[BOT] LANGUAGE` |
 | `ALLOWED_FILE_TYPES` | `*` | Document extensions or MIME types, comma-separated |
+| `BLOCKED_FILE_TYPES` | built-in high-risk set | Rejects executables, common scripts and archives by extension or MIME, before the allowlist. Declaring a blocked file as media does not bypass this check. `none` or empty disables it; a custom list replaces the defaults. Use `BOTn_BLOCKED_FILE_TYPES` for individual Bots. This is type filtering, not antivirus scanning; TXT/PDF/MD remain accepted. |
 | `SHOW_SUBMITTER` | `true` | Whether the channel shows the submitter |
 | `NOTIFY_OWNER` | `true` | Whether to durably DM the owner: notified once per logical submission after a review item is queued or a direct post succeeds; refetch/editorial do not re-notify |
 | `CHANNEL_FOOTER_LINK` | empty | Bot address (`https://t.me/<bot>`) for the channel caption footer: generates `✉️ TG 投稿` → `?start=submit`, plus `📱 Mini App` when its CTA is enabled. Empty disables the footer; review control cards carry no public submission CTA |
@@ -357,3 +358,13 @@ Checks (degrade to `SKIP` when a table/column is missing, never crash):
 
 Implementation lives in `telepost/observability/doctor.py` (pure function `run_doctor(*, db_paths, now)`);
 the CLI is only a thin wrapper; the diagnostic logic does not depend on the web app (does not import `run.py` / aiohttp).
+
+## Submission file denylist
+
+Defaults reject executables, common scripts and archives. Either a matching extension or MIME is enough; the allowlist cannot override this decision. Bot chat, API and Mini App enforce the same server-side policy. Normal images, videos, audio and TXT/PDF/MD documents remain accepted. Trailing Windows filename spaces or dots do not bypass extension checks.
+
+Set `BLOCKED_FILE_TYPES` in `[BOT]` for a single Bot, or environment variables for multiple Bots. `BOTn_BLOCKED_FILE_TYPES` overrides the shared setting for Bot N. A custom list replaces all defaults; omit it to retain the complete default set. Use `none` to disable the denylist for a Bot. Docker Compose users must also pass these keys in `environment`.
+
+With a denylist or allowlist enabled, JSON `documents` must include `filename`; missing metadata returns `file_metadata_required`. Multipart uploads are checked even if declared as images or audio; rejected types return `blocked_file_type`. Review requirements and ownership are unchanged.
+
+This feature does not scan file contents. Renamed executables, malicious PDFs and other allowed types can still pose risks. Archives are not unpacked or scanned, so the defaults reject them. [OWASP's file upload guidance](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html) treats file type checks and antivirus scanning as separate controls and warns that client MIME types can be spoofed.

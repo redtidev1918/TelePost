@@ -11,7 +11,7 @@
 [![Documentation](https://img.shields.io/badge/docs-redtidev1918.github.io-6366f1)](https://redtidev1918.github.io/TelePost/)
 
 TelePost 自托管在你自己的服务器上。投稿来自 Telegram Bot、Mini App 或 HTTP API；
-无论从哪个入口进入，后续流程完全相同。
+三个入口共用投稿与发布服务，是否需要审核由各自的来源策略决定。
 
 ```text
 Telegram Bot ─────┐
@@ -29,6 +29,8 @@ HTTP API ─────────┘
 | 用户自助 | Mini App 浏览内容、投稿、查看自己的投稿 |
 | 自动化集成 | Bearer Token、文件上传、幂等提交，避免重复投稿 |
 | 自托管运行 | 多 Bot 独立配置与数据目录，SQLite 持久化，重启后恢复 |
+
+投稿默认拦截可执行文件、常见脚本和压缩包；图片、视频及 TXT/PDF/MD 等可正常投稿。管理员可配置[文件类型黑名单](docs/CONFIGURATION.md)。这是类型限制，不进行病毒扫描。
 
 ## 快速开始
 

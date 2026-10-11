@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { bootstrapSession, clearSession } from '../api/client';
+import { ApiError, bootstrapSession, clearSession } from '../api/client';
 import { navigationForSpace } from '../lib/navigation';
 import { reviewStatusLabel } from '../lib/reviewStatus';
 import { setBotLanguage, tr } from '../lib/i18n';
@@ -13,6 +13,16 @@ afterEach(async () => {
 });
 
 describe('Mini App languages', () => {
+  it('explains file policy rejections in the Bot language', async () => {
+    await setBotLanguage('en');
+    expect(new ApiError(400, 'blocked_file_type', '服务器中文提示').message)
+      .toBe('This file type is blocked. Send images, videos or TXT/PDF/MD documents instead.');
+    expect(new ApiError(400, 'file_metadata_required', '服务器中文提示').message)
+      .toBe('Provide the document filename so its file type can be checked.');
+    await setBotLanguage('zh');
+    expect(new ApiError(400, 'blocked_file_type', 'server message').message)
+      .toContain('此文件类型已被拦截');
+  });
   it('uses the authenticated Bot language for navigation and status labels', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       ok: true, data: { token: 'synthetic-session', expires_in: 1800, bot_language: 'en', user: { telegram_user_id: 42 } },
