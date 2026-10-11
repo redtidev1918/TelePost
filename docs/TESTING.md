@@ -102,6 +102,8 @@ pytest -q tests/test_bot_language.py tests/test_production_handler_graph.py
 Mini App 的目录在 `webapp/src/locales/zh.json` 和 `en.json`，使用 react-i18next。
 两个目录的插值字段必须一致；动态用户名、标题、标签和正文只作为参数传入，绝不当作待翻译文案。
 附件选择、去重和进度仍由 Uppy 管理，语言切换只调用 `setOptions({ locale })`。
+冻结程序显式打包 `ui/locales`；不要依赖开发环境的包搜索路径来收集目录。
+Windows 发行构建在干净环境中用英文配置启动，缺少翻译文件会阻断发布。
 运行 `npm run typecheck`、`npm run lint`、`npm test` 和 `npm run build`，
 英文界面还由 `e2e/language.spec.ts` 验证小屏导航、投稿和审核。
 
