@@ -4,7 +4,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: TelePost\n"
+"Project-Id-Version:  TelePost\n"
 "Report-Msgid-Bugs-To: https://github.com/redtidev1918/TelePost/issues\n"
 "POT-Creation-Date: 2026-10-11 07:15+0800\n"
 "PO-Revision-Date: 2026-10-11 07:15+0800\n"
@@ -1195,6 +1195,22 @@ msgstr "⚠️ Could not remove the search index entry\n"
 
 msgid "⚠️ 无法读取计划状态，请稍后再试。"
 msgstr "⚠️ Could not read schedule status. Please try again later."
+
+#, python-brace-format
+msgid ""
+"⚠️ 暂不支持此类文件，已被自动拦截。\n"
+"\n"
+"📄 文件：{p0}\n"
+"\n"
+"这是为了防止可执行软件或压缩包被当作普通投稿上传。\n"
+"可改发图片、视频、GIF、音频或文本文档（如 TXT、PDF、MD）。"
+msgstr ""
+"⚠️ This file type is not accepted and was blocked automatically.\n"
+"\n"
+"📄 File: {p0}\n"
+"\n"
+"This blocks executables and archives from being submitted as regular posts.\n"
+"Send images, videos, GIFs, audio or text documents (TXT, PDF, MD) instead."
 
 msgid "⚠️ 未知编辑项，已返回预览"
 msgstr "⚠️ Unknown field. Returning to the preview."

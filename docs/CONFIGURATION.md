@@ -48,6 +48,7 @@ Bot 的欢迎、帮助、菜单、命令说明、投稿与审核提示使用所�
 | `BOT_MODE` | `MIXED` | `MEDIA`、`DOCUMENT` 或 `MIXED` |
 | `BOT_LANGUAGE` | `zh` | Bot 与 Mini App 界面语言：`zh` / `en`；INI 对应 `[BOT] LANGUAGE` |
 | `ALLOWED_FILE_TYPES` | `*` | 文档扩展名或 MIME，逗号分隔 |
+| `BLOCKED_FILE_TYPES` | 内置危险类型集 | 投稿文件黑名单（扩展名 / MIME / 通配 MIME）：默认可执行软件、脚本与不可杀毒的压缩包，防止带毒文件；媒体类（图片/视频/GIF/音频）不受限制，TXT/PDF/MD 等文本文档不受影响。Bot 私聊、HTTP API 与 Mini App 投稿统一执行；`none` 或空串关闭，自定义列表整体覆盖默认 |
 | `SHOW_SUBMITTER` | `true` | 频道是否显示投稿人 |
 | `NOTIFY_OWNER` | `true` | 是否 durable 私聊 Owner：审核稿入队成功或直发成功后各按 logical submission 通知一次；refetch/editorial 不重复 |
 | `CHANNEL_FOOTER_LINK` | 空 | 频道 caption 页脚的 Bot 地址（`https://t.me/<bot>`）：生成 `✉️ TG 投稿` → `?start=submit`；启用 Mini App CTA 后增加 `📱 Mini App`。空值关闭页脚，审核控制卡不携带公共投稿 CTA |

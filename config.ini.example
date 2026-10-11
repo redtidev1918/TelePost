@@ -35,6 +35,11 @@ BOT_MODE = MIXED
 # 允许的文档类型（扩展名或MIME，逗号分隔），留空或 * 表示允许所有
 ALLOWED_FILE_TYPES = *
 
+# 投稿默认拦截的危险文件类型（黑名单，默认开启）：可执行软件、脚本与不可杀毒的压缩包。
+# 媒体类（图片/视频/GIF/音频）不受限制；文本文档如 TXT、PDF、MD 可正常投稿。
+# 自定义：BLOCKED_FILE_TYPES = .exe,.zip（整体覆盖内置列表）；关闭：BLOCKED_FILE_TYPES = none
+# BLOCKED_FILE_TYPES =
+
 # 投稿频率限制：每用户每小时最多发起投稿次数（0 为关闭），默认 10
 SUBMIT_LIMIT_PER_HOUR = 10
 

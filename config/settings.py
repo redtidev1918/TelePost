@@ -168,6 +168,23 @@ BOT_MODE = get_env_or_config('BOT_MODE', 'BOT', 'BOT_MODE', fallback='MIXED')
 # 允许的文件类型配置
 ALLOWED_FILE_TYPES = get_env_or_config('ALLOWED_FILE_TYPES', 'BOT', 'ALLOWED_FILE_TYPES', fallback='*')
 
+# 投稿默认拦截的危险文件类型（黑名单，媒体类 photo/video/animation/audio 不受限制）：
+# 可执行软件、脚本与不可杀毒的压缩包——防止用户上传带毒文件。支持扩展名 / MIME / 通配 MIME，
+# 与 ALLOWED_FILE_TYPES 同款语法。设为"none"或空串即可完全关闭黑名单。
+DEFAULT_BLOCKED_FILE_TYPES = (
+    ".exe,.msi,.com,.scr,.bat,.cmd,.ps1,.vbs,.js,.jar,.sh,.apk,.app,"
+    ".deb,.rpm,.dmg,.iso,.elf,.bin,.msi,.msp,.scr,.com,.gadget,"
+    ".zip,.rar,.7z,.tar,.gz,.tgz,.bz2,.xz,.cab"
+)
+
+_BLOCKED_FILE_TYPES_RAW = (
+    get_env_or_config('BLOCKED_FILE_TYPES', 'BOT', 'BLOCKED_FILE_TYPES',
+                      fallback=DEFAULT_BLOCKED_FILE_TYPES)
+    or ""
+).strip().lower()
+# "none"/空 = 关闭黑名单；自定义列表则整体覆盖默认值。
+BLOCKED_FILE_TYPES = "" if _BLOCKED_FILE_TYPES_RAW in ("", "none") else _BLOCKED_FILE_TYPES_RAW
+
 # Webhook 与运行模式配置。AUTO 在存在有效公网 HTTPS URL 时选择 Webhook，
 # 否则使用 Polling；run.py 多 bot 启动器会通过 RUN_MODE_REQUESTED 保留原始选择。
 WEBHOOK_URL = get_env_or_config('WEBHOOK_URL', 'WEBHOOK', 'URL', fallback='')
@@ -400,6 +417,7 @@ logger.info(f"  - CHAT_REVIEW_REQUIRED: {CHAT_REVIEW_REQUIRED}")
 logger.info(f"  - REVIEW_CHAT_ID: {REVIEW_CHAT_ID if REVIEW_CHAT_ID else '未设置'}")
 logger.info(f"  - CHANNEL_FOOTER_LINK: {CHANNEL_FOOTER_LINK if CHANNEL_FOOTER_LINK else '未设置（不追加 footer）'}")
 logger.info(f"  - ALLOWED_FILE_TYPES: {ALLOWED_FILE_TYPES}")
+logger.info(f"  - BLOCKED_FILE_TYPES: {BLOCKED_FILE_TYPES if BLOCKED_FILE_TYPES else '已关闭'}")
 if RUN_MODE != "WEBHOOK":
     try:
         from handlers.publish import CHANNEL_ALBUM_REPLY as _album_reply
