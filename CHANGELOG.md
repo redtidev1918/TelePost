@@ -8,12 +8,27 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.83.0](https://github.com/redtidev1918/TelePost/compare/v2.82.0...v2.83.0) (2026-10-11)
+
+
+### Features
+
+* 投稿默认拦截可执行文件、常见脚本和压缩包，私聊、Mini App 与 HTTP API 都会检查；正常图片、音视频和 TXT、PDF、Markdown 文档仍可投稿。多个 Bot 可分别配置拦截范围。([#322](https://github.com/redtidev1918/TelePost/pull/322))
+* 拦截提示支持中英文，入门文档补充配置方法与限制：文件类型过滤不等于病毒扫描。
+* 使用已上传文件标识投稿的 API 客户端，在文档过滤开启时必须同时提供原文件名。
+
+
+### Bug Fixes
+
+* 大相册因整组上传体积过大被拒绝时，按原顺序拆成较小相册，不再整组退成逐张消息。网络超时不会盲目重发。([#324](https://github.com/redtidev1918/TelePost/pull/324))
+
 ## [2.82.0](https://github.com/redtidev1918/TelePost/compare/v2.81.6...v2.82.0) (2026-10-11)
 
 
 ### Features
 
-* **i18n:** selectable Chinese and English Bot and Mini App ([#317](https://github.com/redtidev1918/TelePost/issues/317)) ([b4f4d56](https://github.com/redtidev1918/TelePost/commit/b4f4d56c14ce775bc7786123184c0bc85b3ad2dc))
+* Bot 与 Mini App 支持中文和英文。多个 Bot 可以分别选择语言，Mini App 跟随所属 Bot；投稿内容保留原文。([#317](https://github.com/redtidev1918/TelePost/pull/317))
+* 中英文入门文档补充 Windows 启动命令、首次投稿步骤和语言选择说明。
 
 
 ### Bug Fixes
