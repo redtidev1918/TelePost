@@ -24,6 +24,8 @@ from typing import Any, List, Optional
 
 import aiosqlite
 
+from ...domain.review_chat import normalize_review_chat_id
+
 _BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
 _TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
 
@@ -165,7 +167,7 @@ class ReviewRepository:
                 _plain_text(review.note),
                 review.link, int(review.anonymous), int(review.spoiler),
                 json.dumps(review.media), json.dumps(review.documents),
-                str(review.review_chat_id),
+                normalize_review_chat_id(review.review_chat_id),
                 json.dumps(review.review_message_ids),
                 json.dumps(review.review_message_specs),
                 review.target_id, review.source_label, review.source_ref,

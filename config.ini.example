@@ -44,13 +44,38 @@ ALLOWED_FILE_TYPES = *
 SUBMIT_LIMIT_PER_HOUR = 10
 
 # 是否将 HTTP API 投稿先发送到私有审核群
+# 兼容保留：API 投稿（含 PixivFlow 自动稿）固定进入审核，此开关无法让 API 绕过审核
 API_REVIEW_REQUIRED = true
 
-# 是否将 Telegram 聊天 /submit 投稿先发送到私有审核群
+# 是否将 Telegram 聊天 /submit 投稿先发送到私有审核群（默认 false = 直接发布）
 CHAT_REVIEW_REQUIRED = false
 
-# 私有审核群 ID，任一审核开关为 true 时必填
+# 是否将 Mini App 投稿先发送到私有审核群（独立开关，默认 true）
+MINIAPP_REVIEW_REQUIRED = true
+
+# 私有审核群 ID，任一审核开关为 true 时必填（且不能与发布频道相同）
 # REVIEW_CHAT_ID = -1001234567890
+
+# ---------- Mini App（可选）----------
+# 是否启用 Mini App 界面。默认 true；只有显式写 false/0/no/off 才关闭。
+MINIAPP_ENABLED = true
+
+# Mini App 的「热门 / 文章详情 / 文章媒体」浏览页（默认 true，独立于投稿流程）
+MINIAPP_CONTENT_ENABLED = true
+
+# 频道帖子 footer 是否追加 📱 Mini App 投稿入口（默认 false）
+# MINIAPP_SUBMIT_CTA = false
+
+# 公网 HTTPS 的 Mini App 地址。留空时取 WEBHOOK_URL + /app/；
+# 两者都没有时聊天菜单按钮不会出现（Mini App 需要 HTTPS，普通 Polling Bot 不需要）。
+# MINIAPP_PUBLIC_URL = https://your-domain.com/app/
+
+# BotFather 里绑定的 Direct Mini App short name（可选）
+# MINIAPP_SHORT_NAME =
+
+# 注意：MINIAPP_SESSION_SECRET（≥32 字符随机串）与 MINIAPP_SESSION_TTL（秒，默认 1800）
+# 只从环境变量读取，写在本文件里不生效，必须用环境变量 / .env 注入。
+# 缺失或不足 32 字符时 Mini App 会话签发直接失败（不会降级放行）。
 
 # 运行模式: AUTO (自动) | POLLING (轮询) | WEBHOOK (Webhook)
 # - AUTO: 默认；存在有效公网 HTTPS WEBHOOK_URL 时使用 Webhook，否则 Polling

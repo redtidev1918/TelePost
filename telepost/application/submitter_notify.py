@@ -21,6 +21,7 @@ import logging
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
+from telepost.domain.review_chat import normalize_review_chat_id
 from telepost.storage.sqlite.submitter_notifications import (
     SubmitterNotificationRepository,
 )
@@ -212,7 +213,9 @@ def format_manager_acceptance(payload: Dict[str, Any]) -> tuple[str, Optional[di
     lines.append(tr('状态：{p0}').format(p0=statuses.get(status, status)))
     if review_id:
         lines.append(tr('审核稿：#{p0}').format(p0=int(review_id)))
-    review_chat = str(payload.get("review_chat_id") or "").replace("@", "")
+    # §review-chat-contract: an unconfigured chat is "", never "None"; a legacy
+    # payload carrying the literal string must not render a t.me/c/None/ link.
+    review_chat = normalize_review_chat_id(payload.get("review_chat_id")).replace("@", "")
     control_msg = payload.get("control_message_id")
     if review_chat and control_msg:
         lines.append(tr('🔗 审核：https://t.me/c/{p0}/{p1}').format(p0=review_chat.replace('-100', ''), p1=int(control_msg)))

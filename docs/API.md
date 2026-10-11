@@ -141,6 +141,11 @@ curl -X POST 'https://example.com/api/bot1/v1/submissions' \
 > Slot 状态机。字段按单行纯文本处理（去除控制字符），只出现在纯文本审核控制卡，不进入
 > HTML 频道正文。
 
+自动化 API 投稿固定进入审核，`API_REVIEW_REQUIRED=false` 不能关闭它。未配置
+`REVIEW_CHAT_ID` 时，投稿在解析正文与暂存媒体之前返回
+`409 review_chat_not_configured`，不创建审核记录、不直接发布。Mini App 真人投稿
+独立遵循 `MINIAPP_REVIEW_REQUIRED`，需要审核时使用同一配置检查。
+
 上传按 64 KiB 流式写入 `data/api_uploads/<request>`，正常返回和错误都会清理；异常中断
 遗留目录由后台清扫。父路由同样流式转发，不会把 500 MiB 请求整体读入内存。
 

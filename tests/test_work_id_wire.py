@@ -70,6 +70,9 @@ def _submission_app(monkeypatch):
                         AsyncMock(return_value=_SERVICE_PRINCIPAL))
     monkeypatch.setattr(api_server, "_rate_cache",
                         TTLCache(default_ttl=3600, max_size=4096))
+    # API submissions are always review-required, so a review group must exist
+    # before the wire payload can reach the queueing path.
+    monkeypatch.setattr(api_server, "REVIEW_CHAT_ID", -1001234567890)
     queue_mock = AsyncMock(return_value={
         "status": "pending_review", "review_id": 42,
         "media_count": 1, "document_count": 0,
