@@ -10,8 +10,8 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Documentation](https://img.shields.io/badge/docs-redtidev1918.github.io-6366f1)](https://redtidev1918.github.io/TelePost/)
 
-TelePost 是一个自托管服务，用于 Telegram 频道的投稿、审核和发布。用户可以通过 Telegram Bot
-或 Mini App 投稿，其他程序可以通过 HTTP API 提交内容；所有入口最终进入同一套投稿、审核和发布流程。
+TelePost 自托管在你自己的服务器上。投稿来自 Telegram Bot、Mini App 或 HTTP API；
+无论从哪个入口进入，后续流程完全相同。
 
 ```text
 Telegram Bot ─────┐
@@ -83,7 +83,7 @@ REVIEW_CHAT_ID = <你的审核群ID>
 随时发送 `/cancel` 取消，完整命令见 [投稿流程](docs/COMMANDS.md)。
 
 Bot 私聊投稿默认直接发布，可配置为先审核；HTTP API 自动化投稿固定需要审核；
-Mini App 默认需要审核，由独立的 `MINIAPP_REVIEW_REQUIRED` 控制。需要审核时，先配置审核群与审核人，参见
+Mini App 默认需要审核，由独立的 `MINIAPP_REVIEW_REQUIRED` 控制。默认值与开关见
 [配置参考](docs/CONFIGURATION.md)。
 
 ## 选择安装方式
