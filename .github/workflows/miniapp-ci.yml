@@ -41,6 +41,11 @@ jobs:
           CHANNEL_ID: '@test'
           OWNER_ID: '123456789'
         run: python -m pytest -q ${{ runner.os == 'Windows' && '--no-cov -o log_cli=false' || '' }}
+      - name: Validate Compose configuration and installer syntax
+        if: runner.os == 'Linux'
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+          bash -n install.sh
 
   webapp:
     # Skip release-please PRs (authored by github-actions[bot]): GitHub holds their
