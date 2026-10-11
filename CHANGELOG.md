@@ -13,19 +13,22 @@
 
 ### Features
 
-* **upload:** block dangerous file types by default across all submission entries ([#322](https://github.com/redtidev1918/TelePost/issues/322)) ([874f916](https://github.com/redtidev1918/TelePost/commit/874f91605ac91df48b132a3a2449c86607b026e0))
+* 投稿默认拦截可执行文件、常见脚本和压缩包，私聊、Mini App 与 HTTP API 都会检查；正常图片、音视频和 TXT、PDF、Markdown 文档仍可投稿。多个 Bot 可分别配置拦截范围。([#322](https://github.com/redtidev1918/TelePost/pull/322))
+* 拦截提示支持中英文，入门文档补充配置方法与限制：文件类型过滤不等于病毒扫描。
+* 使用已上传文件标识投稿的 API 客户端，在文档过滤开启时必须同时提供原文件名。
 
 
 ### Bug Fixes
 
-* retain ordered review albums after oversized uploads ([#324](https://github.com/redtidev1918/TelePost/issues/324)) ([2df1060](https://github.com/redtidev1918/TelePost/commit/2df1060865330b496929bdf873250b550b7b3b46))
+* 大相册因整组上传体积过大被拒绝时，按原顺序拆成较小相册，不再整组退成逐张消息。网络超时不会盲目重发。([#324](https://github.com/redtidev1918/TelePost/pull/324))
 
 ## [2.82.0](https://github.com/redtidev1918/TelePost/compare/v2.81.6...v2.82.0) (2026-10-11)
 
 
 ### Features
 
-* **i18n:** selectable Chinese and English Bot and Mini App ([#317](https://github.com/redtidev1918/TelePost/issues/317)) ([b4f4d56](https://github.com/redtidev1918/TelePost/commit/b4f4d56c14ce775bc7786123184c0bc85b3ad2dc))
+* Bot 与 Mini App 支持中文和英文。多个 Bot 可以分别选择语言，Mini App 跟随所属 Bot；投稿内容保留原文。([#317](https://github.com/redtidev1918/TelePost/pull/317))
+* 中英文入门文档补充 Windows 启动命令、首次投稿步骤和语言选择说明。
 
 
 ### Bug Fixes
