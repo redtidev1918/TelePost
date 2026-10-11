@@ -14,6 +14,7 @@ from config.settings import (
     MODE_MEDIA,
     MODE_DOCUMENT,
     ALLOWED_FILE_TYPES,
+    BLOCKED_FILE_TYPES,
     MAX_SUBMISSION_FILES,
 )
 from models.state import STATE
@@ -22,13 +23,23 @@ from utils.submission import classify_message, entry_kind, append_entry, get_ses
 
 logger = logging.getLogger(__name__)
 
-_file_validator = create_file_validator(ALLOWED_FILE_TYPES)
+_file_validator = create_file_validator(ALLOWED_FILE_TYPES, BLOCKED_FILE_TYPES)
 
 
 async def handle_upload(update: Update, context: CallbackContext) -> int:
     """接收一条媒体/文档消息，归类后追加到会话。"""
     user_id = update.effective_user.id
     message = update.message
+
+    # Check Telegram file metadata before MIME-based media classification.
+    attachment = message.document or message.video or message.animation or message.audio
+    if attachment and _file_validator.is_blocked(attachment.file_name, attachment.mime_type):
+        from ui.messages import MessageFormatter
+        await message.reply_text(
+            MessageFormatter.upload_blocked_type(attachment.file_name, ""),
+            parse_mode="HTML",
+        )
+        return STATE["UPLOAD"]
 
     entry = classify_message(message)
     if entry is None:
@@ -46,6 +57,16 @@ async def handle_upload(update: Update, context: CallbackContext) -> int:
         if BOT_MODE == MODE_MEDIA:
             from ui.messages import MessageFormatter
             await message.reply_text(MessageFormatter.upload_mode_limited("document"), parse_mode="HTML")
+            return STATE["UPLOAD"]
+        blocked = _file_validator.is_blocked(message.document.file_name, message.document.mime_type)
+        if blocked:
+            from ui.messages import MessageFormatter
+            await message.reply_text(
+                MessageFormatter.upload_blocked_type(
+                    message.document.file_name, _file_validator.get_blocked_description()
+                ),
+                parse_mode="HTML",
+            )
             return STATE["UPLOAD"]
         if not _file_validator.validate(message.document.file_name, message.document.mime_type)[0]:
             await message.reply_text(

@@ -10,9 +10,14 @@ logger = logging.getLogger(__name__)
 
 
 class FileTypeValidator:
-    """文件类型验证器"""
+    """文件类型验证器
     
-    def __init__(self, allowed_types: str):
+    组合两层策略：
+    - blocked 黑名单：命中文件类型一律拒绝；不执行内容杀毒；
+    - allowed 白名单：非空时，文档还须落在白名单内（历史行为，默认 ``*`` 不限制）。
+    """
+    
+    def __init__(self, allowed_types: str, blocked_types: str = ""):
         """
         初始化文件类型验证器
         
@@ -22,6 +27,8 @@ class FileTypeValidator:
                           - 逗号分隔的扩展名：如 ".pdf,.zip,.rar"
                           - 逗号分隔的MIME类型：如 "application/pdf,application/zip"
                           - 混合格式：如 ".pdf,application/zip,.rar"
+            blocked_types: 拦截的文件类型配置字符串（空串 = 不启用黑名单）
+                          - 支持扩展名 / MIME / 通配 MIME，与 allowed_types 同款语法
         """
         self.allowed_types = allowed_types.strip() if allowed_types else "*"
         self.allow_all = self.allowed_types == "*" or self.allowed_types == ""
@@ -43,10 +50,28 @@ class FileTypeValidator:
                     # 没有点的扩展名，自动添加点
                     self.allowed_extensions.add(f".{t}")
         
+        # 解析拦截类型（黑名单）
+        self.blocked_types = blocked_types.strip().lower() if blocked_types else ""
+        if self.blocked_types == "none":
+            self.blocked_types = ""
+        self.blocked_extensions = set()
+        self.blocked_mime_types = set()
+        
+        if self.blocked_types:
+            for t in [t.strip().lower() for t in self.blocked_types.split(',') if t.strip()]:
+                if t.startswith('.'):
+                    self.blocked_extensions.add(t)
+                elif '/' in t:
+                    self.blocked_mime_types.add(t)
+                else:
+                    self.blocked_extensions.add(f".{t}")
+        
         logger.info(f"文件类型验证器初始化完成:")
         logger.info(f"  - 允许所有类型: {self.allow_all}")
         logger.info(f"  - 允许的扩展名: {self.allowed_extensions}")
         logger.info(f"  - 允许的MIME类型: {self.allowed_mime_types}")
+        logger.info(f"  - 拦截扩展名: {self.blocked_extensions}")
+        logger.info(f"  - 拦截MIME类型: {self.blocked_mime_types}")
     
     def validate(self, file_name: Optional[str], mime_type: Optional[str]) -> Tuple[bool, str]:
         """
@@ -95,6 +120,67 @@ class FileTypeValidator:
         logger.warning(f"文件类型验证失败: 文件名={file_name}, MIME={mime_type}")
         return False, error_msg
     
+    def is_blocked(self, file_name: Optional[str], mime_type: Optional[str]) -> bool:
+        """
+        文件是否命中黑名单
+        
+        Args:
+            file_name: 文件名
+            mime_type: MIME类型
+            
+        Returns:
+            bool: 命中黑名单返回 True
+        """
+        if not self.blocked_extensions and not self.blocked_mime_types:
+            return False
+        
+        normalized_name = (file_name or "").lower().rstrip(" .")
+        file_ext = os.path.splitext(normalized_name)[1]
+        normalized_mime = (mime_type or "").split(";", 1)[0].strip().lower()
+        
+        if file_ext and file_ext in self.blocked_extensions:
+            return True
+        if normalized_mime and normalized_mime in self.blocked_mime_types:
+            return True
+        if normalized_mime:
+            for blocked_mime in self.blocked_mime_types:
+                if blocked_mime.endswith('/*'):
+                    if normalized_mime.startswith(blocked_mime[:-2] + '/'):
+                        return True
+        return False
+    
+    def check_document(self, file_name: Optional[str], mime_type: Optional[str]) -> Tuple[bool, str]:
+        """
+        文档（非媒体）的统一准入策略：先黑名单后白名单。
+        
+        Args:
+            file_name: 文件名
+            mime_type: MIME类型
+            
+        Returns:
+            Tuple[bool, str]: (是否允许, 拒绝原因或空字符串)
+                - "blocked"   命中黑名单
+                - "not_allowed" 不在白名单内
+                - ""           允许
+        """
+        if self.is_blocked(file_name, mime_type):
+            return False, "blocked"
+        if self.allow_all:
+            return True, ""
+        ok, _ = self.validate(file_name, mime_type)
+        return (True, "") if ok else (False, "not_allowed")
+    
+    def get_blocked_description(self) -> str:
+        """获取黑名单描述（用于提示用户）。"""
+        if not self.blocked_extensions and not self.blocked_mime_types:
+            return "无"
+        parts = []
+        if self.blocked_extensions:
+            parts.append("扩展名: " + ", ".join(sorted(self.blocked_extensions)))
+        if self.blocked_mime_types:
+            parts.append("类型: " + ", ".join(sorted(self.blocked_mime_types)))
+        return "\n".join(parts)
+
     def _generate_error_message(self, file_name: Optional[str], mime_type: Optional[str]) -> str:
         """
         生成用户友好的错误消息
@@ -159,15 +245,16 @@ class FileTypeValidator:
         return "\n".join(descriptions) if descriptions else "无限制"
 
 
-def create_file_validator(allowed_types: str) -> FileTypeValidator:
+def create_file_validator(allowed_types: str, blocked_types: str = "") -> FileTypeValidator:
     """
     创建文件类型验证器的工厂函数
     
     Args:
         allowed_types: 允许的文件类型配置字符串
+        blocked_types: 拦截的文件类型配置字符串（空串 = 不启用黑名单）
         
     Returns:
         FileTypeValidator: 文件类型验证器实例
     """
-    return FileTypeValidator(allowed_types)
+    return FileTypeValidator(allowed_types, blocked_types)
 

@@ -436,6 +436,20 @@ class MessageFormatter:
 请发送压缩包、PDF 等文件，或以附件发送图片。""")
 
     @staticmethod
+    def upload_blocked_type(file_name: str, blocked_desc: str) -> str:
+        """命中文件类型黑名单时的拒绝提示。"""
+        from html import escape
+        name = escape(file_name or "未知文件")
+        return (
+            tr("""⚠️ 暂不支持此类文件，已被自动拦截。
+
+📄 文件：{p0}
+
+这是为了防止可执行软件或压缩包被当作普通投稿上传。
+可改发图片、视频、GIF、音频或文本文档（如 TXT、PDF、MD）。""").format(p0=name)
+        )
+
+    @staticmethod
     def upload_max_files(max_files: int) -> str:
         return (
             tr("""⚠️ 单条投稿最多 {p0} 个文件。

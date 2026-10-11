@@ -31,6 +31,8 @@ HTTP API ─────────┘
 | Integrate automation | Bearer tokens, file uploads, and idempotent submissions |
 | Self-host | Isolated multi-bot configuration and storage, SQLite persistence, restart recovery |
 
+Submissions reject executables, common scripts and archives by default. Images, videos and TXT/PDF/MD documents remain accepted. Administrators can configure the [file type denylist](docs/en/CONFIGURATION.md). This filters types; it does not scan for malware.
+
 ## Quick start
 
 Have your bot token, target channel, numeric user ID and a separate review group ready.

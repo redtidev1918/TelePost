@@ -398,3 +398,7 @@ With `CHANNEL_ALBUM_REPLY=discussion`, the channel root keeps the first image gr
 first, files after); overflow images/files go to the image/file threads of the linked discussion group respectively. For novel submissions only the TXT
 document remains the download attachment. The root uses a real cover, then a fallback card, or the TXT alone
 if card generation is unavailable. Inline body images appear only on the Telegraph reading page.
+
+### Submission file type policy
+
+Bot, API and Mini App use the same denylist. A blocked extension or MIME returns HTTP 400 `blocked_file_type`, including files declared as images or audio. When a denylist or allowlist is enabled, each JSON `documents` item must include `filename`; otherwise the response is `file_metadata_required`. Existing file_id clients must provide filenames. Type checks do not scan content or guarantee that accepted files are malware-free.

@@ -397,3 +397,7 @@ pending ──批准──▶ publishing ──▶ published ──删帖──�
 前、文件在后），溢出图片/文件分别进入关联讨论组的图片串/文件串。小说投稿只把 TXT
 document 作为下载附件，主贴优先使用真实封面、其次使用 fallback 卡片，生成失败时回退 TXT。
 正文内嵌图片只渲染在 Telegraph 在线阅读页。
+
+### 投稿文件类型限制
+
+Bot、API 与 Mini App 使用相同的类型黑名单。命中扩展名或 MIME 的文件返回 HTTP 400 `blocked_file_type`；声明为图片或音频不能绕过检查。启用黑名单或白名单时，JSON `documents` 每项必须带 `filename`，缺失返回 `file_metadata_required`；既有 file_id 客户端应补齐文件名。类型检查不扫描文件内容，也不保证放行文件无病毒。

@@ -42,6 +42,9 @@ primary_region = ""
   # 只有 webhook 模式能保证多 bot 同机 + 即时响应。
   RUN_MODE = "WEBHOOK"
 
+  # Both production Bots inherit this explicit file policy. Not antivirus scanning.
+  BLOCKED_FILE_TYPES = ".exe,.msi,.com,.scr,.bat,.cmd,.ps1,.vbs,.js,.jar,.sh,.apk,.app,.deb,.rpm,.dmg,.iso,.elf,.bin,.msp,.gadget,.pif,.hta,.jse,.vbe,.wsf,.lnk,.zip,.rar,.7z,.tar,.gz,.tgz,.bz2,.xz,.cab,application/x-msdownload,application/x-msdos-program,application/x-msi,application/vnd.android.package-archive,application/java-archive,application/javascript,text/javascript,application/x-sh,application/zip,application/x-zip-compressed,application/vnd.rar,application/x-rar-compressed,application/x-7z-compressed,application/x-tar,application/gzip,application/x-bzip2,application/x-xz"
+
   # run.py 的路由进程占 WEBHOOK_PORT（对外 + Fly 健康检查），
   # botN 子进程占 WEBHOOK_PORT+N（仅回环），路径为 /webhook/botN。
   WEBHOOK_PORT = "8080"
