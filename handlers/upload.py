@@ -31,6 +31,16 @@ async def handle_upload(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
     message = update.message
 
+    # Check Telegram file metadata before MIME-based media classification.
+    attachment = message.document or message.video or message.animation or message.audio
+    if attachment and _file_validator.is_blocked(attachment.file_name, attachment.mime_type):
+        from ui.messages import MessageFormatter
+        await message.reply_text(
+            MessageFormatter.upload_blocked_type(attachment.file_name, ""),
+            parse_mode="HTML",
+        )
+        return STATE["UPLOAD"]
+
     entry = classify_message(message)
     if entry is None:
         from ui.messages import MessageFormatter

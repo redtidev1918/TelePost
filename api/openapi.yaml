@@ -126,7 +126,10 @@ components:
       required: [file_id]
       properties:
         file_id: {type: string, maxLength: 256}
-        filename: {type: string, maxLength: 255}
+        filename:
+          type: string
+          maxLength: 255
+          description: Required when the document type denylist or allowlist is enabled. Missing filename returns file_metadata_required.
     SubmissionJson:
       type: object
       required: [tags]

@@ -256,3 +256,28 @@ class TestBlockedFileTypes:
         desc = validator_default.get_blocked_description()
         assert ".exe" in desc
         assert ".zip" in desc
+
+
+@pytest.mark.parametrize("name,mime", [
+    ("virus.EXE ", "image/png"),
+    ("bundle.ZIP.", "audio/mpeg"),
+    ("note.txt", "Application/X-Msdownload; charset=binary"),
+    ("note.txt", "application/zip"),
+])
+def test_default_policy_cannot_be_bypassed_by_mime_or_windows_suffix(name, mime):
+    from config.settings import DEFAULT_BLOCKED_FILE_TYPES
+    assert FileTypeValidator("*", DEFAULT_BLOCKED_FILE_TYPES).is_blocked(name, mime)
+
+
+def test_two_bots_inherit_or_override_file_policy():
+    import run
+    env = {"BLOCKED_FILE_TYPES": ".exe,.zip", "BOT2_BLOCKED_FILE_TYPES": ".exe,.zip,.pdf"}
+    assert run.build_bot_env(1, env)["BLOCKED_FILE_TYPES"] == ".exe,.zip"
+    assert run.build_bot_env(2, env)["BLOCKED_FILE_TYPES"] == ".exe,.zip,.pdf"
+
+
+def test_blocked_filename_is_html_escaped():
+    from ui.messages import MessageFormatter
+    message = MessageFormatter.upload_blocked_type("<virus>.exe", "")
+    assert "<virus>" not in message
+    assert "&lt;virus&gt;.exe" in message

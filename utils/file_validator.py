@@ -13,7 +13,7 @@ class FileTypeValidator:
     """文件类型验证器
     
     组合两层策略：
-    - blocked 黑名单：命中的文档一律拒绝（防病毒软件/压缩包），媒体类不受影响；
+    - blocked 黑名单：命中文件类型一律拒绝；不执行内容杀毒；
     - allowed 白名单：非空时，文档还须落在白名单内（历史行为，默认 ``*`` 不限制）。
     """
     
@@ -51,7 +51,9 @@ class FileTypeValidator:
                     self.allowed_extensions.add(f".{t}")
         
         # 解析拦截类型（黑名单）
-        self.blocked_types = blocked_types.strip() if blocked_types else ""
+        self.blocked_types = blocked_types.strip().lower() if blocked_types else ""
+        if self.blocked_types == "none":
+            self.blocked_types = ""
         self.blocked_extensions = set()
         self.blocked_mime_types = set()
         
@@ -132,8 +134,9 @@ class FileTypeValidator:
         if not self.blocked_extensions and not self.blocked_mime_types:
             return False
         
-        file_ext = os.path.splitext(file_name.lower())[1] if file_name else ""
-        normalized_mime = mime_type.lower() if mime_type else ""
+        normalized_name = (file_name or "").lower().rstrip(" .")
+        file_ext = os.path.splitext(normalized_name)[1]
+        normalized_mime = (mime_type or "").split(";", 1)[0].strip().lower()
         
         if file_ext and file_ext in self.blocked_extensions:
             return True

@@ -550,13 +550,14 @@ class TestBlockedFileTypes:
     """§file-type-policy — API / Mini App 投稿与 Bot 私聊共用同一套黑名单。"""
 
     @pytest.mark.asyncio
-    async def test_multipart_blocked_executable_rejected(self, monkeypatch):
+    @pytest.mark.parametrize("mime", ["application/x-msdownload", "image/png", "audio/mpeg"])
+    async def test_multipart_blocked_executable_rejected(self, monkeypatch, mime):
         app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW, principal=_MINIAPP_PRINCIPAL)
         client = await _client(app)
         try:
             form = __import__("aiohttp").FormData()
             form.add_field("files", b"MZ-fake", filename="virus.exe",
-                           content_type="application/x-msdownload")
+                           content_type=mime)
             form.add_field("tags", "test")
             resp = await client.post(
                 "/api/v1/submissions", data=form,
@@ -633,8 +634,8 @@ class TestBlockedFileTypes:
             await client.close()
 
     @pytest.mark.asyncio
-    async def test_json_documents_without_filename_pass(self, monkeypatch):
-        """JSON file_id 无文件名时放行，保证既有自动化客户端（如 PixivFlow）兼容。"""
+    async def test_json_documents_without_filename_rejected(self, monkeypatch):
+        """Missing metadata cannot bypass the enabled file policy."""
         file_id_mock = AsyncMock(return_value={
             "status": "published", "message_id": 55,
             "media_count": 0, "document_count": 1,
@@ -651,8 +652,9 @@ class TestBlockedFileTypes:
                     "tags": "test",
                 },
             )
-            assert resp.status == 201
-            file_id_mock.assert_awaited_once()
+            assert resp.status == 400
+            assert (await resp.json())["error"]["code"] == "file_metadata_required"
+            file_id_mock.assert_not_called()
         finally:
             await client.close()
     """Step 10 — TelePost 只吃最小 media_assets 契约，不再吞 PixivFlow 全部字段。
