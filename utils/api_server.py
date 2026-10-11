@@ -1652,10 +1652,13 @@ def add_api_routes(web_app, application) -> None:
                     return _error(400, "invalid_media", "documents 项必须包含 file_id")
                 # Missing metadata must not bypass an enabled document policy.
                 doc_name = item.get("filename") or item.get("file_name") or ""
+                doc_mime = item.get("mime_type") or item.get("mime") or ""
+                if not isinstance(doc_name, str) or not isinstance(doc_mime, str):
+                    return _error(400, "invalid_media", "文档 filename 和 mime_type 必须是字符串")
                 if not doc_name and (_file_validator.blocked_types or not _file_validator.allow_all):
                     return _error(400, "file_metadata_required", "文档投稿必须提供 filename 以检查文件类型")
                 ok, code, msg = _check_document_allowed(
-                    doc_name, item.get("mime_type") or item.get("mime") or "")
+                    doc_name, doc_mime)
                 if not ok:
                     return _error(400, code, msg)
 
