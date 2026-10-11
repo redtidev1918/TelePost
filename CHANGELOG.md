@@ -8,6 +8,18 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.82.0](https://github.com/redtidev1918/TelePost/compare/v2.81.6...v2.82.0) (2026-10-11)
+
+
+### Features
+
+* **i18n:** selectable Chinese and English Bot and Mini App ([#317](https://github.com/redtidev1918/TelePost/issues/317)) ([b4f4d56](https://github.com/redtidev1918/TelePost/commit/b4f4d56c14ce775bc7786123184c0bc85b3ad2dc))
+
+
+### Bug Fixes
+
+* **build:** explicitly bundle gettext catalogs in frozen programs ([#319](https://github.com/redtidev1918/TelePost/issues/319)) ([ab9b6a5](https://github.com/redtidev1918/TelePost/commit/ab9b6a56ed0810abeb768bba4e24033cc3a64fce))
+
 ## [2.81.6](https://github.com/redtidev1918/TelePost/compare/v2.81.5...v2.81.6) (2026-10-10)
 
 
