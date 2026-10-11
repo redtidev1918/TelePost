@@ -131,7 +131,7 @@ admins get the moderation and admin features.
 The Mini App shares the same backend, permissions, and submission state as the Bot. Setup:
 [Mini App (Chinese)](docs/MINIAPP.md).
 
-## Chinese bots, English bots and deployment
+## Chinese bots and English bots
 
 One program supports both languages, with Chinese as the default. For a single bot, set
 `LANGUAGE = en` under `[BOT]` in `config.ini`, or set `BOT_LANGUAGE=en` in your deployment
@@ -149,16 +149,6 @@ Add these settings to your deployment environment or Compose `.env`. Welcome mes
 menus, submission prompts and review actions use the selected language. The Mini App follows
 its bot by default; submitted titles, tags and content keep their original language.
 See [Bot language and multiple bots](docs/en/CONFIGURATION.md#bot-language-and-multiple-bots).
-
-`run.py` manages separate bot processes, each with its own configuration and data directory.
-The parent router exposes `/webhook/botN` and `/api/botN/v1/*`; child ports are local only.
-
-Deploy on a local server, a VPS, Docker / Compose, or Fly.io. Use Polling when there is no public
-HTTPS endpoint; use Webhook when you need to receive Telegram webhooks.
-
-The Fly.io reference configuration uses 512 MiB of memory, a persistent volume, and an always-on
-service. Content collectors such as PixivFlow run separately and submit through the HTTP API.
-Official releases and production deployment: [Operations (Chinese)](docs/OPERATIONS.md).
 
 ## Documentation
 
