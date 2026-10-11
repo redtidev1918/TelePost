@@ -153,7 +153,7 @@ install_dependencies() {
         log_warning "未检测到 libvips/pyvips（可选，不影响正常使用）"
         log_info "仅影响超大图片的流式缩放。需要时先装系统库再装 pyvips："
         log_info "  macOS:          brew install vips"
-        log_info "  Ubuntu/Debian:  sudo apt install libvips"
+        log_info "  Ubuntu/Debian:  sudo apt install libvips42"
         log_info "  CentOS/RHEL:    sudo yum install vips"
         log_info "  然后:           pip3 install pyvips"
     fi

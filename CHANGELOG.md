@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.83.1](https://github.com/redtidev1918/TelePost/compare/v2.83.0...v2.83.1) (2026-10-11)
+
+
+### Bug Fixes
+
+* align review admission, installers and Mini App security with runtime behavior ([#328](https://github.com/redtidev1918/TelePost/issues/328)) ([3116ea7](https://github.com/redtidev1918/TelePost/commit/3116ea70dbbba0e184327e8eeddd49ef4ddf6117))
+
 ## [2.83.0](https://github.com/redtidev1918/TelePost/compare/v2.82.0...v2.83.0) (2026-10-11)
 
 
