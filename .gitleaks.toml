@@ -54,7 +54,10 @@ regex = '''['"]-100[0-9]{7,11}['"]'''
 # Evaluated against the DETECTED SECRET, so the synthetic fixtures
 # (`<digits>:A{35}`, `-1001234567890`) stay legal.
 # ---------------------------------------------------------------------------
-[[allowlists]]
+# Global [allowlist] is supported by the CI-pinned gitleaks 8.24.3 as well as
+# newer releases. The plural global [[allowlists]] requires 8.25+ and is silently
+# ignored by 8.24, incorrectly flagging these exact synthetic fixture values.
+[allowlist]
 description = "Synthetic fixtures and redaction markers (shape-only, no path scoping)"
 regexes = [
   # Telegram bot tokens whose secret part is literally 35 x 'A'.
