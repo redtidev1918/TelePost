@@ -10,9 +10,8 @@ Submissions, moderation, and publishing for Telegram channels.
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Documentation](https://img.shields.io/badge/docs-redtidev1918.github.io-6366f1)](https://redtidev1918.github.io/TelePost/)
 
-TelePost runs on your own server. People submit from the Telegram Bot or the Mini App, and other
-programs submit through the HTTP API; whichever entry point they use, every submission goes through
-the same pipeline.
+TelePost runs on your own computer or server. People submit through bot private chats or the Mini App;
+programs submit through the HTTP API. You can publish chat submissions directly or have reviewers approve them first.
 
 ```text
 Telegram Bot ─────┐
@@ -31,23 +30,48 @@ HTTP API ─────────┘
 | Integrate automation | Bearer tokens, file uploads, and idempotent submissions |
 | Self-host | Isolated multi-bot configuration and storage, SQLite persistence, restart recovery |
 
-Submissions reject executables, common scripts and archives by default. Images, videos and TXT/PDF/MD documents remain accepted. Administrators can configure the [file type denylist](docs/en/CONFIGURATION.md). This filters types; it does not scan for malware.
+The default file denylist blocks executables, common scripts and archives. It does not block common formats
+such as images, videos and TXT/PDF/MD documents. Administrators can change the [file type denylist](docs/en/CONFIGURATION.md).
+It checks filenames and MIME types, not file contents for malware.
+
+## Choose an installation method
+
+| Your environment | Method | Start here |
+| --- | --- | --- |
+| Local computer, without Python | Standalone program | [Choose a platform and download](https://redtidev1918.github.io/TelePost/#/en/download) |
+| Existing Python environment | pip | [Quick start](#quick-start) |
+| Services managed with Docker | Docker / Compose | [Container deployment](docs/en/INSTALL.md#3-docker--compose) |
+| Code changes | Source | [Development and testing (Chinese)](docs/TESTING.md) |
+
+Pin a [formal release version](https://github.com/redtidev1918/TelePost/releases/latest) in production.
+See [Install and deployment](docs/en/INSTALL.md) for installation, upgrades and removal.
 
 ## Quick start
 
-Have your bot token, target channel, numeric user ID and a separate review group ready.
-Give the bot permission to post in the channel, then add it to the review group.
+### 1. Prepare a bot, channel and review group
 
-Prefer no Python installation? [Download a standalone program](https://redtidev1918.github.io/TelePost/#/en/download).
-On Windows, run `.\telepost-windows-x64.exe --setup` in PowerShell, complete the review configuration
-below, then run `.\telepost-windows-x64.exe`. Keep `config.ini` and `data` when upgrading.
+| Setting | What to use |
+| --- | --- |
+| Bot Token | Create a bot with [@BotFather](https://t.me/BotFather) to get its token |
+| Channel ID | The destination channel's `@username` or numeric ID |
+| Owner ID | Your personal numeric user ID, not a group or channel ID |
+| Review Chat ID | A separate review group's numeric ID; it must differ from the channel |
 
-For Python / pip:
+Add the bot as a channel administrator with permission to post. Add it to the review group and allow it to send messages.
+The default configuration needs a review group. For private-chat-only use, see the [installation guide](docs/en/INSTALL.md#1-pip-install-recommended).
 
-1. Create a bot with [@BotFather](https://t.me/BotFather), add it to your channel, and grant it permission to post.
-2. Install Python 3.10+. Image processing requires system libvips; see
-   [system dependencies](docs/en/INSTALL.md#libvips-system-dependency).
-3. Install and generate configuration in a virtual environment:
+### 2. Install and run setup
+
+**Windows standalone program**: download and extract it to a folder you will keep, then open PowerShell in that folder:
+
+```powershell
+.\telepost-windows-x64.exe --setup
+```
+
+See the [installation guide](docs/en/INSTALL.md) for standalone commands on other platforms.
+
+**Python / pip**: install Python 3.10+ and [system libvips](docs/en/INSTALL.md#libvips-system-dependency) first.
+On Linux / macOS, install in a virtual environment:
 
 ```bash
 python3 -m venv .venv
@@ -64,20 +88,30 @@ py -3 -m venv .venv
 .\.venv\Scripts\telepost.exe --setup
 ```
 
-The setup wizard asks for Bot Token, Channel ID, and Owner ID. Add `REVIEW_CHAT_ID` (a separate
-review group's ID) under `[BOT]` in the generated `config.ini`, then run `telepost`.
-API and Mini App review settings default to enabled; the three-field wizard does not configure
-the review group. For private-chat-only use, see the [installation guide](docs/en/INSTALL.md#1-pip-install-recommended).
-Save the configuration as UTF-8. On Windows, start with `.\.venv\Scripts\telepost.exe`.
+The PyPI package is `telepost-bot`; the installed command is `telepost`.
+The wizard asks for Bot Token, Channel ID and Owner ID.
 
-Set these values in the existing `[BOT]` section, replacing the group ID:
+### 3. Configure review and start the bot
+
+Open the generated `config.ini`, keep the existing settings, and set or add these values under `[BOT]`.
+Replace the placeholder with your review group's numeric ID and save the file as UTF-8:
 
 ```ini
 LANGUAGE = en
 REVIEW_CHAT_ID = <your-review-group-ID>
 ```
 
-Your first submission:
+| Installation | Start command |
+| --- | --- |
+| Windows standalone | `.\telepost-windows-x64.exe` |
+| Windows pip | `.\.venv\Scripts\telepost.exe` |
+| Linux / macOS pip | Activate the virtual environment, then run `telepost` |
+
+For pip installs, always start from the same directory: configuration and data are stored there.
+When upgrading the standalone program, keep `config.ini` and `data` beside it.
+After starting, send `/start` in a private chat with the bot and check that it replies.
+
+### 4. Send your first submission
 
 1. Chat privately with the bot, send `/start`, then tap “New submission” or send `/submit`.
 2. Upload images, videos, audio or files, then send `/done_media`.
@@ -86,23 +120,35 @@ Your first submission:
 
 Send `/cancel` at any step to cancel. See the [command guide](docs/en/COMMANDS.md).
 
-Bot private-chat submissions publish directly by default and can be configured
-for review. Automated HTTP API submissions always require review. Mini App submissions require
-review by default, controlled independently by `MINIAPP_REVIEW_REQUIRED`. Defaults and switches:
-[configuration](docs/en/CONFIGURATION.md).
+## Review defaults
 
-## Choose an installation method
-
-| Method | Entry point | Best for |
+| Entry point | Default behavior | Configuration |
 | --- | --- | --- |
-| Python / pip | `python -m pip install telepost-bot` | Self-managed servers and local use |
-| Standalone program | [Choose a platform and download](https://redtidev1918.github.io/TelePost/#/en/download) | No Python installation |
-| Docker / Compose | `ghcr.io/redtidev1918/telepost:<version>` | Container deployments |
-| Source | [Development and testing (Chinese)](docs/TESTING.md) | Code changes and contributions |
+| Bot private chat | Publish after the user confirms | Set `CHAT_REVIEW_REQUIRED=true` to require review |
+| Mini App | Submit for review, then publish after approval | Controlled separately by `MINIAPP_REVIEW_REQUIRED` |
+| HTTP API | Submit for review, then publish after approval | Review is always required |
 
-The PyPI package is `telepost-bot`; the command and Python import name are both `telepost`.
-Pin a formal release version in production. Full install, upgrade, and uninstall instructions:
-[Install and deployment](docs/en/INSTALL.md).
+To review chat submissions too, add `CHAT_REVIEW_REQUIRED = true` under `[BOT]` and restart.
+See [configuration](docs/en/CONFIGURATION.md) for the remaining settings.
+
+## Chinese bots and English bots
+
+One program supports both languages, with Chinese as the default. For a single bot, set
+`LANGUAGE = en` under `[BOT]` in `config.ini`, or set `BOT_LANGUAGE=en` in your deployment
+environment. Restart to apply the change.
+
+To run a Chinese bot and an English bot together, configure their separate credentials,
+channels and review groups, then set:
+
+```dotenv
+BOT1_LANGUAGE=zh
+BOT2_LANGUAGE=en
+```
+
+Add these settings to your deployment environment or Compose `.env`. Welcome messages, help,
+menus, submission prompts and review actions use the selected language. The Mini App follows
+its bot by default; submitted titles, tags and content keep their original language.
+See [Bot language and multiple bots](docs/en/CONFIGURATION.md#bot-language-and-multiple-bots).
 
 ## HTTP API
 
@@ -133,25 +179,6 @@ admins get the moderation and admin features.
 The Mini App shares the same backend, permissions, and submission state as the Bot. Setup:
 [Mini App (Chinese)](docs/MINIAPP.md).
 
-## Chinese bots and English bots
-
-One program supports both languages, with Chinese as the default. For a single bot, set
-`LANGUAGE = en` under `[BOT]` in `config.ini`, or set `BOT_LANGUAGE=en` in your deployment
-environment. Restart to apply the change.
-
-To run a Chinese bot and an English bot together, configure their separate credentials,
-channels and review groups, then set:
-
-```dotenv
-BOT1_LANGUAGE=zh
-BOT2_LANGUAGE=en
-```
-
-Add these settings to your deployment environment or Compose `.env`. Welcome messages, help,
-menus, submission prompts and review actions use the selected language. The Mini App follows
-its bot by default; submitted titles, tags and content keep their original language.
-See [Bot language and multiple bots](docs/en/CONFIGURATION.md#bot-language-and-multiple-bots).
-
 ## Documentation
 
 Full documentation site: [TelePost documentation](https://redtidev1918.github.io/TelePost/#/en/).
@@ -162,12 +189,12 @@ Full documentation site: [TelePost documentation](https://redtidev1918.github.io
 | Configuration | [Configuration](docs/en/CONFIGURATION.md) |
 | Telegram commands | [Command reference](docs/en/COMMANDS.md) |
 | HTTP API | [API guide](docs/en/API.md) |
-| Mini App | [Mini App](docs/MINIAPP.md)（中文） |
-| Webhook / Polling | [Run modes](docs/WEBHOOK_MODE.md)（中文） |
-| Fly.io | [Fly.io deployment](docs/FLYIO_DEPLOYMENT.md)（中文） |
-| Operations | [Operations](docs/OPERATIONS.md)（中文） |
-| Troubleshooting | [Troubleshooting](docs/TROUBLESHOOTING.md)（中文） |
-| Development | [Testing guide](docs/TESTING.md)（中文） |
+| Mini App | [Mini App (Chinese)](docs/MINIAPP.md) |
+| Webhook / Polling | [Run modes (Chinese)](docs/WEBHOOK_MODE.md) |
+| Fly.io | [Fly.io deployment (Chinese)](docs/FLYIO_DEPLOYMENT.md) |
+| Operations | [Operations (Chinese)](docs/OPERATIONS.md) |
+| Troubleshooting | [Troubleshooting (Chinese)](docs/TROUBLESHOOTING.md) |
+| Development | [Testing guide (Chinese)](docs/TESTING.md) |
 | Contributing | [Contribution guide (Chinese)](CONTRIBUTING.md) |
 
 ## Related projects
