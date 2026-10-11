@@ -39,6 +39,17 @@ services:
         max-size: "10m"
         max-file: "5"
 
+    # 容器内部健康检查（不依赖宿主机端口映射）。镜像里已有一条等价的
+    # HEALTHCHECK；这里显式声明，保证本地 `docker build` 的镜像在
+    # `docker compose ps` 里也能看到健康状态。用 python 而不是 curl —— 运行镜像
+    # 只保证装有 Python 标准库，没有 curl。
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+
     deploy:
       resources:
         limits:

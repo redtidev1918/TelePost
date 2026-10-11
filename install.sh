@@ -70,7 +70,7 @@ check_python() {
     
     if ! command -v python3 &> /dev/null; then
         log_error "未找到 Python3！"
-        log_info "请先安装 Python 3.9 或更高版本"
+        log_info "请先安装 Python 3.10 或更高版本"
         
         if [ "$OS" = "macos" ]; then
             log_info "macOS 安装命令: brew install python3"
@@ -83,10 +83,12 @@ check_python() {
     
     PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
     log_success "Python $PYTHON_VERSION"
-    
-    # 检查版本
-    if [ "$(printf '%s\n' "3.9" "$PYTHON_VERSION" | sort -V | head -n1)" != "3.9" ]; then
-        log_error "Python 版本过低（需要 >= 3.9）"
+
+    # 检查版本：最低 3.10，与 pyproject.toml 的 requires-python 保持一致。
+    # 交给解释器自己比较，避免 sort -V 之类的字符串比较在 3.9/3.10 上判反。
+    if ! python3 -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 10) else 1)'; then
+        log_error "Python 版本过低（需要 >= 3.10，当前 $PYTHON_VERSION）"
+        log_info "下载地址: https://www.python.org/downloads/"
         exit 1
     fi
     
@@ -135,9 +137,26 @@ install_dependencies() {
     fi
     
     log_info "这可能需要几分钟..."
-    pip3 install -r requirements.txt -q
-    
+    if ! pip3 install -r requirements.txt -q; then
+        log_error "依赖安装失败"
+        log_info "请检查网络与权限后重试: pip3 install -r requirements.txt"
+        exit 1
+    fi
+
     log_success "依赖安装完成"
+
+    # libvips/pyvips 是可选的图像后端：仅“超大图片流式缩放”会用到它，
+    # 缺失时该能力自动降级，不影响 Bot 启动、投稿与发布。
+    if python3 -c 'import pyvips' &>/dev/null; then
+        log_success "pyvips 可用（超大图片流式缩放已启用）"
+    else
+        log_warning "未检测到 libvips/pyvips（可选，不影响正常使用）"
+        log_info "仅影响超大图片的流式缩放。需要时先装系统库再装 pyvips："
+        log_info "  macOS:          brew install vips"
+        log_info "  Ubuntu/Debian:  sudo apt install libvips"
+        log_info "  CentOS/RHEL:    sudo yum install vips"
+        log_info "  然后:           pip3 install pyvips"
+    fi
 }
 
 # 配置向导
