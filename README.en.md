@@ -23,16 +23,20 @@ HTTP API ─────────┘
 
 | Use case | Features |
 | --- | --- |
-| Accept submissions | Bot, Mini App, and HTTP API; images, video, audio, and files |
-| Review and publish | Review queue, edit before publishing, spoilers, and review history |
-| Read and search | Channel search and tags; TXT novels can generate Telegraph reading pages |
-| User self-service | Browse content, submit, and view your own submissions in the Mini App |
-| Integrate automation | Bearer tokens, file uploads, and idempotent submissions |
-| Self-host | Isolated multi-bot configuration and storage, SQLite persistence, restart recovery |
-
-The default file denylist blocks executables, common scripts and archives. It does not block common formats
-such as images, videos and TXT/PDF/MD documents. Administrators can change the [file type denylist](docs/en/CONFIGURATION.md).
-It checks filenames and MIME types, not file contents for malware.
+| Accept submissions | Bot private chats, Mini App or HTTP API; images, video, audio, files and text-only posts |
+| Preview before submitting | Check attachments and text, edit titles, notes, tags and links, and choose anonymous or spoiler mode |
+| Review and edit | Approve or reject in the review group or Mini App; edit text and reorder or remove attachments in the Mini App before publishing, with review and edit history |
+| Publish multiple images | Send images in albums; optionally send overflow to the linked discussion group |
+| Read novels | Publish TXT attachments and covers; with novel preview enabled, generate Telegraph reading pages and a “Read online” button |
+| Search and tags | Search by keyword, tag and time range, browse the tag cloud, and page through results |
+| Rankings and statistics | All-time and weekly rankings, personal submission statistics, and admin-configured weekly ranking messages |
+| Personal submission history | View your submissions in the Bot or Mini App; the Mini App shows processing status and published content |
+| Manage access | Ban users and disable API tokens; manage roles, blacklists and runtime policies in the Mini App |
+| Filter file types | Block executables, common scripts and archives by default; [configurable rules](docs/en/CONFIGURATION.md) check filenames and MIME types, without malware scanning |
+| Connect automation | API token authentication, file uploads and idempotent submissions; retry the same request without creating another review or publication |
+| Integrate PixivFlow (optional) | Receive automatically collected works; request another candidate during review, with approval still required for the replacement |
+| Chinese and English interfaces | Both languages in the Bot and Mini App; each bot on the same host can use its own language |
+| Self-host | Standalone, pip or Docker deployments, Polling / Webhook modes, isolated multi-bot settings and storage, and persistent review and idempotency records |
 
 ## Choose an installation method
 
