@@ -49,6 +49,7 @@ Aliases `zh-CN`, `zh-Hans`, `en-US` and `en-GB` are accepted; unsupported langua
 | `BOT_MODE` | `MIXED` | `MEDIA`, `DOCUMENT`, or `MIXED` |
 | `BOT_LANGUAGE` | `zh` | Bot and Mini App interface: `zh` / `en`; INI setting is `[BOT] LANGUAGE` |
 | `ALLOWED_FILE_TYPES` | `*` | Document extensions or MIME types, comma-separated |
+| `BLOCKED_FILE_TYPES` | built-in risky set | Submission file denylist (extensions / MIME / wildcard MIME): by default executables, scripts and unscannable archives, to stop malware uploads. Media (photo/video/GIF/audio) are unrestricted; text documents such as TXT/PDF/MD are unaffected. Enforced uniformly across Bot chat, HTTP API and Mini App submissions; `none` or empty disables it, a custom list replaces the default entirely |
 | `SHOW_SUBMITTER` | `true` | Whether the channel shows the submitter |
 | `NOTIFY_OWNER` | `true` | Whether to durably DM the owner: notified once per logical submission after a review item is queued or a direct post succeeds; refetch/editorial do not re-notify |
 | `CHANNEL_FOOTER_LINK` | empty | Bot address (`https://t.me/<bot>`) for the channel caption footer: generates `✉️ TG 投稿` → `?start=submit`, plus `📱 Mini App` when its CTA is enabled. Empty disables the footer; review control cards carry no public submission CTA |

@@ -30,6 +30,7 @@ from config.settings import (
 )
 from utils.api_tokens import authenticate
 from utils.cache import TTLCache
+from utils.file_validator import create_file_validator
 from database.db_manager import (
     claim_api_notification,
     mark_api_notification_sent,
@@ -47,7 +48,31 @@ _upload_sweeper_started = False
 
 API_VERSION = "1.0"
 MAX_FILE_BYTES = 50 * 1024 * 1024      # Telegram Bot API 单文件上限
-from config.settings import MAX_SUBMISSION_FILES
+from config.settings import (
+    MAX_SUBMISSION_FILES,
+    ALLOWED_FILE_TYPES,
+    BLOCKED_FILE_TYPES,
+)
+
+# 投稿文件类型策略（黑名单 + 可选白名单）：与 Bot 私聊 handlers/upload.py 同一套规则，
+# API / Mini App 入口同样强制执行。媒体类（photo/video/animation/audio）不受类型限制。
+_file_validator = create_file_validator(ALLOWED_FILE_TYPES, BLOCKED_FILE_TYPES)
+
+
+def _check_document_allowed(filename, mime_type):
+    """返回 (ok, code, message)；code 为空表示通过。"""
+    ok, reason = _file_validator.check_document(filename, mime_type)
+    if ok:
+        return True, "", ""
+    if reason == "blocked":
+        return False, "blocked_file_type", (
+            f"暂不支持此类文件（{filename or '未知文件'}），已被自动拦截；"
+            "可改发图片、视频、GIF、音频或文本文档（如 TXT、PDF、MD）"
+        )
+    return False, "file_type_not_allowed", (
+        f"不支持的文件类型：{filename or '未知文件'}；"
+        f"允许：{_file_validator.get_allowed_types_description()}"
+    )
 
 # 入站文件数上限（发布侧会按每组 ≤10 自动拆成多个 Telegram media group）。
 MAX_FILES = MAX_SUBMISSION_FILES
@@ -1625,6 +1650,14 @@ def add_api_routes(web_app, application) -> None:
             for item in documents:
                 if not isinstance(item, dict) or not item.get("file_id"):
                     return _error(400, "invalid_media", "documents 项必须包含 file_id")
+                # 文件类型策略：文件名可判定时执行（file_id 直投无文件名时放行，
+                # 不破坏既有自动化客户端）；媒体类不受类型限制。
+                doc_name = item.get("filename") or item.get("file_name") or ""
+                if doc_name:
+                    ok, code, msg = _check_document_allowed(
+                        doc_name, item.get("mime_type") or item.get("mime") or "")
+                    if not ok:
+                        return _error(400, code, msg)
 
             link = _fields_link(payload)
             if link and not link.startswith(("http://", "https://")):
@@ -1771,6 +1804,7 @@ def add_api_routes(web_app, application) -> None:
                                 )
                             fh.write(chunk)
                     target.append({"path": tmp_path, "filename": filename,
+                                   "mime": kind_hint,
                                    "kind": detect_kind(filename, kind_hint)})
                 else:
                     fields[part.name] = (await part.text()).strip()
@@ -1802,6 +1836,12 @@ def add_api_routes(web_app, application) -> None:
             )
         for index, preview in enumerate(previews):
             files[index]["preview_path"] = preview["path"]
+
+        for f in files:
+            if f.get("kind") == "document":
+                ok, code, msg = _check_document_allowed(f.get("filename"), f.get("mime"))
+                if not ok:
+                    return _error(400, code, msg)
 
         tags = _fields_tags(fields)
         if not tags:

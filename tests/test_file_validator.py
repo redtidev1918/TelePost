@@ -185,3 +185,74 @@ class TestFileValidatorEdgeCases:
         desc = validator_specific.get_allowed_types_description()
         assert ".pdf" in desc
         assert ".zip" in desc
+
+
+class TestBlockedFileTypes:
+    """投稿文件黑名单测试：危险类型默认拦截，可配置/关闭。"""
+
+    BLOCKED = ".exe,.bat,.cmd,.scr,.com,.pif,.msi,.ps1,.vbs,.js,.jar,.apk,.sh"
+
+    @pytest.fixture
+    def validator_default(self):
+        """默认黑名单（无 blocked 参数 → 内置危险类型集）"""
+        from config.settings import DEFAULT_BLOCKED_FILE_TYPES
+        return FileTypeValidator(allowed_types="*", blocked_types=DEFAULT_BLOCKED_FILE_TYPES)
+
+    @pytest.fixture
+    def validator_custom(self):
+        return FileTypeValidator(allowed_types="*", blocked_types=self.BLOCKED)
+
+    @pytest.fixture
+    def validator_off(self):
+        return FileTypeValidator(allowed_types="*", blocked_types="none")
+
+    @pytest.mark.unit
+    def test_default_blocklist_blocks_executables(self, validator_default):
+        for filename, mime in [
+            ("virus.exe", "application/x-msdownload"),
+            ("run.bat", "application/x-bat"),
+            ("payload.ps1", "text/x-powershell"),
+            ("dropper.js", "application/javascript"),
+            ("app.apk", "application/vnd.android.package-archive"),
+            ("archive.zip", "application/zip"),
+            ("archive.rar", "application/x-rar-compressed"),
+            ("archive.7z", "application/x-7z-compressed"),
+        ]:
+            assert validator_default.is_blocked(filename, mime), f"{filename} should be blocked"
+
+    @pytest.mark.unit
+    def test_media_and_text_pass_default_blocklist(self, validator_default):
+        for filename, mime in [
+            ("photo.jpg", "image/jpeg"),
+            ("clip.mp4", "video/mp4"),
+            ("anim.gif", "image/gif"),
+            ("song.mp3", "audio/mpeg"),
+            ("readme.txt", "text/plain"),
+            ("doc.pdf", "application/pdf"),
+            ("notes.md", "text/markdown"),
+            ("code.py", "text/x-python"),
+            ("data.json", "application/json"),
+        ]:
+            assert not validator_default.is_blocked(filename, mime), f"{filename} should not be blocked"
+
+    @pytest.mark.unit
+    def test_check_document_blocked_wins_over_allowlist(self, validator_default):
+        ok, reason = validator_default.check_document("evil.exe", "application/x-msdownload")
+        assert ok is False and reason == "blocked"
+        ok, reason = validator_default.check_document("note.txt", "text/plain")
+        assert ok is True and reason == ""
+
+    @pytest.mark.unit
+    def test_custom_blocklist_replaces_default(self, validator_custom):
+        assert validator_custom.is_blocked("evil.exe", "")
+        assert not validator_custom.is_blocked("archive.zip", "application/zip")
+
+    @pytest.mark.unit
+    def test_disabled_blocklist(self, validator_off):
+        assert not validator_off.is_blocked("evil.exe", "application/x-msdownload")
+
+    @pytest.mark.unit
+    def test_get_blocked_description(self, validator_default):
+        desc = validator_default.get_blocked_description()
+        assert ".exe" in desc
+        assert ".zip" in desc

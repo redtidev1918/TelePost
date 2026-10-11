@@ -508,11 +508,11 @@ class TestFileIdDirect:
             resp = await client.post(
                 "/api/v1/submissions",
                 headers={"Authorization": "Bearer tp_ok"},
-                json={"documents": [{"file_id": "DDD", "filename": "archive.zip"}], "tags": "t"},
+                json={"documents": [{"file_id": "DDD", "filename": "report.pdf"}], "tags": "t"},
             )
             assert resp.status == 201
             kwargs = file_id_mock.call_args.kwargs
-            assert file_id_mock.call_args.args[2][0]["filename"] == "archive.zip"
+            assert file_id_mock.call_args.args[2][0]["filename"] == "report.pdf"
         finally:
             await client.close()
 
@@ -546,7 +546,115 @@ class TestFileIdDirect:
             await client.close()
 
 
-class TestDeliveryAssetContract:
+class TestBlockedFileTypes:
+    """§file-type-policy — API / Mini App 投稿与 Bot 私聊共用同一套黑名单。"""
+
+    @pytest.mark.asyncio
+    async def test_multipart_blocked_executable_rejected(self, monkeypatch):
+        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW, principal=_MINIAPP_PRINCIPAL)
+        client = await _client(app)
+        try:
+            form = __import__("aiohttp").FormData()
+            form.add_field("files", b"MZ-fake", filename="virus.exe",
+                           content_type="application/x-msdownload")
+            form.add_field("tags", "test")
+            resp = await client.post(
+                "/api/v1/submissions", data=form,
+                headers={"Authorization": "Bearer tp_ok"},
+            )
+            assert resp.status == 400
+            body = await resp.json()
+            assert body["error"]["code"] == "blocked_file_type"
+            publish_mock.assert_not_called()
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_multipart_blocked_archive_rejected(self, monkeypatch):
+        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW, principal=_MINIAPP_PRINCIPAL)
+        client = await _client(app)
+        try:
+            form = __import__("aiohttp").FormData()
+            form.add_field("files", b"PK-fake", filename="bundle.zip",
+                           content_type="application/zip")
+            form.add_field("tags", "test")
+            resp = await client.post(
+                "/api/v1/submissions", data=form,
+                headers={"Authorization": "Bearer tp_ok"},
+            )
+            assert resp.status == 400
+            assert (await resp.json())["error"]["code"] == "blocked_file_type"
+            publish_mock.assert_not_called()
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_multipart_text_document_still_allowed(self, monkeypatch):
+        """黑名单只拦危险类型，TXT 等文本文档照常受理。"""
+        app, publish_mock = _make_app(monkeypatch, _TOKEN_ROW, principal=_MINIAPP_PRINCIPAL)
+        client = await _client(app)
+        try:
+            form = __import__("aiohttp").FormData()
+            form.add_field("files", b"hello", filename="note.txt",
+                           content_type="text/plain")
+            form.add_field("tags", "test")
+            resp = await client.post(
+                "/api/v1/submissions", data=form,
+                headers={"Authorization": "Bearer tp_ok"},
+            )
+            assert resp.status == 201
+            publish_mock.assert_awaited_once()
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_json_documents_blocked_by_filename(self, monkeypatch):
+        """JSON file_id 路径：附文件名时执行同一黑名单。"""
+        file_id_mock = AsyncMock(return_value={
+            "status": "published", "message_id": 55,
+            "media_count": 0, "document_count": 1,
+        })
+        monkeypatch.setattr("handlers.publish.publish_from_file_ids", file_id_mock)
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            resp = await client.post(
+                "/api/v1/submissions",
+                headers={"Authorization": "Bearer tp_ok"},
+                json={
+                    "documents": [{"file_id": "BBB", "filename": "evil.bat"}],
+                    "tags": "test",
+                },
+            )
+            assert resp.status == 400
+            assert (await resp.json())["error"]["code"] == "blocked_file_type"
+            file_id_mock.assert_not_called()
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_json_documents_without_filename_pass(self, monkeypatch):
+        """JSON file_id 无文件名时放行，保证既有自动化客户端（如 PixivFlow）兼容。"""
+        file_id_mock = AsyncMock(return_value={
+            "status": "published", "message_id": 55,
+            "media_count": 0, "document_count": 1,
+        })
+        monkeypatch.setattr("handlers.publish.publish_from_file_ids", file_id_mock)
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW, principal=_MINIAPP_PRINCIPAL)
+        client = await _client(app)
+        try:
+            resp = await client.post(
+                "/api/v1/submissions",
+                headers={"Authorization": "Bearer tp_ok"},
+                json={
+                    "documents": [{"file_id": "BBB"}],
+                    "tags": "test",
+                },
+            )
+            assert resp.status == 201
+            file_id_mock.assert_awaited_once()
+        finally:
+            await client.close()
     """Step 10 — TelePost 只吃最小 media_assets 契约，不再吞 PixivFlow 全部字段。
 
     JSON /api/v1/submissions 现在可附带 media_assets（asset_id/source_url），
