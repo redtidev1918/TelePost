@@ -48,6 +48,7 @@ def write_config(path: str, *, token: str, channel: str, owner: str) -> None:
     parser["BOT"] = {}
     parser["BOT"]["TOKEN"] = token.strip()
     parser["BOT"]["CHANNEL_ID"] = channel.strip()
+    parser["BOT"]["LANGUAGE"] = "zh"
     if owner and owner.strip():
         parser["BOT"]["OWNER_ID"] = owner.strip()
     with open(path, "w", encoding="utf-8") as handle:

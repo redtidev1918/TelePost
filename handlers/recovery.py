@@ -7,6 +7,7 @@ operator a business-friendly "accepted/queued" answer, and removes the buttons
 so the same outcome cannot be re-clicked into a second attempt.
 """
 from __future__ import annotations
+from ui.i18n import tr
 
 import logging
 
@@ -15,9 +16,9 @@ from telegram.ext import CallbackContext
 
 logger = logging.getLogger(__name__)
 
-ACCEPTED_TEXT = "已受理，系统会自动继续处理。"
-ALREADY_TEXT = "该目标已在处理中，请稍候。"
-MODE_LABEL = {"normal": "再试一次", "relaxed": "放宽条件重试"}
+ACCEPTED_TEXT = tr('已受理，系统会自动继续处理。')
+ALREADY_TEXT = tr('该目标已在处理中，请稍候。')
+MODE_LABEL = {"normal": tr('再试一次'), "relaxed": tr('放宽条件重试')}
 
 
 async def _answer(query, text: str = "", **kwargs) -> None:
@@ -36,11 +37,11 @@ async def schedule_recover(update: Update, context: CallbackContext) -> None:
     try:
         _, target_id, mode = data.split("|", 2)
     except ValueError:
-        await _answer(query, "无效的恢复请求")
+        await _answer(query, tr('无效的恢复请求'))
         return
     mode = mode.strip().lower()
     if mode not in ("normal", "relaxed"):
-        await _answer(query, "无效的恢复方式")
+        await _answer(query, tr('无效的恢复方式'))
         return
 
     from telepost.application.recovery import (
@@ -60,21 +61,21 @@ async def schedule_recover(update: Update, context: CallbackContext) -> None:
         await _answer(query, str(exc))
         return
     except RecoveryError as exc:
-        lines = ["❌ 恢复请求失败", "", f"原因：{exc}"]
+        lines = [tr('❌ 恢复请求失败'), "", tr('原因：{p0}').format(p0=exc)]
         code = getattr(exc, "code", "recovery_error")
         if code:
-            lines.append(f"错误码：{code}")
+            lines.append(tr('错误码：{p0}').format(p0=code))
         retryable = getattr(exc, "retryable", None)
         if isinstance(retryable, bool):
-            lines.append("后续处理：可重试" if retryable else "后续处理：需先人工处理")
+            lines.append(tr('后续处理：可重试') if retryable else tr('后续处理：需先人工处理'))
         hint = getattr(exc, "hint", "")
         if hint:
-            lines.append(f"建议：{hint}")
+            lines.append(tr('建议：{p0}').format(p0=hint))
         await _answer(query, "\n".join(lines), show_alert=True)
         return
 
-    label = MODE_LABEL.get(mode, "重试")
-    reply = f"✅ 已提交{label}：系统会自动继续处理。"
+    label = MODE_LABEL.get(mode, tr('重试'))
+    reply = tr('✅ 已提交{p0}：系统会自动继续处理。').format(p0=label)
     if mode == "relaxed":
         reply += f"\n{RELAXED_EXPLANATION}"
     await _answer(query, reply)

@@ -21,6 +21,7 @@ Windows 文件访问权限由目录 ACL 决定。数据库测试会显式关闭�
 配置读取支持 UTF-8 与带 BOM 的 UTF-8，中文配置不依赖 Windows 系统代码页。
 协议目录固定 LF，保留上游样本的字节校验；压力测试使用受控时钟与固定场景分配，
 排队和停滞预算不受 Windows 建库耗时影响。
+发送截止时间回归使用独立可控时钟验证剩余预算，避免依赖 Windows 定时器的唤醒精度。
 并发落盘测试验证所有线程的数据完整性，不设与 runner 磁盘绑定的秒数门槛；
 Python CI 整体限时 20 分钟。Linux 保留覆盖率报告，Windows 省略覆盖率和实时日志。
 控制台回归强制 GBK 输入/输出，再执行真实配置向导，验证 UTF-8 输出和 BOM 配置保留；
@@ -86,6 +87,23 @@ npx playwright test --project=mobile
 单 Bot 配置，不能代替多 Bot、审核和 Mini App 的启动验证。
 
 ## 发布验证
+
+### 更新中英文文案
+
+Bot 的中文原文标记为 `tr("…")`，英文目录位于 `ui/locales/en/LC_MESSAGES/telepost.po`。
+安装开发依赖后，用 Babel 编译并提交对应 `.mo`；运行时由标准库 gettext 读取：
+
+```bash
+python -m pip install -e '.[dev]'
+pybabel compile -d ui/locales -D telepost
+pytest -q tests/test_bot_language.py tests/test_production_handler_graph.py
+```
+
+Mini App 的目录在 `webapp/src/locales/zh.json` 和 `en.json`，使用 react-i18next。
+两个目录的插值字段必须一致；动态用户名、标题、标签和正文只作为参数传入，绝不当作待翻译文案。
+附件选择、去重和进度仍由 Uppy 管理，语言切换只调用 `setOptions({ locale })`。
+运行 `npm run typecheck`、`npm run lint`、`npm test` 和 `npm run build`，
+英文界面还由 `e2e/language.spec.ts` 验证小屏导航、投稿和审核。
 
 Tag 流程除测试外还会：
 

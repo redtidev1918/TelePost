@@ -1,3 +1,5 @@
+import { tr } from "../../lib/i18n";
+import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
 import { Button, Spinner } from '@telegram-apps/telegram-ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -23,15 +25,15 @@ import { EmptyState } from '../../components/ui/EmptyState';
  * bottom of the page at the same time.
  */
 
-const STATUS_LABELS: Record<string, string> = {
-  preparing: '准备中',
-  in_review: '审核中',
-  publishing: '发布中',
-  published: '已发布',
-  rejected: '未通过',
-  failed: '处理失败',
-  expired: '已过期',
-};
+const STATUS_LABELS = (): Record<string, string> => ({
+  preparing: tr("准备中"),
+  in_review: tr("审核中"),
+  publishing: tr("发布中"),
+  published: tr("已发布"),
+  rejected: tr("未通过"),
+  failed: tr("处理失败"),
+  expired: tr("已过期"),
+});
 
 const STATUS_TONES: Record<string, StatusTone> = {
   published: 'good',
@@ -43,6 +45,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
 };
 
 export function SubmissionDetailPage() {
+  useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useBotNavigate();
   useBackButton('/mine');
@@ -59,7 +62,7 @@ export function SubmissionDetailPage() {
       void qc.invalidateQueries({ queryKey: ['my-submission', id] });
     },
     onError: (error: unknown) => {
-      setResubmitResult((error as Error).message || '重新提交失败，请稍后重试。');
+      setResubmitResult((error as Error).message || tr("重新提交失败，请稍后重试。"));
     },
   });
   // Publication + editorial context for the owner (§47): the SERVER decides
@@ -80,10 +83,10 @@ export function SubmissionDetailPage() {
   if (submission.isError || !submission.data) {
     return (
       <div className="stack">
-        <PageHeader title="投稿详情" />
+        <PageHeader title={tr("投稿详情")} />
         <EmptyState
-          title={submission.isError ? (submission.error as Error).message : '未找到该投稿'}
-          hint="它可能已经被清理，或不在当前账号下。"
+          title={submission.isError ? (submission.error as Error).message : tr("未找到该投稿")}
+          hint={tr("它可能已经被清理，或不在当前账号下。")}
         />
       </div>
     );
@@ -94,66 +97,66 @@ export function SubmissionDetailPage() {
   return (
     <div className="stack">
       <PageHeader
-        title={item.title || '未命名投稿'}
-        subtitle={`${item.media_count} 个媒体 · ${item.document_count} 个文件`}
+        title={item.title || tr("未命名投稿")}
+        subtitle={tr("{{p0}} 个媒体 · {{p1}} 个文件", {p0: item.media_count, p1: item.document_count})}
       />
 
       <div className="card">
         <div className="card__row card__row--static">
-          <div className="card__row-meta">状态</div>
+          <div className="card__row-meta">{tr("状态")}</div>
           <div className="card__row-foot">
             <StatusBadge tone={STATUS_TONES[item.status] ?? 'neutral'}>
-              {STATUS_LABELS[item.status] || item.status}
+              {STATUS_LABELS()[item.status] || item.status}
             </StatusBadge>
           </div>
         </div>
         {item.note && (
           <div className="card__row card__row--static">
-            <div className="card__row-meta">备注</div>
+            <div className="card__row-meta">{tr("备注")}</div>
             <div className="card__row-title">{item.note}</div>
           </div>
         )}
         {item.tags.length > 0 && (
           <div className="card__row card__row--static">
-            <div className="card__row-meta">标签</div>
+            <div className="card__row-meta">{tr("标签")}</div>
             <div className="tag-list">{item.tags.map((tag) => <span key={tag} className="tag">{tag}</span>)}</div>
           </div>
         )}
         {item.link && /^https?:\/\//i.test(item.link) && (
           <div className="card__row card__row--static">
-            <div className="card__row-meta">链接</div>
+            <div className="card__row-meta">{tr("链接")}</div>
             <a href={item.link} target="_blank" rel="noopener noreferrer" style={{ overflowWrap: 'anywhere' }}>
               {item.link}
             </a>
           </div>
         )}
         <div className="card__row card__row--static">
-          <div className="card__row-meta">剧透</div>
+          <div className="card__row-meta">{tr("剧透")}</div>
           <div className="card__row-foot">
             <StatusBadge tone={item.spoiler ? 'warn' : 'neutral'}>
-              {item.spoiler ? '含剧透' : '无剧透'}
+              {item.spoiler ? tr("含剧透") : tr("无剧透")}
             </StatusBadge>
           </div>
         </div>
         <div className="card__row card__row--static">
-          <div className="card__row-meta">投稿时间</div>
+          <div className="card__row-meta">{tr("投稿时间")}</div>
           <div className="card__row-title">{new Date(item.created_at * 1000).toLocaleString()}</div>
         </div>
         <div className="card__row card__row--static">
-          <div className="card__row-meta">更新时间</div>
+          <div className="card__row-meta">{tr("更新时间")}</div>
           <div className="card__row-title">{new Date(item.updated_at * 1000).toLocaleString()}</div>
         </div>
         {item.refetch_count > 0 && (
           <div className="card__row card__row--static">
-            <div className="card__row-meta">重抓记录</div>
-            <div className="card__row-title">已更换候选 {item.refetch_count} 次</div>
+            <div className="card__row-meta">{tr("重抓记录")}</div>
+            <div className="card__row-title">{tr("已更换候选")}{item.refetch_count} {tr(" 次")}</div>
           </div>
         )}
         {history.data && (history.data.status === 'published' || history.data.revisions.length > 0) && (
           <div className="card__row card__row--static">
-            <div className="card__row-meta">发布前经过编辑</div>
+            <div className="card__row-meta">{tr("发布前经过编辑")}</div>
             <div className="card__row-title" data-testid="published-edited-flag">
-              {edited ? '是（可查看修改详情）' : '否'}
+              {edited ? tr("是（可查看修改详情）") : tr("否")}
             </div>
           </div>
         )}
@@ -175,7 +178,7 @@ export function SubmissionDetailPage() {
               data-testid="resubmit-button"
               onClick={() => resubmit.mutate()}
             >
-              {resubmit.isPending ? '重投中…' : '重投'}
+              {resubmit.isPending ? tr("重投中…") : tr("重投")}
             </Button>
           }
           note={resubmitResult ?? undefined}
@@ -184,22 +187,21 @@ export function SubmissionDetailPage() {
       {resubmitResult && !item.resubmit_available && (
         <div className="card">
           <div className="card__row card__row--static" data-testid="resubmit-result">
-            <div className="card__row-title">重投结果</div>
+            <div className="card__row-title">{tr("重投结果")}</div>
             <div className="card__row-meta">{resubmitResult}</div>
           </div>
         </div>
       )}
 
       {history.data && history.data.revisions.length > 0 && (
-        <PageSection title="编辑记录">
+        <PageSection title={tr("编辑记录")}>
           <Button
             mode="outline"
             stretched
             data-testid="view-editorial-history"
             onClick={() => navigate(`/mine/${id}/editorial`)}
           >
-            查看修改详情
-          </Button>
+            {tr("查看修改详情")}</Button>
         </PageSection>
       )}
     </div>

@@ -1,6 +1,7 @@
 """
 命令处理器模块
 """
+from ui.i18n import tr
 import logging
 from datetime import datetime
 from telegram import Update
@@ -45,9 +46,13 @@ async def cancel(update: Update, context: CallbackContext) -> int:
         logger.error(f"取消时删除数据错误: {e}")
     # 根据是否存在会话给出不同提示
     message_text = (
-        "🗑️ 投稿已取消，所有临时进度已清除。\n\n想继续？发送 /submit 重新开始。"
+        tr("""🗑️ 投稿已取消，所有临时进度已清除。
+
+想继续？发送 /submit 重新开始。""")
         if session_exists
-        else "ℹ️ 当前没有进行中的投稿。\n\n想投稿？发送 /submit 即可开始。"
+        else tr("""ℹ️ 当前没有进行中的投稿。
+
+想投稿？发送 /submit 即可开始。""")
     )
     try:
         await update.message.reply_text(message_text, parse_mode="HTML", reply_markup=Keyboards.main_menu())
@@ -71,7 +76,7 @@ async def help_command(update: Update, context: CallbackContext):
         await update.message.reply_text(help_text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"发送帮助信息失败: {e}")
-        await update.message.reply_text("❌ 发送帮助信息失败，请稍后重试")
+        await update.message.reply_text(tr('❌ 发送帮助信息失败，请稍后重试'))
 
 
 
@@ -82,7 +87,7 @@ async def about_command(update: Update, context: CallbackContext):
         await update.message.reply_text(MessageFormatter.about_message(), parse_mode="HTML")
     except Exception as exc:
         logger.error("发送关于信息失败: %s", exc)
-        await update.message.reply_text("❌ 发送关于信息失败，请稍后重试")
+        await update.message.reply_text(tr('❌ 发送关于信息失败，请稍后重试'))
 
 
 # 管理面板相关功能已移除
@@ -110,6 +115,15 @@ async def handle_menu_shortcuts(update: Update, context: CallbackContext) -> Non
         return
     
     text = (update.message.text or "").strip()
+    # Accept keyboards sent before a language change as well as the current one.
+    for english, chinese in (
+        ("My stats", "我的统计"), ("My posts", "我的投稿"),
+        ("Top posts", "热门内容"), ("Tag cloud", "标签云"),
+        ("Search", "搜索"), ("Help", "帮助"), ("About", "关于"),
+    ):
+        if text.endswith(english):
+            text = chinese
+            break
     handled = False
     try:
         # 如果处于搜索输入模式，优先交给搜索输入处理
@@ -149,7 +163,7 @@ async def handle_menu_shortcuts(update: Update, context: CallbackContext) -> Non
                 await reply_search_disabled(update)
             else:
                 await update.message.reply_text(
-                    "🔍 请输入搜索关键词，或点击下方选项：",
+                    tr('🔍 请输入搜索关键词，或点击下方选项：'),
                     reply_markup=Keyboards.search_options()
                 )
             handled = True
@@ -168,14 +182,14 @@ async def handle_menu_shortcuts(update: Update, context: CallbackContext) -> Non
                 logger.exception("生成 Mini App 入口失败")
             if markup is not None:
                 await update.message.reply_text(
-                    "📱 点击下方按钮打开 Mini App 投稿。",
+                    tr('📱 点击下方按钮打开 Mini App 投稿。'),
                     parse_mode="HTML",
                     reply_markup=markup,
                 )
                 handled = True
             else:
                 await update.message.reply_text(
-                    "ℹ️ Mini App 尚未启用，请用 /submit 或直接发送内容投稿。",
+                    tr('ℹ️ Mini App 尚未启用，请用 /submit 或直接发送内容投稿。'),
                     parse_mode="HTML",
                 )
                 handled = True
@@ -206,30 +220,30 @@ async def settings(update: Update, context: CallbackContext):
         from config.settings import CHANNEL_ID, BOT_MODE, SHOW_SUBMITTER, TIMEOUT, ALLOWED_TAGS
         
         # 基础设置信息（所有用户可见）
-        settings_info = f"""
+        settings_info = tr("""
 ⚙️ <b>机器人设置</b>
 
 <b>📺 频道信息：</b>
-• 频道ID: <code>{CHANNEL_ID}</code>
+• 频道ID: <code>{p0}</code>
 
 <b>🔄 投稿设置：</b>
-• 机器人模式: {BOT_MODE}
-• 最大标签数: {ALLOWED_TAGS}
-• 会话超时: {TIMEOUT}秒
+• 机器人模式: {p1}
+• 最大标签数: {p2}
+• 会话超时: {p3}秒
 
 <b>👁️ 隐私设置：</b>
-• 显示投稿人: {'是' if SHOW_SUBMITTER else '否'}
+• 显示投稿人: {p4}
 
 <b>💡 说明：</b>
 • MEDIA - 仅支持图片/视频
 • DOCUMENT - 仅支持文档
 • MIXED - 支持所有类型
-"""
+""").format(p0=CHANNEL_ID, p1=BOT_MODE, p2=ALLOWED_TAGS, p3=TIMEOUT, p4='是' if SHOW_SUBMITTER else '否')
         
         await update.message.reply_text(settings_info, parse_mode="HTML")
     except Exception as e:
         logger.error(f"发送设置信息失败: {e}")
-        await update.message.reply_text("❌ 获取设置信息失败，请稍后重试")
+        await update.message.reply_text(tr('❌ 获取设置信息失败，请稍后重试'))
 
 
 async def debug(update: Update, context: CallbackContext):
@@ -247,7 +261,9 @@ async def debug(update: Update, context: CallbackContext):
     # 检查权限
     if not is_owner(user_id):
         logger.warning(f"非管理员用户 {user_id} 尝试使用调试命令")
-        await update.message.reply_text("⛔ 此命令仅限管理员使用\n\n使用 /help 查看可用命令")
+        await update.message.reply_text(tr("""⛔ 此命令仅限管理员使用
+
+使用 /help 查看可用命令"""))
         return
     
     # 构建调试信息
@@ -255,18 +271,22 @@ async def debug(update: Update, context: CallbackContext):
         from config.settings import OWNER_ID, CHANNEL_ID, BOT_MODE, SHOW_SUBMITTER, NOTIFY_OWNER
         
         debug_info = (
-            "🔍 **系统调试信息**\n\n"
-            f"👤 您的用户ID: `{user_id}`\n"
-            f"🤖 机器人所有者ID: `{OWNER_ID}`\n"
-            f"✅ 您是所有者: {is_owner(user_id)}\n\n"
-            f"📺 频道ID: {CHANNEL_ID}\n"
-            f"🔄 机器人模式: {BOT_MODE}\n"
-            f"👁️ 显示投稿人: {SHOW_SUBMITTER}\n"
-            f"📲 通知所有者: {NOTIFY_OWNER}\n"
-            f"⏱️ 会话超时: {TIMEOUT}秒\n\n"
-            f"🗄️ 黑名单用户数: {len(_blacklist)}\n"
-            f"📂 用户会话数: {len(get_all_user_states())}\n"
-            f"🕒 服务器时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            tr("""🔍 **系统调试信息**
+
+👤 您的用户ID: `{p0}`
+🤖 机器人所有者ID: `{p1}`
+✅ 您是所有者: {p2}
+
+📺 频道ID: {p3}
+🔄 机器人模式: {p4}
+👁️ 显示投稿人: {p5}
+📲 通知所有者: {p6}
+⏱️ 会话超时: {p7}秒
+
+🗄️ 黑名单用户数: {p8}
+📂 用户会话数: {p9}
+🕒 服务器时间: {p10}
+""").format(p0=user_id, p1=OWNER_ID, p2=is_owner(user_id), p3=CHANNEL_ID, p4=BOT_MODE, p5=SHOW_SUBMITTER, p6=NOTIFY_OWNER, p7=TIMEOUT, p8=len(_blacklist), p9=len(get_all_user_states()), p10=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         )
         
         # 获取系统信息
@@ -281,19 +301,23 @@ async def debug(update: Update, context: CallbackContext):
             uptime = (datetime.now() - datetime.fromtimestamp(process.create_time())).total_seconds() / 60  # 分钟
             
             system_info = (
-                "\n📊 **系统信息**\n\n"
-                f"💻 操作系统: {platform.system()} {platform.release()}\n"
-                f"🐍 Python版本: {platform.python_version()}\n"
-                f"📈 进程CPU: {cpu_percent:.1f}%\n"
-                f"🧠 进程内存: {memory_usage:.1f} MB\n"
-                f"💾 系统内存: {memory_info.percent:.1f}% ({memory_info.used/1024/1024/1024:.1f}GB/{memory_info.total/1024/1024/1024:.1f}GB)\n"
-                f"⏲️ 运行时间: {int(uptime)} 分钟\n"
+                tr("""
+📊 **系统信息**
+
+💻 操作系统: {p0} {p1}
+🐍 Python版本: {p2}
+📈 进程CPU: {p3:.1f}%
+🧠 进程内存: {p4:.1f} MB
+💾 系统内存: {p5:.1f}% ({p6:.1f}GB/{p7:.1f}GB)
+⏲️ 运行时间: {p8} 分钟
+""").format(p0=platform.system(), p1=platform.release(), p2=platform.python_version(), p3=cpu_percent, p4=memory_usage, p5=memory_info.percent, p6=memory_info.used / 1024 / 1024 / 1024, p7=memory_info.total / 1024 / 1024 / 1024, p8=int(uptime))
             )
             
             debug_info += system_info
         except Exception as e:
             logger.warning(f"获取系统信息失败: {e}")
-            debug_info += "\n⚠️ 无法获取系统信息"
+            debug_info += tr("""
+⚠️ 无法获取系统信息""")
         
         # 搜索/数据库配置与索引统计
         try:
@@ -301,12 +325,15 @@ async def debug(update: Update, context: CallbackContext):
                 SEARCH_ENABLED, SEARCH_ANALYZER, SEARCH_HIGHLIGHT, SEARCH_INDEX_DIR, DB_CACHE_KB
             )
             search_info = (
-                "\n🔎 **搜索/数据库配置**\n\n"
-                f"🔍 搜索启用: {SEARCH_ENABLED}\n"
-                f"🧩 分词器: {SEARCH_ANALYZER}\n"
-                f"✨ 高亮: {SEARCH_HIGHLIGHT}\n"
-                f"📁 索引目录: `{SEARCH_INDEX_DIR}`\n"
-                f"🗃️ SQLite page cache: {DB_CACHE_KB} KB\n"
+                tr("""
+🔎 **搜索/数据库配置**
+
+🔍 搜索启用: {p0}
+🧩 分词器: {p1}
+✨ 高亮: {p2}
+📁 索引目录: `{p3}`
+🗃️ SQLite page cache: {p4} KB
+""").format(p0=SEARCH_ENABLED, p1=SEARCH_ANALYZER, p2=SEARCH_HIGHLIGHT, p3=SEARCH_INDEX_DIR, p4=DB_CACHE_KB)
             )
             # 目录大小
             try:
@@ -322,7 +349,8 @@ async def debug(update: Update, context: CallbackContext):
                                 pass
                     return total
                 idx_bytes = _dir_size_bytes(SEARCH_INDEX_DIR)
-                search_info += f"📦 索引大小: {idx_bytes/1024/1024:.2f} MB\n"
+                search_info += tr("""📦 索引大小: {p0:.2f} MB
+""").format(p0=idx_bytes / 1024 / 1024)
             except Exception:
                 pass
             # 索引文档统计
@@ -330,14 +358,17 @@ async def debug(update: Update, context: CallbackContext):
                 from utils.search_engine import get_search_engine
                 se = get_search_engine()
                 stats = se.get_stats()
-                search_info += f"📄 索引文档数: {stats.get('total_docs','N/A')}\n"
+                search_info += tr("""📄 索引文档数: {p0}
+""").format(p0=stats.get('total_docs', 'N/A'))
             except Exception as se_err:
-                search_info += f"📄 索引文档数: N/A ({se_err})\n"
+                search_info += tr("""📄 索引文档数: N/A ({p0})
+""").format(p0=se_err)
 
             debug_info += search_info
         except Exception as e:
             logger.warning(f"获取搜索/数据库配置失败: {e}")
-            debug_info += "\n⚠️ 无法获取搜索/数据库配置"
+            debug_info += tr("""
+⚠️ 无法获取搜索/数据库配置""")
 
         try:
             # 尝试使用Markdown格式发送
@@ -350,11 +381,11 @@ async def debug(update: Update, context: CallbackContext):
                 await update.message.reply_text(plain_debug_info)
             except Exception as e2:
                 logger.error(f"发送调试信息失败: {e2}")
-                await update.message.reply_text("❌ 发送调试信息失败")
+                await update.message.reply_text(tr('❌ 发送调试信息失败'))
     except Exception as e:
         logger.error(f"生成调试信息时发生错误: {e}", exc_info=True)
         try:
-            await update.message.reply_text(f"❌ 生成调试信息时发生错误: {str(e)[:100]}")
+            await update.message.reply_text(tr('❌ 生成调试信息时发生错误: {p0}').format(p0=str(e)[:100]))
         except Exception as e2:
             logger.error(f"发送错误消息失败: {e2}")
 
@@ -398,7 +429,7 @@ async def catch_all(update: Update, context: CallbackContext):
             # 会话外 /cancel：干净告知当前无投稿（会话内的取消由 fallback 处理）
             logger.info(f"会话外收到 /cancel，回复无进行中投稿: {update.effective_user.id}")
             try:
-                await update.message.reply_text("ℹ️ 当前没有进行中的投稿。要开始新投稿请发送 /submit")
+                await update.message.reply_text(tr('ℹ️ 当前没有进行中的投稿。要开始新投稿请发送 /submit'))
             except Exception as e:
                 logger.debug(f"发送提示失败: {e}")
             return
@@ -409,9 +440,9 @@ async def catch_all(update: Update, context: CallbackContext):
             logger.info(f"未识别的命令（不重复打扰）: {text[:30]}")
             return
         reply = (
-            "🤔 这条消息我没看懂。\n"
-            "• 投稿请发送 /submit（按提示一步步来）\n"
-            "• 全部命令请发送 /help"
+            tr("""🤔 这条消息我没看懂。
+• 投稿请发送 /submit（按提示一步步来）
+• 全部命令请发送 /help""")
         )
         logger.info(f"发送兜底引导给 {update.effective_user.id}: {text[:30]}")
         try:
@@ -437,7 +468,7 @@ async def blacklist_add(update: Update, context: CallbackContext):
     if not is_owner(user_id):
         logger.warning(f"非所有者用户 {user_id} 尝试使用黑名单添加命令")
         try:
-            await update.message.reply_text("⚠️ 只有机器人所有者才能使用此命令")
+            await update.message.reply_text(tr('⚠️ 只有机器人所有者才能使用此命令'))
         except Exception as e:
             logger.error(f"发送权限拒绝消息失败: {e}")
         return
@@ -447,10 +478,12 @@ async def blacklist_add(update: Update, context: CallbackContext):
     if not args or len(args) < 1:
         try:
             await update.message.reply_text(
-                "⚠️ 命令格式错误\n\n"
-                "正确格式: /blacklist_add <用户ID> [原因]\n"
-                "例如: /blacklist_add 123456789 发送垃圾内容\n\n"
-                "用户ID必须是数字，可以通过用户的投稿通知获取"
+                tr("""⚠️ 命令格式错误
+
+正确格式: /blacklist_add <用户ID> [原因]
+例如: /blacklist_add 123456789 发送垃圾内容
+
+用户ID必须是数字，可以通过用户的投稿通知获取""")
             )
         except Exception as e:
             logger.error(f"发送格式提示消息失败: {e}")
@@ -458,34 +491,36 @@ async def blacklist_add(update: Update, context: CallbackContext):
     
     try:
         target_user_id = int(args[0])
-        reason = " ".join(args[1:]) if len(args) > 1 else "未指定原因"
+        reason = " ".join(args[1:]) if len(args) > 1 else tr('未指定原因')
         
         # 添加到黑名单
         success = await add_to_blacklist(target_user_id, reason)
         if success:
             try:
-                await update.message.reply_text(f"✅ 已将用户 {target_user_id} 添加到黑名单\n原因: {reason}")
+                await update.message.reply_text(tr("""✅ 已将用户 {p0} 添加到黑名单
+原因: {p1}""").format(p0=target_user_id, p1=reason))
                 logger.info(f"用户 {user_id} 成功将 {target_user_id} 添加到黑名单，原因: {reason}")
             except Exception as e:
                 logger.error(f"发送成功消息失败: {e}")
         else:
             try:
-                await update.message.reply_text(f"❌ 添加用户 {target_user_id} 到黑名单时出错")
+                await update.message.reply_text(tr('❌ 添加用户 {p0} 到黑名单时出错').format(p0=target_user_id))
             except Exception as e:
                 logger.error(f"发送失败消息失败: {e}")
     except ValueError:
         try:
             await update.message.reply_text(
-                "⚠️ 用户ID格式错误\n\n"
-                "用户ID必须是数字（例如：123456789）\n"
-                "您可以从投稿通知消息中获取用户ID，或者使用 @userinfobot 机器人查询"
+                tr("""⚠️ 用户ID格式错误
+
+用户ID必须是数字（例如：123456789）
+您可以从投稿通知消息中获取用户ID，或者使用 @userinfobot 机器人查询""")
             )
         except Exception as e:
             logger.error(f"发送ID格式错误消息失败: {e}")
     except Exception as e:
         logger.error(f"处理黑名单添加命令时出错: {e}", exc_info=True)
         try:
-            await update.message.reply_text(f"❌ 处理命令时发生错误: {str(e)[:100]}")
+            await update.message.reply_text(tr('❌ 处理命令时发生错误: {p0}').format(p0=str(e)[:100]))
         except Exception as e2:
             logger.error(f"发送错误消息失败: {e2}")
 
@@ -507,7 +542,7 @@ async def blacklist_remove(update: Update, context: CallbackContext):
     if not is_owner(user_id):
         logger.warning(f"非所有者用户 {user_id} 尝试使用黑名单移除命令")
         try:
-            await update.message.reply_text("⚠️ 只有机器人所有者才能使用此命令")
+            await update.message.reply_text(tr('⚠️ 只有机器人所有者才能使用此命令'))
         except Exception as e:
             logger.error(f"发送权限拒绝消息失败: {e}")
         return
@@ -517,10 +552,12 @@ async def blacklist_remove(update: Update, context: CallbackContext):
     if not args or len(args) < 1:
         try:
             await update.message.reply_text(
-                "⚠️ 命令格式错误\n\n"
-                "正确格式: /blacklist_remove <用户ID>\n"
-                "例如: /blacklist_remove 123456789\n\n"
-                "用户ID必须是数字，可以通过 /blacklist_list 命令查看所有黑名单用户"
+                tr("""⚠️ 命令格式错误
+
+正确格式: /blacklist_remove <用户ID>
+例如: /blacklist_remove 123456789
+
+用户ID必须是数字，可以通过 /blacklist_list 命令查看所有黑名单用户""")
             )
         except Exception as e:
             logger.error(f"发送格式提示消息失败: {e}")
@@ -533,28 +570,29 @@ async def blacklist_remove(update: Update, context: CallbackContext):
         success = await remove_from_blacklist(target_user_id)
         if success:
             try:
-                await update.message.reply_text(f"✅ 已将用户 {target_user_id} 从黑名单中移除")
+                await update.message.reply_text(tr('✅ 已将用户 {p0} 从黑名单中移除').format(p0=target_user_id))
                 logger.info(f"用户 {user_id} 成功将 {target_user_id} 从黑名单中移除")
             except Exception as e:
                 logger.error(f"发送成功消息失败: {e}")
         else:
             try:
-                await update.message.reply_text(f"❓ 用户 {target_user_id} 不在黑名单中")
+                await update.message.reply_text(tr('❓ 用户 {p0} 不在黑名单中').format(p0=target_user_id))
             except Exception as e:
                 logger.error(f"发送失败消息失败: {e}")
     except ValueError:
         try:
             await update.message.reply_text(
-                "⚠️ 用户ID格式错误\n\n"
-                "用户ID必须是数字（例如：123456789）\n"
-                "请使用 /blacklist_list 命令查看所有黑名单用户的ID"
+                tr("""⚠️ 用户ID格式错误
+
+用户ID必须是数字（例如：123456789）
+请使用 /blacklist_list 命令查看所有黑名单用户的ID""")
             )
         except Exception as e:
             logger.error(f"发送ID格式错误消息失败: {e}")
     except Exception as e:
         logger.error(f"处理黑名单移除命令时出错: {e}", exc_info=True)
         try:
-            await update.message.reply_text(f"❌ 处理命令时发生错误: {str(e)[:100]}")
+            await update.message.reply_text(tr('❌ 处理命令时发生错误: {p0}').format(p0=str(e)[:100]))
         except Exception as e2:
             logger.error(f"发送错误消息失败: {e2}")
 
@@ -576,7 +614,7 @@ async def blacklist_list(update: Update, context: CallbackContext):
     if not is_owner(user_id):
         logger.warning(f"非所有者用户 {user_id} 尝试使用黑名单列表命令")
         try:
-            await update.message.reply_text("⚠️ 只有机器人所有者才能使用此命令")
+            await update.message.reply_text(tr('⚠️ 只有机器人所有者才能使用此命令'))
         except Exception as e:
             logger.error(f"发送权限拒绝消息失败: {e}")
         return
@@ -587,18 +625,23 @@ async def blacklist_list(update: Update, context: CallbackContext):
         
         if not blacklist:
             try:
-                await update.message.reply_text("📋 黑名单为空")
+                await update.message.reply_text(tr('📋 黑名单为空'))
                 logger.info("黑名单为空，返回空列表")
             except Exception as e:
                 logger.error(f"发送空黑名单消息失败: {e}")
             return
         
         # 格式化黑名单消息
-        message = "📋 **黑名单用户列表**:\n\n"
+        message = tr("""📋 **黑名单用户列表**:
+
+""")
         for i, user in enumerate(blacklist, 1):
             message += f"{i}. ID: `{user['user_id']}`\n"
-            message += f"   原因: {user['reason']}\n"
-            message += f"   添加时间: {user['added_at']}\n\n"
+            message += tr("""   原因: {p0}
+""").format(p0=user['reason'])
+            message += tr("""   添加时间: {p0}
+
+""").format(p0=user['added_at'])
         
         try:
             # 尝试带Markdown格式发送
@@ -616,6 +659,6 @@ async def blacklist_list(update: Update, context: CallbackContext):
     except Exception as e:
         logger.error(f"处理黑名单列表命令时出错: {e}", exc_info=True)
         try:
-            await update.message.reply_text(f"❌ 获取黑名单时发生错误: {str(e)[:100]}")
+            await update.message.reply_text(tr('❌ 获取黑名单时发生错误: {p0}').format(p0=str(e)[:100]))
         except Exception as e2:
             logger.error(f"发送错误消息失败: {e2}")

@@ -5,6 +5,7 @@
 上传阶段统一收媒体/文档（归类和限制见 handlers.upload），不再有
 MEDIA/DOCUMENT 两套状态互转。
 """
+from ui.i18n import tr
 import logging
 from datetime import datetime
 
@@ -33,7 +34,7 @@ async def submit(update: Update, context: CallbackContext) -> int:
     username = user.username or user.first_name or f"user{user.id}"
 
     if is_blacklisted(user_id):
-        await update.message.reply_text("⚠️ 您已被列入黑名单，无法投稿。")
+        await update.message.reply_text(tr('⚠️ 您已被列入黑名单，无法投稿。'))
         return ConversationHandler.END
 
     # 投稿频率限制（内存滑动窗口，重启清零）
@@ -44,7 +45,7 @@ async def submit(update: Update, context: CallbackContext) -> int:
         history[:] = [t for t in history if now - t < 3600]
         if len(history) >= SUBMIT_LIMIT_PER_HOUR:
             await update.message.reply_text(
-                f"⚠️ 投稿过于频繁（每小时最多 {SUBMIT_LIMIT_PER_HOUR} 次），请稍后再试。"
+                tr('⚠️ 投稿过于频繁（每小时最多 {p0} 次），请稍后再试。').format(p0=SUBMIT_LIMIT_PER_HOUR)
             )
             return ConversationHandler.END
         history.append(now)
@@ -53,7 +54,7 @@ async def submit(update: Update, context: CallbackContext) -> int:
         await create_session(user_id, username, BOT_MODE.lower())
     except Exception as e:
         logger.error(f"初始化会话失败: {e}", exc_info=True)
-        await update.message.reply_text("❌ 初始化失败，请稍后再试")
+        await update.message.reply_text(tr('❌ 初始化失败，请稍后再试'))
         return ConversationHandler.END
 
     # 每次 /submit 是一次新投稿：清除上一个会话的“已发媒体预览”标记，
@@ -77,7 +78,7 @@ async def start(update: Update, context: CallbackContext) -> int:
     username = user.username or user.first_name or f"user{user.id}"
 
     if is_blacklisted(user.id):
-        await update.message.reply_text("⚠️ 您已被列入黑名单，无法使用。")
+        await update.message.reply_text(tr('⚠️ 您已被列入黑名单，无法使用。'))
         return ConversationHandler.END
 
     start_payload = (context.args or [""])[0].strip().lower()
@@ -87,7 +88,7 @@ async def start(update: Update, context: CallbackContext) -> int:
             markup = Keyboards.miniapp_launch()
             if markup is not None:
                 await update.message.reply_text(
-                    "📱 点击下方按钮打开 Mini App 投稿。",
+                    tr('📱 点击下方按钮打开 Mini App 投稿。'),
                     parse_mode="HTML",
                     reply_markup=markup,
                 )
@@ -95,17 +96,21 @@ async def start(update: Update, context: CallbackContext) -> int:
         except Exception:
             logger.exception("Mini App launch keyboard failed")
     welcome = (
-        f"👋 <b>你好，{username}！</b>\n\n"
-        "我是投稿机器人，帮你把图文内容发布到频道。\n"
-        "想投稿？发送 /submit 就开始。\n\n"
-        "📚 <b>常用功能</b>\n"
-        "/submit 开始投稿\n"
-        "/search 搜索内容\n"
-        "/mystats 我的统计 · /myposts 我的投稿\n"
-        "/hot 热门排行 · /tags 标签云\n"
-        "/help 完整帮助 · /cancel 取消投稿\n\n"
-        "📱 <b>Mini App</b>：点击键盘的「📱 Mini App」，再点按钮即可打开。\n\n"
-        "💡 <i>更多指令见 /help。</i>"
+        tr("""👋 <b>你好，{p0}！</b>
+
+我是投稿机器人，帮你把图文内容发布到频道。
+想投稿？发送 /submit 就开始。
+
+📚 <b>常用功能</b>
+/submit 开始投稿
+/search 搜索内容
+/mystats 我的统计 · /myposts 我的投稿
+/hot 热门排行 · /tags 标签云
+/help 完整帮助 · /cancel 取消投稿
+
+📱 <b>Mini App</b>：点击键盘的「📱 Mini App」，再点按钮即可打开。
+
+💡 <i>更多指令见 /help。</i>""").format(p0=username)
     )
     try:
         from ui.keyboards import Keyboards

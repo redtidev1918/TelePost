@@ -1,6 +1,7 @@
 """
 错误处理模块
 """
+from ui.i18n import tr
 import logging
 import traceback
 from telegram import Update
@@ -28,7 +29,7 @@ async def error_handler(update: Update, context: CallbackContext) -> None:
     # 记录用户信息（如果有）
     if update and update.effective_user:
         user_id = update.effective_user.id
-        username = update.effective_user.username or "未设置"
+        username = update.effective_user.username or tr('未设置')
         logger.error(f"错误涉及用户: 用户ID: {user_id}, 用户名: @{username}")
     
     # 记录更新信息（如果有）
@@ -44,7 +45,7 @@ async def error_handler(update: Update, context: CallbackContext) -> None:
                     # 确认回调查询以防止界面阻塞
                     await update.callback_query.answer()
                     await update.effective_chat.send_message(
-                        "操作已完成，请继续按照提示操作。如遇问题，请发送 /cancel 取消当前会话，然后重新开始。"
+                        tr('操作已完成，请继续按照提示操作。如遇问题，请发送 /cancel 取消当前会话，然后重新开始。')
                     )
                     return
                 except Exception as e:
@@ -68,7 +69,7 @@ async def error_handler(update: Update, context: CallbackContext) -> None:
             logger.debug("忽略回调查询过期错误")
             if update and update.callback_query:
                 try:
-                    await update.callback_query.answer("此操作已过期，请重新尝试")
+                    await update.callback_query.answer(tr('此操作已过期，请重新尝试'))
                 except:
                     pass
             return
@@ -88,7 +89,7 @@ async def error_handler(update: Update, context: CallbackContext) -> None:
         
         try:
             await update.effective_chat.send_message(
-                "❌ 抱歉，处理您的请求时发生了错误。请稍后再试，或发送 /cancel 取消当前会话，然后发送 /start 重新开始。"
+                tr('❌ 抱歉，处理您的请求时发生了错误。请稍后再试，或发送 /cancel 取消当前会话，然后发送 /start 重新开始。')
             )
         except Exception as e:
             logger.error(f"发送错误通知失败: {e}")

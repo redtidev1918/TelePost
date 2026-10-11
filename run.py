@@ -370,6 +370,10 @@ def build_bot_env(index: int, base: dict) -> dict:
     env["TELEPOST_PRIMARY_BOT"] = "true" if index == 1 else "false"
     env["TOKEN"] = env.get(f"BOT{index}_TOKEN", "")
     env["CHANNEL_ID"] = env.get(f"BOT{index}_CHANNEL_ID", "")
+    language = env.get(f"BOT{index}_LANGUAGE") or env.get("BOT_LANGUAGE")
+    if language is not None:
+        from ui.i18n import normalize_language
+        env["BOT_LANGUAGE"] = normalize_language(language)
 
     for key in OVERRIDABLE_KEYS:
         value = env.get(f"BOT{index}_{key}")

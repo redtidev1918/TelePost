@@ -1,0 +1,3409 @@
+# English translations for TelePost.
+# Copyright (C) 2026 TelePost contributors
+# This file is distributed under the same license as the TelePost project.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: TelePost\n"
+"Report-Msgid-Bugs-To: https://github.com/redtidev1918/TelePost/issues\n"
+"POT-Creation-Date: 2026-10-11 07:15+0800\n"
+"PO-Revision-Date: 2026-10-11 07:15+0800\n"
+"Last-Translator: TelePost contributors\n"
+"Language: en\n"
+"Language-Team: English\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+msgid ""
+"\n"
+"\n"
+"⚠️ 错误:\n"
+msgstr ""
+"\n"
+"\n"
+"⚠️ Errors:\n"
+
+msgid ""
+"\n"
+"\n"
+"✅ 已启用"
+msgstr ""
+"\n"
+"\n"
+"✅ Enabled"
+
+#, python-brace-format
+msgid ""
+"\n"
+"\n"
+"投稿人：<a href=\"tg://user?id={p0}\">{p1}</a>"
+msgstr ""
+"\n"
+"\n"
+"Submitter: <a href=\"tg://user?id={p0}\">{p1}</a>"
+
+#, python-brace-format
+msgid ""
+"\n"
+"\n"
+"投稿人：{p0}"
+msgstr ""
+"\n"
+"\n"
+"Submitter: {p0}"
+
+#, python-brace-format
+msgid ""
+"\n"
+"\n"
+"来源：{p0}"
+msgstr ""
+"\n"
+"\n"
+"Source: {p0}"
+
+msgid ""
+"\n"
+"\n"
+"📋 <b>下一步</b>\n"
+"1️⃣ 继续上传内容，或发送 /done_media 打开预览\n"
+"2️⃣ 在预览页填写标签（必填）、标题、简介、链接\n"
+"3️⃣ 确认无误后点击按钮发布 / 提交审核\n"
+"\n"
+"💡 <b>小提示</b>\n"
+"• 匿名、剧透默认关闭，可在预览页开启\n"
+"• 任一环节发送 /cancel 可取消投稿"
+msgstr ""
+"\n"
+"\n"
+"📋 <b>Next</b>\n"
+"1️⃣ Upload more or send /done_media to preview\n"
+"2️⃣ Add tags (required), a title, a note and a link in the preview\n"
+"3️⃣ Check and tap the publish / submit for review button\n"
+"\n"
+"💡 <b>Tips</b>\n"
+"• Anonymous and spoiler modes are off by default; enable them in the preview\n"
+"• Send /cancel at any step to cancel"
+
+msgid ""
+"\n"
+"\n"
+"🗑 已删除"
+msgstr ""
+"\n"
+"\n"
+"🗑 Deleted"
+
+#, python-brace-format
+msgid ""
+"\n"
+"\n"
+"🚫 已封禁{p0} #{p1}（由管理员 {p2} 记录）"
+msgstr ""
+"\n"
+"\n"
+"🚫 {p0} #{p1} blocked by admin {p2}"
+
+msgid ""
+"\n"
+"<i>继续加油！💪</i>"
+msgstr ""
+"\n"
+"<i>Keep posting! 💪</i>"
+
+msgid ""
+"\n"
+"<i>请确认信息无误后发布</i>"
+msgstr ""
+"\n"
+"<i>Check your post before publishing.</i>"
+
+#, python-brace-format
+msgid ""
+"\n"
+"{p0} <b>热度：{p1:.1f}</b>\n"
+"📝 {p2}\n"
+"❤️ {p3} 反应\n"
+"🕒 {p4}\n"
+msgstr ""
+"\n"
+"{p0} <b>Score: {p1:.1f}</b>\n"
+"📝 {p2}\n"
+"❤️ {p3} reactions\n"
+"🕒 {p4}\n"
+
+msgid ""
+"\n"
+"ℹ️ <b>关于投稿机器人</b>\n"
+"\n"
+"这是一个投稿机器人，支持图文 / 文件投稿，提交前可预览确认。\n"
+"\n"
+"<b>常用命令</b>\n"
+"/submit 发起投稿\n"
+"/mystats 查看我的投稿统计\n"
+"/cancel 取消当前投稿\n"
+"/help 查看完整帮助\n"
+"\n"
+"<b>🔗 开源：</b> https://github.com/redtidev1918/TelePost\n"
+"\n"
+"<i>有问题可以私聊管理员。</i>\n"
+msgstr ""
+"\n"
+"ℹ️ <b>About TelePost</b>\n"
+"\n"
+"Submit text, media and files, and preview before sending.\n"
+"\n"
+"<b>Commands</b>\n"
+"/submit New submission\n"
+"/mystats My submission stats\n"
+"/cancel Cancel current submission\n"
+"/help Help\n"
+"\n"
+"<b>🔗 Source:</b> https://github.com/redtidev1918/TelePost\n"
+"\n"
+"<i>Contact an admin if you need help.</i>\n"
+
+#, python-brace-format
+msgid ""
+"\n"
+"⚙️ <b>机器人设置</b>\n"
+"\n"
+"<b>📺 频道信息：</b>\n"
+"• 频道ID: <code>{p0}</code>\n"
+"\n"
+"<b>🔄 投稿设置：</b>\n"
+"• 机器人模式: {p1}\n"
+"• 最大标签数: {p2}\n"
+"• 会话超时: {p3}秒\n"
+"\n"
+"<b>👁️ 隐私设置：</b>\n"
+"• 显示投稿人: {p4}\n"
+"\n"
+"<b>💡 说明：</b>\n"
+"• MEDIA - 仅支持图片/视频\n"
+"• DOCUMENT - 仅支持文档\n"
+"• MIXED - 支持所有类型\n"
+msgstr ""
+"\n"
+"⚙️ <b>Bot settings</b>\n"
+"\n"
+"<b>📺 Channel:</b>\n"
+"• Channel ID: <code>{p0}</code>\n"
+"\n"
+"<b>🔄 Submissions:</b>\n"
+"• Bot mode: {p1}\n"
+"• Maximum tags: {p2}\n"
+"• Session timeout: {p3} seconds\n"
+"\n"
+"<b>👁️ Privacy:</b>\n"
+"• Show submitter: {p4}\n"
+"\n"
+"<b>💡 Modes:</b>\n"
+"• MEDIA - Images/videos only\n"
+"• DOCUMENT - Documents only\n"
+"• MIXED - All types\n"
+
+msgid ""
+"\n"
+"⚠️ 无法获取搜索/数据库配置"
+msgstr ""
+"\n"
+"⚠️ Could not read search/database configuration"
+
+msgid ""
+"\n"
+"⚠️ 无法获取系统信息"
+msgstr ""
+"\n"
+"⚠️ Could not read system information"
+
+#, python-brace-format
+msgid ""
+"\n"
+"任务ID：{p0}"
+msgstr ""
+"\n"
+"Task ID: {p0}"
+
+#, python-brace-format
+msgid ""
+"\n"
+"原因：{p0}"
+msgstr ""
+"\n"
+"Reason: {p0}"
+
+msgid ""
+"\n"
+"吊销：/revoke_token <编号>"
+msgstr ""
+"\n"
+"Revoke: /revoke_token <ID>"
+
+#, python-brace-format
+msgid ""
+"\n"
+"已等待约 {p0} 分钟，仍在查找…"
+msgstr ""
+"\n"
+"Waiting for about {p0} minutes; still searching…"
+
+#, python-brace-format
+msgid ""
+"\n"
+"当前阶段：{p0}"
+msgstr ""
+"\n"
+"Stage: {p0}"
+
+msgid ""
+"\n"
+"请在新审核稿上继续审核。"
+msgstr ""
+"\n"
+"Continue reviewing on the new card."
+
+#, python-brace-format
+msgid ""
+"\n"
+"👑 <b>全局统计数据</b>\n"
+"\n"
+"<b>👥 用户统计：</b>\n"
+"• 总用户数：{p0}\n"
+"• 7日活跃：{p1}\n"
+"• 黑名单：{p2}\n"
+"\n"
+"<b>📝 内容统计：</b>\n"
+"• 总投稿数：{p3}\n"
+"• ❤️ 总反应数：{p4:,}\n"
+"\n"
+"<b>📈 平均数据：</b>\n"
+"• 人均投稿：{p5:.1f}\n"
+"• 篇均反应：{p6:.1f}\n"
+"\n"
+"\n"
+"<i>最后更新：{p7}</i>\n"
+msgstr ""
+"\n"
+"👑 <b>Global stats</b>\n"
+"\n"
+"<b>👥 Users:</b>\n"
+"• Total users: {p0}\n"
+"• Active in 7 days: {p1}\n"
+"• Blocked users: {p2}\n"
+"\n"
+"<b>📝 Content:</b>\n"
+"• Total posts: {p3}\n"
+"• ❤️ Total reactions: {p4:,}\n"
+"\n"
+"<b>📈 Averages:</b>\n"
+"• Posts per user: {p5:.1f}\n"
+"• Reactions per post: {p6:.1f}\n"
+"\n"
+"\n"
+"<i>Updated: {p7}</i>\n"
+
+msgid ""
+"\n"
+"👑 <b>管理员</b>\n"
+"/schedule 定时任务（发 /schedule 查看引导）\n"
+"/stats 全局统计\n"
+"/searchuser &lt;ID&gt; 查询用户投稿\n"
+"/ban_user &lt;ID&gt; 封禁用户\n"
+"/ban_api &lt;编号&gt; 禁用 API\n"
+"/blacklist 黑名单管理\n"
+"/tokens 查看 API Token\n"
+"/gen_token 生成 API Token\n"
+"/revoke_token 撤销 API Token\n"
+"/delete_posts 批量删除投稿\n"
+"/pin_status 置顶状态\n"
+"/rebuild_index 重建索引\n"
+"/sync_index 同步索引\n"
+"/index_stats 索引统计\n"
+"/optimize_index 优化索引\n"
+"/botconfig 机器人配置\n"
+"/debug 调试\n"
+msgstr ""
+"\n"
+"👑 <b>Admin</b>\n"
+"/schedule Scheduled tasks (send /schedule for instructions)\n"
+"/stats Global stats\n"
+"/searchuser &lt;ID&gt; Find a user’s posts\n"
+"/ban_user &lt;ID&gt; Block user\n"
+"/ban_api &lt;ID&gt; Disable API access\n"
+"/blacklist Manage blocklist\n"
+"/tokens List API tokens\n"
+"/gen_token Generate API token\n"
+"/revoke_token Revoke API token\n"
+"/delete_posts Delete posts in bulk\n"
+"/pin_status Pinned status\n"
+"/rebuild_index Rebuild index\n"
+"/sync_index Sync index\n"
+"/index_stats Index stats\n"
+"/optimize_index Optimize index\n"
+"/botconfig Bot configuration\n"
+"/debug Debug\n"
+
+#, python-brace-format
+msgid ""
+"\n"
+"👤 <b>用户信息</b>\n"
+"\n"
+"🆔 用户ID: <code>{p0}</code>\n"
+"📝 投稿数: {p1}\n"
+msgstr ""
+"\n"
+"👤 <b>User information</b>\n"
+"\n"
+"🆔 User ID: <code>{p0}</code>\n"
+"📝 Posts: {p1}\n"
+
+#, python-brace-format
+msgid ""
+"\n"
+"💡 使用 /search #{p0} 搜索该标签的帖子"
+msgstr ""
+"\n"
+"💡 Use /search #{p0} to find posts with this tag"
+
+#, python-brace-format
+msgid ""
+"\n"
+"📊 **系统信息**\n"
+"\n"
+"💻 操作系统: {p0} {p1}\n"
+"🐍 Python版本: {p2}\n"
+"📈 进程CPU: {p3:.1f}%\n"
+"🧠 进程内存: {p4:.1f} MB\n"
+"💾 系统内存: {p5:.1f}% ({p6:.1f}GB/{p7:.1f}GB)\n"
+"⏲️ 运行时间: {p8} 分钟\n"
+msgstr ""
+"\n"
+"📊 **System information**\n"
+"\n"
+"💻 OS: {p0} {p1}\n"
+"🐍 Python: {p2}\n"
+"📈 Process CPU: {p3:.1f}%\n"
+"🧠 Process memory: {p4:.1f} MB\n"
+"💾 System memory: {p5:.1f}% ({p6:.1f}GB/{p7:.1f}GB)\n"
+"⏲️ Uptime: {p8} minutes\n"
+
+#, python-brace-format
+msgid ""
+"\n"
+"📊 <b>帖子统计</b>\n"
+"\n"
+"❤️ 反应数: {p0:,}\n"
+"🔥 热度分: {p1:.2f}\n"
+"\n"
+"📅 发布时间: {p2}\n"
+msgstr ""
+"\n"
+"📊 <b>Post stats</b>\n"
+"\n"
+"❤️ Reactions: {p0:,}\n"
+"🔥 Score: {p1:.2f}\n"
+"\n"
+"📅 Published: {p2}\n"
+
+#, python-brace-format
+msgid ""
+"\n"
+"📊 <b>我的统计数据</b>\n"
+"\n"
+"<b>📝 投稿概况：</b>\n"
+"• 总投稿数：{p0} 篇\n"
+"• ❤️ 总反应数：{p1:,} 次\n"
+"\n"
+"<b>📈 平均表现：</b>\n"
+"• 平均热度：{p2:.1f}\n"
+"\n"
+"\n"
+msgstr ""
+"\n"
+"📊 <b>My stats</b>\n"
+"\n"
+"<b>📝 Submissions:</b>\n"
+"• Total posts: {p0}\n"
+"• ❤️ Total reactions: {p1:,}\n"
+"\n"
+"<b>📈 Averages:</b>\n"
+"• Average score: {p2:.1f}\n"
+"\n"
+"\n"
+
+#, python-brace-format
+msgid ""
+"\n"
+"📋 <b>投稿预览</b>\n"
+"\n"
+"<b>内容：</b>\n"
+"{p0}{p1}\n"
+"\n"
+msgstr ""
+"\n"
+"📋 <b>Submission preview</b>\n"
+"\n"
+"<b>Content:</b>\n"
+"{p0}{p1}\n"
+"\n"
+
+msgid ""
+"\n"
+"📝 <b>投稿指南</b>\n"
+"\n"
+"<b>支持的内容</b>\n"
+"• 🖼️ 图片（单张或多张）\n"
+"• 🎥 视频 / 📹 动图 (GIF) / 🔉 音频\n"
+"• 📁 压缩包 / PDF 等文档附件\n"
+"\n"
+"<b>投稿流程</b>\n"
+"1️⃣ 发送 /submit 开始\n"
+"2️⃣ 上传内容（选填标签、标题、简介、链接）\n"
+"3️⃣ 发送 /done_media 打开预览\n"
+"4️⃣ 修改确认后发布 / 提交审核\n"
+"\n"
+"<b>小提示</b>\n"
+"• 内容里加 #标签 更容易被发现\n"
+"• 随时发送 /cancel 取消投稿\n"
+"\n"
+"<i>准备好了吗？发送 /submit 开始！</i>\n"
+msgstr ""
+"\n"
+"📝 <b>Submission guide</b>\n"
+"\n"
+"<b>Supported content</b>\n"
+"• 🖼️ Images (one or more)\n"
+"• 🎥 Videos / 📹 GIFs / 🔉 Audio\n"
+"• 📁 Archives, PDFs and other files\n"
+"\n"
+"<b>Steps</b>\n"
+"1️⃣ Send /submit\n"
+"2️⃣ Upload content (add tags, a title, a note and a link in the preview)\n"
+"3️⃣ Send /done_media to preview\n"
+"4️⃣ Check and publish / submit for review\n"
+"\n"
+"<b>Tips</b>\n"
+"• Add #tags to help people find your post\n"
+"• Send /cancel at any step to cancel\n"
+"\n"
+"<i>Send /submit to get started.</i>\n"
+
+#, python-brace-format
+msgid ""
+"\n"
+"🔍 <b>搜索结果</b>\n"
+"\n"
+"关键词：<code>{p0}</code>\n"
+"找到 <b>{p1}</b> 条结果\n"
+"\n"
+"━━━━━━━━━━━━━━━━\n"
+msgstr ""
+"\n"
+"🔍 <b>Search results</b>\n"
+"\n"
+"Keywords: <code>{p0}</code>\n"
+"Found <b>{p1}</b> results\n"
+"\n"
+"━━━━━━━━━━━━━━━━\n"
+
+msgid ""
+"\n"
+"🔍 <b>暂无结果</b>\n"
+"\n"
+"没有找到相关内容\n"
+"试试其他关键词或筛选条件吧\n"
+msgstr ""
+"\n"
+"🔍 <b>No results</b>\n"
+"\n"
+"No matching posts found.\n"
+"Try different keywords or filters.\n"
+
+#, python-brace-format
+msgid ""
+"\n"
+"🔎 **搜索/数据库配置**\n"
+"\n"
+"🔍 搜索启用: {p0}\n"
+"🧩 分词器: {p1}\n"
+"✨ 高亮: {p2}\n"
+"📁 索引目录: `{p3}`\n"
+"🗃️ SQLite page cache: {p4} KB\n"
+msgstr ""
+"\n"
+"🔎 **Search/database configuration**\n"
+"\n"
+"🔍 Search enabled: {p0}\n"
+"🧩 Analyzer: {p1}\n"
+"✨ Highlighting: {p2}\n"
+"📁 Index directory: `{p3}`\n"
+"🗃️ SQLite page cache: {p4} KB\n"
+
+#, python-brace-format
+msgid ""
+"\n"
+"🔥 <b>热门内容排行</b>\n"
+"\n"
+"📅 时间范围：{p0}\n"
+"🔢 显示数量：前 {p1} 名\n"
+"\n"
+"━━━━━━━━━━━━━━━━\n"
+msgstr ""
+"\n"
+"🔥 <b>Top posts</b>\n"
+"\n"
+"📅 Period: {p0}\n"
+"🔢 Showing: top {p1}\n"
+"\n"
+"━━━━━━━━━━━━━━━━\n"
+
+#, python-brace-format
+msgid "   原因: {p0}\n"
+msgstr "   Reason: {p0}\n"
+
+#, python-brace-format
+msgid ""
+"   添加时间: {p0}\n"
+"\n"
+msgstr ""
+"   Added: {p0}\n"
+"\n"
+
+#, python-brace-format
+msgid "   💡 匹配: {p0}\n"
+msgstr "   💡 Match: {p0}\n"
+
+#, python-brace-format
+msgid "   🔥 热度: <code>{p0:.1f}</code> • 🕐 {p1}\n"
+msgstr "   🔥 Score: <code>{p0:.1f}</code> • 🕐 {p1}\n"
+
+msgid ""
+"...\n"
+"\n"
+"结果过多，请使用更具体的关键词"
+msgstr ""
+"...\n"
+"\n"
+"Too many results. Try more specific keywords."
+
+#, python-brace-format
+msgid ""
+"...\n"
+"\n"
+"还有更多投稿，使用 /myposts {p0} 查看更多"
+msgstr ""
+"...\n"
+"\n"
+"More posts available. Use /myposts {p0} to see them."
+
+msgid ""
+"...\n"
+"\n"
+"💡 更多帖子请使用 /search 搜索"
+msgstr ""
+"...\n"
+"\n"
+"💡 Use /search to find more posts"
+
+#, python-brace-format
+msgid "... 还有 {p0} 篇投稿"
+msgstr "... {p0} more posts"
+
+#, python-brace-format
+msgid "<b>媒体文件：</b> {p0} 个\n"
+msgstr "<b>Media files:</b> {p0}\n"
+
+msgid "<b>已完成：</b>\n"
+msgstr "<b>Completed:</b>\n"
+
+#, python-brace-format
+msgid "<b>标签：</b> {p0}\n"
+msgstr "<b>Tags:</b> {p0}\n"
+
+msgid "<b>🏷️ 常用标签：</b>\n"
+msgstr "<b>🏷️ Top tags:</b>\n"
+
+#, python-brace-format
+msgid "API 审核：{p0}"
+msgstr "API review: {p0}"
+
+msgid "Bot 将在约 6 秒内单独重载。"
+msgstr "This bot will reload in about 6 seconds."
+
+#, python-brace-format
+msgid "Mini App 审核：{p0}"
+msgstr "Mini App review: {p0}"
+
+msgid "Telegram 用户"
+msgstr "Telegram user"
+
+msgid "Telegram 私聊"
+msgstr "Telegram private chat"
+
+msgid "Telegram 聊天"
+msgstr "Telegram chat"
+
+#, python-brace-format
+msgid ""
+"{p0}\n"
+"\n"
+"🔑 API token 禁用已由管理员 {p1} 记录"
+msgstr ""
+"{p0}\n"
+"\n"
+"🔑 API token disabled by admin {p1}"
+
+#, python-brace-format
+msgid ""
+"{p0}\n"
+"\n"
+"🚫 投稿人封禁已由管理员 {p1} 记录"
+msgstr ""
+"{p0}\n"
+"\n"
+"🚫 Submitter block recorded by admin {p1}"
+
+#, python-brace-format
+msgid ""
+"{p0}\n"
+"任务ID：{p1}"
+msgstr ""
+"{p0}\n"
+"Task ID: {p1}"
+
+#, python-brace-format
+msgid "{p0} 个文档"
+msgstr "{p0} documents"
+
+#, python-brace-format
+msgid "{p0} 个文档（含 {p1} 份原图）"
+msgstr "{p0} documents (including {p1} original files)"
+
+#, python-brace-format
+msgid "{p0} 已设为 {p1}"
+msgstr "{p0} set to {p1}"
+
+#, python-brace-format
+msgid ""
+"{p0}. {p1}\n"
+"   {p2}\n"
+"{p3}   📅 {p4} | 🔥 热度 {p5:.0f}\n"
+"   🔗 {p6}\n"
+"\n"
+msgstr ""
+"{p0}. {p1}\n"
+"   {p2}\n"
+"{p3}   📅 {p4} | 🔥 Score {p5:.0f}\n"
+"   🔗 {p6}\n"
+"\n"
+
+#, python-brace-format
+msgid ""
+"{p0}. {p1}\n"
+"   ⏰ {p2}  {p3}\n"
+"   上次：{p4} {p5}\n"
+"   下次：{p6}\n"
+msgstr ""
+"{p0}. {p1}\n"
+"   ⏰ {p2}  {p3}\n"
+"   Last: {p4} {p5}\n"
+"   Next: {p6}\n"
+
+#, python-brace-format
+msgid ""
+"{p0}. {p1}\n"
+"   📅 {p2} | 🔥 热度 {p3:.0f}\n"
+"   🔗 {p4}\n"
+"\n"
+msgstr ""
+"{p0}. {p1}\n"
+"   📅 {p2} | 🔥 Score {p3:.0f}\n"
+"   🔗 {p4}\n"
+"\n"
+
+#, python-brace-format
+msgid "{p0}分钟前"
+msgstr "{p0} minutes ago"
+
+#, python-brace-format
+msgid "{p0}在发布前进行了以下编辑："
+msgstr "{p0} made these edits before publishing:"
+
+#, python-brace-format
+msgid "{p0}天前"
+msgstr "{p0} days ago"
+
+#, python-brace-format
+msgid "{p0}小时前"
+msgstr "{p0} hours ago"
+
+#, python-brace-format
+msgid "{p0}月前"
+msgstr "{p0} months ago"
+
+#, python-brace-format
+msgid "• {p0}: {p1} 次\n"
+msgstr "• {p0}: {p1} times\n"
+
+#, python-brace-format
+msgid "• 从索引删除：{p0} 个\n"
+msgstr "• Index entries deleted: {p0}\n"
+
+#, python-brace-format
+msgid "• 从频道删除：{p0} 个消息\n"
+msgstr "• Channel messages deleted: {p0}\n"
+
+#, python-brace-format
+msgid "• 失败：{p0} 个\n"
+msgstr "• Failed: {p0}\n"
+
+#, python-brace-format
+msgid "• 已删除：{p0} 个（之前已标记为删除）\n"
+msgstr "• Previously marked deleted: {p0}\n"
+
+#, python-brace-format
+msgid "• 成功删除：{p0} 个\n"
+msgstr "• Deleted: {p0}\n"
+
+#, python-brace-format
+msgid "• 未找到：{p0} 个\n"
+msgstr "• Not found: {p0}\n"
+
+#, python-brace-format
+msgid "• 频道删除失败：{p0} 个（可能无权限或消息已不存在）\n"
+msgstr "• Channel deletion failed: {p0} (missing permission or message already gone)\n"
+
+msgid "ℹ️ Mini App 尚未启用，请用 /submit 或直接发送内容投稿。"
+msgstr "ℹ️ Mini App is not enabled. Use /submit to submit content."
+
+msgid "ℹ️ 关于"
+msgstr "ℹ️ About"
+
+msgid "ℹ️ 关于机器人"
+msgstr "ℹ️ About bot"
+
+#, python-brace-format
+msgid "ℹ️ 审核 #{p0} 重抓已结束（{p1}）。"
+msgstr "ℹ️ Refetch for review #{p0} ended ({p1})."
+
+msgid ""
+"ℹ️ 当前没有进行中的投稿。\n"
+"\n"
+"想投稿？发送 /submit 即可开始。"
+msgstr ""
+"ℹ️ No submission in progress.\n"
+"\n"
+"Send /submit to start one."
+
+msgid "ℹ️ 当前没有进行中的投稿。要开始新投稿请发送 /submit"
+msgstr "ℹ️ No submission in progress. Send /submit to start one."
+
+msgid ""
+"ℹ️ 搜索功能在当前机器人尚未启用。\n"
+"\n"
+"你仍然可以：\n"
+"• 📋 我的投稿 —— 查看自己发布过的内容\n"
+"• 🏷️ 标签云 —— 按标签浏览\n"
+"• 🔥 热门内容 —— 看看最近的热门\n"
+"\n"
+"如需使用搜索，请联系频道管理员开启后再试。"
+msgstr ""
+"ℹ️ Search is not enabled on this bot.\n"
+"\n"
+"You can still use:\n"
+"• 📋 My posts — your published content\n"
+"• 🏷️ Tag cloud — browse by tag\n"
+"• 🔥 Top posts — popular content\n"
+"\n"
+"Contact a channel admin to enable search."
+
+msgid "ℹ️ 该帖子已被标记为删除"
+msgstr "ℹ️ This post is already marked deleted"
+
+msgid "ℹ️ 该投稿当前状态：publishing"
+msgstr "ℹ️ Current submission status: publishing"
+
+#, python-brace-format
+msgid "⌛ 你的投稿超过 {p0} 天未审核，已自动过期。"
+msgstr "⌛ Your submission expired after {p0} days without review."
+
+msgid "⌨️ 输入其他时间"
+msgstr "⌨️ Enter another time"
+
+msgid "⏭️ 末页"
+msgstr "⏭️ Last page"
+
+msgid "⏮️ 首页"
+msgstr "⏮️ First page"
+
+msgid "⏰ 定时任务"
+msgstr "⏰ Scheduled tasks"
+
+msgid "⏰ 定时任务\n"
+msgstr "⏰ Scheduled tasks\n"
+
+msgid ""
+"⏰ 定时任务\n"
+"\n"
+"/schedule — 查看所有任务\n"
+"/schedule add weekly-hot <星期> <HH:MM> <TOP N>\n"
+"  例：/schedule add weekly-hot sunday 20:00 10\n"
+"/schedule enable <id> — 启用\n"
+"/schedule disable <id> — 停用\n"
+"/schedule run <id> — 立即执行\n"
+"/schedule preview <id> — 预览输出\n"
+"/schedule delete <id> — 删除"
+msgstr ""
+"⏰ Scheduled tasks\n"
+"\n"
+"/schedule — List tasks\n"
+"/schedule add weekly-hot <day> <HH:MM> <TOP N>\n"
+"  Example: /schedule add weekly-hot sunday 20:00 10\n"
+"/schedule enable <id> — Enable\n"
+"/schedule disable <id> — Disable\n"
+"/schedule run <id> — Run now\n"
+"/schedule preview <id> — Preview output\n"
+"/schedule delete <id> — Delete"
+
+msgid ""
+"⏰ 定时任务\n"
+"\n"
+"还没有任务。\n"
+"\n"
+"点击下方按钮创建，或发送 /schedule add weekly-hot 星期日 20:00 10"
+msgstr ""
+"⏰ Scheduled tasks\n"
+"\n"
+"No tasks yet.\n"
+"\n"
+"Tap the button below or send /schedule add weekly-hot sunday 20:00 10"
+
+msgid "⏰ 操作太频繁，请稍等片刻再试。"
+msgstr "⏰ Too many requests. Please wait before trying again."
+
+#, python-brace-format
+msgid ""
+"⏰ 新任务预览\n"
+"\n"
+"任务：{p0}\n"
+"执行：{p1}\n"
+"目标：审核群\n"
+"时区：{p2}\n"
+"下次：{p3}\n"
+"\n"
+"确认创建？"
+msgstr ""
+"⏰ New task preview\n"
+"\n"
+"Task: {p0}\n"
+"Run: {p1}\n"
+"Target: review group\n"
+"Time zone: {p2}\n"
+"Next: {p3}\n"
+"\n"
+"Create this task?"
+
+#, python-brace-format
+msgid ""
+"⏰ 新任务预览\n"
+"\n"
+"任务：每周热榜\n"
+"执行：{p0} {p1:02d}:{p2:02d}\n"
+"范围：本周\n"
+"数量：TOP {p3}\n"
+"目标：审核群\n"
+"\n"
+"确认创建？"
+msgstr ""
+"⏰ New task preview\n"
+"\n"
+"Task: weekly top posts\n"
+"Run: {p0} {p1:02d}:{p2:02d}\n"
+"Period: this week\n"
+"Count: top {p3}\n"
+"Target: review group\n"
+"\n"
+"Create this task?"
+
+#, python-brace-format
+msgid "⏱ 审核 #{p0} 重抓排队超时（PixivFlow 未开始执行，已等待约 {p1} 分钟），当前稿件保持不变，可以再次重抓。"
+msgstr ""
+"⏱ Refetch for review #{p0} timed out in the queue (PixivFlow did not start after about "
+"{p1} minutes). The current submission is unchanged. You can refetch again."
+
+msgid "⏱️ 您的投稿会话已超时，未发布的内容已被清理。请发送 /submit 重新开始。"
+msgstr ""
+"⏱️ Your submission session timed out. Unpublished content was cleared. Send /submit to "
+"start again."
+
+msgid "⏳ 处理中，请稍候..."
+msgstr "⏳ Processing, please wait..."
+
+#, python-brace-format
+msgid ""
+"⏳ 开始批量删除 {p0} 个帖子记录...\n"
+"请稍候..."
+msgstr ""
+"⏳ Deleting {p0} post records…\n"
+"Please wait…"
+
+msgid "⏳ 正在搜索…"
+msgstr "⏳ Searching…"
+
+msgid "⏸ 停用"
+msgstr "⏸ Disable"
+
+msgid "⏸ 已停用"
+msgstr "⏸ Disabled"
+
+msgid "① 选择星期"
+msgstr "① Choose a day"
+
+msgid "② 请直接发送时间，格式 HH:MM（如 20:30）"
+msgstr "② Send a time in HH:MM format (for example, 20:30)"
+
+#, python-brace-format
+msgid "② 选择时间（已选：{p0}）"
+msgstr "② Choose a time (selected: {p0})"
+
+#, python-brace-format
+msgid "③ 选择数量（已选：{p0}）"
+msgstr "③ Choose a count (selected: {p0})"
+
+msgid "▶️ 下页"
+msgstr "▶️ Next"
+
+msgid "▶️ 启用"
+msgstr "▶️ Enable"
+
+msgid "▶️ 执行"
+msgstr "▶️ Run"
+
+msgid "◀️ 上页"
+msgstr "◀️ Previous"
+
+msgid "♻️ 恢复部署配置"
+msgstr "♻️ Restore deployment configuration"
+
+#, python-brace-format
+msgid ""
+"♻️ 收到重复投稿，已复用现有审核\n"
+"审核：#{p0}\n"
+"状态：{p1}\n"
+"媒体未重复上传，原审核记录仍有效。"
+msgstr ""
+"♻️ Duplicate submission: reused the existing review\n"
+"Review: #{p0}\n"
+"Status: {p1}\n"
+"Media was not uploaded again. The original review is still valid."
+
+#, python-brace-format
+msgid ""
+"♻️ 此审核稿已被重抓结果替代\n"
+"\n"
+"新的审核稿：#{p0}"
+msgstr ""
+"♻️ This review was replaced by a refetch result\n"
+"\n"
+"New review: #{p0}"
+
+#, python-brace-format
+msgid ""
+"⚙️ <b>Bot {p0} 运行配置</b>\n"
+"\n"
+"📺 投稿频道：<code>{p1}</code>\n"
+"👥 审核群：<code>{p2}</code>\n"
+"🔌 API 投稿审核：{p3}\n"
+"📱 Mini App 投稿审核：{p4}\n"
+"💬 聊天投稿审核：{p5}\n"
+"👤 频道显示投稿人：{p6}\n"
+"\n"
+"设置频道：/botconfig channel @频道或-100ID\n"
+"设置审核群：在目标群发送 /botconfig review here"
+msgstr ""
+"⚙️ <b>Bot {p0} runtime configuration</b>\n"
+"\n"
+"📺 Channel: <code>{p1}</code>\n"
+"👥 Review group: <code>{p2}</code>\n"
+"🔌 API submission review: {p3}\n"
+"📱 Mini App submission review: {p4}\n"
+"💬 Chat submission review: {p5}\n"
+"👤 Show submitter in channel: {p6}\n"
+"\n"
+"Set channel: /botconfig channel @channel_or_-100ID\n"
+"Set review group: send /botconfig review here in that group"
+
+msgid "⚙️ Bot 配置"
+msgstr "⚙️ Bot configuration"
+
+msgid "⚙️ 机器人设置"
+msgstr "⚙️ Bot settings"
+
+#, python-brace-format
+msgid ""
+"⚠️ <b>删除确认</b>\n"
+"\n"
+"确定要删除消息 ID 为 <code>{p0}</code> 的帖子记录吗？\n"
+"\n"
+"⚠️ 此操作将：\n"
+"• ✅ 从频道删除消息（双向同步删除）\n"
+"• ✅ 从数据库标记为已删除（保留历史数据）\n"
+"• ✅ 从搜索索引删除\n"
+"\n"
+"💡 注意：数据会保留在数据库中，可通过数据库操作恢复"
+msgstr ""
+"⚠️ <b>Confirm deletion</b>\n"
+"\n"
+"Delete the post with message ID <code>{p0}</code>?\n"
+"\n"
+"⚠️ This will:\n"
+"• Delete the channel message\n"
+"• Mark the database record as deleted (history is kept)\n"
+"• Remove the search index entry\n"
+"\n"
+"💡 The database history is kept and can be restored by an operator."
+
+#, python-brace-format
+msgid "⚠️ 不同步 (差异: {p0})"
+msgstr "⚠️ Out of sync (difference: {p0})"
+
+#, python-brace-format
+msgid "⚠️ 任务 {p0} 执行失败：{p1}"
+msgstr "⚠️ Task {p0} failed: {p1}"
+
+#, python-brace-format
+msgid ""
+"⚠️ 单条投稿最多 {p0} 个文件。\n"
+"\n"
+"请发送 /done_media 进入预览，或 /cancel 后重新投稿。"
+msgstr ""
+"⚠️ A submission can contain at most {p0} files.\n"
+"\n"
+"Send /done_media to preview or /cancel to start again."
+
+msgid "⚠️ 发布前必须填写标签"
+msgstr "⚠️ Add tags before publishing"
+
+msgid "⚠️ 只有机器人所有者才能使用此命令"
+msgstr "⚠️ This command is for the bot owner."
+
+msgid ""
+"⚠️ 命令格式错误\n"
+"\n"
+"正确格式: /blacklist_add <用户ID> [原因]\n"
+"例如: /blacklist_add 123456789 发送垃圾内容\n"
+"\n"
+"用户ID必须是数字，可以通过用户的投稿通知获取"
+msgstr ""
+"⚠️ Invalid command format\n"
+"\n"
+"Usage: /blacklist_add <user_id> [reason]\n"
+"Example: /blacklist_add 123456789 Spam\n"
+"\n"
+"User IDs must be numeric. Find them in submission notifications."
+
+msgid ""
+"⚠️ 命令格式错误\n"
+"\n"
+"正确格式: /blacklist_remove <用户ID>\n"
+"例如: /blacklist_remove 123456789\n"
+"\n"
+"用户ID必须是数字，可以通过 /blacklist_list 命令查看所有黑名单用户"
+msgstr ""
+"⚠️ Invalid command format\n"
+"\n"
+"Usage: /blacklist_remove <user_id>\n"
+"Example: /blacklist_remove 123456789\n"
+"\n"
+"Use /blacklist_list to see blocked user IDs."
+
+#, python-brace-format
+msgid ""
+"⚠️ 审核 #{p0} {p1}：\n"
+"{p2}"
+msgstr ""
+"⚠️ Review #{p0} {p1}:\n"
+"{p2}"
+
+#, python-brace-format
+msgid "⚠️ 审核 #{p0} 重抓失败，当前稿件未变，可以再次重抓。"
+msgstr ""
+"⚠️ Refetch for review #{p0} failed. The current submission is unchanged. You can "
+"refetch again."
+
+#, python-brace-format
+msgid "⚠️ 审核 #{p0} 重抓失败，当前稿件未变，请稍后重试。"
+msgstr ""
+"⚠️ Refetch for review #{p0} failed. The current submission is unchanged. Please try "
+"again later."
+
+#, python-brace-format
+msgid "⚠️ 审核 #{p0} 重抓未能完成（{p1}），当前稿件保持不变，可以再次重抓。"
+msgstr ""
+"⚠️ Refetch for review #{p0} did not complete ({p1}). The current submission is "
+"unchanged. You can refetch again."
+
+#, python-brace-format
+msgid "⚠️ 审核 #{p0} 重抓看门狗失去心跳超过 {p1} 分钟（本机轮询未再记录到该任务），已标记失败，当前稿件保持不变，可以再次重抓。"
+msgstr ""
+"⚠️ Refetch for review #{p0} lost the local polling heartbeat for over {p1} minutes and "
+"was marked failed. The current submission is unchanged. You can refetch again."
+
+#, python-brace-format
+msgid "⚠️ 审核 #{p0} 重抓请求未被 PixivFlow 接受（已等待约 {p1} 分钟），当前稿件未变，请重新点击重抓。"
+msgstr ""
+"⚠️ PixivFlow did not accept the refetch for review #{p0} after about {p1} minutes. The "
+"current submission is unchanged. Tap refetch again."
+
+msgid ""
+"⚠️ 当前为媒体投稿模式，不支持文件附件。\n"
+"\n"
+"请直接发送图片、视频、GIF 或音频。"
+msgstr ""
+"⚠️ This bot accepts media only, not document attachments.\n"
+"\n"
+"Send images, videos, GIFs or audio directly."
+
+msgid ""
+"⚠️ 当前为文档投稿模式，请以附件发送文件。\n"
+"\n"
+"请发送压缩包、PDF 等文件，或以附件发送图片。"
+msgstr ""
+"⚠️ This bot accepts document submissions.\n"
+"\n"
+"Send archives, PDFs or images as file attachments."
+
+msgid "⚠️ 当前没有进行中的投稿。请先发送 /submit 开始投稿，再上传媒体或文件。"
+msgstr "⚠️ No submission in progress. Send /submit before uploading media or files."
+
+msgid "⚠️ 您已被列入黑名单，无法使用。"
+msgstr "⚠️ You are blocked from using this bot."
+
+msgid "⚠️ 您已被列入黑名单，无法投稿。"
+msgstr "⚠️ You are blocked from submitting."
+
+#, python-brace-format
+msgid "⚠️ 投稿过于频繁（每小时最多 {p0} 次），请稍后再试。"
+msgstr "⚠️ You can submit at most {p0} times per hour. Please try again later."
+
+msgid "⚠️ 搜索索引删除失败\n"
+msgstr "⚠️ Could not remove the search index entry\n"
+
+msgid "⚠️ 无法读取计划状态，请稍后再试。"
+msgstr "⚠️ Could not read schedule status. Please try again later."
+
+msgid "⚠️ 未知编辑项，已返回预览"
+msgstr "⚠️ Unknown field. Returning to the preview."
+
+msgid ""
+"⚠️ 用户ID格式错误\n"
+"\n"
+"用户ID必须是数字（例如：123456789）\n"
+"您可以从投稿通知消息中获取用户ID，或者使用 @userinfobot 机器人查询"
+msgstr ""
+"⚠️ User IDs must be numeric (for example, 123456789).\n"
+"Find the ID in submission notifications or use @userinfobot."
+
+msgid ""
+"⚠️ 用户ID格式错误\n"
+"\n"
+"用户ID必须是数字（例如：123456789）\n"
+"请使用 /blacklist_list 命令查看所有黑名单用户的ID"
+msgstr ""
+"⚠️ User IDs must be numeric (for example, 123456789).\n"
+"Use /blacklist_list to see blocked user IDs."
+
+msgid "⚠️ 该任务类型暂不支持预览"
+msgstr "⚠️ Preview is not available for this task type yet"
+
+msgid "⚠️ 请发送支持的媒体（图片/视频/GIF/音频），或发送 /cancel 取消。"
+msgstr "⚠️ Send supported media (images/videos/GIFs/audio) or /cancel to cancel."
+
+msgid ""
+"⚠️ 请至少上传一个媒体或文件。\n"
+"\n"
+"发送 /cancel 可放弃本次投稿。"
+msgstr ""
+"⚠️ Upload at least one media item or file.\n"
+"\n"
+"Send /cancel to cancel."
+
+msgid ""
+"⚠️ 请至少发送一个媒体文件。\n"
+"\n"
+"发送 /cancel 可放弃本次投稿。"
+msgstr ""
+"⚠️ Send at least one media item.\n"
+"\n"
+"Send /cancel to cancel."
+
+msgid ""
+"⚠️ 请至少发送一个文件。\n"
+"\n"
+"发送 /cancel 可放弃本次投稿。"
+msgstr ""
+"⚠️ Send at least one file.\n"
+"\n"
+"Send /cancel to cancel."
+
+msgid ""
+"⚠️ 这里只接收媒体或文件。\n"
+"\n"
+"• 🖼️ 图片 / 📹 视频 / GIF / 音频：直接发送\n"
+"• 📦 压缩包 / PDF 等：以附件发送\n"
+"\n"
+"🏷️ 标签、标题、简介和链接请在 /done_media 打开预览后填写。"
+msgstr ""
+"⚠️ Upload media or files here.\n"
+"\n"
+"• 🖼️ Images / 📹 Videos / GIFs / Audio: send directly\n"
+"• 📦 Archives / PDFs: send as attachments\n"
+"\n"
+"🏷️ Add tags, a title, a note and a link after /done_media opens the preview."
+
+msgid "⚠️ 链接须以 http:// 或 https:// 开头，或回复「无」清空"
+msgstr "⚠️ Links must start with http:// or https://. Reply “none” to clear."
+
+msgid "⚠️ 频道消息删除失败（可能无权限或消息已不存在）\n"
+msgstr "⚠️ Could not delete channel message (missing permission or already gone)\n"
+
+msgid "⚠️ 频道消息删除状态未知\n"
+msgstr "⚠️ Channel deletion status unknown\n"
+
+msgid "⚠️点击查看⚠️"
+msgstr "⚠️Tap to reveal⚠️"
+
+msgid "⛔ 仅管理员"
+msgstr "⛔ Admins only"
+
+msgid "⛔ 已停用"
+msgstr "⛔ Disabled"
+
+msgid "⛔ 权限不足"
+msgstr "⛔ Permission denied"
+
+msgid ""
+"⛔ 权限不足，仅管理员可用。\n"
+"\n"
+"请输入 /help 查看可用命令。"
+msgstr ""
+"⛔ This command is for admins.\n"
+"\n"
+"Send /help to see available commands."
+
+msgid "⛔ 权限不足：只有管理员可以删除帖子"
+msgstr "⛔ Only admins can delete posts."
+
+msgid "⛔ 权限不足：只有管理员可以执行此操作"
+msgstr "⛔ Only admins can perform this action."
+
+msgid "⛔ 权限不足：只有管理员可以批量删除帖子"
+msgstr "⛔ Only admins can delete posts in bulk."
+
+msgid "⛔ 此命令仅限 Bot 所有者使用"
+msgstr "⛔ This command is for the bot owner."
+
+msgid "⛔ 此命令仅限机器人所有者使用"
+msgstr "⛔ This command is for the bot owner."
+
+msgid "⛔ 此命令仅限管理员使用"
+msgstr "⛔ This command is for admins."
+
+msgid ""
+"⛔ 此命令仅限管理员使用\n"
+"\n"
+"使用 /help 查看可用命令"
+msgstr ""
+"⛔ This command is for admins.\n"
+"\n"
+"Use /help to see available commands."
+
+msgid ""
+"✅ <b>删除操作完成</b>\n"
+"\n"
+msgstr ""
+"✅ <b>Deletion complete</b>\n"
+"\n"
+
+msgid ""
+"✅ <b>批量删除完成</b>\n"
+"\n"
+msgstr ""
+"✅ <b>Bulk deletion complete</b>\n"
+"\n"
+
+#, python-brace-format
+msgid "✅ token #{p0} 已吊销"
+msgstr "✅ Token #{p0} revoked"
+
+#, python-brace-format
+msgid "✅ {p0}成功！"
+msgstr "✅ {p0} completed!"
+
+#, python-brace-format
+msgid "✅ {p0}，正在返回预览…"
+msgstr "✅ {p0}. Returning to the preview…"
+
+msgid "✅ 从搜索索引删除"
+msgstr "✅ Removed from search index"
+
+msgid "✅ 从数据库标记为已删除（保留历史数据）\n"
+msgstr "✅ Marked deleted in the database (history kept)\n"
+
+msgid "✅ 从频道删除消息\n"
+msgstr "✅ Deleted channel message\n"
+
+#, python-brace-format
+msgid "✅ 从频道删除消息（包含 {p0} 个关联消息）\n"
+msgstr "✅ Deleted channel messages (including {p0} linked messages)\n"
+
+#, python-brace-format
+msgid "✅ 任务 {p0} {p1}"
+msgstr "✅ Task {p0} {p1}"
+
+#, python-brace-format
+msgid "✅ 任务 {p0} 已删除"
+msgstr "✅ Task {p0} deleted"
+
+#, python-brace-format
+msgid "✅ 任务 {p0} 已执行"
+msgstr "✅ Task {p0} ran"
+
+#, python-brace-format
+msgid ""
+"✅ 任务已创建（#{p0}）\n"
+"下次执行：{p1}"
+msgstr ""
+"✅ Task created (#{p0})\n"
+"Next run: {p1}"
+
+msgid "✅ 你的投稿已发布"
+msgstr "✅ Your submission was published"
+
+msgid "✅ 你的投稿已通过审核并发布"
+msgstr "✅ Your submission was approved and published"
+
+msgid "✅ 创建"
+msgstr "✅ Create"
+
+msgid "✅ 发布到频道"
+msgstr "✅ Publish to channel"
+
+msgid ""
+"✅ 发布成功！你的内容已发布到频道。\n"
+"\n"
+"💡 可通过 /myposts 查看自己的投稿。"
+msgstr ""
+"✅ Published! Your content is now in the channel.\n"
+"\n"
+"💡 Use /myposts to view your posts."
+
+#, python-brace-format
+msgid ""
+"✅ 审核 #{p0} 已发布\n"
+"{p1}"
+msgstr ""
+"✅ Review #{p0} published\n"
+"{p1}"
+
+msgid "✅ 已同步"
+msgstr "✅ Synced"
+
+msgid "✅ 已启用"
+msgstr "✅ Enabled"
+
+#, python-brace-format
+msgid ""
+"✅ 已封禁用户 {p0}\n"
+"原因：{p1}\n"
+"该用户后续投稿将自动被拦截。"
+msgstr ""
+"✅ User {p0} blocked\n"
+"Reason: {p1}\n"
+"Future submissions from this user will be blocked."
+
+#, python-brace-format
+msgid "✅ 已将用户 {p0} 从黑名单中移除"
+msgstr "✅ User {p0} removed from the blocklist"
+
+#, python-brace-format
+msgid ""
+"✅ 已将用户 {p0} 添加到黑名单\n"
+"原因: {p1}"
+msgstr ""
+"✅ User {p0} added to the blocklist\n"
+"Reason: {p1}"
+
+#, python-brace-format
+msgid ""
+"✅ 已恢复部署配置。\n"
+"{p0}"
+msgstr ""
+"✅ Deployment configuration restored.\n"
+"{p0}"
+
+msgid "✅ 已执行"
+msgstr "✅ Ran successfully"
+
+#, python-brace-format
+msgid ""
+"✅ 已接收{p0}，当前 {p1}/{p2} 个。\n"
+"💡 可继续上传，或发送 /done_media 打开预览、/cancel 取消。"
+msgstr ""
+"✅ Received {p0}: {p1}/{p2} files.\n"
+"💡 Upload more, send /done_media to preview or /cancel to cancel."
+
+#, python-brace-format
+msgid "✅ 已提交{p0}：系统会自动继续处理。"
+msgstr "✅ {p0} requested. Processing will continue automatically."
+
+#, python-brace-format
+msgid "✅ 已添加，当前共 {p0} 个媒体。可继续发送，或发送 /done_media 返回预览并{p1}。"
+msgstr "✅ Added. You now have {p0} media items. Send more or /done_media to preview and {p1}."
+
+#, python-brace-format
+msgid ""
+"✅ 已禁用 API token #{p0}\n"
+"原因：{p1}\n"
+"该 token 后续自动投稿将不接受。"
+msgstr ""
+"✅ API token #{p0} disabled\n"
+"Reason: {p1}\n"
+"Future automated submissions with this token will not be accepted."
+
+msgid "✅ 已移除黑名单"
+msgstr "✅ Removed from blocklist"
+
+#, python-brace-format
+msgid ""
+"✅ 投稿已进入审核队列（#{p0}）。\n"
+"\n"
+"⌛ 请留意私信：审核通过或未通过时机器人都会通知你。\n"
+"💡 审核期间请不要重复提交同一内容。"
+msgstr ""
+"✅ Your submission is in the review queue (#{p0}).\n"
+"\n"
+"⌛ The bot will notify you privately when it is approved or rejected.\n"
+"💡 Please do not submit the same content again while it is under review."
+
+msgid "✅ 提交审核"
+msgstr "✅ Submit for review"
+
+msgid "✅ 操作已确认"
+msgstr "✅ Action confirmed"
+
+msgid "✅ 标签已更新"
+msgstr "✅ Tags updated"
+
+msgid "✅ 标题已更新"
+msgstr "✅ Title updated"
+
+msgid "✅ 状态已发送（置顶失败：机器人需要频道/群管理员权限）"
+msgstr "✅ Status sent (pinning failed: the bot needs channel/group admin permission)"
+
+msgid "✅ 状态已置顶"
+msgstr "✅ Status pinned"
+
+#, python-brace-format
+msgid "✅ 用户 {p0} 已从黑名单移除"
+msgstr "✅ User {p0} removed from blocklist"
+
+msgid "✅ 确认"
+msgstr "✅ Confirm"
+
+msgid "✅ 确认创建"
+msgstr "✅ Create task"
+
+msgid "✅ 确认发布"
+msgstr "✅ Publish"
+
+msgid "✅ 移除黑名单"
+msgstr "✅ Unblock"
+
+msgid "✅ 简介已更新"
+msgstr "✅ Note updated"
+
+msgid "✅ 索引优化成功！"
+msgstr "✅ Index optimized!"
+
+#, python-brace-format
+msgid ""
+"✅ 索引同步成功！\n"
+"\n"
+"📊 统计信息:\n"
+"  • 新增: {p0} 个文档\n"
+"  • 删除: {p1} 个文档"
+msgstr ""
+"✅ Index synced!\n"
+"\n"
+"📊 Stats:\n"
+"  • Added: {p0} documents\n"
+"  • Removed: {p1} documents"
+
+#, python-brace-format
+msgid ""
+"✅ 索引重建成功！\n"
+"\n"
+"📊 统计信息:\n"
+"  • 成功添加: {p0} 个文档\n"
+"  • 失败: {p1} 个文档"
+msgstr ""
+"✅ Index rebuilt!\n"
+"\n"
+"📊 Stats:\n"
+"  • Added: {p0} documents\n"
+"  • Failed: {p1} documents"
+
+msgid "✅ 链接已更新"
+msgstr "✅ Link updated"
+
+msgid "✉️ TG 投稿"
+msgstr "✉️ Submit via bot"
+
+msgid "✏️ 请输入新内容："
+msgstr "✏️ Enter the new content:"
+
+msgid "❌ token编号必须为正整数"
+msgstr "❌ Token ID must be a positive integer"
+
+#, python-brace-format
+msgid ""
+"❌ 一次最多删除 50 个帖子，当前请求删除 {p0} 个\n"
+"\n"
+"请分批删除或缩小范围"
+msgstr ""
+"❌ At most 50 posts can be deleted at once. You requested {p0}.\n"
+"\n"
+"Use smaller batches or ranges."
+
+#, python-brace-format
+msgid "❌ 任务 {p0} 不存在"
+msgstr "❌ Task {p0} not found"
+
+#, python-brace-format
+msgid "❌ 优化索引失败: {p0}"
+msgstr "❌ Could not optimize the index: {p0}"
+
+msgid "❌ 会话已过期，请重新发送 /start"
+msgstr "❌ Session expired. Send /start again."
+
+msgid "❌ 会话已过期，请重新发送 /submit"
+msgstr "❌ Your session expired. Send /submit to start again."
+
+msgid "❌ 你的投稿未通过审核。如需了解原因，请联系频道管理员。"
+msgstr "❌ Your submission was rejected. Contact a channel admin if you need details."
+
+msgid ""
+"❌ 内容发送失败。\n"
+"您的投稿数据已保留，请稍后重新发送 /submit 并完成相同步骤，或联系管理员处理。"
+msgstr ""
+"❌ Could not send your content.\n"
+"Your submission data was kept. Please try again later or contact an admin."
+
+msgid "❌ 内部错误，请稍后再试"
+msgstr "❌ Internal error. Please try again later."
+
+msgid "❌ 初始化失败，请稍后再试"
+msgstr "❌ Could not start the session. Please try again later."
+
+#, python-brace-format
+msgid "❌ 删除失败: {p0}"
+msgstr "❌ Deletion failed: {p0}"
+
+msgid "❌ 发布失败，您的投稿数据已保留，请稍后重试或联系管理员。"
+msgstr ""
+"❌ Publishing failed. Your submission data was kept. Please try again later or contact "
+"an admin."
+
+msgid "❌ 发送关于信息失败，请稍后重试"
+msgstr "❌ Could not send about information. Please try again later."
+
+msgid "❌ 发送帮助信息失败，请稍后重试"
+msgstr "❌ Could not send help. Please try again later."
+
+msgid "❌ 发送状态失败，请稍后再试"
+msgstr "❌ Could not send status. Please try again later."
+
+msgid "❌ 发送调试信息失败"
+msgstr "❌ Could not send debug information"
+
+msgid "❌ 取消"
+msgstr "❌ Cancel"
+
+msgid "❌ 取消当前操作"
+msgstr "❌ Cancel current action"
+
+msgid "❌ 取消投稿"
+msgstr "❌ Cancel submission"
+
+#, python-brace-format
+msgid "❌ 同步索引失败: {p0}"
+msgstr "❌ Could not sync the index: {p0}"
+
+#, python-brace-format
+msgid "❌ 处理命令时发生错误: {p0}"
+msgstr "❌ Could not process the command: {p0}"
+
+#, python-brace-format
+msgid "❌ 审核 #{p0} 已拒绝"
+msgstr "❌ Review #{p0} rejected"
+
+#, python-brace-format
+msgid "❌ 审核 #{p0} 重抓在阶段「{p1}」停留超过 {p2} 分钟没有进展（远端无状态变化也无心跳），已判定超时，当前稿件保持不变，可以再次重抓。"
+msgstr ""
+"❌ Refetch for review #{p0} stalled at “{p1}” for over {p2} minutes without remote "
+"progress or heartbeat and timed out. The current submission is unchanged. You can "
+"refetch again."
+
+#, python-brace-format
+msgid "❌ 审核 #{p0} 重抓超过 {p1} 分钟仍未完成，已自动终止，当前稿件保持不变；请检查 PixivFlow 后重新重抓。"
+msgstr ""
+"❌ Refetch for review #{p0} did not finish within {p1} minutes and was stopped. The "
+"current submission is unchanged. Check PixivFlow before trying again."
+
+msgid "❌ 审核记录不存在"
+msgstr "❌ Review not found"
+
+msgid "❌ 已取消删除操作"
+msgstr "❌ Deletion cancelled"
+
+msgid "❌ 帖子不存在或已被删除"
+msgstr "❌ Post not found or deleted"
+
+msgid "❌ 帖子未找到"
+msgstr "❌ Post not found"
+
+msgid "❌ 恢复请求失败"
+msgstr "❌ Recovery request failed"
+
+msgid "❌ 您已被列入黑名单，无法使用此机器人。"
+msgstr "❌ You are blocked from using this bot."
+
+#, python-brace-format
+msgid "❌ 批量删除失败: {p0}"
+msgstr "❌ Bulk deletion failed: {p0}"
+
+msgid "❌ 投稿会话已过期，请发送 /submit 重新开始。"
+msgstr "❌ Your submission session expired. Send /submit to start again."
+
+msgid "❌ 抱歉，处理您的请求时发生了错误。请稍后再试，或发送 /cancel 取消当前会话，然后发送 /start 重新开始。"
+msgstr ""
+"❌ Could not process your request. Try again later, or send /cancel and then /start to "
+"begin again."
+
+msgid "❌ 拒绝"
+msgstr "❌ Reject"
+
+msgid "❌ 搜索失败，请稍后重试"
+msgstr "❌ Search failed. Please try again later."
+
+msgid "❌ 搜索引擎未初始化"
+msgstr "❌ Search engine not initialized"
+
+msgid "❌ 操作失败"
+msgstr "❌ Operation failed"
+
+msgid ""
+"❌ 操作失败，请稍后重试。\n"
+"\n"
+"如果反复出现，请私聊管理员。"
+msgstr ""
+"❌ The operation failed. Please try again later.\n"
+"\n"
+"Contact an admin if it keeps failing."
+
+msgid "❌ 操作已取消"
+msgstr "❌ Action cancelled"
+
+msgid "❌ 数据异常，请重新发送 /start"
+msgstr "❌ Invalid session data. Send /start again."
+
+#, python-brace-format
+msgid "❌ 无效的参数: {p0}"
+msgstr "❌ Invalid argument: {p0}"
+
+msgid "❌ 无效的审核记录"
+msgstr "❌ Invalid review"
+
+msgid "❌ 无效的帖子ID"
+msgstr "❌ Invalid post ID"
+
+msgid "❌ 无效的时间范围"
+msgstr "❌ Invalid period"
+
+msgid "❌ 未找到相关内容，换个关键词试试吧。"
+msgstr "❌ No matching content. Try different keywords."
+
+msgid "❌ 未找到该编号的 token（或不属于你）"
+msgstr "❌ Token not found or not owned by you"
+
+msgid "❌ 未指定有效的消息ID"
+msgstr "❌ No valid message IDs provided"
+
+msgid "❌ 未检测到任何上传文件，请重新发送 /start"
+msgstr "❌ No uploaded files found. Send /start again."
+
+msgid "❌ 未知操作"
+msgstr "❌ Unknown action"
+
+msgid "❌ 标签格式错误，请重新输入（最多 30 个，用逗号分隔）"
+msgstr "❌ Invalid tags. Send up to 30 tags, separated by spaces or commas."
+
+msgid "❌ 格式错误，请检查输入后重试。"
+msgstr "❌ Invalid format. Check your input and try again."
+
+msgid "❌ 此命令仅管理员可用"
+msgstr "❌ This command is for admins."
+
+msgid "❌ 此命令仅限管理员使用"
+msgstr "❌ This command is for admins."
+
+#, python-brace-format
+msgid "❌ 添加用户 {p0} 到黑名单时出错"
+msgstr "❌ Could not block user {p0}"
+
+#, python-brace-format
+msgid "❌ 生成调试信息时发生错误: {p0}"
+msgstr "❌ Could not generate debug information: {p0}"
+
+msgid "❌ 用户ID必须为正整数"
+msgstr "❌ User ID must be a positive integer"
+
+msgid "❌ 索引优化失败"
+msgstr "❌ Index optimization failed"
+
+msgid ""
+"❌ 索引同步失败\n"
+"\n"
+"错误:\n"
+msgstr ""
+"❌ Index sync failed\n"
+"\n"
+"Errors:\n"
+
+msgid ""
+"❌ 索引重建失败\n"
+"\n"
+"错误:\n"
+msgstr ""
+"❌ Index rebuild failed\n"
+"\n"
+"Errors:\n"
+
+msgid "❌ 统计数据未找到"
+msgstr "❌ Stats not found"
+
+msgid "❌ 获取全局统计失败，请稍后重试。"
+msgstr "❌ Could not load global stats. Please try again later."
+
+msgid "❌ 获取帖子列表失败，请稍后重试"
+msgstr "❌ Could not load posts. Please try again later."
+
+msgid "❌ 获取标签云失败，请稍后重试"
+msgstr "❌ Could not load the tag cloud. Please try again later."
+
+msgid "❌ 获取热门帖子失败，请稍后重试"
+msgstr "❌ Could not load top posts. Please try again later."
+
+#, python-brace-format
+msgid "❌ 获取统计信息失败: {p0}"
+msgstr "❌ Could not read stats: {p0}"
+
+msgid "❌ 获取统计失败，请稍后重试"
+msgstr "❌ Could not load stats. Please try again later."
+
+msgid "❌ 获取设置信息失败，请稍后重试"
+msgstr "❌ Could not read settings. Please try again later."
+
+#, python-brace-format
+msgid "❌ 获取黑名单时发生错误: {p0}"
+msgstr "❌ Could not read the blocklist: {p0}"
+
+msgid "❌ 请提供搜索关键词"
+msgstr "❌ Provide search keywords"
+
+msgid "❌ 请提供要搜索的标签"
+msgstr "❌ Provide a tag to search for"
+
+msgid "❌ 请输入搜索关键词"
+msgstr "❌ Enter search keywords"
+
+#, python-brace-format
+msgid "❌ 配置失败：{p0}"
+msgstr "❌ Configuration failed: {p0}"
+
+#, python-brace-format
+msgid "❌ 重建索引失败: {p0}"
+msgstr "❌ Could not rebuild the index: {p0}"
+
+msgid "❌ 重新提交的作品审核未通过。如需了解原因，请联系频道管理员。"
+msgstr "❌ Your resubmitted work was rejected. Contact a channel admin if you need details."
+
+msgid "❓ 帮助"
+msgstr "❓ Help"
+
+msgid "❓ 查看帮助信息"
+msgstr "❓ Help"
+
+#, python-brace-format
+msgid "❓ 用户 {p0} 不在黑名单中"
+msgstr "❓ User {p0} is not blocked"
+
+msgid "⬅️ 上一页"
+msgstr "⬅️ Previous page"
+
+msgid "下一页 ➡️"
+msgstr "Next page ➡️"
+
+msgid "主菜单："
+msgstr "Main menu:"
+
+msgid "仅 Bot 所有者可修改配置"
+msgstr "Only the bot owner can change configuration"
+
+msgid "今天"
+msgstr "Today"
+
+msgid "今日"
+msgstr "Today"
+
+msgid "任务不存在"
+msgstr "Task not found"
+
+msgid "会话已过期，请重新创建"
+msgstr "Session expired. Please start again."
+
+msgid "你没有审核权限"
+msgstr "You do not have review permission"
+
+msgid "你还没有 API token，使用 /gen_token <名称> 生成。"
+msgstr "You have no API tokens. Use /gen_token <name> to create one."
+
+msgid ""
+"使用方法：\n"
+"/searchuser <user_id>\n"
+"\n"
+"示例：/searchuser 123456789"
+msgstr ""
+"Usage:\n"
+"/searchuser <user_id>\n"
+"\n"
+"Example: /searchuser 123456789"
+
+msgid "全部时间"
+msgstr "All time"
+
+#, python-brace-format
+msgid ""
+"共 {p0} 个结果，第 {p1}/{p2} 页\n"
+"\n"
+msgstr ""
+"{p0} results, page {p1}/{p2}\n"
+"\n"
+
+msgid "关"
+msgstr "Off"
+
+msgid "关 ❌"
+msgstr "Off ❌"
+
+#, python-brace-format
+msgid "关键词 \"{p0}\""
+msgstr "keywords \"{p0}\""
+
+msgid "关闭"
+msgstr "disabled"
+
+msgid "再试一次"
+msgstr "Try again"
+
+msgid "刚刚"
+msgstr "Just now"
+
+#, python-brace-format
+msgid "匿名用户（ID: {p0}）"
+msgstr "Anonymous user (ID: {p0})"
+
+#, python-brace-format
+msgid "原因：{p0}"
+msgstr "Reason: {p0}"
+
+msgid "发布失败，可重试"
+msgstr "Publishing failed; retry available"
+
+msgid "发布失败，已自动重试一次仍未成功，可再点重试"
+msgstr "Publishing failed after one automatic retry. You can retry again."
+
+msgid "发送结果不确定，请先检查频道；确认未发布后再重试"
+msgstr "Delivery result uncertain. Check the channel before retrying."
+
+msgid "后续处理：可重试"
+msgstr "Next step: retry available"
+
+msgid "后续处理：需先人工处理"
+msgstr "Next step: manual action required"
+
+msgid "周一"
+msgstr "Mon"
+
+msgid "周三"
+msgstr "Wed"
+
+msgid "周二"
+msgstr "Tue"
+
+msgid "周五"
+msgstr "Fri"
+
+msgid "周六"
+msgstr "Sat"
+
+msgid "周四"
+msgstr "Thu"
+
+msgid "周日"
+msgstr "Sun"
+
+msgid "失败"
+msgstr "Failed"
+
+msgid "媒体"
+msgstr "media"
+
+msgid "媒体已更新"
+msgstr "Media updated"
+
+msgid "定时任务表初始化失败，请检查日志"
+msgstr "Could not initialize scheduled task tables. Check the logs."
+
+#, python-brace-format
+msgid "审核稿：#{p0}"
+msgstr "Review: #{p0}"
+
+#, python-brace-format
+msgid "审核群已设为 {p0}"
+msgstr "Review group set to {p0}"
+
+msgid "审核记录不存在"
+msgstr "Review not found"
+
+msgid "已发布"
+msgstr "Published"
+
+msgid "已发布，本次未重复发布"
+msgstr "Published; no duplicate publication"
+
+msgid "已取消"
+msgstr "Cancelled"
+
+msgid "已受理"
+msgstr "Accepted"
+
+msgid "已受理，系统会自动继续处理。"
+msgstr "Accepted. Processing will continue automatically."
+
+msgid "已吊销"
+msgstr "Revoked"
+
+msgid "已封禁"
+msgstr "Blocked"
+
+#, python-brace-format
+msgid "已封禁{p0}：{p1}"
+msgstr "Blocked {p0}: {p1}"
+
+msgid "已封禁该投稿人：后续投稿将被自动拒绝"
+msgstr "Submitter blocked: future submissions will be rejected"
+
+msgid "已恢复部署配置"
+msgstr "Deployment configuration restored"
+
+msgid "已找到候选，正在准备替换稿"
+msgstr "Candidate found; preparing replacement"
+
+msgid "已拒绝"
+msgstr "Rejected"
+
+msgid "已提交重抓请求"
+msgstr "Refetch requested"
+
+msgid "已提交重抓，找到新候选后会替换进本群"
+msgstr "Refetch requested. A new candidate will replace this review."
+
+msgid "已替换为新候选"
+msgstr "Replaced by a new candidate"
+
+msgid "已由新作品替代"
+msgstr "Replaced by a new work"
+
+msgid "已禁用该API token：后续将停止接受其自动投稿"
+msgstr "API token disabled: future automated submissions will not be accepted"
+
+msgid "已结束"
+msgstr "Resolved"
+
+msgid "已被替换"
+msgstr "Superseded"
+
+msgid "已过期"
+msgstr "Expired"
+
+msgid "已通过"
+msgstr "Approved"
+
+#, python-brace-format
+msgid "已遮罩，但按钮无法刷新（状态已{p0}）。"
+msgstr "Spoiler changed, but the buttons could not refresh (state: {p0})."
+
+#, python-brace-format
+msgid "建议：{p0}"
+msgstr "Suggestion: {p0}"
+
+msgid "开"
+msgstr "On"
+
+msgid "开 ✅"
+msgstr "On ✅"
+
+msgid "开启"
+msgstr "enabled"
+
+msgid "待审核"
+msgstr "Pending review"
+
+#, python-brace-format
+msgid ""
+"找到 {p0} 个结果（显示前 {p1} 个）\n"
+"\n"
+msgstr ""
+"Found {p0} results (showing {p1})\n"
+"\n"
+
+#, python-brace-format
+msgid "投稿人：{p0}"
+msgstr "Submitter: {p0}"
+
+#, python-brace-format
+msgid "投稿人：{p0}\n"
+msgstr "Submitter: {p0}\n"
+
+#, python-brace-format
+msgid "投稿方式：{p0}\n"
+msgstr "Submitted via: {p0}\n"
+
+#, python-brace-format
+msgid "投稿频道已设为 {p0}"
+msgstr "Channel set to {p0}"
+
+msgid "提交审核"
+msgstr "submit for review"
+
+msgid "搜索 Pixiv 候选中"
+msgstr "Searching Pixiv candidates"
+
+msgid "操作"
+msgstr "Operation"
+
+msgid "操作已完成，请继续按照提示操作。如遇问题，请发送 /cancel 取消当前会话，然后重新开始。"
+msgstr ""
+"The operation is complete. Follow the prompts to continue. If needed, send /cancel and "
+"start again."
+
+msgid "放宽条件重试"
+msgstr "Retry with fewer restrictions"
+
+msgid "文件"
+msgstr "file"
+
+msgid "无效的审核记录"
+msgstr "Invalid review"
+
+msgid "无效的封禁类型"
+msgstr "Invalid block type"
+
+msgid "无效的封禁请求"
+msgstr "Invalid block request"
+
+msgid "无效的恢复方式"
+msgstr "Invalid recovery method"
+
+msgid "无效的恢复请求"
+msgstr "Invalid recovery request"
+
+msgid "无标题"
+msgstr "Untitled"
+
+msgid "时间格式不对，请重选"
+msgstr "Invalid time format. Choose again."
+
+#, python-brace-format
+msgid "显示投稿人：{p0}"
+msgstr "Show submitter: {p0}"
+
+msgid "有效"
+msgstr "Active"
+
+msgid "服务投稿"
+msgstr "Service submission"
+
+msgid "未命名文件"
+msgstr "Unnamed file"
+
+msgid "未找到新的可替换作品"
+msgstr "No new replacement candidate found"
+
+msgid "未指定原因"
+msgstr "No reason specified"
+
+msgid "未知"
+msgstr "Unknown"
+
+msgid "未设置"
+msgstr "Not set"
+
+msgid "本周"
+msgstr "This week"
+
+msgid "本月"
+msgstr "This month"
+
+#, python-brace-format
+msgid "来源：{p0}"
+msgstr "Source: {p0}"
+
+#, python-brace-format
+msgid "标签 #{p0}"
+msgstr "tag #{p0}"
+
+msgid "标签已更新"
+msgstr "Tags updated"
+
+msgid "标题已更新"
+msgstr "Title updated"
+
+#, python-brace-format
+msgid ""
+"标题：{p0}\n"
+"标签：{p1}\n"
+"文件：{p2} 个媒体 / {p3}"
+msgstr ""
+"Title: {p0}\n"
+"Tags: {p1}\n"
+"Files: {p2} media / {p3}"
+
+#, python-brace-format
+msgid "正在搜索标签: {p0}"
+msgstr "Searching tag: {p0}"
+
+msgid "正在跳转..."
+msgstr "Opening..."
+
+msgid "正在重抓，请稍候"
+msgstr "Refetch in progress, please wait"
+
+msgid "此操作已过期，请重新尝试"
+msgstr "This action expired. Please try again."
+
+msgid "每周热榜"
+msgstr "Weekly top posts"
+
+msgid "没有找到可替换的作品"
+msgstr "No replacement candidate found"
+
+msgid "没有找到新的可替换作品，当前稿件保持不变。稍后有新候选时可以再次重抓。"
+msgstr ""
+"No new candidate found. The current submission is unchanged. You can refetch again "
+"later."
+
+#, python-brace-format
+msgid "消息ID: {p0}"
+msgstr "Message ID: {p0}"
+
+#, python-brace-format
+msgid "状态：{p0}"
+msgstr "Status: {p0}"
+
+msgid "用户"
+msgstr "user"
+
+msgid ""
+"用法：/ban_api <token编号> [原因]\n"
+"例如：/ban_api 9 投稿异常"
+msgstr ""
+"Usage: /ban_api <token_id> [reason]\n"
+"Example: /ban_api 9 Invalid submissions"
+
+msgid ""
+"用法：/ban_user <用户ID> [原因]\n"
+"例如：/ban_user 123456789 发布违规内容"
+msgstr ""
+"Usage: /ban_user <user_id> [reason]\n"
+"Example: /ban_user 123456789 Policy violation"
+
+msgid "用法：/gen_token <名称>，例如 /gen_token 我的脚本"
+msgstr "Usage: /gen_token <name>, for example /gen_token my-script"
+
+msgid "用法：/revoke_token <编号>（编号见 /tokens）"
+msgstr "Usage: /revoke_token <ID> (see /tokens for IDs)"
+
+msgid "用法：/schedule delete <id>"
+msgstr "Usage: /schedule delete <id>"
+
+msgid "用法：/schedule preview <id>"
+msgstr "Usage: /schedule preview <id>"
+
+msgid "用法：/schedule run <id>"
+msgstr "Usage: /schedule run <id>"
+
+#, python-brace-format
+msgid "用法：/schedule {p0} <id>"
+msgstr "Usage: /schedule {p0} <id>"
+
+msgid "确认发布"
+msgstr "publish"
+
+msgid "筛选中（排除已看过/重复作品）"
+msgstr "Filtering seen or duplicate works"
+
+msgid "简介已更新"
+msgstr "Note updated"
+
+msgid "管理面板已下线"
+msgstr "The admin panel has been removed"
+
+#, python-brace-format
+msgid "聊天审核：{p0}"
+msgstr "Chat review: {p0}"
+
+msgid "评论区发布结果不确定：请到频道确认首贴、到该帖评论串确认图片是否齐；确认缺图后再点重试（重试只补发，重复请手动删多余相册）"
+msgstr ""
+"Discussion delivery result uncertain. Check the channel post and its replies for "
+"missing images before retrying. Retries send missing content only; remove duplicate "
+"albums manually."
+
+msgid "该审核稿已结束，请操作最新审核稿"
+msgstr "This review is resolved. Use the latest review."
+
+msgid "该审核稿已被重抓结果替代，请审核最新版本。"
+msgstr "This review was superseded by a refetch result. Review the latest version."
+
+msgid "该投稿已处理，无法修改遮罩"
+msgstr "This submission is resolved; spoiler settings cannot be changed"
+
+msgid "该投稿来自私聊/MiniApp，不是API来源"
+msgstr "This submission came from chat/Mini App, not the API"
+
+msgid "该投稿没有可封禁的投稿人"
+msgstr "This submission has no human submitter to block"
+
+msgid "该目标已在处理中，请稍候。"
+msgstr "This target is already being processed. Please wait."
+
+msgid "请先填写标签"
+msgstr "Add tags first"
+
+msgid "请选择时间范围"
+msgstr "Choose a period"
+
+msgid "请重启 Bot 后生效。"
+msgstr "Restart the bot to apply the change."
+
+#, python-brace-format
+msgid "跳转到第 {p0} 页"
+msgstr "Go to page {p0}"
+
+#, python-brace-format
+msgid "遮罩已{p0}"
+msgstr "Spoiler {p0}"
+
+msgid "配置已切换"
+msgstr "Configuration switched"
+
+msgid "重抓失败"
+msgstr "Refetch failed"
+
+msgid "重抓失败，当前稿件未变，请稍后重试"
+msgstr "Refetch failed. The current submission is unchanged. Please try again later."
+
+msgid "重抓已取消"
+msgstr "Refetch cancelled"
+
+msgid "重抓已完成，新候选已进入审核队列"
+msgstr "Refetch complete. A new candidate is in the review queue."
+
+msgid "重抓提交失败"
+msgstr "Could not submit refetch"
+
+#, python-brace-format
+msgid "重抓结束（{p0}）"
+msgstr "Refetch ended ({p0})"
+
+msgid "重抓超时"
+msgstr "Refetch timed out"
+
+msgid "重抓超时未完成"
+msgstr "Refetch timed out"
+
+msgid "重试"
+msgstr "retry"
+
+msgid "链接已更新"
+msgstr "Link updated"
+
+#, python-brace-format
+msgid "错误码：{p0}"
+msgstr "Error code: {p0}"
+
+msgid "预览已过期，请重新创建"
+msgstr "Preview expired. Please create it again."
+
+msgid "频道主"
+msgstr "The channel owner"
+
+msgid "频道无公开链接"
+msgstr "No public channel link"
+
+#, python-brace-format
+msgid "（包含 {p0} 个关联消息）"
+msgstr " (including {p0} linked messages)"
+
+msgid "（匿名投稿）"
+msgstr "(Anonymous submission)"
+
+#, python-brace-format
+msgid "（原审核 #{p0}）"
+msgstr " (original review #{p0})"
+
+msgid "（无）"
+msgstr "(none)"
+
+#, python-brace-format
+msgid ""
+"🎉 投稿已成功发布到频道！\n"
+"\n"
+"🔗 查看发布内容：\n"
+"{p0}\n"
+"\n"
+"感谢你的投稿，欢迎再次光临～"
+msgstr ""
+"🎉 Your submission was published!\n"
+"\n"
+"🔗 View your post:\n"
+"{p0}\n"
+"\n"
+"Thank you for submitting."
+
+msgid "🏷️ 填写标签后发布"
+msgstr "🏷️ Add tags to publish"
+
+msgid "🏷️ 填写标签后提交审核"
+msgstr "🏷️ Add tags to submit for review"
+
+msgid "🏷️ 改标签"
+msgstr "🏷️ Edit tags"
+
+msgid "🏷️ 查看标签云"
+msgstr "🏷️ Tag cloud"
+
+msgid "🏷️ 标签云"
+msgstr "🏷️ Tag cloud"
+
+#, python-brace-format
+msgid ""
+"🏷️ 标签云 TOP {p0}\n"
+"\n"
+msgstr ""
+"🏷️ Top {p0} tags\n"
+"\n"
+
+msgid "🏷️ 标签搜索"
+msgstr "🏷️ Tag search"
+
+#, python-brace-format
+msgid "🏷️ 标签搜索结果：#{p0}\n"
+msgstr "🏷️ Results for tag: #{p0}\n"
+
+msgid "🏷️ 请发送新的标签（用逗号分隔，直接覆盖原标签）："
+msgstr "🏷️ Send new tags, separated by spaces or commas (replaces existing tags):"
+
+msgid "🏷️ 请输入要搜索的标签："
+msgstr "🏷️ Enter a tag to search for:"
+
+msgid "👁️ 查看原帖"
+msgstr "👁️ View original"
+
+#, python-brace-format
+msgid ""
+"👋 <b>你好，{p0}！</b>\n"
+"\n"
+"我是投稿机器人，帮你把图文内容发布到频道。\n"
+"想投稿？发送 /submit 就开始。\n"
+"\n"
+"📚 <b>常用功能</b>\n"
+"/submit 开始投稿\n"
+"/search 搜索内容\n"
+"/mystats 我的统计 · /myposts 我的投稿\n"
+"/hot 热门排行 · /tags 标签云\n"
+"/help 完整帮助 · /cancel 取消投稿\n"
+"\n"
+"📱 <b>Mini App</b>：点击键盘的「📱 Mini App」，再点按钮即可打开。\n"
+"\n"
+"💡 <i>更多指令见 /help。</i>"
+msgstr ""
+"👋 <b>Hello, {p0}!</b>\n"
+"\n"
+"I help you submit posts to the channel.\n"
+"Send /submit to get started.\n"
+"\n"
+"📚 <b>Commands</b>\n"
+"/submit New submission\n"
+"/search Search posts\n"
+"/mystats My stats · /myposts My posts\n"
+"/hot Top posts · /tags Tag cloud\n"
+"/help Help · /cancel Cancel submission\n"
+"\n"
+"📱 <b>Mini App</b>: tap “📱 Mini App” on the keyboard, then tap the launch button.\n"
+"\n"
+"💡 <i>See /help for more commands.</i>"
+
+#, python-brace-format
+msgid ""
+"👋 <b>你好，{p0}！</b>\n"
+"\n"
+"我是投稿机器人，欢迎你，帮你把图文内容发布到频道。\n"
+"🎭 身份：{p1}\n"
+"\n"
+"📌 <b>快速开始</b>\n"
+"点击下方「开始投稿」，或发送 /submit\n"
+"\n"
+"📚 <b>常用功能</b>\n"
+"/submit 开始投稿\n"
+"/search 搜索内容\n"
+"/mystats 我的统计\n"
+"/myposts 我的投稿\n"
+"/hot 全部热榜\n"
+"/hotweek 本周热榜\n"
+"/help 完整帮助\n"
+"\n"
+"💡 <i>想直接投稿？发送 /submit 就开始。</i>"
+msgstr ""
+"👋 <b>Hello, {p0}!</b>\n"
+"\n"
+"I help you submit posts to the channel.\n"
+"🎭 Role: {p1}\n"
+"\n"
+"📌 <b>Get started</b>\n"
+"Tap “New submission” below or send /submit.\n"
+"\n"
+"📚 <b>Commands</b>\n"
+"/submit New submission\n"
+"/search Search posts\n"
+"/mystats My stats\n"
+"/myposts My posts\n"
+"/hot All-time top posts\n"
+"/hotweek This week’s top posts\n"
+"/help Help\n"
+"\n"
+"💡 <i>Send /submit to get started.</i>"
+
+msgid "👑 管理员"
+msgstr "👑 Admin"
+
+msgid "👤 我的投稿"
+msgstr "👤 My posts"
+
+msgid "👤 用户"
+msgstr "👤 User"
+
+#, python-brace-format
+msgid ""
+"👤 用户 {p0} 的投稿\n"
+"\n"
+"📊 统计：\n"
+"• 总投稿：{p1}\n"
+"• ❤️ 总反应：{p2}\n"
+"\n"
+"最近投稿：\n"
+"\n"
+msgstr ""
+"👤 Posts by user {p0}\n"
+"\n"
+"📊 Stats:\n"
+"• Total posts: {p1}\n"
+"• ❤️ Total reactions: {p2}\n"
+"\n"
+"Recent posts:\n"
+"\n"
+
+msgid "💡 /hot 全部 · /hot 20 · /hotweek 本周 · /hotweek 10"
+msgstr "💡 /hot All time · /hot 20 · /hotweek This week · /hotweek 10"
+
+msgid "💡 使用 /mystats 查看完整统计"
+msgstr "💡 Use /mystats for full stats"
+
+msgid ""
+"💡 投稿支持图片 / 视频 / 压缩包 / PDF。\n"
+"任一环节发 /cancel 可取消。"
+msgstr ""
+"💡 Submit images, videos, archives or PDFs.\n"
+"Send /cancel at any step to cancel."
+
+msgid "💡 提示: 使用 /sync_index 同步索引"
+msgstr "💡 Use /sync_index to sync the index"
+
+#, python-brace-format
+msgid "📂 原投稿：{p0}"
+msgstr "📂 Original submission: {p0}"
+
+#, python-brace-format
+msgid ""
+"📄 {p0}. {p1}\n"
+"{p2}\n"
+"📅 {p3}\n"
+"📊 ❤️ 反应 {p4} | 热度 {p5:.0f}\n"
+"🔗 {p6}"
+msgstr ""
+"📄 {p0}. {p1}\n"
+"{p2}\n"
+"📅 {p3}\n"
+"📊 ❤️ Reactions {p4} | Score {p5:.0f}\n"
+"🔗 {p6}"
+
+#, python-brace-format
+msgid "📄 第 {p0}/{p1} 页"
+msgstr "📄 Page {p0}/{p1}"
+
+#, python-brace-format
+msgid "📄 索引文档数: N/A ({p0})\n"
+msgstr "📄 Indexed documents: N/A ({p0})\n"
+
+#, python-brace-format
+msgid "📄 索引文档数: {p0}\n"
+msgstr "📄 Indexed documents: {p0}\n"
+
+msgid "📅 今天"
+msgstr "📅 Today"
+
+msgid "📅 全部"
+msgstr "📅 All time"
+
+msgid "📅 按时间"
+msgstr "📅 By date"
+
+msgid "📅 本周"
+msgstr "📅 This week"
+
+msgid "📅 本月"
+msgstr "📅 This month"
+
+msgid "📅 请选择时间范围："
+msgstr "📅 Choose a period:"
+
+msgid "📊 <b>统计：</b>\n"
+msgstr "📊 <b>Stats:</b>\n"
+
+msgid "📊 全局统计"
+msgstr "📊 Global stats"
+
+#, python-brace-format
+msgid ""
+"📊 您的投稿统计\n"
+"\n"
+"📝 总投稿数：{p0}\n"
+"❤️ 总反应数：{p1}\n"
+"\n"
+"🔥 最热帖子：\n"
+"   标题：{p2}\n"
+"   热度：{p3:.1f}\n"
+"   链接：{p4}\n"
+"\n"
+"💡 使用 /hot 查看全站热门帖子"
+msgstr ""
+"📊 My submission stats\n"
+"\n"
+"📝 Total posts: {p0}\n"
+"❤️ Total reactions: {p1}\n"
+"\n"
+"🔥 Top post:\n"
+"   Title: {p2}\n"
+"   Score: {p3:.1f}\n"
+"   Link: {p4}\n"
+"\n"
+"💡 Use /hot to see all top posts"
+
+msgid "📊 您还没有发布过投稿"
+msgstr "📊 You have not published any posts yet"
+
+msgid "📊 我的统计"
+msgstr "📊 My stats"
+
+#, python-brace-format
+msgid ""
+"📊 搜索索引统计信息\n"
+"\n"
+"数据库文档数: {p0}\n"
+"索引文档数: {p1}\n"
+"同步状态: {p2}\n"
+"\n"
+msgstr ""
+"📊 Search index stats\n"
+"\n"
+"Database documents: {p0}\n"
+"Indexed documents: {p1}\n"
+"Sync status: {p2}\n"
+"\n"
+
+#, python-brace-format
+msgid "📊 暂无{p0}热榜数据"
+msgstr "📊 No top-post data for {p0}"
+
+#, python-brace-format
+msgid "📊 暂无{p0}热门帖子数据"
+msgstr "📊 No popular posts for {p0}"
+
+#, python-brace-format
+msgid "📊 暂无{p0}热门帖子数据（或所有结果已被删除）"
+msgstr "📊 No popular posts for {p0} (or all results were deleted)"
+
+msgid "📊 暂无标签数据"
+msgstr "📊 No tag data yet"
+
+msgid "📊 查看个人统计"
+msgstr "📊 My stats"
+
+msgid "📊 查看统计"
+msgstr "📊 View stats"
+
+msgid "📊 查看详情"
+msgstr "📊 View details"
+
+msgid "📊 索引统计"
+msgstr "📊 Index stats"
+
+msgid ""
+"📋 **黑名单用户列表**:\n"
+"\n"
+msgstr ""
+"📋 **Blocked users**:\n"
+"\n"
+
+msgid "📋 我的投稿"
+msgstr "📋 My posts"
+
+msgid "📋 查看我的投稿"
+msgstr "📋 My posts"
+
+msgid "📋 查看黑名单"
+msgstr "📋 View blocklist"
+
+msgid "📋 管理黑名单"
+msgstr "📋 Manage blocklist"
+
+msgid "📋 黑名单为空"
+msgstr "📋 The blocklist is empty"
+
+msgid "📌 查看最近计划状态"
+msgstr "📌 Recent schedule status"
+
+msgid "📌 置顶状态"
+msgstr "📌 Pinned status"
+
+msgid "📍 将当前群设为审核群"
+msgstr "📍 Use this group for review"
+
+msgid "📎 补充媒体"
+msgstr "📎 Add media"
+
+msgid "📎 请发送要补充的媒体（图片/视频/GIF/音频），完成后点下方按钮返回预览："
+msgstr ""
+"📎 Send more media (images/videos/GIFs/audio), then tap the button below to return to "
+"the preview:"
+
+msgid "📖 在线阅读"
+msgstr "📖 Read online"
+
+#, python-brace-format
+msgid "📖 在线阅读：{p0}"
+msgstr "📖 Read online: {p0}"
+
+msgid ""
+"📚 <b>使用帮助</b>\n"
+"\n"
+"<b>📝 投稿</b>\n"
+"/submit 开始投稿\n"
+"/done_media 完成上传、打开预览\n"
+"/skip_media 跳过媒体，直接进入预览\n"
+"/cancel 取消投稿\n"
+"\n"
+"<b>🔥 热榜</b>\n"
+"/hot 全部时间热榜 TOP 10\n"
+"/hot 20 全部时间热榜 TOP 20\n"
+"/hotweek 本周热榜 TOP 10\n"
+"/hotweek 10 本周热榜 TOP 10\n"
+"\n"
+"<b>🔍 内容</b>\n"
+"/search 关键词\n"
+"/tags 标签云\n"
+"\n"
+"<b>📋 我的内容</b>\n"
+"/myposts 我的投稿\n"
+"/mystats 我的统计\n"
+"\n"
+"<b>📱 Mini App</b>\n"
+"点击下方键盘的「📱 Mini App」按钮进入小程序\n"
+"（或发送 /start 后点「📱 打开投稿」）\n"
+"首页即热门内容，可浏览帖子与投稿\n"
+"\n"
+"<b>ℹ️ 其他</b>\n"
+"/status 最近计划状态\n"
+"/settings 机器人设置\n"
+"/about 关于\n"
+"/help 完整帮助\n"
+msgstr ""
+"📚 <b>Help</b>\n"
+"\n"
+"<b>📝 Submit</b>\n"
+"/submit New submission\n"
+"/done_media Finish uploading and preview\n"
+"/skip_media Skip media and preview\n"
+"/cancel Cancel submission\n"
+"\n"
+"<b>🔥 Top posts</b>\n"
+"/hot All-time top 10\n"
+"/hot 20 All-time top 20\n"
+"/hotweek This week’s top 10\n"
+"/hotweek 10 This week’s top 10\n"
+"\n"
+"<b>🔍 Browse</b>\n"
+"/search keywords\n"
+"/tags Tag cloud\n"
+"\n"
+"<b>📋 My posts</b>\n"
+"/myposts My posts\n"
+"/mystats My stats\n"
+"\n"
+"<b>📱 Mini App</b>\n"
+"Tap “📱 Mini App” on the keyboard\n"
+"(or send /start, then tap “📱 Open submission”)\n"
+"Browse posts or submit from the home page\n"
+"\n"
+"<b>ℹ️ More</b>\n"
+"/status Recent schedule status\n"
+"/settings Bot settings\n"
+"/about About\n"
+"/help Help\n"
+
+msgid ""
+"📝 <b>批量删除帮助</b>\n"
+"\n"
+"<b>命令格式：</b>\n"
+"/delete_posts [message_id1] [message_id2] ...\n"
+"/delete_posts [start_id-end_id]\n"
+"\n"
+"<b>示例：</b>\n"
+"• /delete_posts 123 456 789\n"
+"  删除消息 123、456、789\n"
+"\n"
+"• /delete_posts 100-110\n"
+"  删除消息 100 到 110\n"
+"\n"
+"• /delete_posts 100-110 150 200-205\n"
+"  混合使用范围和单个ID\n"
+"\n"
+"<b>⚠️ 注意：</b>\n"
+"• 会删除频道消息、数据库记录和搜索索引（双向同步删除）\n"
+"• 一次最多删除 50 个帖子"
+msgstr ""
+"📝 <b>Bulk deletion help</b>\n"
+"\n"
+"<b>Usage:</b>\n"
+"/delete_posts [message_id1] [message_id2] ...\n"
+"/delete_posts [start_id-end_id]\n"
+"\n"
+"<b>Examples:</b>\n"
+"• /delete_posts 123 456 789\n"
+"  Delete messages 123, 456 and 789\n"
+"\n"
+"• /delete_posts 100-110\n"
+"  Delete messages 100 through 110\n"
+"\n"
+"• /delete_posts 100-110 150 200-205\n"
+"  Mix ranges and individual IDs\n"
+"\n"
+"<b>⚠️ Effects:</b>\n"
+"• Deletes channel messages, updates database records and removes index entries\n"
+"• At most 50 posts per request"
+
+msgid "📝 全文搜索"
+msgstr "📝 Full-text search"
+
+msgid "📝 发起投稿"
+msgstr "📝 New submission"
+
+msgid "📝 开始投稿"
+msgstr "📝 New submission"
+
+msgid ""
+"📝 您还没有发布过投稿\n"
+"\n"
+"使用 /submit 开始创建您的第一篇投稿！"
+msgstr ""
+"📝 You have not published any posts yet.\n"
+"\n"
+"Use /submit to create your first post."
+
+#, python-brace-format
+msgid ""
+"📝 我的投稿（最近 {p0} 篇）\n"
+"\n"
+"{p1}"
+msgstr ""
+"📝 My posts (latest {p0})\n"
+"\n"
+"{p1}"
+
+msgid "📝 投稿通知"
+msgstr "📝 Submission notification"
+
+msgid "📝 改简介"
+msgstr "📝 Edit note"
+
+#, python-brace-format
+msgid "📝 消息ID: <code>{p0}</code>\n"
+msgstr "📝 Message ID: <code>{p0}</code>\n"
+
+#, python-brace-format
+msgid ""
+"📝 简介：\n"
+"{p0}"
+msgstr ""
+"📝 Note:\n"
+"{p0}"
+
+msgid "📝 编辑"
+msgstr "📝 Edit"
+
+msgid "📝 请发送新的简介（回复「无」清空，上限 600 字）："
+msgstr "📝 Send a new note (up to 600 characters; reply “none” to clear):"
+
+#, python-brace-format
+msgid "📦 索引大小: {p0:.2f} MB\n"
+msgstr "📦 Index size: {p0:.2f} MB\n"
+
+#, python-brace-format
+msgid "📭 审核 #{p0} 没有找到新的可替换作品，当前稿件保持不变，可以再次重抓。"
+msgstr ""
+"📭 Refetch for review #{p0} found no new candidate. The current submission is unchanged."
+" You can refetch again."
+
+#, python-brace-format
+msgid ""
+"📮 <b>开始投稿</b>\n"
+"请直接上传内容\n"
+"• 相册图片、视频、GIF、音频 → 媒体\n"
+"• 以附件发送的图片、压缩包、PDF → 文件\n"
+"• 合计最多 {p0} 个，媒体/文件可混合\n"
+"• 上传完成发送 /done_media 打开预览，或 /cancel 取消"
+msgstr ""
+"📮 <b>New submission</b>\n"
+"Upload your content.\n"
+"• Images, videos, GIFs and audio → media\n"
+"• Images sent as files, archives and PDFs → documents\n"
+"• At most {p0} files in total; media and documents can be mixed\n"
+"• Send /done_media to preview or /cancel to cancel"
+
+#, python-brace-format
+msgid ""
+"📮 <b>开始投稿：上传媒体</b>\n"
+"请直接上传图片、视频、GIF 或音频\n"
+"• 最多 {p0} 个\n"
+"• 每收到一条会显示当前数量\n"
+"• 上传完成发送 /done_media 打开预览，或 /cancel 取消"
+msgstr ""
+"📮 <b>New submission: media</b>\n"
+"Send images, videos, GIFs or audio directly.\n"
+"• At most {p0} files\n"
+"• You will see the file count after each upload\n"
+"• Send /done_media to preview or /cancel to cancel"
+
+#, python-brace-format
+msgid ""
+"📮 <b>开始投稿：上传文件</b>\n"
+"请直接上传（以附件发送图片、压缩包、PDF 等文件）\n"
+"• 最多 {p0} 个\n"
+"• 每收到一条会显示当前数量\n"
+"• 上传完成发送 /done_media 打开预览，或 /cancel 取消"
+msgstr ""
+"📮 <b>New submission: files</b>\n"
+"Send images, archives, PDFs and other files as attachments.\n"
+"• At most {p0} files\n"
+"• You will see the file count after each upload\n"
+"• Send /done_media to preview or /cancel to cancel"
+
+msgid ""
+"📮 这里只接收媒体或文件。\n"
+"\n"
+"• 🖼️ 图片 / 📹 视频 / GIF / 音频：直接发送\n"
+"• 📦 压缩包 / PDF 等：以附件发送\n"
+"\n"
+"🏷️ 标签、标题、简介和链接请在 /done_media 打开预览后填写；\n"
+"完成上传后发送 /done_media 打开预览，或 /cancel 取消。"
+msgstr ""
+"📮 Upload media or files here.\n"
+"\n"
+"• 🖼️ Images / 📹 Videos / GIFs / Audio: send directly\n"
+"• 📦 Archives / PDFs: send as attachments\n"
+"\n"
+"🏷️ Add tags, a title, a note and a link in the preview.\n"
+"Send /done_media when you finish uploading or /cancel to cancel."
+
+#, python-brace-format
+msgid "📱 <a href='{p0}'>点击查看原帖</a>"
+msgstr "📱 <a href='{p0}'>View original post</a>"
+
+msgid "📱 打开投稿"
+msgstr "📱 Open submission"
+
+msgid "📱 点击下方按钮打开 Mini App 投稿。"
+msgstr "📱 Tap the button below to open the submission Mini App."
+
+msgid "🔄 刷新"
+msgstr "🔄 Refresh"
+
+#, python-brace-format
+msgid ""
+"🔄 审核 #{p0} 处理时间较长，已自动恢复任务（同一重抓请求），有新结果会第一时间通知。\n"
+"任务ID：{p1}"
+msgstr ""
+"🔄 Review #{p0} is taking longer. The existing refetch task was recovered. Results will "
+"be posted here.\n"
+"Task ID: {p1}"
+
+#, python-brace-format
+msgid ""
+"🔄 审核 #{p0} 已提交重抓\n"
+"\n"
+"当前候选已作废（视为已拒绝），不会再被发布。\n"
+"正在查找新的候选作品…通常 1–3 分钟。\n"
+"找到后会自动替换进审核队列；没有找到时本卡片会恢复。"
+msgstr ""
+"🔄 Refetch requested for review #{p0}\n"
+"\n"
+"The current candidate has been voided and will not be published.\n"
+"Searching for another candidate… usually 1–3 minutes.\n"
+"A match will replace this review; otherwise this card will be restored."
+
+#, python-brace-format
+msgid "🔄 审核 #{p0} 已提交重抓，PixivFlow 正在查找新的候选作品；有新作品时会替换进审核队列。"
+msgstr ""
+"🔄 Refetch requested for review #{p0}. PixivFlow is searching for another candidate; a "
+"match will replace this review."
+
+#, python-brace-format
+msgid "🔄 审核 #{p0} 的重抓已取消：该审核已被处理（驳回/通过/过期），不会产生替换稿，当前稿件保持不变。"
+msgstr ""
+"🔄 Refetch for review #{p0} was cancelled: the review was resolved "
+"(rejected/approved/expired). There will be no replacement; the current submission is "
+"unchanged."
+
+#, python-brace-format
+msgid ""
+"🔄 审核 #{p0} 重抓仍在处理中（当前阶段：{p1}，已等待约 {p2} 分钟），有新结果会第一时间在本群通知。\n"
+"任务ID：{p3}"
+msgstr ""
+"🔄 Refetch for review #{p0} is still running (stage: {p1}, waiting about {p2} minutes). "
+"Results will be posted here.\n"
+"Task ID: {p3}"
+
+#, python-brace-format
+msgid ""
+"🔄 审核 #{p0} 重抓任务此前未在 PixivFlow 落地，已用同一任务ID重新提交并开始处理，有新结果会第一时间在本群通知。\n"
+"任务ID：{p1}"
+msgstr ""
+"🔄 Refetch for review #{p0} was not registered in PixivFlow. It was resubmitted with the"
+" same task ID and is now running. Results will be posted here.\n"
+"Task ID: {p1}"
+
+msgid "🔄 正在优化搜索索引，请稍候..."
+msgstr "🔄 Optimizing the search index. Please wait..."
+
+msgid "🔄 正在刷新..."
+msgstr "🔄 Refreshing..."
+
+msgid "🔄 正在同步搜索索引，请稍候..."
+msgstr "🔄 Syncing the search index. Please wait..."
+
+msgid "🔄 正在重建搜索索引，请稍候..."
+msgstr "🔄 Rebuilding the search index. Please wait..."
+
+msgid "🔄 重抓/换一张"
+msgstr "🔄 Refetch / replace"
+
+#, python-brace-format
+msgid ""
+"🔄 重抓未生效：审核 #{p0} 已结束（当前状态：{p1}），替换作品已丢弃，当前稿件保持不变。\n"
+"任务ID：refetch-{p2}-{p3}"
+msgstr ""
+"🔄 Refetch not applied: review #{p0} is resolved (status: {p1}). The replacement was "
+"discarded; the current submission is unchanged.\n"
+"Task ID: refetch-{p2}-{p3}"
+
+msgid "🔄 重试发布"
+msgstr "🔄 Retry publishing"
+
+#, python-brace-format
+msgid "🔇 遮罩：{p0}"
+msgstr "🔇 Spoiler: {p0}"
+
+#, python-brace-format
+msgid ""
+"🔍 **系统调试信息**\n"
+"\n"
+"👤 您的用户ID: `{p0}`\n"
+"🤖 机器人所有者ID: `{p1}`\n"
+"✅ 您是所有者: {p2}\n"
+"\n"
+"📺 频道ID: {p3}\n"
+"🔄 机器人模式: {p4}\n"
+"👁️ 显示投稿人: {p5}\n"
+"📲 通知所有者: {p6}\n"
+"⏱️ 会话超时: {p7}秒\n"
+"\n"
+"🗄️ 黑名单用户数: {p8}\n"
+"📂 用户会话数: {p9}\n"
+"🕒 服务器时间: {p10}\n"
+msgstr ""
+"🔍 **Debug information**\n"
+"\n"
+"👤 Your user ID: `{p0}`\n"
+"🤖 Bot owner ID: `{p1}`\n"
+"✅ You are the owner: {p2}\n"
+"\n"
+"📺 Channel ID: {p3}\n"
+"🔄 Bot mode: {p4}\n"
+"👁️ Show submitter: {p5}\n"
+"📲 Notify owner: {p6}\n"
+"⏱️ Session timeout: {p7} seconds\n"
+"\n"
+"🗄️ Blocked users: {p8}\n"
+"📂 User sessions: {p9}\n"
+"🕒 Server time: {p10}\n"
+
+#, python-brace-format
+msgid ""
+"🔍 已选择时间范围：{p0}\n"
+"请输入搜索关键词："
+msgstr ""
+"🔍 Selected period: {p0}\n"
+"Enter search keywords:"
+
+msgid ""
+"🔍 已选择时间范围：全部\n"
+"请输入搜索关键词："
+msgstr ""
+"🔍 Selected period: all time\n"
+"Enter search keywords:"
+
+msgid "🔍 搜索"
+msgstr "🔍 Search"
+
+msgid ""
+"🔍 搜索帮助\n"
+"\n"
+"使用方法：\n"
+"/search <关键词> [选项]\n"
+"\n"
+"示例：\n"
+"• /search Python\n"
+"• /search #编程\n"
+"• /search 教程 -t week\n"
+"• /search API -n 20\n"
+"• /search 文件名.txt\n"
+"\n"
+"搜索范围：\n"
+"• 标题、简介、标签、文件名\n"
+"\n"
+"选项：\n"
+"• -t day/week/month - 时间范围\n"
+"• -n <数量> - 结果数量（最多30）\n"
+"\n"
+"💡 使用 /tags 查看所有标签\n"
+"✨ 支持中文分词和文件名搜索！"
+msgstr ""
+"🔍 Search help\n"
+"\n"
+"Usage:\n"
+"/search <keywords> [options]\n"
+"\n"
+"Examples:\n"
+"• /search Python\n"
+"• /search #programming\n"
+"• /search tutorial -t week\n"
+"• /search API -n 20\n"
+"• /search filename.txt\n"
+"\n"
+"Searches titles, notes, tags and filenames.\n"
+"\n"
+"Options:\n"
+"• -t day/week/month - Period\n"
+"• -n <count> - Results (up to 30)\n"
+"\n"
+"💡 Use /tags to see tags.\n"
+"✨ Chinese word segmentation and filename search are supported."
+
+msgid "🔍 搜索投稿内容"
+msgstr "🔍 Search posts"
+
+#, python-brace-format
+msgid "🔍 搜索结果：{p0}{p1}\n"
+msgstr "🔍 Search results: {p0}{p1}\n"
+
+#, python-brace-format
+msgid "🔍 未找到匹配{p0}{p1}的帖子"
+msgstr "🔍 No posts match {p0}{p1}"
+
+#, python-brace-format
+msgid "🔍 未找到匹配{p0}{p1}的帖子（或所有结果已被删除）"
+msgstr "🔍 No posts match {p0}{p1} (or all results were deleted)"
+
+#, python-brace-format
+msgid "🔍 未找到标签 #{p0} 的帖子"
+msgstr "🔍 No posts found for tag #{p0}"
+
+#, python-brace-format
+msgid "🔍 未找到标签 #{p0} 的帖子（或所有结果已被删除）"
+msgstr "🔍 No posts found for tag #{p0} (or all results were deleted)"
+
+msgid "🔍 查询用户投稿"
+msgstr "🔍 Find user posts"
+
+#, python-brace-format
+msgid "🔍 用户 {p0} 没有发布过帖子"
+msgstr "🔍 User {p0} has no published posts"
+
+msgid "🔍 请输入搜索关键词，或点击下方选项："
+msgstr "🔍 Enter search keywords or choose an option below:"
+
+msgid "🔍 请输入搜索关键词："
+msgstr "🔍 Enter search keywords:"
+
+#, python-brace-format
+msgid ""
+"🔑 API token 已生成（仅显示这一次，请妥善保存）：\n"
+"\n"
+"<code>{p0}</code>\n"
+"\n"
+"用途与调用方式见项目文档 docs/API.md。\n"
+"可随时用 /tokens 查看、/revoke_token 吊销。"
+msgstr ""
+"🔑 API token generated (shown once; save it securely):\n"
+"\n"
+"<code>{p0}</code>\n"
+"\n"
+"See docs/API.md for usage.\n"
+"Use /tokens to list tokens or /revoke_token to revoke one."
+
+msgid "🔑 你的 API token："
+msgstr "🔑 Your API tokens:"
+
+msgid "🔑 撤销 API Token"
+msgstr "🔑 Revoke API token"
+
+msgid "🔑 查看 API Token"
+msgstr "🔑 List API tokens"
+
+msgid "🔑 生成 API Token"
+msgstr "🔑 Generate API token"
+
+msgid "🔑 禁用API"
+msgstr "🔑 Disable API access"
+
+msgid "🔖 改标题"
+msgstr "🔖 Edit title"
+
+#, python-brace-format
+msgid ""
+"🔖 标题： \n"
+"【{p0}】"
+msgstr ""
+"🔖 Title:\n"
+"【{p0}】"
+
+msgid "🔖 请发送新的标题（回复「无」清空，上限 100 字）："
+msgstr "🔖 Send a new title (up to 100 characters; reply “none” to clear):"
+
+#, python-brace-format
+msgid "🔗 在线阅读： <a href=\"{p0}\">在线阅读</a>"
+msgstr "🔗 Read online: <a href=\"{p0}\">Read online</a>"
+
+#, python-brace-format
+msgid "🔗 审核：https://t.me/c/{p0}/{p1}"
+msgstr "🔗 Review: https://t.me/c/{p0}/{p1}"
+
+msgid "🔗 审核：链接不可用"
+msgstr "🔗 Review: link unavailable"
+
+msgid "🔗 改链接"
+msgstr "🔗 Edit link"
+
+msgid "🔗 查看原链接"
+msgstr "🔗 View original link"
+
+#, python-brace-format
+msgid "🔗 查看发布内容：{p0}"
+msgstr "🔗 View published content: {p0}"
+
+msgid "🔗 请发送新的链接（回复「无」清空，须以 http:// 或 https:// 开头）："
+msgstr "🔗 Send a new link starting with http:// or https:// (reply “none” to clear):"
+
+#, python-brace-format
+msgid "🔗 链接： {p0}"
+msgstr "🔗 Link: {p0}"
+
+#, python-brace-format
+msgid ""
+"🔗 频道链接: {p0}\n"
+"\n"
+msgstr ""
+"🔗 Channel link: {p0}\n"
+"\n"
+
+msgid "🔙 返回"
+msgstr "🔙 Back"
+
+msgid "🔙 返回上一页"
+msgstr "🔙 Back"
+
+msgid "🔙 返回主菜单"
+msgstr "🔙 Main menu"
+
+#, python-brace-format
+msgid "🔞 剧透：{p0}"
+msgstr "🔞 Spoiler: {p0}"
+
+msgid "🔢 前10"
+msgstr "🔢 Top 10"
+
+msgid "🔢 前20"
+msgstr "🔢 Top 20"
+
+msgid "🔢 前30"
+msgstr "🔢 Top 30"
+
+#, python-brace-format
+msgid "🔥 <b>{p0}热榜 TOP {p1}</b>\n"
+msgstr "🔥 <b>{p0} top {p1}</b>\n"
+
+msgid "🔥 全部时间热榜"
+msgstr "🔥 All-time top posts"
+
+msgid "🔥 创建每周热榜"
+msgstr "🔥 Create weekly top-post task"
+
+msgid "🔥 本周热榜"
+msgstr "🔥 This week’s top posts"
+
+msgid "🔥 热门内容"
+msgstr "🔥 Top posts"
+
+msgid "🔧 优化索引"
+msgstr "🔧 Optimize index"
+
+msgid "🔧 同步索引"
+msgstr "🔧 Sync index"
+
+msgid "🔧 调试"
+msgstr "🔧 Debug"
+
+msgid "🔧 重建索引"
+msgstr "🔧 Rebuild index"
+
+#, python-brace-format
+msgid ""
+"🕳️ 审核 #{p0} 已作废（视为已拒绝）\n"
+"\n"
+"当前候选不会再被发布。\n"
+"上次重抓未能找到新的可替换作品。\n"
+"可再次点击「重抓/换一张」直接抓取一个新作品（序号递增），找到后会作为新的审核稿。"
+msgstr ""
+"🕳️ Review #{p0} was voided\n"
+"\n"
+"The current candidate will not be published.\n"
+"The last refetch found no replacement candidate.\n"
+"Tap “Refetch / replace” again to find a new work. A match will become a new review."
+
+#, python-brace-format
+msgid "🕵️ 匿名：{p0}"
+msgstr "🕵️ Anonymous: {p0}"
+
+#, python-brace-format
+msgid "🕵️ 投稿待审核 #{p0}\n"
+msgstr "🕵️ Pending review #{p0}\n"
+
+msgid "🗑 删除"
+msgstr "🗑 Delete"
+
+msgid "🗑 已删除"
+msgstr "🗑 Deleted"
+
+msgid "🗑 批量删除投稿"
+msgstr "🗑 Delete posts in bulk"
+
+msgid "🗑️ 删除"
+msgstr "🗑️ Delete"
+
+msgid ""
+"🗑️ 投稿已取消，所有临时进度已清除。\n"
+"\n"
+"想继续？发送 /submit 重新开始。"
+msgstr ""
+"🗑️ Submission cancelled. Temporary progress was cleared.\n"
+"\n"
+"Send /submit to start again."
+
+msgid "🚀 启动机器人"
+msgstr "🚀 Start bot"
+
+#, python-brace-format
+msgid "🚀 审核 #{p0} 正在发布…多图+评论串可能要几十秒，请勿重复点击。"
+msgstr ""
+"🚀 Publishing review #{p0}… Albums and discussion replies may take several seconds. "
+"Please do not tap again."
+
+msgid ""
+"🚫 你已被加入黑名单，无法投稿。\n"
+"\n"
+"如有疑问请联系管理员。"
+msgstr ""
+"🚫 You are blocked from submitting.\n"
+"\n"
+"Contact an admin if you have questions."
+
+msgid "🚫 你的投稿权限已被限制，如有疑问请联系管理员。"
+msgstr "🚫 Your submission permission is restricted. Contact an admin if you have questions."
+
+msgid "🚫 封禁投稿人"
+msgstr "🚫 Block submitter"
+
+msgid "🚫 封禁用户"
+msgstr "🚫 Block user"
+
+msgid "🚫 添加黑名单"
+msgstr "🚫 Add to blocklist"
+
+msgid "🚫 禁用 API"
+msgstr "🚫 Disable API access"
+
+msgid ""
+"🤔 这条消息我没看懂。\n"
+"• 投稿请发送 /submit（按提示一步步来）\n"
+"• 全部命令请发送 /help"
+msgstr ""
+"🤔 I could not understand this message.\n"
+"• Send /submit to start a submission\n"
+"• Send /help for all commands"
+

@@ -1,4 +1,5 @@
 """/status 与 /pin_status：在 Telegram 里直接看/置顶最近一次计划终态。"""
+from ui.i18n import tr
 import datetime
 import logging
 
@@ -46,7 +47,7 @@ async def status_command(update: Update, context: CallbackContext) -> int:
         text = await schedule_status_text()
     except Exception:
         logger.warning("schedule/status text failed", exc_info=True)
-        text = "⚠️ 无法读取计划状态，请稍后再试。"
+        text = tr('⚠️ 无法读取计划状态，请稍后再试。')
     await update.message.reply_text(text)
     return 0
 
@@ -55,13 +56,13 @@ async def pin_status_command(update: Update, context: CallbackContext) -> int:
     """/pin_status —— 发送状态并把消息置顶到当前群/频道（仅 OWNER）"""
     user_id = update.effective_user.id
     if not is_owner(user_id):
-        await update.message.reply_text("⛔ 此命令仅限机器人所有者使用")
+        await update.message.reply_text(tr('⛔ 此命令仅限机器人所有者使用'))
         return 0
     try:
         text = await schedule_status_text()
     except Exception:
         logger.warning("schedule/status text failed (pin)", exc_info=True)
-        text = "⚠️ 无法读取计划状态，请稍后再试。"
+        text = tr('⚠️ 无法读取计划状态，请稍后再试。')
     try:
         sent = await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
         try:
@@ -73,10 +74,10 @@ async def pin_status_command(update: Update, context: CallbackContext) -> int:
         except Exception:
             logger.warning("pin_chat_message failed (bot may lack admin): chat=%s",
                            update.effective_chat.id, exc_info=True)
-            await update.message.reply_text("✅ 状态已发送（置顶失败：机器人需要频道/群管理员权限）")
+            await update.message.reply_text(tr('✅ 状态已发送（置顶失败：机器人需要频道/群管理员权限）'))
         else:
-            await update.message.reply_text("✅ 状态已置顶")
+            await update.message.reply_text(tr('✅ 状态已置顶'))
     except Exception:
         logger.warning("send schedule status failed: chat=%s", update.effective_chat.id, exc_info=True)
-        await update.message.reply_text("❌ 发送状态失败，请稍后再试")
+        await update.message.reply_text(tr('❌ 发送状态失败，请稍后再试'))
     return 0

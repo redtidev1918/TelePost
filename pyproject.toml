@@ -60,6 +60,7 @@ mcp = ["mcp>=2.2,<3"]
 # Test / coverage tooling. Intentionally excluded from the runtime dependency
 # set so a plain ``pip install telepost-bot`` stays lean.
 dev = [
+    "Babel>=2.16.0",
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
@@ -115,6 +116,7 @@ packages = [
 include-package-data = false
 
 [tool.setuptools.package-data]
+ui = ["locales/*/LC_MESSAGES/*.po", "locales/*/LC_MESSAGES/*.mo"]
 # The Mini App build ships inside the ``webapp`` package so a wheel install
 # serves a working /app/ frontend. ``webapp/dist`` is a Vite build artifact
 # (produced by ``npm run build`` in webapp/ before packaging); it is

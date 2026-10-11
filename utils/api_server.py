@@ -18,6 +18,7 @@ import uuid
 from typing import Optional
 
 from aiohttp import web
+from config import settings as bot_settings
 
 from config.settings import (
     CHAT_REVIEW_REQUIRED,
@@ -1289,6 +1290,7 @@ def add_api_routes(web_app, application) -> None:
         )
         return _ok({
             "token": token,
+            "bot_language": bot_settings.BOT_LANGUAGE,
             "expires_in": miniapp_session.session_ttl_seconds(),
             "user": {
                 "telegram_user_id": uid,

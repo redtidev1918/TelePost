@@ -77,7 +77,9 @@ class TestMiniAppSession:
         monkeypatch.setenv("MINIAPP_SESSION_SECRET", "s" * 40)
 
     @pytest.mark.asyncio
-    async def test_valid_session_endpoint(self, monkeypatch):
+    @pytest.mark.parametrize("language", ["zh", "en"])
+    async def test_valid_session_endpoint(self, monkeypatch, language):
+        monkeypatch.setattr(api_server.bot_settings, "BOT_LANGUAGE", language)
         from init_data_py.signing import sign
         app, _ = _make_app(monkeypatch, _SUBMITTER)
         client = await _client(app)
@@ -88,6 +90,7 @@ class TestMiniAppSession:
                                      json={"initData": raw})
             assert resp.status == 200
             data = (await resp.json())["data"]
+            assert data["bot_language"] == language
             assert data["token"].startswith("ma_v1.")
             assert data["user"]["telegram_user_id"] == 5073758941
             assert "submitter" in data["user"]["roles"]
