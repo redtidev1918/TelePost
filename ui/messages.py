@@ -438,7 +438,8 @@ class MessageFormatter:
     @staticmethod
     def upload_blocked_type(file_name: str, blocked_desc: str) -> str:
         """命中文件类型黑名单时的拒绝提示。"""
-        name = file_name or "未知文件"
+        from html import escape
+        name = escape(file_name or "未知文件")
         return (
             tr("""⚠️ 暂不支持此类文件，已被自动拦截。
 

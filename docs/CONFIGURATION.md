@@ -48,7 +48,7 @@ Bot 的欢迎、帮助、菜单、命令说明、投稿与审核提示使用所�
 | `BOT_MODE` | `MIXED` | `MEDIA`、`DOCUMENT` 或 `MIXED` |
 | `BOT_LANGUAGE` | `zh` | Bot 与 Mini App 界面语言：`zh` / `en`；INI 对应 `[BOT] LANGUAGE` |
 | `ALLOWED_FILE_TYPES` | `*` | 文档扩展名或 MIME，逗号分隔 |
-| `BLOCKED_FILE_TYPES` | 内置危险类型集 | 投稿文件黑名单（扩展名 / MIME / 通配 MIME）：默认可执行软件、脚本与不可杀毒的压缩包，防止带毒文件；媒体类（图片/视频/GIF/音频）不受限制，TXT/PDF/MD 等文本文档不受影响。Bot 私聊、HTTP API 与 Mini App 投稿统一执行；`none` 或空串关闭，自定义列表整体覆盖默认 |
+| `BLOCKED_FILE_TYPES` | 内置高风险类型集 | 拦截可执行文件、常见脚本与压缩包，支持扩展名或 MIME。黑名单先于白名单；声明为媒体不能绕过命中类型。`none` 或空串关闭，自定义列表整体替换默认值；多 Bot 可用 `BOTn_BLOCKED_FILE_TYPES` 覆盖。类型拦截不等于病毒扫描，TXT/PDF/MD 等仍可投稿。 |
 | `SHOW_SUBMITTER` | `true` | 频道是否显示投稿人 |
 | `NOTIFY_OWNER` | `true` | 是否 durable 私聊 Owner：审核稿入队成功或直发成功后各按 logical submission 通知一次；refetch/editorial 不重复 |
 | `CHANNEL_FOOTER_LINK` | 空 | 频道 caption 页脚的 Bot 地址（`https://t.me/<bot>`）：生成 `✉️ TG 投稿` → `?start=submit`；启用 Mini App CTA 后增加 `📱 Mini App`。空值关闭页脚，审核控制卡不携带公共投稿 CTA |
@@ -355,3 +355,20 @@ webhook secret / PixivFlow secret），审计事件只统计数量与最新时�
 
 实现位于 `telepost/observability/doctor.py`（纯函数 `run_doctor(*, db_paths, now)`），
 CLI 只是薄封装；诊断逻辑不依赖 web 应用（不导入 `run.py` / aiohttp）。
+
+## 投稿文件黑名单
+
+默认拦截 Windows / Android 等可执行文件、常见脚本与 ZIP/RAR/7z 等压缩包。扩展名或 MIME 任意命中即拒绝，白名单不能覆盖黑名单。Bot、API 与 Mini App 共享服务端规则；正常图片、视频、音频、TXT、PDF、MD 不受默认名单影响。Windows 文件名末尾的空格或点不会绕过扩展名检查。
+
+单 Bot 在 `[BOT]` 中设置 `BLOCKED_FILE_TYPES`；多 Bot 使用环境变量。以下配置让两个 Bot 使用同一自定义名单（整体替换内置名单）：
+
+```dotenv
+BOT1_BLOCKED_FILE_TYPES=.exe,.msi,.bat,.cmd,.ps1,.vbs,.js,.jar,.apk,.sh,.zip,.rar,.7z
+BOT2_BLOCKED_FILE_TYPES=.exe,.msi,.bat,.cmd,.ps1,.vbs,.js,.jar,.apk,.sh,.zip,.rar,.7z
+```
+
+保留完整默认名单时，不设置覆盖值即可。`none` 或单 Bot 的空配置可关闭黑名单；多 Bot 关闭时明确使用 `BOTn_BLOCKED_FILE_TYPES=none`。Docker Compose 使用环境变量时，需要将相应键加入 `environment`。
+
+JSON `documents` 在策略启用时必须提供文件名，缺失返回 `file_metadata_required`。multipart 即使声明为图片或音频，也会检查文件名；API 类型拦截返回 `blocked_file_type`。审核开关与投稿归属不受此配置影响。
+
+此功能没有杀毒引擎，不检查文件内容；改名、恶意 PDF 或其他允许类型仍有风险。压缩包在本服务中不会被解压扫描，所以默认拒绝。依据 [OWASP 文件上传建议](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html)，文件类型检查与病毒扫描是不同层的控制，客户端 MIME 不能作为安全保证。

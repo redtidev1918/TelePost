@@ -145,6 +145,14 @@ async def test_full_submission_conversation(monkeypatch, tmp_path):
     await process(_text_update("/submit"))
     assert any("直接上传" in t for k, t in bot.outbox if k == "text"), "应发上传提示"
 
+    # A document declared as GIF must still be rejected by its executable extension.
+    user = User(id=42, is_bot=False, first_name="T", username="tester")
+    chat = Chat(id=42, type="private")
+    dangerous = Message(message_id=50, date=0, chat=chat, from_user=user,
+                        document=Document("bad", "bad-unique", file_name="payload.exe", mime_type="image/gif"))
+    await process(Update(update_id=50, message=dangerous))
+    assert any("已被自动拦截" in t for k, t in bot.outbox if k == "text")
+
     # 2) 发媒体
     await process(_photo_update())
     assert any("已接收媒体" in t for k, t in bot.outbox if k == "text")

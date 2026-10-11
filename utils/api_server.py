@@ -1650,14 +1650,14 @@ def add_api_routes(web_app, application) -> None:
             for item in documents:
                 if not isinstance(item, dict) or not item.get("file_id"):
                     return _error(400, "invalid_media", "documents 项必须包含 file_id")
-                # 文件类型策略：文件名可判定时执行（file_id 直投无文件名时放行，
-                # 不破坏既有自动化客户端）；媒体类不受类型限制。
+                # Missing metadata must not bypass an enabled document policy.
                 doc_name = item.get("filename") or item.get("file_name") or ""
-                if doc_name:
-                    ok, code, msg = _check_document_allowed(
-                        doc_name, item.get("mime_type") or item.get("mime") or "")
-                    if not ok:
-                        return _error(400, code, msg)
+                if not doc_name and (_file_validator.blocked_types or not _file_validator.allow_all):
+                    return _error(400, "file_metadata_required", "文档投稿必须提供 filename 以检查文件类型")
+                ok, code, msg = _check_document_allowed(
+                    doc_name, item.get("mime_type") or item.get("mime") or "")
+                if not ok:
+                    return _error(400, code, msg)
 
             link = _fields_link(payload)
             if link and not link.startswith(("http://", "https://")):
@@ -1838,6 +1838,8 @@ def add_api_routes(web_app, application) -> None:
             files[index]["preview_path"] = preview["path"]
 
         for f in files:
+            if _file_validator.is_blocked(f.get("filename"), f.get("mime")):
+                return _error(400, "blocked_file_type", "此文件类型已被拦截")
             if f.get("kind") == "document":
                 ok, code, msg = _check_document_allowed(f.get("filename"), f.get("mime"))
                 if not ok:

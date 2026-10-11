@@ -1857,6 +1857,7 @@ export interface components {
         };
         FileIdDocument: {
             file_id: string;
+            /** @description Required when the document type denylist or allowlist is enabled. Missing filename returns file_metadata_required. */
             filename?: string;
         };
         SubmissionJson: {
