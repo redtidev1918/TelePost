@@ -3,8 +3,8 @@
 **Language / 语言:** [中文](https://github.com/redtidev1918/TelePost/blob/main/README.md) · English
 
 TelePost is an open-source, self-hosted submission and moderation bot for Telegram channels.
-Readers submit work through the bot's private chat or the Mini App; you check, edit and decide
-what gets published.
+Readers submit work through the bot's private chat, the Mini App or the HTTP API; submissions that
+need review are viewed, edited and decided by the admins in the review group.
 
 [![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest) [![PyPI](https://img.shields.io/pypi/v/telepost-bot.svg)](https://pypi.org/project/telepost-bot/) [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/) [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/redtidev1918/TelePost/blob/main/LICENSE) [![Documentation](https://img.shields.io/badge/docs-redtidev1918.github.io-6366f1)](https://redtidev1918.github.io/TelePost/#/en/)
 
@@ -23,13 +23,13 @@ rankings and tags.
 
 | Feature | Description |
 | --- | --- |
-| Easy submissions | Send photos, videos, GIFs, audio, documents or plain text from the bot's private chat or the Mini App; the preview fixes tags, title, note and link, and switches on anonymous or spoiler mode. |
-| Review and publishing | The submission and its preview go to your private review group with **✅ Publish to channel / ❌ Reject / 🔇 Spoiler** buttons; automated submissions can **🔄 Refetch** a different candidate, which still needs a human decision. |
-| Mini App | Optional web interface: browse published content, submit and follow your own work on a phone; reviewers and admins handle the review queue, edit text and attachment order, and manage roles and the blacklist. |
+| Submissions | Photos, videos, GIFs, audio, documents and plain text; preview and edit before submitting, with anonymous and spoiler modes. |
+| Review and publishing | View previews and publish, reject or spoiler submissions in a private review group; refetch-capable automated submissions can swap candidates, and the replacement still needs human review. |
+| Mini App | Optional web interface: users browse, submit and track their own work; reviewers and admins review, edit and manage. |
 | Search and rankings | `/search` by keyword (with `#tag` and time-range filters), `/tags` for the tag cloud, `/hot` and `/hotweek` for rankings, `/myposts` and `/mystats` for your own submissions and statistics. |
 | Scheduled posts | Commands such as `/schedule add weekly-hot` publish rankings on a schedule. |
-| Automated submissions | An owner generates a token with `/gen_token` and programs submit through the HTTP API; an `idempotency_key` makes retries safe. |
-| AI-assisted review | An optional MCP sidecar lets agents such as Codex or Claude read pending submissions and suggest decisions; no language model is bundled and a human always decides. |
+| Automated submissions | Scripts or upstream services submit through the HTTP API; an `idempotency_key` keeps retries from duplicating reviews or publications. |
+| AI-assisted review | Optionally connect AI agents such as Codex or Claude through MCP to read pending submissions and offer review suggestions. |
 | Multiple bots, self-hosted | Run several bots on one machine, each with its own channel, review group, language and data directory. |
 
 Default review rules per entry point: [How it works](#how-it-works). Integrations and deployment:
@@ -42,24 +42,25 @@ Reader submits ──▶ Preview and edit ──▶ Review (per entry point) ─
 ```
 
 A reader uploads content in the bot's private chat or the Mini App, then confirms tags, title, note,
-link, anonymous and spoiler in the preview. Whether it goes through review depends on the entry
-point:
+link and the anonymous and spoiler settings in the preview before submitting. Whether it goes
+through review depends on the entry point:
 
 | Entry point | Default |
 | --- | --- |
 | Bot private chat | Published after the reader confirms; `CHAT_REVIEW_REQUIRED=true` requires review |
-| Mini App | Submitted for review, controlled by `MINIAPP_REVIEW_REQUIRED` |
+| Mini App | Review by default; controlled separately by `MINIAPP_REVIEW_REQUIRED` |
 | HTTP API | Always submitted for review; a human must approve |
 
-Automated submissions (including PixivFlow and other upstream services) also need human approval:
-`API_REVIEW_REQUIRED` is kept for compatibility and cannot turn review off for the API. The default
-setup uses a review group, so `REVIEW_CHAT_ID` is required and must not be the same as the channel.
+Automated submissions sent through the HTTP API (including PixivFlow and other upstream services)
+must be approved by a human. `API_REVIEW_REQUIRED` is kept for compatibility and cannot turn review
+off for the API. The default setup uses a review group, so `REVIEW_CHAT_ID` is required and must
+not be the same as the channel.
 Full defaults, moderation behaviour and retention are in
 [Configuration](https://github.com/redtidev1918/TelePost/blob/main/docs/en/CONFIGURATION.md#review).
 
 ## Download and install
 
-Pick the path that matches your setup.
+Pick the option that matches your environment, then continue with [First run](#first-run).
 
 **Standalone program (no Python)** — Take the file for your platform from the
 [download page](https://github.com/redtidev1918/TelePost/blob/main/docs/en/download.md) or
@@ -91,8 +92,9 @@ stay in the current working directory, so always start from the same one. Instal
 is recommended: without it everything still works, but streaming downscale of very large images is
 unavailable.
 
-**Docker (servers or long-running deployments)** — Create a `.env` in the repository root
-(`TOKEN`, `CHANNEL_ID`, `OWNER_ID`, `REVIEW_CHAT_ID` and a pinned `TELEPOST_VERSION`), then start:
+**Docker (servers or long-running deployments)** — Download or clone the repository, create a
+`.env` in its root (`TOKEN`, `CHANNEL_ID`, `OWNER_ID`, `REVIEW_CHAT_ID` and a pinned
+`TELEPOST_VERSION`), then start:
 
 ```bash
 docker compose pull
@@ -100,7 +102,7 @@ docker compose up -d
 ```
 
 Upgrades, removal, system dependencies and every setting: [Install and deploy](https://github.com/redtidev1918/TelePost/blob/main/docs/en/INSTALL.md).
-A plain Polling bot needs no domain or public HTTPS; only Webhook mode and the Mini App do.
+Receiving modes and their public HTTPS requirements: [More capabilities](#more-capabilities).
 
 ## First run
 
@@ -110,9 +112,10 @@ A plain Polling bot needs no domain or public HTTPS; only Webhook mode and the M
    check that it can send messages there. The channel ID is either `@username` or a numeric ID
    starting with `-100`; the owner ID is your own numeric Telegram user ID, not a group or channel
    ID.
-3. **Add the review group and start** — The setup wizard asks only for the token, the channel and
-   the owner ID. Open the generated `config.ini`, keep what is there, add the review group under
-   `[BOT]` (save the file as UTF-8), then start:
+3. **Complete the configuration and start** — The setup wizards of the standalone program and the
+   pip package ask only for the token, the channel and the owner ID. Open the generated
+   `config.ini`, keep what is there, add the review group under `[BOT]` (save the file as UTF-8),
+   then start:
 
    ```ini
    [BOT]
@@ -120,13 +123,14 @@ A plain Polling bot needs no domain or public HTTPS; only Webhook mode and the M
    REVIEW_CHAT_ID = -1001234567890
    ```
 
-   Replace the example ID with your review group ID. Start commands: run the standalone binary,
-   `telepost` for pip, or `docker compose up -d` for Docker.
+   Replace the example ID with your review group ID. Start commands: double-click the Windows
+   standalone program, or run `./telepost-linux-x64` / `./telepost-macos-arm64` on Linux / macOS;
+   `telepost` for pip. Docker users configure the `.env` above — no wizard, no `config.ini`.
 4. **Make a first submission** — Send `/start` to the bot, tap **📝 New submission** or send
-   `/submit`, then upload photos, videos, GIFs, audio or files. For text only, send `/skip_media`
-   to go straight to the preview and `/done_media` when you are done. Add tags, adjust what you
-   need, and tap **✅ Publish** (the button reads **✅ Submit for review** when chat review is on).
-   Send `/cancel` at any point to cancel.
+   `/submit`, then upload photos, videos, GIFs, audio or files and send `/done_media` when done to
+   reach the preview; for a text-only submission, `/skip_media` skips the upload. Fill in tags and
+   text, adjust what you need, and tap **✅ Publish** (the button reads **✅ Submit for review**
+   when chat review is on). Send `/cancel` at any point to cancel.
 
 All commands: [Command reference](https://github.com/redtidev1918/TelePost/blob/main/docs/en/COMMANDS.md).
 
@@ -136,10 +140,11 @@ The Mini App is a web interface that ships with the same program: readers browse
 submit and follow their own work on a phone; reviewers and admins handle the review queue, edit text
 and attachment order, and manage roles and the blacklist.
 
-It does not appear just because the bot is running. It needs a public HTTPS address, a
-`MINIAPP_SESSION_SECRET` and a Telegram-side entry; the frontend is served by the program's own HTTP
-service, so it is only mounted in Webhook mode. If any of that is missing, the entry button simply
-does not show up.
+Enabling it requires a public HTTPS address and `MINIAPP_SESSION_SECRET` set in the environment.
+The web frontend is served by the program's own HTTP service and is currently mounted only in
+Webhook mode. The private-chat entry needs `MINIAPP_ENABLED` on and `MINIAPP_PUBLIC_URL` configured
+(it can be derived from `WEBHOOK_URL`); without the secret, the entry shows but login fails. To
+open it through `?startapp=` links, also configure a Main Mini App in BotFather.
 
 Identity comes from Telegram and is verified server-side from `initData`. Opening the URL in a
 normal browser is not a login, and it grants no review or admin rights. Setup steps:
@@ -147,25 +152,26 @@ normal browser is not a login, and it grants no review or admin rights. Setup st
 
 ## AI-assisted review (MCP, optional)
 
-TelePost can connect to MCP-capable agents such as Codex or Claude through
-[MCP](https://github.com/redtidev1918/TelePost/blob/main/docs/MCP_REVIEW.md) (Chinese): the agent
-reads pending submissions, suggests decisions based on your channel's review policy, and performs
-moderation actions only when you explicitly ask and its permissions allow it.
+MCP is the protocol AI agents use to call external tools. TelePost can connect to agents such as
+Codex or Claude through [MCP](https://github.com/redtidev1918/TelePost/blob/main/docs/MCP_REVIEW.md)
+(Chinese): they read pending submissions, suggest decisions based on your channel's review policy,
+and perform moderation actions only when you explicitly ask and their permissions allow it.
 
-TelePost bundles no language model and never moderates anything on its own — a human always decides.
-Keeping both the MCP layer and the review API read-only is the recommended setup. Tool list, tokens
-and connection setup: [MCP review](https://github.com/redtidev1918/TelePost/blob/main/docs/MCP_REVIEW.md) (Chinese).
+TelePost bundles no language model and never calls an AI to moderate on its own. Keeping both MCP
+and the review API read-only is recommended, leaving the agent advisory only; once write access is
+enabled, get human confirmation before concrete actions — the program does not enforce this step.
+Tool list, tokens and connection setup:
+[MCP review](https://github.com/redtidev1918/TelePost/blob/main/docs/MCP_REVIEW.md) (Chinese).
 
 ## More capabilities
 
-- **HTTP API** — the same review and publishing pipeline as the bot; multi-bot deployments use
-  `/api/botN/v1/submissions`. Fields and limits:
-  [HTTP API](https://github.com/redtidev1918/TelePost/blob/main/docs/en/API.md).
-- **Multiple bots** — run several bots on one machine, each with its own channel, review group,
-  language and data directory.
+- **HTTP API** — for scripts and other services to send submissions, sharing the bot's review and
+  publishing pipeline; see the example below.
 - **TXT novels and online reading** — TXT is published as a document; TelePress can optionally build
   a Telegraph reading page, and a failure never affects the publication.
-- **Webhook and Polling** — Webhook when a public HTTPS address is available, Polling otherwise.
+- **Webhook and Polling** — with Polling the bot pulls messages from Telegram and needs no domain
+  or public HTTPS; with Webhook, Telegram pushes updates to the bot and a public HTTPS address is
+  required. The Mini App also requires public HTTPS.
 - **File type filtering** — executables, common scripts and archives are blocked by default in all
   three submission entry points.
 - **Server deployment** — Docker images and a Fly.io setup; backups and runtime state are covered in
@@ -185,9 +191,8 @@ curl -X POST 'https://example.com/api/v1/submissions' \
   -F 'idempotency_key=source:123'
 ```
 
-Multi-bot deployments use `/api/botN/v1/submissions` instead. API submissions always go through
-review; full fields and limits are in
-[HTTP API](https://github.com/redtidev1918/TelePost/blob/main/docs/en/API.md).
+Multi-bot deployments use `/api/botN/v1/submissions` instead. Review rules: [How it works](#how-it-works);
+full fields and limits are in [HTTP API](https://github.com/redtidev1918/TelePost/blob/main/docs/en/API.md).
 
 </details>
 
@@ -196,8 +201,9 @@ review; full fields and limits are in
 <details>
 <summary>Do I need a server and a domain?</summary>
 
-No domain or public HTTPS is required: a machine that stays on, Polling mode, the bot's private chat
-and a review group are enough. Only Webhook mode and the Mini App need a public HTTPS address. See
+You need a machine that stays on. Polling mode with the bot's private chat and a review group
+needs no domain; the public HTTPS requirements of Webhook and the Mini App are in
+[More capabilities](#more-capabilities). See
 [Install and deploy](https://github.com/redtidev1918/TelePost/blob/main/docs/en/INSTALL.md).
 
 </details>
@@ -205,18 +211,19 @@ and a review group are enough. Only Webhook mode and the Mini App need a public 
 <details>
 <summary>Why was my private-chat submission published directly?</summary>
 
-Private-chat submissions are published after the reader confirms by default
-(`CHAT_REVIEW_REQUIRED=false`). Set it to `true` to send them to the review group first. The Mini App
-and the HTTP API are not affected by this switch and always go through review by default. See
-[Configuration](https://github.com/redtidev1918/TelePost/blob/main/docs/en/CONFIGURATION.md#review).
+Private-chat submissions are published after the reader confirms by default. Set
+`CHAT_REVIEW_REQUIRED=true` to send them to the review group first; other entry points are not
+affected. Default behaviour per entry point: [How it works](#how-it-works).
 
 </details>
 
 <details>
 <summary>Why doesn't the Mini App show up?</summary>
 
-It is optional and needs a public HTTPS address, `MINIAPP_SESSION_SECRET`, Webhook mode and a
-Telegram-side entry; without all of them the entry is not shown. See
+First check that `MINIAPP_ENABLED` is on and the entry URL is configured, then that the page is
+reachable in Webhook mode. If the entry shows but login fails, check `MINIAPP_SESSION_SECRET` in
+the environment and open the app from inside Telegram. Enabling conditions:
+[Mini App](#mini-app-optional); troubleshooting steps:
 [Telegram Mini App](https://github.com/redtidev1918/TelePost/blob/main/docs/MINIAPP.md) (Chinese).
 
 </details>
@@ -234,21 +241,22 @@ machine at the same time causes a Polling conflict. See
 <details>
 <summary>Where are submission files stored?</summary>
 
-Under the program's `data/` directory: the submission database `submissions.db`, session state
-`persistence.pickle`, runtime policy `runtime-policy.json`, the search index `search_index` and API
-temporary uploads `api_uploads/`; multiple bots use `data/botN/`. Media itself stays on Telegram's
-side and the database only stores references. Keep the whole `data/` directory when upgrading or
-moving. See [Operations](https://github.com/redtidev1918/TelePost/blob/main/docs/OPERATIONS.md) (Chinese).
+By default under `data/` (for a pip install, in the working directory where the command starts):
+the submission database `submissions.db`, session state `persistence.pickle`, runtime policy
+`runtime-policy.json`, the search index `search_index` and API temporary uploads `api_uploads/`;
+multiple bots use `data/botN/`. Media itself stays on Telegram's side and the database only stores
+references. Back up and keep the whole `data/` directory when upgrading or moving; backup method:
+[Operations](https://github.com/redtidev1918/TelePost/blob/main/docs/OPERATIONS.md#持久数据) (Chinese).
 
 </details>
 
 <details>
 <summary>Will MCP approve content for me?</summary>
 
-No. TelePost bundles no language model, and MCP is optional: the moderation write tools are only
-registered when the mode is not read-only, and they are limited by both the MCP and review API
-switches. Human confirmation is the recommended workflow, not an enforced one; keeping both layers
-read-only leaves the agent advisory only. See
+Whether it can depends on permissions: `TELEPOST_MCP_REVIEW_MODE=readonly` does not register the
+moderation write tools, and `TELEPOST_REVIEW_API_MODE=readonly` rejects writes server-side. Keeping
+both layers read-only is recommended; for the human-confirmation expectation after enabling writes,
+see [AI-assisted review](#ai-assisted-review-mcp-optional). Full configuration:
 [MCP review](https://github.com/redtidev1918/TelePost/blob/main/docs/MCP_REVIEW.md) (Chinese).
 
 </details>
