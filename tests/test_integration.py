@@ -327,17 +327,19 @@ class TestPerformance:
         
         db_path = os.path.join(temp_dir, 'concurrent_test.db')
         
-        # 创建数据库
-        conn = sqlite3.connect(db_path)
-        conn.execute('''
-            CREATE TABLE test_data (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                thread_id INTEGER,
-                value TEXT
-            )
-        ''')
-        conn.commit()
-        conn.close()
+        # 与生产数据库一致：在线程启动前启用持久的 WAL 模式。
+        # 默认 DELETE/FULL 会把此测试变成 runner 磁盘同步速度的测试。
+        with closing(sqlite3.connect(db_path)) as conn:
+            assert conn.execute('PRAGMA journal_mode=WAL').fetchone()[0] == 'wal'
+            conn.execute('PRAGMA synchronous=NORMAL')
+            conn.execute('''
+                CREATE TABLE test_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    thread_id INTEGER,
+                    value TEXT
+                )
+            ''')
+            conn.commit()
         
         # 并发写入函数
         errors = []
@@ -347,6 +349,8 @@ class TestPerformance:
                 # busy_timeout：默认 5s 在 CI 高并发下会抛 "database is locked"，
                 # 而线程内异常不会在 join 时重抛，表现为行数静默变少（450 != 500）。
                 with closing(sqlite3.connect(db_path, timeout=30)) as conn:
+                    # synchronous 是连接级设置，必须在每个 writer 上设置。
+                    conn.execute('PRAGMA synchronous=NORMAL')
                     conn.execute('PRAGMA busy_timeout=30000')
                     for i in range(count):
                         conn.execute(
