@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.83.2](https://github.com/redtidev1918/TelePost/compare/v2.83.1...v2.83.2) (2026-10-15)
+
+
+### Bug Fixes
+
+* align concurrent SQLite test with production WAL mode ([#331](https://github.com/redtidev1918/TelePost/issues/331)) ([f0889c4](https://github.com/redtidev1918/TelePost/commit/f0889c43b1ee40d7ac3b99d7a5bd1d4cdb3cc76f))
+
 ## [2.83.1](https://github.com/redtidev1918/TelePost/compare/v2.83.0...v2.83.1) (2026-10-11)
 
 
