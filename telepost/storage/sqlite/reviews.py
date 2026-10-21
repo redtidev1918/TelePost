@@ -241,10 +241,13 @@ class ReviewRepository:
                     )
                     return False
                 chain_id, _ = await refetch_repo.chain_of_review(conn, source)
+                # preview_sent_at anchors the §review-media-ttl clock at the
+                # real Telegram send time, not at row creation.
                 cur = await conn.execute(
                     "UPDATE pending_reviews SET control_message_id=?, status='pending', "
+                    "preview_state='present', preview_sent_at=?, "
                     "updated_at=?, error='' WHERE id=? AND status='preparing'",
-                    (int(message_id), time.time(), int(review_id)),
+                    (int(message_id), time.time(), time.time(), int(review_id)),
                 )
                 if cur.rowcount != 1:
                     return False
@@ -262,9 +265,10 @@ class ReviewRepository:
                 return state == "replaced"
             cur = await conn.execute(
                 "UPDATE pending_reviews SET control_message_id=?, status=?, "
+                "preview_state='present', preview_sent_at=?, "
                 "updated_at=?, error=CASE WHEN ? THEN '' ELSE error END "
                 "WHERE id=? AND status IN ('preparing', 'failed')",
-                (int(message_id), "pending" if ready else "failed",
+                (int(message_id), "pending" if ready else "failed", time.time(),
                  time.time(), 1 if ready else 0, int(review_id)),
             )
             return cur.rowcount == 1
@@ -658,6 +662,87 @@ class ReviewRepository:
                 "UPDATE pending_reviews SET expiry_progress=?, expiry_next_attempt_at=? "
                 "WHERE id=? AND status='expired'",
                 (json.dumps(progress), next_at, review_id))
+
+    # ---- review-media preview lifecycle (§review-media-ttl) ----------------
+
+    async def stale_preview_regens(self, *, cutoff: float, limit: int = 20) -> list:
+        """'regenerating' claims older than ``cutoff``.
+
+        A claim is written before the media is re-sent, so a crash between the
+        Telegram send and ``complete_preview_regen`` leaves the row claimed
+        forever. Those rows need a visible terminal state, not a silent retry.
+        """
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM pending_reviews WHERE preview_state='regenerating' "
+                "AND COALESCE(updated_at, 0) < ? ORDER BY updated_at ASC LIMIT ?",
+                (cutoff, limit))
+            return list(await cur.fetchall())
+
+    async def mark_preview_uncertain(self, review_id: int) -> bool:
+        """Claim → 'uncertain' (terminal, needs a human look at the group)."""
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "UPDATE pending_reviews SET preview_state='uncertain', "
+                "updated_at=? WHERE id=? AND preview_state='regenerating'",
+                (time.time(), review_id))
+            return cur.rowcount == 1
+
+    async def due_preview_cleanup(self, *, now: float, ttl_seconds: float,
+                                  limit: int) -> list:
+        """Pending reviews whose preview media passed the deletion TTL.
+
+        Legacy rows (NULL preview_state) count as 'present' anchored at
+        created_at — on first rollout old pending reviews surface here and
+        either clean up properly (<48h) or are marked restricted (>48h)."""
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM pending_reviews "
+                "WHERE status='pending' "
+                "AND COALESCE(preview_state, 'present') IN ('present', 'partial') "
+                "AND (? - COALESCE(preview_sent_at, created_at)) >= ? "
+                "ORDER BY COALESCE(preview_sent_at, created_at) ASC LIMIT ?",
+                (now, ttl_seconds, limit))
+            return list(await cur.fetchall())
+
+    async def checkpoint_preview(self, review_id: int, *, remaining_ids: list,
+                                 state: str, sent_at=None,
+                                 bump_attempts: bool = False) -> None:
+        async with db_manager.get_db() as conn:
+            await conn.execute(
+                "UPDATE pending_reviews SET review_message_ids=?, preview_state=?, "
+                "preview_sent_at=?, preview_attempts=preview_attempts+?, updated_at=? "
+                "WHERE id=?",
+                (json.dumps([int(i) for i in remaining_ids]), state, sent_at,
+                 1 if bump_attempts else 0, time.time(), review_id))
+
+    async def begin_preview_regen(self, review_id: int) -> bool:
+        """CAS the regen claim: only a pending review with cleared media and no
+        in-flight regeneration flips to 'regenerating'."""
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "UPDATE pending_reviews SET preview_state='regenerating', "
+                "updated_at=? WHERE id=? AND status='pending' "
+                "AND preview_state='cleared'",
+                (time.time(), review_id))
+            return cur.rowcount == 1
+
+    async def complete_preview_regen(self, review_id: int, *, message_ids: list,
+                                     sent_at: float) -> None:
+        async with db_manager.get_db() as conn:
+            await conn.execute(
+                "UPDATE pending_reviews SET review_message_ids=?, "
+                "preview_state='present', preview_sent_at=?, preview_attempts=0, "
+                "updated_at=? WHERE id=?",
+                (json.dumps([int(i) for i in message_ids]), sent_at,
+                 time.time(), review_id))
+
+    async def preview_restricted_counts(self) -> dict:
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT status, COUNT(*) AS n FROM pending_reviews "
+                "WHERE preview_state='restricted' GROUP BY status")
+            return {row["status"]: row["n"] for row in await cur.fetchall()}
 
     async def list_pending(self, *, limit: int,
                            created_cursor: Optional[float] = None,

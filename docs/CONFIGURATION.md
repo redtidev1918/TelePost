@@ -143,6 +143,10 @@ API（自动化）固定进入审核；Mini App 由 `MINIAPP_REVIEW_REQUIRED` �
 | `PENDING_REVIEW_CLEANUP_BATCH_SIZE` | `100` | 每轮最多过期 1–200 条 |
 | `REVIEW_RETENTION_DAYS` | `30` | 已决审核和 API 通知幂等记录保留天数 |
 | `SUPERSEDED_RETENTION_DAYS` | `30` | 被替换（重抓成功）的旧审核卡保留天数；到期后删除其 Telegram 预览/控制消息与记录，血缘（attempt/seen）保留；`0` 不清理 |
+| `REVIEW_MEDIA_TTL_HOURS` | `36` | 审核预览媒体在**实际发送**后该小时数被删除（控制卡保留、`file_id` 保留，可按需恢复）；`0` 关闭整个生命周期 |
+| `REVIEW_MEDIA_DELETE_DEADLINE_HOURS` | `47` | 临时性删除失败的重试硬上限（按实际发送时间计）；超过后标记 `restricted` 需人工删除，绝不虚报“已清理” |
+| `REVIEW_MEDIA_REGEN_TIMEOUT_MINUTES` | `5` | 「恢复预览」在记录新消息 ID 前中断的判定时长；超过标记 `uncertain`，需人工核对群内媒体 |
+| `REVIEW_MEDIA_CLEANUP_BATCH_SIZE` | `10` | 每轮最多清理 1–50 条到期审核预览 |
 | `REFETCH_PROGRESS_REMIND_MINUTES` | `2` | 每隔该分钟数向审核群播报阶段、已等待时长与任务 ID；`0` 关闭提醒 |
 | `REFETCH_WAKE_MINUTES` | `12` | 远端机器不可达且超过该分钟数无进展时，watchdog 用同一 request UUID 幂等唤醒（不创建新 attempt） |
 | `REFETCH_HARD_TIMEOUT_MINUTES` | `90` | 自创建起超过该分钟数仍无终态，标记 `timeout(stalled_after_hard_timeout)` 并通知；`0` 关闭硬超时 |
@@ -155,6 +159,18 @@ API（自动化）固定进入审核；Mini App 由 `MINIAPP_REVIEW_REQUIRED` �
 部署模板显式设置待审保留 14 天；代码默认仍为 0。过期后优先将控制卡改为只读文字记录，
 通知可信投稿人，并恢复未完成的清理。Telegram 仅允许删除 48 小时内消息；14 天媒体
 可能需要管理员手动清理，控制卡会如实说明。详见 [过期恢复](OPERATIONS.md#过期恢复与可追溯边界)。
+
+### 审核预览媒体 36 小时生命周期（§review-media-ttl）
+
+待审稿件保留期仍是 14 天，但**审核预览媒体**在发送后约 36 小时即删除（Telegram
+删除窗口只有 48 小时，等到 14 天必然失败）。控制卡保留、`media_json`/`documents_json`
+里的 `file_id` 保留；管理员在卡上点「🖼 恢复预览」按需重发，重发的消息重新计时。
+
+- 时间锚点是**实际 Telegram 发送时间**（`preview_sent_at`），不是落库时间。
+- 媒体提前清理**不等于**稿件过期；状态机是 `present → partial → cleared →
+  regenerating → present`，无法删除或结果不确定时进入可见的 `restricted` /
+  `uncertain`，需人工处理，绝不虚报成功。
+- 不会每天自动重发所有稿件；只有管理员点击才恢复。CAS 保证双击/并发点击只发一次。
 
 ### 小说封面在审核群里同样可见（§novel-cover）
 

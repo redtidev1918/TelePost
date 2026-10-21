@@ -153,6 +153,26 @@ async def init_db():
                 'ON pending_reviews(expiry_next_attempt_at) '
                 'WHERE expiry_next_attempt_at IS NOT NULL')
 
+            # Time-bounded review-media lifecycle (§review-media-ttl):
+            # preview media is deleted ~36h after sending (Telegram only allows
+            # deletion within 48h) while the control card stays actionable;
+            # admins regenerate previews on demand from the stored file_ids.
+            # NULL preview_state on legacy rows means 'present' with the
+            # review's created_at as the TTL anchor.
+            columns = {r[1] for r in await (await conn.execute(
+                'PRAGMA table_info(pending_reviews)')).fetchall()}
+            for column, ddl in (
+                ('preview_state', 'TEXT'),
+                ('preview_sent_at', 'REAL'),
+                ('preview_attempts', 'INTEGER NOT NULL DEFAULT 0'),
+            ):
+                if column not in columns:
+                    await conn.execute(f'ALTER TABLE pending_reviews ADD COLUMN {column} {ddl}')
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_review_preview_due '
+                "ON pending_reviews(COALESCE(preview_sent_at, created_at)) "
+                "WHERE status='pending'")
+
             # Generic, bounded provenance for API submissions (any client).
             # TelePost only stores/displays these; it never interprets them.
             for column, ddl in (
