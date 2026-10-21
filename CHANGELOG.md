@@ -8,6 +8,24 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.84.0](https://github.com/redtidev1918/TelePost/compare/v2.83.2...v2.84.0) (2026-10-21)
+
+
+### Features
+
+* **review:** bound review preview media by Telegram's 48h deletion window ([b480e4a](https://github.com/redtidev1918/TelePost/commit/b480e4a7e0b1675ba22dc802b94a67fc67e67b9c))
+* **review:** bound review preview media by Telegram's deletion window ([65da48b](https://github.com/redtidev1918/TelePost/commit/65da48bd59e92d25c94d762752a4f7f39795b5c7))
+
+
+### Bug Fixes
+
+* durable Telegram update inbox with recoverable submission conversations ([1b7f66d](https://github.com/redtidev1918/TelePost/commit/1b7f66d72fa5797a1ffb99fd45a4353a41eb201c))
+* durable webhook inbox with recoverable submission conversations ([6d6b5ec](https://github.com/redtidev1918/TelePost/commit/6d6b5ec5988d42d458136f18a548e6fdb311f509))
+* harden webhook payload admission and miniapp static guard ([a0cf21d](https://github.com/redtidev1918/TelePost/commit/a0cf21d697f21e2535b5ece6d5cb47fe2955857c))
+* harden webhook payload admission and miniapp static guard ([a621807](https://github.com/redtidev1918/TelePost/commit/a621807264311ef58908741bad4a0d5c5fc77552))
+* make review expiry recoverable with durable submitter notifications ([f6189d2](https://github.com/redtidev1918/TelePost/commit/f6189d2f5f1f86e3c44bc549f24941b6e8be1bdf))
+* make review expiry recoverable with durable submitter notifications ([c322d40](https://github.com/redtidev1918/TelePost/commit/c322d40c6402ea3fd809cbc87fc3459c34631dd6))
+
 ## [2.83.2](https://github.com/redtidev1918/TelePost/compare/v2.83.1...v2.83.2) (2026-10-15)
 
 
