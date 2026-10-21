@@ -53,6 +53,7 @@ CHECK_CODES: Tuple[str, ...] = (
     "db_integrity",
     "refetch_stuck",
     "refetch_jobs",
+    "webhook_inbox",
     "refetch_active_invariant",
     "review_queue_orphans",
     "review_queue_publishing",
@@ -576,6 +577,62 @@ def _check_refetch_jobs(
     collector.add("refetch_jobs", level, _prefix(db_path, message), details)
 
 
+# ---- check 2b: durable update inbox (§durable-inbox) ------------------------
+
+
+def _check_webhook_inbox(
+    db_path: str, conn: sqlite3.Connection, collector: _Collector
+) -> None:
+    """Webhook durable inbox: backlog age and permanently failed updates."""
+    columns = _table_columns(conn, "webhook_inbox")
+    if not columns:
+        collector.add(
+            "webhook_inbox", SKIP,
+            _prefix(db_path, "webhook_inbox 表不存在（旧库或 Polling-only 部署），跳过"),
+        )
+        return
+
+    pending = processing = dead = 0
+    oldest_pending_age: Optional[float] = None
+    for row in conn.execute(
+        "SELECT state, COUNT(*) AS n, MIN(next_attempt_at) AS oldest "
+        "FROM webhook_inbox GROUP BY state"
+    ).fetchall():
+        if row["state"] == "pending":
+            pending = int(row["n"])
+            if row["oldest"] is not None:
+                oldest_pending_age = max(0.0, collector.now - float(row["oldest"]))
+        elif row["state"] == "processing":
+            processing = int(row["n"])
+        elif row["state"] == "dead":
+            dead = int(row["n"])
+
+    summary = f"Inbox: pending: {pending} processing: {processing} dead: {dead}"
+    details: Dict[str, Any] = {
+        "path": db_path,
+        "pending": pending,
+        "processing": processing,
+        "dead": dead,
+        "oldest_pending_age_seconds": (
+            round(oldest_pending_age, 1) if oldest_pending_age is not None else None
+        ),
+        "summary": summary,
+    }
+    # dead = 已确认接收但重试耗尽的 Update：用户可见的丢稿，必须报红。
+    # pending 积压超过 1 小时说明 worker 停摆或持续失败，先黄后查。
+    if dead:
+        level = CRIT
+    elif pending and oldest_pending_age is not None and oldest_pending_age > 3600:
+        level = WARN
+    else:
+        level = OK
+    age_text = (
+        f"{oldest_pending_age:.0f}s" if oldest_pending_age is not None else "-"
+    )
+    message = f"{summary}｜最老待处理年龄 {age_text}"
+    collector.add("webhook_inbox", level, _prefix(db_path, message), details)
+
+
 # ---- check 3: one-active-attempt-per-chain invariant -----------------------
 
 
@@ -1078,6 +1135,7 @@ def _check_database(db_path: str, collector: _Collector) -> None:
             return
         has_active = _check_refetch_stuck(db_path, conn, collector)
         _check_refetch_jobs(db_path, conn, collector)
+        _check_webhook_inbox(db_path, conn, collector)
         _check_refetch_active_invariant(db_path, conn, collector)
         _check_review_queue_orphans(db_path, conn, collector)
         _check_review_queue_publishing(db_path, conn, collector)

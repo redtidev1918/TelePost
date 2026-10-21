@@ -95,8 +95,28 @@ class WebhookServer:
                 return web.Response(status=400, text="Bad Request")
 
             if update and update.update_id is not None:
+                # Durable path (§durable-inbox): the Update is committed to
+                # SQLite BEFORE this 200; the inbox worker drives processing
+                # and marks done only after the conversation state is flushed.
+                # A duplicate delivery of a known update never requeues it.
+                worker = None
+                try:
+                    from telepost.telegram.inbox_worker import UpdateInboxWorker
+                    candidate = self.application.bot_data.get("update_inbox_worker")
+                    if isinstance(candidate, UpdateInboxWorker):
+                        worker = candidate
+                except Exception:
+                    worker = None
+                if worker is not None:
+                    accepted = await worker.receive(update.update_id, data)
+                    if accepted:
+                        worker.wake()
+                else:
+                    # No worker wired (tests / embedded use): previous
+                    # memory-queue semantics, acknowledged as non-durable.
+                    await self.application.update_queue.put(update)
                 # 评论区模式在当前审核回调结束前就需要自动转发 ID，
-                # 因此在进入 PTB 串行更新队列前先记录。
+                # 因此在进入处理前先记录（与既有双路径捕获语义一致）。
                 from handlers.publish import capture_discussion_forward
                 capture_discussion_forward(update)
                 # 记录更新类型（特别是频道消息）
@@ -140,9 +160,7 @@ class WebhookServer:
                         logger.info(f"   编辑的频道消息ID: {update.edited_channel_post.message_id}, chat_id: {update.edited_channel_post.chat.id if update.edited_channel_post.chat else 'unknown'}")
                 else:
                     logger.debug(f"收到 Webhook 更新: update_id={update.update_id}, type={update_type_str}")
-                
-                # 将 update 放入队列处理
-                await self.application.update_queue.put(update)
+
                 return web.Response(status=200, text="OK")
 
             # 有效 JSON 但不是 Telegram Update（空对象/数组等）：400 表示
