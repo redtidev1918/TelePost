@@ -56,25 +56,60 @@ async def get_session(user_id: int):
 
 
 async def create_session(user_id: int, username: str, mode: str = "mixed") -> None:
-    """新建会话（覆盖旧会话）。mode 保留 'media'/'document'/'mixed' 语义。"""
+    """新建会话（覆盖旧会话）。mode 保留 'media'/'document'/'mixed' 语义。
+
+    epoch 递增标记投稿代数（审计用）；媒体去重日志跨代匹配同一 update_id，
+    旧代 Update 的重放不会把媒体追加进新投稿。
+    """
     now = datetime.now().timestamp()
     async with get_db() as conn:
         c = await conn.cursor()
+        await c.execute(
+            "SELECT COALESCE(MAX(epoch), 0) AS epoch FROM submissions WHERE user_id=?",
+            (user_id,))
+        row = await c.fetchone()
+        epoch = (row["epoch"] or 0) + 1 if row else 1
         await c.execute("DELETE FROM submissions WHERE user_id=?", (user_id,))
         await c.execute(
             "INSERT INTO submissions "
-            "(user_id, timestamp, mode, image_id, document_id, tags, link, title, note, spoiler, anonymous, username) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (user_id, now, mode, "[]", "[]", "", "", "", "", "false", "false", username),
+            "(user_id, timestamp, mode, image_id, document_id, tags, link, title, note, spoiler, anonymous, username, epoch) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (user_id, now, mode, "[]", "[]", "", "", "", "", "false", "false", username, epoch),
         )
 
 
-async def append_entry(user_id: int, entry: str) -> int:
-    """按条目类型追加（document -> document_id，否则 image_id），返回该列长度。"""
+async def append_entry(user_id: int, entry: str,
+                       update_id: Optional[int] = None) -> int:
+    """按条目类型追加（document -> document_id，否则 image_id），返回该列长度。
+
+    带 update_id 时按（user_id, update_id）跨代去重：同一 Update 的重放
+    （崩溃恢复）不重复追加；日志与追加同事务提交，中途崩溃两边一起回滚。
+    用户主动重发相同图片是新的 update_id，照常追加。
+    """
     column = "document_id" if entry_kind(entry) == "document" else "image_id"
     now = datetime.now().timestamp()
     async with get_db() as conn:
         c = await conn.cursor()
+        if update_id is not None:
+            await c.execute(
+                "SELECT epoch FROM submissions WHERE user_id=?", (user_id,))
+            row = await c.fetchone()
+            epoch = (row["epoch"] or 0) if row else 0
+            await c.execute(
+                "SELECT 1 FROM submission_media_log "
+                "WHERE user_id=? AND update_id=?", (user_id, update_id))
+            if await c.fetchone():
+                # 该 Update 已应用过（任何一代）——重放，返回现有数量。
+                await c.execute(
+                    f"SELECT {column} FROM submissions WHERE user_id=?", (user_id,))
+                existing = await c.fetchone()
+                if not existing:
+                    return 0
+                return len(parse_json_list(existing[column]))
+            await c.execute(
+                "INSERT INTO submission_media_log "
+                "(user_id, update_id, epoch, entry, applied_at) VALUES (?,?,?,?,?)",
+                (user_id, update_id, epoch, entry, now))
         await c.execute(f"SELECT {column} FROM submissions WHERE user_id=?", (user_id,))
         row = await c.fetchone()
         if not row:
