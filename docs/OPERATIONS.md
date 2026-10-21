@@ -264,6 +264,34 @@ WHERE kind='review_expired' AND state='pending';
 复用现有 SQLite/outbox 和 PTB 编辑 API；依据 [SQLite 事务](https://www.sqlite.org/lang_transaction.html)
 与 [幂等消费者模式](https://microservices.io/patterns/communication-style/idempotent-consumer.html)，
 不新增队列依赖、进程或服务。测试使用临时 SQLite 与模拟 Telegram，不代表真实群删除验收。
+## Webhook Durable Inbox（§durable-inbox）
+
+Webhook 模式下，Telegram Update 在返回 HTTP 200 之前先写入 `webhook_inbox`
+表（独立连接 `synchronous=FULL`，落盘后才确认）。专用 worker 按 `update_id`
+严格串行处理：只有最小的未完成 update 可被领取，退避中的头部行会阻塞后续行
+（有界：最多 5 次尝试后退避总计约 15 分钟，之后转 `dead` 并解除阻塞）。
+这样保证重放的旧 Update 绝不会在新一代投稿会话之后执行。
+
+完成确认的时序：`process_update()` 返回 → 显式 `update_persistence()`（会话
+状态同步落盘）→ 标记 done。PTB 会把处理器异常交给 error handler 后正常返回，
+该语义不变；业务自身的可恢复性由 submissions 行、审核队列与发布幂等账本承担。
+
+- 投稿会话已启用 `persistent=True`（PicklePersistence），重启后会话可继续；
+  媒体追加按（user_id, update_id）跨投稿代去重（`submission_media_log`），
+  重放不重复追加，用户重发同一图片（新 update_id）照常接收。
+- 重放边界是 at-least-once：崩溃后重放可能重复发送面向用户的确认消息，
+  但不重复业务写入；不承诺 Telegram 外部副作用 exactly-once。
+- 保留：done 7 天、dead 30 天，由 300 秒维护任务清理；pending/重试中的行
+  绝不被过期清理删除。
+- **Polling 模式不在本保证内**：PTB 的 get_updates offset 在入队后即前进，
+  进程在「已确认但未处理」窗口崩溃同样可能丢失更新，本次未改动该路径，
+  不要声称两种模式已统一保证。
+- 只读排查（`mode=ro`）：
+  `SELECT update_id,state,attempts,last_error FROM webhook_inbox ORDER BY update_id DESC LIMIT 20`；
+  `dead` 行表示已确认接收但重试耗尽的更新，必须人工核对。
+- `python -m telepost.observability.cli doctor` 固定输出
+  `Inbox: pending: N processing: N dead: N｜最老待处理年龄`；dead>0 为 CRIT，
+  pending 积压超过 1 小时为 WARN。
 
 ## 正式发布流程
 
