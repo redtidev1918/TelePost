@@ -217,14 +217,53 @@ Webhook Secret 不能通过 Telegram 修改。
 
 ## 审核队列与 outbox
 
-- `PENDING_REVIEW_RETENTION_DAYS=0` 表示待审永久保留；需要清理 Telegram 预览时建议 1。
-- `REVIEW_RETENTION_DAYS` 只清理已决审计记录和 API 通知幂等记录。
+- `PENDING_REVIEW_RETENTION_DAYS=0` 表示待审永久保留；部署模板显式设置 14 天，批次 20。
+- `REVIEW_RETENTION_DAYS` 默认 30 天，清理已决审核和 API 通知幂等记录；审计由独立的 `AUDIT_RETENTION_DAYS`（默认 30 天）控制。
 - outbox 数量、失败数、累计重试和最老年龄持续增长，说明 TelePost/API 链路异常。
 - 不要直接删 outbox 引用的缓存文件；先恢复投递，让上游完成重试。
 - PixivFlow 使用 `pixivflow outbox list` / `inspect <id>` 查看状态，使用
   `retry <id>` 或 `retry --dead` 正式重放 dead letter，使用 `cancel <id>` 取消尚未开始的
   intent；不要手改 SQLite `next_attempt_at`，也不要用 `run-once` 代替 outbox retry。
 - replay 保留原 idempotency key。TelePost `/ready` 非 200 时 PixivFlow 只延后，不增加 attempt。
+
+### 过期恢复与可追溯边界
+
+新过期结论、`review.expired` 审计和有可信人类属主的私聊通知意图在同一事务提交。
+`pending_reviews.expiry_progress` 保存剩余消息 ID、控制卡转换和失败类型；
+`expiry_next_attempt_at` 的部分索引支持有界扫描。每个 Bot 的既有 300 秒维护任务继续
+未完成步骤，失败退避至最多一天；关闭新增过期（设为 0）不会取消已提交的清理。
+旧 `expired` 行不回填、不自动通知、不恢复审核。旧按钮仍受后端终态检查约束。
+
+优先编辑原控制卡并去掉按钮；编辑/删除在确认落库前崩溃可重复执行。
+原卡确实缺失或不可编辑时才补发。补发前写入 `fallback_started`；发送结果不确定时
+不自动再次补发，进度中标记 `fallback_send_uncertain` 并记录错误日志，需人工核对群历史。
+私聊复用现有通知 outbox；Telegram 成功但本地确认未提交的窗口仍可能重复私聊，
+不承诺 exactly-once。API token 持有者不作为投稿者。
+
+[Telegram deleteMessage](https://core.telegram.org/bots/api#deletemessage) 限制删除 48 小时内消息，
+包括管理员 Bot。14 天媒体通常无法自动删除：保存受限的消息 ID，控制卡明确提示人工清理，
+不会谎报“已清理”或无休止重试明确的删除限制。Bot 不主动删除过期文字卡；群自动删除设置、
+管理员删除等仍可移除它，不保证永久存在。
+
+已完成的过期记录按决定时间起 30 天清理（进度更新不延长业务时间）；未完成的记录受保护。
+审计到期后亦会清理；之后可能只剩群内文字卡和既有私聊通知账本，无法保证完整永久追溯。
+每个过期稿仅增加一个小 JSON、一个时间戳、一条审计及至多一个私聊意图，不复制媒体。
+现有通知表没有自动清理策略，本次不扩展其生命周期；长期未解决的清理记录也会继续占用空间。
+
+只读排查（以当前 Bot 的实际 DB 路径打开 SQLite `mode=ro`）：
+
+```sql
+SELECT id, decided_at, expiry_next_attempt_at, expiry_progress
+FROM pending_reviews WHERE status='expired' AND expiry_progress IS NOT NULL;
+SELECT review_id,state,attempts,last_error FROM submitter_notifications
+WHERE kind='review_expired' AND state='pending';
+```
+
+迁移只加可空列和索引，旧程序可以读库；回滚会停止新恢复流程，且旧清理器不保护未完成过期。
+因此回滚前应暂停过期维护并保留卷快照，核对未完成记录；不要删除新增列或通知意图。
+复用现有 SQLite/outbox 和 PTB 编辑 API；依据 [SQLite 事务](https://www.sqlite.org/lang_transaction.html)
+与 [幂等消费者模式](https://microservices.io/patterns/communication-style/idempotent-consumer.html)，
+不新增队列依赖、进程或服务。测试使用临时 SQLite 与模拟 Telegram，不代表真实群删除验收。
 
 ## 正式发布流程
 
