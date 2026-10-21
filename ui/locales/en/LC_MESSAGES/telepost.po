@@ -3459,3 +3459,33 @@ msgstr ""
 "• Send /submit to start a submission\n"
 "• Send /help for all commands"
 
+msgid "该投稿已处理，无法恢复预览"
+msgstr "This submission has been processed; the preview cannot be restored"
+
+msgid "预览正在恢复中，请稍候。"
+msgstr "The preview is being restored, please wait."
+
+msgid "预览已恢复（{p0} 条消息），将按同样的时限自动清理。"
+msgstr "Preview restored ({p0} messages); it will be cleaned up on the same schedule."
+
+msgid "预览媒体已超出 Telegram 删除时限，仍在审核群中，需人工清理。"
+msgstr "The preview media is past Telegram's deletion window and is still in the review group; please delete it manually."
+
+msgid "上次恢复结果不确定，请在审核群核对媒体是否已重发。"
+msgstr "The last restore outcome is uncertain; check the review group to see whether the media was re-sent."
+
+msgid "预览媒体正在清理，暂不可恢复。"
+msgstr "The preview media is being cleaned up and cannot be restored yet."
+
+msgid "预览媒体当前可用，无需恢复。"
+msgstr "The preview media is still available; no restore is needed."
+
+msgid "🖼 恢复预览"
+msgstr "🖼 Restore preview"
+
+msgid "历史投稿缺少可用的媒体 file_id，预览无法恢复。"
+msgstr "This historical submission has no usable media file_id, so the preview cannot be restored."
+
+msgid "恢复预览失败，请稍后重试。"
+msgstr "Failed to restore the preview; please try again later."
+
