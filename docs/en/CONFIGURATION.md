@@ -153,7 +153,10 @@ the source's disposition. Mini App and API use independent settings.
 | `REFETCH_POLL_INTERVAL_SECONDS` | `30` | Durable job polling interval (minimum 5 seconds); startup recovery and maintenance use the same polling implementation |
 | `API_MAX_FILES` | `100` | File count cap per HTTP API submission; the parent router limits total bytes only, not file count |
 
-Telegram only guarantees a bot can delete messages within 48 hours; when automatic cleanup of the review chat is needed, pending retention is usually set to 1 day.
+Deployment templates explicitly retain pending reviews for 14 days; the code default remains 0.
+Expiry preserves a read-only control card, queues a notification for the verified human owner,
+and resumes interrupted cleanup. Telegram only permits deletion within 48 hours, so older media
+may require manual removal; the card reports this limitation instead of claiming cleanup succeeded.
 
 ### Novel covers are equally visible in the review chat (§novel-cover)
 

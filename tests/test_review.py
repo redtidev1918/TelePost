@@ -236,8 +236,9 @@ async def test_stale_pending_reviews_expire_and_delete_review_messages(
     assert bot.delete_message.await_args_list == [
         call(chat_id=review.REVIEW_CHAT_ID, message_id=101),
         call(chat_id=review.REVIEW_CHAT_ID, message_id=102),
-        call(chat_id=review.REVIEW_CHAT_ID, message_id=103),
     ]
+    assert bot.edit_message_text.await_args.kwargs['message_id'] == 103
+    assert bot.edit_message_text.await_args.kwargs['reply_markup'] is None
     async with db_manager.get_db() as conn:
         cursor = await conn.execute(
             "SELECT idempotency_key, status, error FROM pending_reviews ORDER BY id"

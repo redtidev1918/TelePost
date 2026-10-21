@@ -608,7 +608,7 @@ class ReviewRepository:
             await conn.execute("BEGIN IMMEDIATE")
             cur = await conn.execute(
                 "SELECT * FROM pending_reviews "
-                "WHERE status='pending' AND created_at < ? "
+                "WHERE status='pending' AND created_at <= ? "
                 "ORDER BY created_at ASC LIMIT ?",
                 (cutoff, batch_size),
             )
@@ -616,13 +616,48 @@ class ReviewRepository:
             for row in candidates:
                 cur = await conn.execute(
                     "UPDATE pending_reviews SET status='expired', "
-                    "updated_at=?, decided_at=?, error=? "
+                    "updated_at=?, decided_at=?, error=?, expiry_progress=?, expiry_next_attempt_at=? "
                     "WHERE id=? AND status='pending'",
-                    (now, now, error, row["id"]),
+                    (now, now, error, json.dumps({
+                        "remaining": json.loads(row["review_message_ids"] or "[]"),
+                        "blocked": [], "card_done": False, "fallback_started": False,
+                        "attempts": 0,
+                    }), now, row["id"]),
                 )
                 if cur.rowcount == 1:
                     rows.append(row)
+                    await conn.execute(
+                        "INSERT INTO audit_events (ts,component,event,review_id,detail) "
+                        "VALUES (?, 'telepost', 'review.expired', ?, ?)",
+                        (now, row['id'], json.dumps({'reason': error, 'expired_at': now})))
+                    # Ownership is explicit. Only legacy chat rows may use their
+                    # authenticated chat user; API credentials are never owners.
+                    owner = row['submitter_user_id']
+                    if not owner and row['source'] == 'chat':
+                        owner = row['user_id']
+                    if owner and int(owner) > 0:
+                        await conn.execute(
+                            "INSERT OR IGNORE INTO submitter_notifications "
+                            "(review_id,telegram_user_id,idempotency_key,kind,payload,created_at,updated_at) "
+                            "VALUES (?,?,?,'review_expired',?,?,?)",
+                            (row['id'], owner, f"review:{row['id']}:expired",
+                             json.dumps({'review_id': row['id'], 'reason': error}), now, now))
         return rows
+
+    async def expiry_due(self, *, now: float, limit: int) -> list:
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM pending_reviews WHERE status='expired' "
+                "AND expiry_next_attempt_at <= ? ORDER BY expiry_next_attempt_at,id LIMIT ?",
+                (now, limit))
+            return list(await cur.fetchall())
+
+    async def checkpoint_expiry(self, review_id: int, progress: dict, *, next_at):
+        async with db_manager.get_db() as conn:
+            await conn.execute(
+                "UPDATE pending_reviews SET expiry_progress=?, expiry_next_attempt_at=? "
+                "WHERE id=? AND status='expired'",
+                (json.dumps(progress), next_at, review_id))
 
     async def list_pending(self, *, limit: int,
                            created_cursor: Optional[float] = None,

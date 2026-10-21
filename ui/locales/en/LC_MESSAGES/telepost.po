@@ -17,6 +17,42 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
+msgid "投稿已自动过期"
+msgstr "Submission expired automatically"
+
+msgid "审核编号：#{id}"
+msgstr "Review: #{id}"
+
+msgid "作品：{title}"
+msgstr "Work: {title}"
+
+msgid "来源：{source}"
+msgstr "Source: {source}"
+
+msgid "作品链接：{link}"
+msgstr "Work link: {link}"
+
+msgid "提交时间：{time}"
+msgstr "Submitted: {time}"
+
+msgid "过期时间：{time}"
+msgstr "Expired: {time}"
+
+msgid "原因：超过 {days} 天未审核"
+msgstr "Reason: not reviewed within {days} days"
+
+msgid "部分原审核媒体无法自动清理（Telegram 删除限制），需管理员手动清理。"
+msgstr "Some review media could not be removed due to Telegram deletion limits. An administrator must remove it manually."
+
+msgid "原审核媒体已清理。"
+msgstr "Original review media has been removed."
+
+msgid "此稿件已结束，不可再通过原按钮发布。"
+msgstr "This review is closed. Its old buttons cannot publish it."
+
+msgid "你的投稿 #{review_id} 因超过 {days} 天未审核，已自动过期。\n\n这不代表稿件被管理员拒绝。\n如仍需要投稿，可以重新提交。"
+msgstr "Your submission #{review_id} expired automatically after {days} days without review.\n\nThis does not mean an administrator rejected it.\nYou can submit it again if you wish."
+
 msgid ""
 "\n"
 "\n"
