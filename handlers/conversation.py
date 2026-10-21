@@ -34,8 +34,13 @@ def _exclusive(callback):
     return exclusive
 
 
-def build_submission_conversation() -> ConversationHandler:
-    """构建投稿 ConversationHandler：唯一入口 /submit 与「开始投稿」按钮。"""
+def build_submission_conversation(*, persistent: bool = False) -> ConversationHandler:
+    """构建投稿 ConversationHandler：唯一入口 /submit 与「开始投稿」按钮。
+
+    persistent=True 需要宿主 Application 已挂载 persistence（PTB 硬性要求）；
+    生产 main.py 总是先挂 PicklePersistence 再 setup_application，由后者按
+    ``application.persistence`` 决定传值。
+    """
     media_filters = (
         filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.AUDIO
         | filters.Document.ALL
@@ -71,4 +76,8 @@ def build_submission_conversation() -> ConversationHandler:
         },
         fallbacks=[CommandHandler("cancel", _exclusive(cancel))],
         name="submission_conversation",
+        # §durable-inbox：会话状态经已挂载的 PicklePersistence 落盘，重启后
+        # 投稿会话可继续。inbox worker 在标记 Update 完成前显式刷新持久化，
+        # 使「业务已写库、状态未落盘」的崩溃窗口由重放收敛而不是丢失。
+        persistent=persistent,
     )
