@@ -856,6 +856,14 @@ def setup_application(application):
             await cleanup_old_data()
             await expire_stale_reviews(context.bot)
             await cleanup_superseded_reviews(context.bot)
+            # §review-media-ttl：先把崩溃遗留的「恢复中」claim 收敛成可见的
+            # uncertain，再删到期（默认 36h）的审核预览媒体；控制卡保留。
+            from telepost.telegram.review_media import (
+                clean_review_preview_media,
+                resolve_stale_preview_regens,
+            )
+            await resolve_stale_preview_regens()
+            await clean_review_preview_media(context.bot)
             await poll_refetch_jobs(context.bot, force=True)
             await reconcile_incomplete_reviews(context.bot)
             from telepost.application.submitter_notify import (

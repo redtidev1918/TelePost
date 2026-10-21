@@ -144,6 +144,10 @@ the source's disposition. Mini App and API use independent settings.
 | `PENDING_REVIEW_CLEANUP_BATCH_SIZE` | `100` | At most 1–200 items expired per round |
 | `REVIEW_RETENTION_DAYS` | `30` | Retention days for decided reviews and API notification idempotency records |
 | `SUPERSEDED_RETENTION_DAYS` | `30` | Retention days for old review cards superseded (successful refetch); on expiry their Telegram preview/control messages and records are deleted, while lineage (attempt/seen) is kept; `0` disables cleanup |
+| `REVIEW_MEDIA_TTL_HOURS` | `36` | Review preview media is deleted this many hours after it was **actually sent** (the control card and `file_id`s stay, so it can be restored on demand); `0` disables the lifecycle |
+| `REVIEW_MEDIA_DELETE_DEADLINE_HOURS` | `47` | Hard retry ceiling for transient delete failures (measured from the actual send time); past it the media is marked `restricted` for manual deletion — never reported as cleaned |
+| `REVIEW_MEDIA_REGEN_TIMEOUT_MINUTES` | `5` | A 「restore preview」 attempt that dies before recording the new message ids is settled as `uncertain` after this many minutes; a human verifies the group |
+| `REVIEW_MEDIA_CLEANUP_BATCH_SIZE` | `10` | At most 1–50 overdue review previews cleaned per round |
 | `REFETCH_PROGRESS_REMIND_MINUTES` | `2` | Repeat progress reminders at this interval, including stage, elapsed wait, and task ID; `0` disables reminders |
 | `REFETCH_WAKE_MINUTES` | `12` | When the remote machine is unreachable and no progress for this many minutes, the watchdog idempotently wakes it with the same request UUID (no new attempt is created) |
 | `REFETCH_HARD_TIMEOUT_MINUTES` | `90` | Absolute limit from creation; an attempt without a terminal outcome becomes `timeout(stalled_after_hard_timeout)` and is notified; `0` disables this budget |

@@ -429,6 +429,63 @@ def test_review_queue_counts_warn_when_oldest_pending_is_stale(tmp_path):
     )
 
 
+# ---- check 6b: review preview media lifecycle ------------------------------
+
+
+def _insert_preview_state(conn, state):
+    conn.execute(
+        "INSERT INTO pending_reviews (idempotency_key, source, status, user_id, "
+        "review_chat_id, created_at, updated_at, preview_state) "
+        "VALUES (?, 'chat', 'pending', 1, '-100123', ?, ?, ?)",
+        (f"preview:{state}", NOW, NOW, state),
+    )
+
+
+def test_review_preview_lifecycle_warns_on_manual_cleanup(tmp_path):
+    path = _db_path(tmp_path)
+    conn = _make_db(path)
+    conn.execute("ALTER TABLE pending_reviews ADD COLUMN preview_state TEXT")
+    for state in ("restricted", "uncertain", "cleared", "present"):
+        _insert_preview_state(conn, state)
+    conn.commit()
+    conn.close()
+
+    exit_code, report = run_doctor(db_paths=[path], now=NOW)
+
+    assert exit_code == 0
+    check = _by_code(report, "review_preview_lifecycle")
+    assert check["level"] == "WARN"
+    assert check["details"]["needs_manual"] == 2
+    assert check["details"]["counts"]["cleared"] == 1
+    assert "需人工处理" in check["message"]
+
+
+def test_review_preview_lifecycle_is_ok_without_manual_states(tmp_path):
+    path = _db_path(tmp_path)
+    conn = _make_db(path)
+    conn.execute("ALTER TABLE pending_reviews ADD COLUMN preview_state TEXT")
+    _insert_preview_state(conn, "present")
+    _insert_preview_state(conn, "cleared")
+    conn.commit()
+    conn.close()
+
+    exit_code, report = run_doctor(db_paths=[path], now=NOW)
+
+    assert exit_code == 0
+    assert report["status"] == "HEALTHY"
+    assert _by_code(report, "review_preview_lifecycle")["level"] == "OK"
+
+
+def test_review_preview_lifecycle_skips_without_column(tmp_path):
+    path = _db_path(tmp_path)
+    _make_db(path).close()
+
+    exit_code, report = run_doctor(db_paths=[path], now=NOW)
+
+    assert exit_code == 0
+    assert _by_code(report, "review_preview_lifecycle")["level"] == "SKIP"
+
+
 # ---- check 7: outbox absent / present --------------------------------------
 
 

@@ -19,7 +19,7 @@ from handlers.search_handlers import (
 logger = logging.getLogger(__name__)
 
 GLOBAL_CALLBACK_PATTERNS = (
-    r"^review_(?:approve|reject|spoiler|refetch|block_user|block_api):",
+    r"^review_(?:approve|reject|spoiler|preview|refetch|block_user|block_api):",
     r"^admin_block:",
     r"^sched_recover\|",
     r"^(?:hot_filter_|hot_limit_|hot_refresh$)",
@@ -74,6 +74,9 @@ async def handle_callback_query(update: Update, context: CallbackContext):
         elif data.startswith("review_spoiler:"):
             from handlers.review import toggle_review_spoiler
             return await toggle_review_spoiler(update, context)
+        elif data.startswith("review_preview:"):
+            from handlers.review import restore_review_preview
+            return await restore_review_preview(update, context)
         elif data.startswith("review_refetch:"):
             from handlers.review import refetch_review
             return await refetch_review(update, context)

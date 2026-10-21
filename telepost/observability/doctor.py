@@ -58,6 +58,7 @@ CHECK_CODES: Tuple[str, ...] = (
     "review_queue_orphans",
     "review_queue_publishing",
     "review_queue_counts",
+    "review_preview_lifecycle",
     "delivery_outbox",
     "audit_events_recent",
 )
@@ -926,6 +927,60 @@ def _check_review_queue_counts(
     )
 
 
+# ---- check 6b: review preview media lifecycle (§review-media-ttl) ----------
+
+
+def _check_review_preview_lifecycle(
+    db_path: str, conn: sqlite3.Connection, collector: _Collector
+) -> None:
+    """Surface preview media that cleanup could not (or could not safely) delete.
+
+    ``restricted`` = Telegram refuses deletion (past 48h / permission);
+    ``uncertain`` = a regeneration died before recording message ids, so a
+    human must check the review group. Both are permanent, visible states —
+    WARN, never a silently "cleaned" review.
+    """
+    columns = _table_columns(conn, "pending_reviews")
+    if not columns or "preview_state" not in columns:
+        collector.add(
+            "review_preview_lifecycle",
+            SKIP,
+            _prefix(db_path, "pending_reviews.preview_state 列不存在，跳过"),
+        )
+        return
+    counts = {
+        str(row["state"]): int(row["n"])
+        for row in conn.execute(
+            "SELECT COALESCE(preview_state, 'present') AS state, "
+            "COUNT(*) AS n FROM pending_reviews "
+            "WHERE status='pending' GROUP BY state"
+        ).fetchall()
+    }
+    restricted = counts.get("restricted", 0)
+    uncertain = counts.get("uncertain", 0)
+    needs_manual = restricted + uncertain
+    summary = ", ".join(f"{key}={counts[key]}" for key in sorted(counts)) or "空"
+    collector.add(
+        "review_preview_lifecycle",
+        WARN if needs_manual else OK,
+        _prefix(
+            db_path,
+            f"审核预览媒体按状态计数：{summary}"
+            + (
+                f"；{needs_manual} 条需人工处理"
+                f"（restricted={restricted} uncertain={uncertain}）"
+                if needs_manual
+                else ""
+            ),
+        ),
+        {
+            "path": db_path,
+            "counts": counts,
+            "needs_manual": needs_manual,
+        },
+    )
+
+
 # ---- check 7: delivery ledger / outbox -------------------------------------
 
 
@@ -1140,6 +1195,7 @@ def _check_database(db_path: str, collector: _Collector) -> None:
         _check_review_queue_orphans(db_path, conn, collector)
         _check_review_queue_publishing(db_path, conn, collector)
         _check_review_queue_counts(db_path, conn, collector)
+        _check_review_preview_lifecycle(db_path, conn, collector)
         _check_delivery_outbox(db_path, conn, collector)
         _check_audit_events_recent(db_path, conn, collector, has_active)
     except sqlite3.Error as exc:
