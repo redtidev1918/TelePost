@@ -15,7 +15,8 @@ def review_keyboard(review_id: int, link: str = "", *,
                     spoiler: bool = False, source: str = "api",
                     work_id: str = "", failed: bool = False,
                     submitter_user_id=None, actor_kind: str = "user",
-                    actor_subject: str = "") -> InlineKeyboardMarkup:
+                    actor_subject: str = "",
+                    media_cleared: bool = False) -> InlineKeyboardMarkup:
     approve_label = tr('🔄 重试发布') if failed else tr('✅ 发布到频道')
     rows = [[
         InlineKeyboardButton(approve_label, callback_data=f"review_approve:{review_id}"),
@@ -34,6 +35,15 @@ def review_keyboard(review_id: int, link: str = "", *,
                 callback_data=f"review_refetch:{review_id}",
             )
         )
+    if media_cleared:
+        # §review-media-ttl: preview media was cleaned ahead of the 48h
+        # deletion limit; the reviewer restores it on demand from file_ids.
+        rows.append([
+            InlineKeyboardButton(
+                tr('🖼 恢复预览'),
+                callback_data=f"review_preview:{review_id}",
+            )
+        ])
     if link:
         rows.append([InlineKeyboardButton(tr('🔗 查看原链接'), url=link)])
     # §moderation: operator governance is a first-class review action. Only

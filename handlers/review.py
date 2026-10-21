@@ -200,14 +200,15 @@ def _stager(bot) -> TelegramReviewStager:
 # ---- back-compat UI names -------------------------------------------------
 def _review_keyboard(review_id, link="", *, spoiler=False, source="api",
                      work_id="", failed=False, submitter_user_id=None,
-                     actor_kind="user", actor_subject=""):
+                     actor_kind="user", actor_subject="",
+                     media_cleared=False):
     # §submission-entrypoint: review/staging cards never expose the public
     # submission acquisition CTA (it belongs only to final Channel Publications).
     return review_keyboard.review_keyboard(
         review_id, link, spoiler=spoiler, source=source,
         work_id=work_id, failed=failed,
         submitter_user_id=submitter_user_id, actor_kind=actor_kind,
-        actor_subject=actor_subject,
+        actor_subject=actor_subject, media_cleared=media_cleared,
     )
 
 
@@ -1723,6 +1724,7 @@ async def toggle_review_spoiler(update, context):
                 submitter_user_id=_row_value(row, "submitter_user_id"),
                 actor_kind=_row_value(row, "actor_kind") or "user",
                 actor_subject=_row_value(row, "actor_subject") or "",
+                media_cleared=_row_value(row, "preview_state") == "cleared",
             )
         )
     except Exception:
@@ -1743,6 +1745,75 @@ async def toggle_review_spoiler(update, context):
             tr('已遮罩，但按钮无法刷新（状态已{p0}）。').format(p0=tr('开启') if new_spoiler else tr('关闭')),
             show_alert=True,
         )
+
+
+async def restore_review_preview(update, context):
+    """§review-media-ttl: regenerate a cleaned preview from stored file_ids.
+
+    Only a still-pending review with cleared media can regenerate (the CAS in
+    begin_preview_regen); expired/rejected/published/superseded rows keep
+    their history untouched. A failure keeps whatever was actually sent as
+    the current preview, so repeated clicks never duplicate media."""
+    query = update.callback_query
+    if update.effective_user.id not in ADMIN_IDS:
+        await _answer(query, tr('你没有审核权限'), show_alert=True)
+        return
+    try:
+        review_id = int(query.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await _answer(query, tr('无效的审核记录'), show_alert=True)
+        return
+
+    from telepost.storage.sqlite.reviews import ReviewRepository
+    row = await review_service.get_row(review_id)
+    if row is None:
+        await _answer(query, tr('审核记录不存在'), show_alert=True)
+        return
+    if _row_value(row, "status") != "pending":
+        await _answer(query, tr('该投稿已处理，无法恢复预览'), show_alert=True)
+        return
+    state = _row_value(row, "preview_state")
+    if state != "cleared":
+        # Each non-cleared state has its own honest answer; never resend.
+        if state == "regenerating":
+            await _answer(query, tr('预览正在恢复中，请稍候。'))
+        elif state == "restricted":
+            await _answer(query, tr('预览媒体已超出 Telegram 删除时限，仍在审核群中，'
+                                    '需人工清理。'), show_alert=True)
+        elif state == "uncertain":
+            await _answer(query, tr('上次恢复结果不确定，请在审核群核对媒体是否已重发。'),
+                          show_alert=True)
+        elif state == "partial":
+            await _answer(query, tr('预览媒体正在清理，暂不可恢复。'))
+        else:  # 'present' / NULL: media is still on screen
+            await _answer(query, tr('预览媒体当前可用，无需恢复。'))
+        return
+    if not await ReviewRepository().begin_preview_regen(review_id):
+        await _answer(query, tr('预览正在恢复中，请稍候。'))
+        return
+
+    from telepost.telegram.review_media import regenerate_review_preview
+    result = await regenerate_review_preview(context.bot, row)
+    if not result["ok"]:
+        await _answer(query, result["message"], show_alert=True)
+        return
+    await _answer(query, tr('预览已恢复（{p0} 条消息），将按同样的时限自动清理。').format(
+        p0=len(result["message_ids"])))
+    try:
+        await query.edit_message_reply_markup(
+            reply_markup=_review_keyboard(
+                review_id, row["link"], spoiler=bool(row["spoiler"]),
+                source=row["source"],
+                work_id=_work_id_from_link(row["link"] or ""),
+                submitter_user_id=_row_value(row, "submitter_user_id"),
+                actor_kind=_row_value(row, "actor_kind") or "user",
+                actor_subject=_row_value(row, "actor_subject") or "",
+                media_cleared=False,
+            )
+        )
+    except Exception:
+        logger.debug("恢复预览后刷新审核卡键盘失败: review_id=%s", review_id,
+                     exc_info=True)
 
 
 def _submit_pixivflow_refetch(target_id: str, request_id: str,

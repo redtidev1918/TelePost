@@ -265,6 +265,52 @@ WHERE kind='review_expired' AND state='pending';
 与 [幂等消费者模式](https://microservices.io/patterns/communication-style/idempotent-consumer.html)，
 不新增队列依赖、进程或服务。测试使用临时 SQLite 与模拟 Telegram，不代表真实群删除验收。
 
+## 审核预览媒体 36 小时生命周期（§review-media-ttl）
+
+审核预览媒体的删除窗口只有 Telegram 的 48 小时，而待审保留期是 14 天，所以预览媒体
+在**实际发送后** `REVIEW_MEDIA_TTL_HOURS`（默认 36）小时就清理；控制卡和
+`media_json`/`documents_json` 里的 `file_id` 都保留，管理员按需恢复。
+
+```text
+present ──TTL──▶ partial ──▶ cleared ──点「恢复预览」──▶ regenerating ──▶ present
+   │               │            ▲                                        │
+   └──restricted◀──┘            │ Telegram 拒绝删除（超 48h / 权限）      │
+    （永久可见，需人工）          │                                        │
+    regenerating ──记录消息 ID 前中断──▶ uncertain（永久可见，需人工核对）◀┘
+```
+
+- **锚点是发送时间**：`preview_sent_at` 在控制卡投递（`finalize_control`）成功时写入，
+  不是落库时间；恢复的预览用自己新的发送时间重新计时。
+- **提前清理 ≠ 稿件过期**：14 天保留期、`expire_pending()`/`finish_expiry()`、
+  `review.expired` 审计和投稿者通知（PR #333 的机制）完全不变；已清理媒体的稿件照常过期。
+- **只按需恢复**：没有任何「每天重发全部稿件」的自动逻辑。按钮走
+  `begin_preview_regen` 的 CAS（`status='pending'` 且 `preview_state='cleared'`），
+  双击/并发点击只有一次真正发送；已发布、已驳回、已过期、已替换的稿件全部拒绝。
+- **不确定窗口**：CAS 先占位再发送，所以「Telegram 已发出、本地还没记录消息 ID」的崩溃
+  无法自动区分。超过 `REVIEW_MEDIA_REGEN_TIMEOUT_MINUTES`（默认 5）分钟仍是
+  `regenerating` 的行会被收敛成 `uncertain`（终端、可见、审计
+  `review.preview_regen_uncertain`，doctor 计数），由人工在群里核对后手动删除重复媒体。
+  不为此引入外部 API 的 exactly-once 框架。
+- **有界重试**：临时性删除失败按 300 秒维护任务重试，超过
+  `REVIEW_MEDIA_DELETE_DEADLINE_HOURS`（默认 47）小时仍失败就直接标记 `restricted`
+  并记 `review.preview_delete_restricted`（`reason=delete_deadline_exceeded`），
+  不再无休止重试，也不谎报「已清理」。
+
+只读排查：
+
+```bash
+python -m telepost.observability.cli doctor --all-bots
+```
+
+`review_preview_lifecycle` 段按状态计数；`restricted`/`uncertain` 非零即 WARN
+（需人工处理），不影响退出码。审计事件：`review.preview_cleared`、
+`review.preview_regenerated`、`review.preview_delete_restricted`、
+`review.preview_regen_uncertain`。
+
+迁移只加可空列（`preview_state`、`preview_sent_at`、`preview_attempts`）和一个部分索引，
+旧程序可读库；关闭 `REVIEW_MEDIA_TTL_HOURS=0` 只停止新清理，已 `restricted` 的媒体
+仍需人工删除。
+
 ## 正式发布流程
 
 TelePost 有两道不同的通道，不要混用：
