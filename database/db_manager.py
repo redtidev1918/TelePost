@@ -76,6 +76,52 @@ async def init_db():
             except Exception:
                 pass  # 字段已存在
 
+            # 投稿会话代数：/submit 重建会话时递增。媒体追加的 update_id
+            # 去重以（user_id, epoch, update_id）为键，重放只会命中同一代，
+            # 旧代重放不会污染新会话（§durable-inbox）。
+            try:
+                await conn.execute(
+                    "ALTER TABLE submissions ADD COLUMN epoch INTEGER NOT NULL DEFAULT 0")
+                logger.info("已添加 epoch 字段到 submissions 表")
+            except Exception:
+                pass  # 字段已存在
+
+            # Durable webhook inbox（§durable-inbox）：Telegram Update 在 HTTP 200
+            # 之前先落库；进程崩溃后由启动恢复按 update_id 顺序重放。
+            # 每个 Bot 独立数据库，update_id 主键即 (bot, update_id) 唯一。
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS webhook_inbox (
+                    update_id INTEGER PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    state TEXT NOT NULL DEFAULT 'pending',
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT DEFAULT '',
+                    received_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    lease_until REAL,
+                    next_attempt_at REAL NOT NULL DEFAULT 0,
+                    done_at REAL
+                )
+            ''')
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_webhook_inbox_due '
+                'ON webhook_inbox(state, next_attempt_at, update_id)')
+
+            # 媒体追加去重日志：同一 (user, update) 跨投稿代只应用一次
+            # （epoch 仅作审计），与 submissions 行的更新同事务提交，崩溃后
+            # 重放收敛。worker 严格按 update_id 头部顺序处理，正常路径不会
+            # 出现「旧代 update 在新会话之后执行」；跨代匹配是乱序的硬防线。
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS submission_media_log (
+                    user_id INTEGER NOT NULL,
+                    update_id INTEGER NOT NULL,
+                    epoch INTEGER NOT NULL DEFAULT 0,
+                    entry TEXT NOT NULL,
+                    applied_at REAL NOT NULL,
+                    PRIMARY KEY (user_id, update_id)
+                )
+            ''')
+
             # API 访问令牌（用于 /api/v1 自动化投稿，仅存哈希不存明文）
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS api_tokens (
@@ -1008,6 +1054,21 @@ async def cleanup_old_data():
                         (review_cutoff,),
                     )
                     logger.info("已清理过期 API 通知幂等记录（保留 %d 天）", review_retention_days)
+
+        # Durable inbox 保留策略：已完成记录 7 天后清理；dead（永久失败、需
+        # 人工核对）保留 30 天。pending/processing 与未过期重试行绝不由这里的
+        # 普通过期清理删除——它们只属于启动恢复与 worker。
+        now_ts = datetime.now().timestamp()
+        async with get_db() as conn:
+            await conn.execute(
+                "DELETE FROM webhook_inbox WHERE state='done' AND done_at < ?",
+                (now_ts - 7 * 86400,))
+            await conn.execute(
+                "DELETE FROM webhook_inbox WHERE state='dead' AND updated_at < ?",
+                (now_ts - 30 * 86400,))
+            await conn.execute(
+                "DELETE FROM submission_media_log WHERE applied_at < ?",
+                (now_ts - 7 * 86400,))
 
         # Append-only audit: prune old rows, but keep every event attached to a
         # still-open review (preparing/pending/publishing/failed) regardless of
