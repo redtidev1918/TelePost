@@ -277,7 +277,12 @@ async def flush_submitter_notifications(bot, *, limit: int = 20) -> int:
     for row in rows:
         try:
             payload = json.loads(row["payload"] or "{}")
-            text = format_publication_message(payload, include_changes)
+            if row['kind'] == 'review_expired':
+                days = str(payload['reason']).split(' after ')[-1].split(' ')[0]
+                text = tr('你的投稿 #{review_id} 因超过 {days} 天未审核，已自动过期。\n\n这不代表稿件被管理员拒绝。\n如仍需要投稿，可以重新提交。').format(
+                    review_id=payload['review_id'], days=days)
+            else:
+                text = format_publication_message(payload, include_changes)
             result = await bot.send_message(
                 chat_id=int(row["telegram_user_id"]), text=text
             )

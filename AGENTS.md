@@ -76,7 +76,7 @@ HTTP 投稿接口、幂等键、审核队列、批准/驳回、发布与发布�
   `persistent=True`（需宿主已挂 persistence，`setup_application` 按实际情况传值）；
   媒体追加按（user_id, update_id）跨代去重。Polling 模式不在此保证内。
   重放语义 at-least-once：业务写入幂等，用户侧确认消息可能重复。
-- **审核保留策略**：`PENDING_REVIEW_RETENTION_DAYS=1` 与
+- **审核保留策略**：`PENDING_REVIEW_RETENTION_DAYS=14` 与
   `PENDING_REVIEW_CLEANUP_BATCH_SIZE=20` 与代码默认值不同，必须显式声明（否则会静默改变
   用户可见行为）。
 - **多 Bot 同机**：支持 polling 与 webhook；生产 ingress 以部署清单为准。

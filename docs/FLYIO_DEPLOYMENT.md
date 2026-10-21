@@ -189,7 +189,7 @@ TelePost 是用户可见的投稿入口，参考配置保持：
 Telegram Webhook 仍走公网 HTTPS。参考配置使用 512 MiB 内存，降配前验收真实上传与发布峰值，
 见 [性能与容量](PERFORMANCE.md)。
 
-待审保留策略在 `fly.toml` 显式设置为 `PENDING_REVIEW_RETENTION_DAYS=1`、
+待审保留策略在 `fly.toml` 显式设置为 `PENDING_REVIEW_RETENTION_DAYS=14`、
 `PENDING_REVIEW_CLEANUP_BATCH_SIZE=20`，与代码默认值不同。迁移配置时一并保留。
 
 ## 与 PixivFlow 组合（可选）
