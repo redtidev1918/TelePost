@@ -461,6 +461,14 @@ async def main():
 
     # Review DB is the source of truth. Repair any row left between preview
     # staging and control-message creation before exposing /ready to producers.
+    # §durable-inbox 先于一切恢复：重放的 Update 会重建其业务写入，之后
+    # reconcile 才能扫到完整的审核/发布状态。Webhook 模式下这是 200 确认后
+    # 崩溃不丢稿的恢复通道；Polling 模式下表为空、worker 空转（无副作用）。
+    from telepost.telegram.inbox_worker import UpdateInboxWorker
+    update_inbox = UpdateInboxWorker(application)
+    await update_inbox.recover()
+    update_inbox.start()
+    application.bot_data["update_inbox_worker"] = update_inbox
     await reconcile_incomplete_reviews(application.bot, stale_seconds=0)
     # §refetch-lifecycle 启动即扫：重抓是一等持久 Job，重启后台账是唯一真相。
     # 在 /ready 之前一次性接管所有非终态 attempt（远端已终态的经状态机收敛），
@@ -652,6 +660,15 @@ async def shutdown(
             await application.updater.stop()
     except Exception as e:
         logger.warning(f"停止 Updater 失败（可忽略）: {e}")
+    # §durable-inbox 停机：先停 Update worker，再走 Application 的收尾
+    # （stop 会等待队列与 create_task 任务收敛，持久化随后落盘）。
+    try:
+        inbox_worker = application.bot_data.get("update_inbox_worker")
+        if inbox_worker is not None:
+            await inbox_worker.stop()
+            logger.info("Update inbox worker 已停止")
+    except Exception as e:
+        logger.warning(f"停止 Update inbox worker 失败（可忽略）: {e}")
     # §refetch-lifecycle 停机：显式停掉 30 秒心跳作业并留下「心跳已停止」的持久
     # 事实，在途 attempt 保持非终态（重启后由启动即扫接管），绝不静默消失。
     try:
@@ -791,8 +808,14 @@ def setup_application(application):
         # 添加会话处理器
         logger.info("注册会话处理器...")
         from handlers.conversation import build_submission_conversation
-        conv_handler = build_submission_conversation()
+        # §durable-inbox：挂了 persistence 就让投稿会话持久化（重启可恢复）。
+        # PTB 要求宿主 Application 必须已有 persistence，故按实际情况传值；
+        # 无 persistence 的裸 Application（测试/嵌入）保持内存态旧行为。
+        conv_handler = build_submission_conversation(
+            persistent=bool(application.persistence))
         application.add_handler(conv_handler, group=2)
+        if application.persistence:
+            logger.info("投稿会话已启用持久化（PicklePersistence）")
         logger.info("会话处理器注册完成")
     except Exception as e:
         logger.error(f"注册会话处理器失败: {e}", exc_info=True)

@@ -91,7 +91,8 @@ async def handle_upload(update: Update, context: CallbackContext) -> int:
         )
         return STATE["UPLOAD"]
 
-    count = await append_entry(user_id, entry)
+    count = await append_entry(user_id, entry,
+                               update_id=getattr(update, "update_id", None))
     if count == 0:
         await message.reply_text(MessageFormatter.session_expired(), parse_mode="HTML")
         return ConversationHandler.END
