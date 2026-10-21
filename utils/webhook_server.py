@@ -79,12 +79,22 @@ class WebhookServer:
         
         try:
             # 获取请求体
-            data = await request.json()
-            
+            try:
+                data = await request.json()
+            except Exception as exc:
+                # 永久畸形的请求体：400 让 Telegram 丢弃，而不是 500 引发无限重投。
+                logger.warning("Webhook 请求体不是有效 JSON，已拒绝: %s", type(exc).__name__)
+                return web.Response(status=400, text="Bad Request")
+
             # 创建 Update 对象
-            update = Update.de_json(data, self.application.bot)
-            
-            if update:
+            try:
+                update = Update.de_json(data, self.application.bot)
+            except Exception as exc:
+                # 解析失败是确定性的（如缺少 update_id）：重投也不会成功。
+                logger.warning("Webhook 数据无法解析为 Update，已拒绝: %s", type(exc).__name__)
+                return web.Response(status=400, text="Bad Request")
+
+            if update and update.update_id is not None:
                 # 评论区模式在当前审核回调结束前就需要自动转发 ID，
                 # 因此在进入 PTB 串行更新队列前先记录。
                 from handlers.publish import capture_discussion_forward
@@ -133,10 +143,14 @@ class WebhookServer:
                 
                 # 将 update 放入队列处理
                 await self.application.update_queue.put(update)
-            else:
-                logger.warning(f"无法解析 Webhook 数据: {data}")
-            
-            return web.Response(status=200, text="OK")
+                return web.Response(status=200, text="OK")
+
+            # 有效 JSON 但不是 Telegram Update（空对象/数组等）：400 表示
+            # 永久拒绝。日志只记类型，不回显请求体内容。
+            logger.warning(
+                "Webhook 数据不是 Telegram Update，已拒绝: data_type=%s",
+                type(data).__name__)
+            return web.Response(status=400, text="Bad Request")
             
         except Exception as e:
             logger.error(f"处理 Webhook 请求失败: {e}", exc_info=True)
@@ -247,9 +261,16 @@ class WebhookServer:
             if request.path in ("/app", "/app/"):
                 return _os.path.join(dist_dir, "index.html")
             rel = request.path[len("/app/"):].lstrip("/") or "index.html"
-            candidate = _os.path.abspath(_os.path.join(dist_dir, rel))
-            # Path traversal guard: the resolved file must stay inside dist.
-            if not candidate.startswith(_os.path.abspath(dist_dir)):
+            dist_root = _os.path.abspath(dist_dir)
+            candidate = _os.path.abspath(_os.path.join(dist_root, rel))
+            # Path traversal guard: commonpath 是边界感知的目录归属判断；
+            # 纯字符串 startswith 会被同级前缀目录绕过（"dist-backup"
+            # 会通过 "dist" 的前缀检查）。
+            try:
+                inside = _os.path.commonpath([candidate, dist_root]) == dist_root
+            except ValueError:  # Windows 下盘符不同
+                inside = False
+            if not inside:
                 return _os.path.join(dist_dir, "index.html")
             if _os.path.isfile(candidate):
                 return candidate
@@ -332,15 +353,15 @@ async def setup_webhook(application, webhook_url: str, webhook_path: str, secret
         return False
 
 
-async def delete_webhook(application):
+async def delete_webhook(application, *, drop_pending_updates=False):
     """
     删除 Telegram Webhook
-    
-    Args:
-        application: telegram.ext.Application 实例
+
+    默认保留 Telegram 服务端待投递更新：普通停机或切换 Polling 不得清空
+    未投递消息；主动清空只能是显式传入参数的单独确认维护操作。
     """
     try:
-        await application.bot.delete_webhook(drop_pending_updates=True)
+        await application.bot.delete_webhook(drop_pending_updates=drop_pending_updates)
         logger.info("✅ Webhook 已删除")
         return True
     except Exception as e:
