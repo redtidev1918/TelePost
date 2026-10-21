@@ -70,7 +70,7 @@ HTTP 投稿接口、幂等键、审核队列、批准/驳回、发布与发布�
   `idempotent_replay`，**不重复通知、不重复发布**。这是 PixivFlow 槽位账本之外的最后一道防线。
 - **重启可恢复**：审核队列、幂等记录、会话状态都在持久卷 `/app/data` 上；重启后账本存活，
   同一作品不产生重复审核，同一审核不重复发布。
-- **审核保留策略**：`PENDING_REVIEW_RETENTION_DAYS=1` 与
+- **审核保留策略**：`PENDING_REVIEW_RETENTION_DAYS=14` 与
   `PENDING_REVIEW_CLEANUP_BATCH_SIZE=20` 与代码默认值不同，必须显式声明（否则会静默改变
   用户可见行为）。
 - **多 Bot 同机**：支持 polling 与 webhook；生产 ingress 以部署清单为准。

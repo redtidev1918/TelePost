@@ -138,6 +138,21 @@ async def init_db():
                 logger.info("已添加 target_id 字段到 pending_reviews 表")
             except Exception:
                 pass  # 字段已存在
+            # NULL leaves historical expiry untouched; new expirations checkpoint
+            # their Telegram effects independently of the terminal review state.
+            columns = {r[1] for r in await (await conn.execute(
+                'PRAGMA table_info(pending_reviews)')).fetchall()}
+            for column, ddl in (
+                ('expiry_progress', 'TEXT'),
+                ('expiry_next_attempt_at', 'REAL'),
+            ):
+                if column not in columns:
+                    await conn.execute(f'ALTER TABLE pending_reviews ADD COLUMN {column} {ddl}')
+            await conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_review_expiry_due '
+                'ON pending_reviews(expiry_next_attempt_at) '
+                'WHERE expiry_next_attempt_at IS NOT NULL')
+
             # Generic, bounded provenance for API submissions (any client).
             # TelePost only stores/displays these; it never interprets them.
             for column, ddl in (
@@ -961,7 +976,8 @@ async def cleanup_old_data():
                     c = await conn.cursor()
                     await c.execute(
                         "DELETE FROM pending_reviews "
-                        "WHERE status IN ('rejected','published','deleted','failed','expired') AND updated_at < ?",
+                        "WHERE status IN ('rejected','published','deleted','failed','expired') AND updated_at < ? "
+                        "AND expiry_next_attempt_at IS NULL",
                         (review_cutoff,),
                     )
                     logger.info("已清理过期审核记录（保留 %d 天）", review_retention_days)

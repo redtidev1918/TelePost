@@ -67,8 +67,8 @@ primary_region = ""
 
   # 审核队列保留策略。这两个值与代码默认值不同（默认 PENDING 永不过期、
   # 清理批大小 100），必须显式声明，否则切到模板会静默改变用户可见行为：
-  # 用户未审核的投稿应在 1 天后自动过期。
-  PENDING_REVIEW_RETENTION_DAYS = "1"
+  # 用户未审核的投稿应在 14 天后自动过期。
+  PENDING_REVIEW_RETENTION_DAYS = "14"
   PENDING_REVIEW_CLEANUP_BATCH_SIZE = "20"
 
   # Review-group refetch ("重抓") reaches the sleeping PixivFlow executor through

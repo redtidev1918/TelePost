@@ -496,41 +496,30 @@ async def _find_published_work(target_id, work_type, work_id):
     )
 
 
-async def _notify_chat_submitter(bot, row, text: str):
-    if row["source"] != "chat":
-        return
-    try:
-        await bot.send_message(chat_id=row["user_id"], text=text)
-    except Exception:
-        logger.warning("通知聊天投稿人审核结果失败: review_id=%s", row["id"],
-                       exc_info=True)
+_expiry_lock = asyncio.Lock()
 
 
 async def expire_stale_reviews(bot, *, now: Optional[float] = None) -> int:
-    """Expire stale pending reviews and remove their Telegram preview messages."""
-    if PENDING_REVIEW_RETENTION_DAYS <= 0:
-        return 0
+    """Expire new rows and resume incomplete effects, including after disabling expiry."""
     from telepost.storage.sqlite.reviews import ReviewRepository
+    from telepost.telegram.review_expiry import finish_expiry
 
     current_time = time.time() if now is None else now
-    cutoff = current_time - PENDING_REVIEW_RETENTION_DAYS * 86400
-    error = (
-        f"pending review expired after {PENDING_REVIEW_RETENTION_DAYS} days"
-    )
-    rows = await ReviewRepository().expire_pending(
-        cutoff=cutoff, now=current_time,
-        batch_size=PENDING_REVIEW_CLEANUP_BATCH_SIZE, error=error,
-    )
-    for row in rows:
-        await _delete_messages(bot, _review_message_ids(row))
-        await _notify_chat_submitter(
-            bot, row,
-            tr('⌛ 你的投稿超过 {p0} 天未审核，已自动过期。').format(p0=PENDING_REVIEW_RETENTION_DAYS),
-        )
-    if rows:
-        logger.info("已过期并清理 %d 条待审核投稿（保留 %d 天）",
-                    len(rows), PENDING_REVIEW_RETENTION_DAYS)
-    return len(rows)
+    async with _expiry_lock:
+        repo = ReviewRepository()
+        rows = []
+        if PENDING_REVIEW_RETENTION_DAYS > 0:
+            rows = await repo.expire_pending(
+                cutoff=current_time - PENDING_REVIEW_RETENTION_DAYS * 86400,
+                now=current_time, batch_size=PENDING_REVIEW_CLEANUP_BATCH_SIZE,
+                error=f"pending review expired after {PENDING_REVIEW_RETENTION_DAYS} days")
+        for row in await repo.expiry_due(now=current_time, limit=PENDING_REVIEW_CLEANUP_BATCH_SIZE):
+            try:
+                await finish_expiry(bot, row, now=current_time)
+            except Exception as exc:
+                logger.warning('Expiry checkpoint failed: review_id=%s error_class=%s',
+                               row['id'], type(exc).__name__)
+        return len(rows)
 
 
 async def cleanup_superseded_reviews(bot, *, now: Optional[float] = None) -> int:
