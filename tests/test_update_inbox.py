@@ -13,13 +13,11 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 from telegram import Chat, Message, MessageEntity, PhotoSize, Update, User
-from telegram.ext import (
-    Application, ConversationHandler, PersistenceInput, PicklePersistence,
-)
+from telegram.ext import Application, ConversationHandler
 
 from database import db_manager
 from handlers import review  # noqa: F401  (import ordering side effects)
-from main import setup_application
+from main import build_persistence, setup_application
 from models.state import STATE
 from telepost.storage.sqlite.inbox import InboxRepository
 from telepost.telegram.inbox_worker import UpdateInboxWorker
@@ -100,19 +98,55 @@ def no_blacklist(monkeypatch):
 
 async def _build_app(tmp_path, *, pickle_path):
     bot = _RecordingBot()
-    persistence = PicklePersistence(
-        filepath=str(pickle_path),
-        # A plain recording Bot is not an ExtBot: only conversation states
-        # are persisted (store_data flags gate the four data categories).
-        store_data=PersistenceInput(
-            bot_data=False, chat_data=False, user_data=False,
-            callback_data=False),
-    )
+    persistence = build_persistence(str(pickle_path))
     application = Application.builder().bot(bot).persistence(persistence).build()
     setup_application(application)
     await application.initialize()
     await application.start()
     return application, bot
+
+
+@pytest.mark.asyncio
+async def test_live_worker_does_not_block_reject_or_session_persistence(
+    store, tmp_path, monkeypatch, no_blacklist,
+):
+    pickle_path = tmp_path / "persistence.pickle"
+    application, bot = await _build_app(tmp_path, pickle_path=pickle_path)
+    worker = UpdateInboxWorker(application, repo=store, poll_interval=3600)
+    application.bot_data["update_inbox_worker"] = worker
+    worker.start()
+    reject = AsyncMock()
+    monkeypatch.setattr(review, "ADMIN_IDS", [42])
+    monkeypatch.setattr(review.review_service, "reject", reject)
+    try:
+        application.user_data[42]["test_state"] = "retained"
+        application.chat_data[42]["test_state"] = "retained"
+        await worker.receive(1, _payload(1, "/submit"))
+        await worker.receive(2, {
+            "update_id": 2,
+            "callback_query": {
+                "id": "reject-test", "chat_instance": "test",
+                "from": {"id": 42, "is_bot": False, "first_name": "T"},
+                "message": _payload(2, "review card")["message"],
+                "data": "review_reject:202",
+            },
+        })
+        assert await worker.drain() == 2
+        assert (await store.counts())["done"]["n"] == 2
+        reject.assert_awaited_once_with(bot, 202, actor=42, source="telegram")
+        assert any("202" in text and "已拒绝" in text for text in bot.outbox)
+
+        restored = build_persistence(str(pickle_path))
+        assert await restored.get_bot_data() == {}
+        assert (await restored.get_chat_data())[42]["test_state"] == "retained"
+        assert (await restored.get_user_data())[42]["test_state"] == "retained"
+        conv = next(h for h in application.handlers[2]
+                    if isinstance(h, ConversationHandler))
+        assert (await restored.get_conversations(conv.name))[(42, 42)] == STATE["UPLOAD"]
+    finally:
+        await worker.stop()
+        await application.stop()
+        await application.shutdown()
 
 
 # ---- receipt & dedup --------------------------------------------------------

@@ -20,7 +20,8 @@ from telegram.ext import (
     CallbackContext,
     ApplicationHandlerStop,
     CallbackQueryHandler,
-    PicklePersistence
+    PicklePersistence,
+    PersistenceInput,
 )
 from dotenv import load_dotenv
 
@@ -447,7 +448,7 @@ async def main():
     persistence_dir = os.path.dirname(DB_PATH) or "data"
     persistence_path = os.path.join(persistence_dir, "persistence.pickle")
     os.makedirs(persistence_dir, exist_ok=True)
-    persistence = PicklePersistence(filepath=persistence_path)
+    persistence = build_persistence(persistence_path)
     application = Application.builder().token(token).persistence(persistence).build()
     
     # 设置应用程序
@@ -695,6 +696,17 @@ async def shutdown(
     await application.stop()
     await application.shutdown()
     
+def build_persistence(filepath):
+    """Persist conversations and user/chat state, excluding process-local handles."""
+    # bot_data contains live Inbox workers and scheduler jobs, which PTB cannot
+    # deepcopy/pickle. It also holds the intentionally process-local rate window.
+    # Callback buttons use strings, not PTB's arbitrary callback-data cache.
+    return PicklePersistence(
+        filepath=filepath,
+        store_data=PersistenceInput(bot_data=False, callback_data=False),
+    )
+
+
 def setup_application(application):
     """
     初始化和配置应用程序
