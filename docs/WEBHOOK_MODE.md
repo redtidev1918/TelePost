@@ -64,6 +64,21 @@ SECRET_TOKEN = replace-with-random-secret
 Webhook 的注册由 `utils/webhook_server.py` 管理。Fly.io 部署保持 TelePost 常驻，
 配置见 [Fly.io 生命周期与健康检查](FLYIO_DEPLOYMENT.md#生命周期与健康检查)。
 
+### 耐久 Inbox（2.84.0+，仅 Webhook 模式）
+
+- 收到的 Update 先写入 SQLite `webhook_inbox`（按 Bot 分库，`(bot_id, update_id)` 唯一），
+  使用独立连接与 `synchronous=FULL`；**落库成功才返回 HTTP 200**，写入失败返回非 200，
+  让 Telegram 重投。
+- 串行 worker 按 `update_id` 严格顺序处理队首；处理完成前显式刷新
+  `PicklePersistence`，刷新失败不会把该更新记为完成。
+- 语义是**至少一次**，不是外部 API 的 exactly-once：崩溃或 5xx 会重投，业务回执由投稿
+  幂等键、审核 CAS、发布账本与 `callback_query.id` 收敛；发送结果不确定时保持可追踪，
+  不盲目重发。
+- 重试 5 次仍失败进入死信（`state='dead'`，保留 30 天），不会自动重放。用
+  `python -m telepost.observability.cli doctor --all-bots` 或只读 SQL 查看
+  `pending` / `processing` / `dead` 计数。
+- Polling 模式的更新只经过内存队列，不具备同等耐久性；生产 ingress 使用 Webhook。
+
 ## 反向代理
 
 TelePost 监听 HTTP，由 Caddy/Nginx 终止 TLS。Nginx 最小示例：
@@ -122,6 +137,7 @@ curl -fsS 'https://api.telegram.org/bot<TOKEN>/getWebhookInfo'
 | 完全无请求 | Webhook URL 是否为空/被删除，DNS/TLS 是否正常 |
 | Polling conflict | 是否有另一个进程使用同一 Token |
 | 待处理数增长 | 查看应用日志、Telegram 最近错误和处理超时 |
+| `webhook_inbox` 出现 `dead` | 查看该行的 `last_error` 与 `doctor` Inbox 段；死信不自动重放 |
 
 Fly.io 专项配置见 [FLYIO_DEPLOYMENT.md](FLYIO_DEPLOYMENT.md)，通用故障见
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。
