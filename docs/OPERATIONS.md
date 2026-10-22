@@ -273,8 +273,10 @@ Webhook 模式下，Telegram Update 在返回 HTTP 200 之前先写入 `webhook_
 这样保证重放的旧 Update 绝不会在新一代投稿会话之后执行。
 
 完成确认的时序：`process_update()` 返回 → 显式 `update_persistence()`（会话
-状态同步落盘）→ 标记 done。PTB 会把处理器异常交给 error handler 后正常返回，
-该语义不变；业务自身的可恢复性由 submissions 行、审核队列与发布幂等账本承担。
+状态同步落盘）→ 标记 done。PTB 会把处理器/持久化异常交给 error handler 后
+正常返回，worker 注册了自己的 error handler 观察者（contextvar 限定作用域），
+因此这类「被吞掉」的异常同样会阻止 done 标记并按退避重试——处理失败的日志
+带 `phase=business|persistence|completion`，可定位失败窗口。
 
 - 投稿会话已启用 `persistent=True`（PicklePersistence），重启后会话可继续；
   媒体追加按（user_id, update_id）跨投稿代去重（`submission_media_log`），
@@ -283,6 +285,19 @@ Webhook 模式下，Telegram Update 在返回 HTTP 200 之前先写入 `webhook_
   和 chat_data；bot_data 只存进程内 worker、定时任务、就绪标志和投稿限流窗口，
   不参与持久化。将运行中的 Task 放进持久化范围会导致 deepcopy 抛 TypeError，
   阻止 Inbox 完成确认，后续审核按钮因此积压。
+- 旧版本写入的 `persistence.pickle`（`store_data` 全开）可直接被新配置读取：
+  conversation/user_data/chat_data 照常恢复，历史 bot_data 段不会被加载进
+  Application，且在后续重写时原样保留在文件里（不删除、不迁移）。升级前
+  备份该文件即可回滚。
+- 审核按钮重放保护（同一 Callback 重复送达 vs 新点击产生新 callback id）：
+  发布/拒绝由审核状态机 CAS 拒绝二次终态，发布幂等由 delivery 账本兜底；
+  重抓按 `callback_query.id` 幂等（同一链同时最多一个活跃 attempt）；
+  遮罩切换的翻转与 `review_spoiler_callbacks` 回调收据同事务提交，同一回调
+  重放不二次翻转（收据随审核行一起被维护任务清理）；恢复预览由
+  `begin_preview_regen` CAS 保护；封禁投稿人/禁用 API 按 subject
+  `INSERT OR IGNORE` 幂等。
+- 多 Bot 部署下每个 bot 进程持有自己的 SQLite、Inbox 和 `persistence.pickle`，
+  互不共享；Inbox 日志带 `bot=<username>`，聚合日志可定位具体实例。
 - 修复持久化故障后，pending 更新会在退避到期后继续处理；dead 不会自动重放。
   必须先核对审核/发布账本，再决定如何处理 dead 更新：它可能已经执行了业务动作，
   只是完成确认失败，不能把整批 dead 当作未执行请求直接重放。

@@ -791,8 +791,9 @@ class ReviewService:
                source=source, spoiler=bool(spoiler))
         return ActionResult(int(review_id), row["status"], False)
 
-    async def toggle_spoiler(self, review_id: int, *, actor: Any = None) -> ActionResult:
-        changed, row = await self._repo.toggle_spoiler(int(review_id))
+    async def toggle_spoiler(self, review_id: int, *, actor: Any = None,
+                             callback_id: str = "") -> ActionResult:
+        changed, row = await self._repo.toggle_spoiler(int(review_id), callback_id=callback_id)
         if row is None:
             raise ReviewNotFoundError("审核记录不存在")
         if not changed:
