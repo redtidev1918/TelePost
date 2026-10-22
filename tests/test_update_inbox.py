@@ -130,6 +130,7 @@ async def test_live_worker_does_not_block_reject_or_session_persistence(
     try:
         application.user_data[42]["test_state"] = "retained"
         application.chat_data[42]["test_state"] = "retained"
+        await _seed_review(202)  # §review-card-recovery pre-flight reads the real row
         await worker.receive(1, _payload(1, "/submit"))
         await worker.receive(2, {
             "update_id": 2,

@@ -264,6 +264,59 @@ WHERE kind='review_expired' AND state='pending';
 复用现有 SQLite/outbox 和 PTB 编辑 API；依据 [SQLite 事务](https://www.sqlite.org/lang_transaction.html)
 与 [幂等消费者模式](https://microservices.io/patterns/communication-style/idempotent-consumer.html)，
 不新增队列依赖、进程或服务。测试使用临时 SQLite 与模拟 Telegram，不代表真实群删除验收。
+
+## 审核卡异常恢复与回调反馈（§review-card-recovery）
+
+审核回调失败时，唯一安全的用户可见反馈是 `answer_callback_query` 的提示或
+`show_alert`；**绝不能用无键盘的 `edit_message_text` 覆盖控制卡**，否则审核人
+失去全部操作按钮且无法重试。`handlers/callback_handlers.py` 的全局兜底只负责：
+记录日志 → 若该回调**尚未应答**则弹“操作失败，已记录；卡片与审核状态保持不变。”→
+best-effort 重建卡片 → 重新抛出异常。重新抛出是刻意的：只有异常到达 PTB error
+observer，Durable Inbox 才会把该 update 记为失败并有限重试（`attempts<=5`）。
+
+- **每个 callback query 只应答一次**：Telegram 只接受第一次 `answer()`，之后全部
+  丢弃（`callback_feedback.answer_callback` 负责幂等记名）。因此终态/权限冲突必须在
+  业务调用**之前**预检并弹窗（`_terminal_state_alert`：只决定反馈，绝不替代数据库
+  CAS）；业务中途才发现的冲突（`review_busy` / 状态已变）与已发布复用走**卡片状态
+  同步**，不能依赖第二个弹窗。发布、预览恢复等长耗时动作先应答再执行，避免超过回调
+  应答窗口。已发布（`published`）不做预检短路，重复点击继续走 `duplicate_suppressed`
+  发布复用账本。
+- **区分两类失败**（`telepost/telegram/callback_feedback.py`）：
+  `is_ui_only_error` 只接受 Telegram `BadRequest` 的**消息编辑**类失败
+  （消息未修改 / 消息已不存在 / 无权限编辑 / 无可编辑文本），且只能在“编辑已发消息”
+  这一调用点使用；频道发送、媒体上传、审核库失败、网络超时、限流、未知异常**一律继续
+  抛出**（文案相似不构成 UI-only 证据）。UI-only 分支只记日志 + 卡片重建，不重试。
+- **业务已成功、仅 UI 更新失败**不得重跑副作用：审核状态、发布记录、通知账本都
+  已经落库，重放只会命中幂等/终态检查。重放卡片时按当前状态渲染只读版本。
+- **重建卡片只读、不改状态**：`handlers/review.py:restore_review_card` 按
+  `review_id` 读库，要求 `review_chat_id` + `control_message_id`，`pending` 状态
+  委托 `refresh_refetch_card`（重抓进行中保留“重抓中”形态），终态由
+  `review_keyboard.card_from_row` 渲染只读标题（已发布/已拒绝/已过期/已替代/发布中）
+  并只保留 `🔗 查看原链接` 按钮。它永不改 `status`/`decided_*`，永不补发新卡，
+  永不重新发布或收回已发布内容。
+- **可审计的人工恢复**：`/restore_card <审核ID> [--dry-run]`（仅管理员；
+  `#审核ID` 亦可）重建被破坏的卡片；成功/失败写 `review.card_restored` 审计
+  （含状态与结果）。缺少 `control_message_id` 时返回 `no_control_message` 并交给既有
+  `reconcile_incomplete_reviews`，不在此处补发。
+  **命令只作用于收到它的那个 Bot**：每个 Bot 有独立 SQLite，审核 ID 会在 Bot 间碰撞，
+  所以没有 `--bot` 参数；`--bot n`、未知参数、多余参数、重复 `--dry-run` 一律报用法且
+  不碰任何卡片（要对 Bot2 的审核卡操作，就把命令发给 Bot2）。
+- **已知边界**：消息已被删除 → `message_gone`；群/消息不可编辑 → 记录原因、不重试。
+  `restore_review_card` 是只读投影，不承诺恢复历史媒体（媒体见
+  §review-media-ttl）或撤回已发出的通知。
+
+只读排查：
+
+```bash
+python -m telepost.observability.cli reviews inspect <review_id> --bot N
+python -m telepost.observability.cli doctor --all-bots
+```
+
+```sql
+SELECT review_id,state,attempts,last_error,next_attempt_at FROM webhook_inbox
+WHERE state <> 'done' ORDER BY update_id;
+```
+
 ## Webhook Durable Inbox（§durable-inbox）
 
 Webhook 模式下，Telegram Update 在返回 HTTP 200 之前先写入 `webhook_inbox`

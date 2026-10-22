@@ -49,6 +49,10 @@ from telepost.telegram.delivery.preparation import PHOTO_MAX_BYTES
 from telepost.telegram.delivery.sender import file_id_of as _file_id_of
 from telepost.telegram.review_stager import TelegramReviewStager
 from telepost.telegram import review_keyboard
+from telepost.telegram.callback_feedback import (
+    answer_callback,
+    is_ui_only_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1572,6 +1576,214 @@ async def refresh_refetch_card(bot, review_id: int, *,
         return False
 
 
+async def _record_card_restored(review_id: int, outcome: str, status: str,
+                                actor=None) -> None:
+    try:
+        from telepost.observability import audit
+        await audit.record_event(
+            "review.card_restored", review_id=int(review_id), actor=actor,
+            detail={"status": status, "result": outcome},
+        )
+    except Exception:
+        logger.debug("记录审核卡恢复审计失败: review_id=%s", review_id, exc_info=True)
+
+
+async def restore_review_card(bot, review_id: int, *, dry_run: bool = False,
+                             actor=None) -> dict:
+    """Re-render a review's control card from its DB row (§review-card-recovery).
+
+    The row is the source of truth and Telegram is a projection: a card that a
+    failed callback replaced with an error text (or that lost its buttons on a
+    replay) is rebuilt in place from ``pending_reviews``. Only an actionable
+    review gets moderation buttons — terminal rows come back READ-ONLY — and
+    review state is NEVER touched here. Nothing is ever reposted: the edit always
+    targets the durable ``control_message_id``.
+
+    Never raises; returns a small JSON-serializable plan/result dict.
+    """
+    result: dict = {"review_id": int(review_id), "ok": False}
+    try:
+        from telepost.storage.sqlite.reviews import ReviewRepository
+        row = await ReviewRepository().get(int(review_id))
+    except Exception:
+        logger.warning("恢复审核卡：读取审核记录失败 review_id=%s", review_id, exc_info=True)
+        result["reason"] = "read_failed"
+        return result
+    if row is None:
+        result["reason"] = "not_found"
+        return result
+
+    status = _row_value(row, "status") or ""
+    control = _row_value(row, "control_message_id")
+    chat_id = _row_value(row, "review_chat_id") or REVIEW_CHAT_ID
+    result.update({"status": status, "control_message_id": control,
+                   "chat_id": str(chat_id)})
+    if not control:
+        # A card was never durably recorded: the queue's
+        # reconcile_incomplete_reviews path owns that row. Never repost here.
+        result["reason"] = "no_control_message"
+        return result
+
+    if status == "pending":
+        if dry_run:
+            result.update({"ok": True, "dry_run": True, "card": "pending"})
+            return result
+        if await refresh_refetch_card(bot, int(review_id)):
+            result.update({"ok": True, "card": "pending", "edit": "edited"})
+            await _record_card_restored(review_id, "edited", status, actor)
+        else:
+            result.update({"ok": False, "reason": "edit_failed", "card": "pending"})
+        return result
+
+    text, markup = review_keyboard.card_from_row(row)
+    result.update({"card": "read_only", "text": text})
+    if dry_run:
+        result.update({"ok": True, "dry_run": True})
+        return result
+
+    from telepost.telegram.callback_feedback import edit_card_message
+    try:
+        outcome = await edit_card_message(bot, chat_id, control, text, markup)
+    except Exception:
+        logger.warning("恢复审核卡：编辑消息失败 review_id=%s", review_id, exc_info=True)
+        result.update({"ok": False, "reason": "edit_failed"})
+        await _record_card_restored(review_id, "failed", status, actor)
+        return result
+    result.update({"ok": outcome in ("edited", "unchanged"), "edit": outcome})
+    if outcome == "gone":
+        result["reason"] = "message_gone"
+    await _record_card_restored(review_id, outcome, status, actor)
+    return result
+
+
+async def _notify_state_mismatch(query, context, review_id: int, text: str) -> None:
+    """§review-card-recovery: report a decided/changed review WITHOUT killing the card.
+
+    The callback was already answered before the business call, so a second
+    ``answerCallbackQuery`` would be ignored by Telegram and the operator would
+    see nothing. Instead the card is rebuilt from the row: it shows the real
+    state (read-only when terminal) plus the original-link button, which is the
+    non-destructive feedback the operator needs. The reason is logged either way.
+    """
+    logger.info(
+        "审核操作与当前状态不一致（已应答，改用卡片状态同步）: review_id=%s reason=%s",
+        review_id, text,
+    )
+    bot = getattr(context, "bot", None)
+    if bot is None:
+        return
+    await restore_review_card(bot, int(review_id))
+
+
+_TERMINAL_REVIEW_STATUSES = ("rejected", "expired", "superseded")
+
+
+async def _terminal_state_alert(query, context, review_id: int) -> bool:
+    """Answer a click on an already-decided review, BEFORE any business call.
+
+    This is the only place a state conflict still gets a popup: the callback has
+    not been answered yet, so the alert actually reaches the client. The database
+    state machine stays authoritative — this pre-flight only decides *feedback*;
+    a pending/failed/publishing row still goes through the service CAS, and a
+    published row keeps the publish-reuse ledger path (``duplicate_suppressed``)
+    instead of being short-circuited here.
+    Returns True when the handler must stop.
+    """
+    row = await review_service.get_row(review_id)
+    if row is None:
+        await _answer(query, tr('审核记录不存在'), show_alert=True)
+        return True
+    status = _row_value(row, "status") or ""
+    if status not in _TERMINAL_REVIEW_STATUSES:
+        return False
+    await _answer(query, f"该投稿当前状态：{status}", show_alert=True)
+    bot = getattr(context, "bot", None)
+    if bot is not None:
+        await restore_review_card(bot, int(review_id))
+    return True
+
+
+async def _edit_card_or_recover(query, context, review_id: int, text: str,
+                                markup) -> None:
+    """Update a card AFTER a business decision has been committed.
+
+    A display failure here must never repeat the business action (publish,
+    reject, refetch) — the inbox would replay the whole handler. The card is
+    therefore best-effort: Telegram-side edit failures are logged and the card
+    is re-rendered read-only from the row; non-UI failures are surfaced in the
+    log and recovered the same way instead of being re-raised.
+    """
+    try:
+        await query.edit_message_text(
+            text, reply_markup=markup, disable_web_page_preview=True,
+        )
+        return
+    except Exception as exc:  # noqa: BLE001 - post-commit display must not raise
+        if is_ui_only_error(exc):
+            logger.info(
+                "审核卡更新未生效（消息不可编辑/未变化，业务已完成）: review_id=%s reason=%s",
+                review_id, exc,
+            )
+        else:
+            logger.warning(
+                "审核卡更新失败（业务已完成，不回滚、不重试）: review_id=%s",
+                review_id, exc_info=True,
+            )
+    bot = getattr(context, "bot", None)
+    if bot is not None:
+        await restore_review_card(bot, review_id)
+
+
+async def restore_card_command(update, context):
+    """`/restore_card <review_id> [--dry-run]` — admin recovery of a lost card.
+
+    The command only ever touches the database of the Bot it is sent to: every
+    Bot owns its own SQLite file and review ids collide across Bots, so an admin
+    must send it to the target Bot itself. Cross-Bot addressing is unsupported
+    and rejected explicitly.
+    """
+    user = update.effective_user
+    if user is None or user.id not in ADMIN_IDS:
+        await update.message.reply_text(tr('你没有审核权限'))
+        return
+    args = list(getattr(context, "args", None) or [])
+    # Exactly: one review id (``202`` or ``#202``) + optionally one ``--dry-run``.
+    # ``--bot``, unknown flags, extra tokens and duplicated flags are rejected
+    # without touching any Telegram card.
+    valid = (
+        len(args) in (1, 2)
+        and re.fullmatch(r"#?\d+", args[0]) is not None
+        and (len(args) == 1 or args[1] == "--dry-run")
+    )
+    if not valid:
+        await update.message.reply_text(
+            tr('用法：/restore_card <审核ID> [--dry-run]（只重建卡片，不改变审核状态）')
+        )
+        return
+    review_id = int(args[0].lstrip("#"))
+    dry_run = len(args) == 2
+    result = await restore_review_card(
+        context.bot, review_id, dry_run=dry_run, actor=user.id,
+    )
+    if not result.get("ok"):
+        await update.message.reply_text(
+            tr('恢复审核卡失败：{p0}').format(p0=result.get("reason") or 'unknown')
+        )
+        return
+    if dry_run:
+        await update.message.reply_text(
+            tr('审核 #{p0} 卡片预览（状态：{p1}，未修改任何内容）：\n\n{p2}').format(
+                p0=review_id, p1=result.get("status"), p2=result.get("text") or tr('（待审核，将按重抓状态重建）'),
+            )
+        )
+        return
+    await update.message.reply_text(
+        tr('已恢复审核 #{p0} 的卡片（状态：{p1}，未改变审核状态）。').format(
+            p0=review_id, p1=result.get("status"),
+        )
+    )
+
+
 async def reconcile_incomplete_reviews(bot, *, stale_seconds: float = 60.0) -> int:
     """Repair crash-left review rows by restoring a durable control message."""
     repaired = await queue_service.reconcile_incomplete(
@@ -1677,10 +1889,13 @@ async def _apply_review_group_mask(bot, row, mask_on: bool):
 
 # ---- callback handlers ----------------------------------------------------
 async def _answer(query, text=None, **kwargs):
-    try:
-        await query.answer(text=text, **kwargs)
-    except Exception:
-        logger.debug("回应审核按钮失败", exc_info=True)
+    # §review-card-recovery: Telegram accepts exactly ONE answer per callback
+    # query. Bookkeeping lives in ``callback_feedback.answer_callback`` so every
+    # handler (and the global fallback) shares it; a second answer would be
+    # silently dropped by Telegram, losing the operator-visible message.
+    await answer_callback(
+        query, text, show_alert=bool(kwargs.get("show_alert", False)),
+    )
 
 
 async def toggle_review_spoiler(update, context):
@@ -1728,24 +1943,17 @@ async def toggle_review_spoiler(update, context):
                 media_cleared=_row_value(row, "preview_state") == "cleared",
             )
         )
-    except Exception:
-        # §review-button-refresh: the mask is already in the DB and the
-        # review-group media already re-masked above, so a keyboard refresh
-        # failure must NOT be swallowed silently — otherwise the button label
-        # stays showing the stale spoiler value. Log at warn (with traceback)
-        # and surface a transient, visible alert to the admin via show_alert
-        # (a popup, not a new chat message, so repeated toggles do not spam).
+    except Exception as exc:  # noqa: BLE001 - business already committed
+        # §review-card-recovery: the spoiler flag + the review-group mask are
+        # already applied; a keyboard refresh failure must not be re-raised (the
+        # inbox would replay the handler and flip the mask again). Log and rebuild
+        # the card from the row — the callback was answered earlier, so a second
+        # answer would be dropped by Telegram anyway.
         logger.warning(
-            "刷新审核键盘失败，审核卡遮罩按钮标签可能已陈旧（遮罩状态已入库生效）: "
-            "review_id=%s",
-            review_id,
-            exc_info=True,
+            "刷新审核键盘失败，已按库内状态重建审核卡: review_id=%s ui_only=%s",
+            review_id, is_ui_only_error(exc), exc_info=True,
         )
-        await _answer(
-            query,
-            tr('已遮罩，但按钮无法刷新（状态已{p0}）。').format(p0=tr('开启') if new_spoiler else tr('关闭')),
-            show_alert=True,
-        )
+        await restore_review_card(bot, review_id)
 
 
 async def restore_review_preview(update, context):
@@ -1793,13 +2001,30 @@ async def restore_review_preview(update, context):
         await _answer(query, tr('预览正在恢复中，请稍候。'))
         return
 
+    # Answer BEFORE the staging uploads: regeneration sends media to Telegram
+    # and can outlive the callback answer window, and a later answer would be
+    # rejected by Telegram (one answer per callback). The restored media itself
+    # is the visible outcome; the card keeps its handle either way.
+    await _answer(query, tr('预览正在恢复中，请稍候。'))
+
     from telepost.telegram.review_media import regenerate_review_preview
     result = await regenerate_review_preview(context.bot, row)
     if not result["ok"]:
-        await _answer(query, result["message"], show_alert=True)
+        logger.warning(
+            "恢复审核预览失败: review_id=%s reason=%s",
+            review_id, result.get("message"),
+        )
+        chat_id = getattr(getattr(query, "message", None), "chat_id", None)
+        if chat_id is not None:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"⚠️ 审核 #{review_id} 预览恢复失败：{result['message']}",
+                )
+            except Exception:  # noqa: BLE001 - notice is best-effort
+                logger.debug("发送预览恢复失败提示失败", exc_info=True)
+        await restore_review_card(context.bot, review_id)
         return
-    await _answer(query, tr('预览已恢复（{p0} 条消息），将按同样的时限自动清理。').format(
-        p0=len(result["message_ids"])))
     try:
         await query.edit_message_reply_markup(
             reply_markup=_review_keyboard(
@@ -2004,12 +2229,21 @@ async def approve_review(update, context):
     if update.effective_user.id not in ADMIN_IDS:
         await _answer(query, tr('你没有审核权限'), show_alert=True)
         return
-    await _answer(query)
     try:
         review_id = int(query.data.split(":", 1)[1])
     except (ValueError, IndexError):
-        await query.edit_message_text(tr('❌ 无效的审核记录'))
+        # §review-card-recovery: invalid payload is answerable — alert, never
+        # overwrite the card with an error text.
+        await _answer(query, tr('无效的审核记录'), show_alert=True)
         return
+    # Pre-flight: an already-decided review is answered HERE (the callback is
+    # still answerable, so the popup actually reaches the operator). The review
+    # state machine (service CAS) stays authoritative for anything not terminal.
+    if await _terminal_state_alert(query, context, review_id):
+        return
+    # Single acknowledgement before the (possibly tens-of-seconds) publish. All
+    # later feedback must be card state sync, not a second answer.
+    await _answer(query)
 
     async def _show_publishing(row):
         try:
@@ -2019,7 +2253,8 @@ async def approve_review(update, context):
                 reply_markup=InlineKeyboardMarkup([]),
             )
         except Exception:
-            pass
+            logger.debug("发布中卡片更新失败（不改写业务状态）: review_id=%s", review_id,
+                         exc_info=True)
 
     try:
         result = await review_service.approve(
@@ -2028,20 +2263,25 @@ async def approve_review(update, context):
             on_claim=_show_publishing,
         )
     except ReviewNotFoundError:
-        await query.edit_message_text(tr('❌ 审核记录不存在'))
+        logger.info("审核不存在（已应答，改用卡片同步）: review_id=%s", review_id)
+        await restore_review_card(context.bot, review_id)
         return
     except ReviewBusyError:
-        await query.edit_message_text(tr('ℹ️ 该投稿当前状态：publishing'))
-        return
-    except ReviewStateError as error:
-        await query.edit_message_text(f"ℹ️ {error.message}")
+        # Still being published by another claim: the card already carries the
+        # in-progress shape; re-render it instead of a second answer.
+        logger.info("审核正在发布中（已应答）: review_id=%s", review_id)
+        await restore_review_card(context.bot, review_id)
         return
     except PublishFailedError as error:
         row = await _load_review_for_action(query, review_id)
-        await query.edit_message_text(
+        if row is None:
+            await restore_review_card(context.bot, review_id)
+            return
+        await _edit_card_or_recover(
+            query, context, review_id,
             tr("""⚠️ 审核 #{p0} {p1}：
 {p2}""").format(p0=review_id, p1=error.retry_hint, p2=error.message),
-            reply_markup=_review_keyboard(
+            _review_keyboard(
                 review_id, row["link"],
                 spoiler=bool(row["spoiler"]), source=row["source"],
                 work_id=_work_id_from_link(row["link"] or ""),
@@ -2052,11 +2292,21 @@ async def approve_review(update, context):
             ),
         )
         return
+    except ReviewStateError as error:
+        await _notify_state_mismatch(query, context, review_id, error.message)
+        return
+    except ReviewError as error:
+        await _notify_state_mismatch(
+            query, context, review_id,
+            getattr(error, "message", None) or tr('该投稿已处理，无法发布'),
+        )
+        return
 
-    await query.edit_message_text(
+    await _edit_card_or_recover(
+        query, context, review_id,
         tr("""✅ 审核 #{p0} 已发布
 {p1}""").format(p0=review_id, p1=result.link or ''),
-        disable_web_page_preview=True,
+        None,
     )
 
 
@@ -2065,12 +2315,14 @@ async def reject_review(update, context):
     if update.effective_user.id not in ADMIN_IDS:
         await _answer(query, tr('你没有审核权限'), show_alert=True)
         return
-    await _answer(query)
     try:
         review_id = int(query.data.split(":", 1)[1])
     except (ValueError, IndexError):
-        await query.edit_message_text(tr('❌ 无效的审核记录'))
+        await _answer(query, tr('无效的审核记录'), show_alert=True)
         return
+    if await _terminal_state_alert(query, context, review_id):
+        return
+    await _answer(query)
 
     try:
         await review_service.reject(
@@ -2078,13 +2330,23 @@ async def reject_review(update, context):
             actor=update.effective_user.id, source="telegram",
         )
     except ReviewNotFoundError:
-        await query.edit_message_text(tr('❌ 审核记录不存在'))
+        logger.info("审核不存在（已应答，改用卡片同步）: review_id=%s", review_id)
+        await restore_review_card(context.bot, review_id)
         return
     except ReviewStateError as error:
-        await query.edit_message_text(f"ℹ️ {error.message}")
+        await _notify_state_mismatch(query, context, review_id, error.message)
+        return
+    except ReviewError as error:
+        await _notify_state_mismatch(
+            query, context, review_id,
+            getattr(error, "message", None) or tr('该投稿已处理，无法拒绝'),
+        )
         return
 
-    await query.edit_message_text(tr('❌ 审核 #{p0} 已拒绝').format(p0=review_id))
+    await _edit_card_or_recover(
+        query, context, review_id,
+        tr('❌ 审核 #{p0} 已拒绝').format(p0=review_id), None,
+    )
 
 
 async def block_review_user(update, context):
@@ -2121,10 +2383,22 @@ async def block_review_user(update, context):
     )
     await _answer(query, tr('已封禁该投稿人：后续投稿将被自动拒绝'))
     try:
+        # §review-card-recovery: append the audit note WITHOUT dropping the
+        # keyboard — losing 发布/拒绝 on a still-pending review is exactly the
+        # reported production failure, only here it would be self-inflicted.
         await query.edit_message_text(
             tr("""{p0}
 
-🚫 投稿人封禁已由管理员 {p1} 记录""").format(p0=query.message.text, p1=update.effective_user.id)
+🚫 投稿人封禁已由管理员 {p1} 记录""").format(p0=query.message.text, p1=update.effective_user.id),
+            reply_markup=_review_keyboard(
+                int(review_id), row["link"],
+                spoiler=bool(row["spoiler"]), source=row["source"],
+                work_id=_work_id_from_link(row["link"] or ""),
+                submitter_user_id=_row_value(row, "submitter_user_id"),
+                actor_kind=_row_value(row, "actor_kind") or "user",
+                actor_subject=_row_value(row, "actor_subject") or "",
+                media_cleared=_row_value(row, "preview_state") == "cleared",
+            ),
         )
     except Exception as exc:
         logger.debug("封禁后更新审核卡失败: %s", exc)
@@ -2166,7 +2440,16 @@ async def block_review_api(update, context):
         await query.edit_message_text(
             tr("""{p0}
 
-🔑 API token 禁用已由管理员 {p1} 记录""").format(p0=query.message.text, p1=update.effective_user.id)
+🔑 API token 禁用已由管理员 {p1} 记录""").format(p0=query.message.text, p1=update.effective_user.id),
+            reply_markup=_review_keyboard(
+                int(review_id), row["link"],
+                spoiler=bool(row["spoiler"]), source=row["source"],
+                work_id=_work_id_from_link(row["link"] or ""),
+                submitter_user_id=_row_value(row, "submitter_user_id"),
+                actor_kind=_row_value(row, "actor_kind") or "user",
+                actor_subject=_row_value(row, "actor_subject") or "",
+                media_cleared=_row_value(row, "preview_state") == "cleared",
+            ),
         )
     except Exception as exc:
         logger.debug("禁用API后更新审核卡失败: %s", exc)
