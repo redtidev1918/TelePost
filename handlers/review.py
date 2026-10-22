@@ -1696,7 +1696,8 @@ async def toggle_review_spoiler(update, context):
 
     try:
         await review_service.toggle_spoiler(
-            review_id, actor=update.effective_user.id
+            review_id, actor=update.effective_user.id,
+            callback_id=query.id if isinstance(query.id, str) else "",
         )
     except ReviewNotFoundError:
         await _answer(query, tr('审核记录不存在'), show_alert=True)

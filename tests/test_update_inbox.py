@@ -13,13 +13,11 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 from telegram import Chat, Message, MessageEntity, PhotoSize, Update, User
-from telegram.ext import (
-    Application, ConversationHandler, PersistenceInput, PicklePersistence,
-)
+from telegram.ext import Application, ConversationHandler
 
 from database import db_manager
 from handlers import review  # noqa: F401  (import ordering side effects)
-from main import setup_application
+from main import build_persistence, setup_application
 from models.state import STATE
 from telepost.storage.sqlite.inbox import InboxRepository
 from telepost.telegram.inbox_worker import UpdateInboxWorker
@@ -91,6 +89,15 @@ class _RecordingBot:
     async def answer_callback_query(self, **kwargs):
         return True
 
+    async def edit_message_reply_markup(self, **kwargs):
+        return self._message()
+
+    async def edit_message_media(self, **kwargs):
+        return self._message()
+
+    async def delete_message(self, **kwargs):
+        return True
+
 
 @pytest.fixture
 def no_blacklist(monkeypatch):
@@ -100,14 +107,7 @@ def no_blacklist(monkeypatch):
 
 async def _build_app(tmp_path, *, pickle_path):
     bot = _RecordingBot()
-    persistence = PicklePersistence(
-        filepath=str(pickle_path),
-        # A plain recording Bot is not an ExtBot: only conversation states
-        # are persisted (store_data flags gate the four data categories).
-        store_data=PersistenceInput(
-            bot_data=False, chat_data=False, user_data=False,
-            callback_data=False),
-    )
+    persistence = build_persistence(str(pickle_path))
     application = Application.builder().bot(bot).persistence(persistence).build()
     setup_application(application)
     await application.initialize()
@@ -115,7 +115,196 @@ async def _build_app(tmp_path, *, pickle_path):
     return application, bot
 
 
+@pytest.mark.asyncio
+async def test_live_worker_does_not_block_reject_or_session_persistence(
+    store, tmp_path, monkeypatch, no_blacklist,
+):
+    pickle_path = tmp_path / "persistence.pickle"
+    application, bot = await _build_app(tmp_path, pickle_path=pickle_path)
+    worker = UpdateInboxWorker(application, repo=store, poll_interval=3600)
+    application.bot_data["update_inbox_worker"] = worker
+    worker.start()
+    reject = AsyncMock()
+    monkeypatch.setattr(review, "ADMIN_IDS", [42])
+    monkeypatch.setattr(review.review_service, "reject", reject)
+    try:
+        application.user_data[42]["test_state"] = "retained"
+        application.chat_data[42]["test_state"] = "retained"
+        await worker.receive(1, _payload(1, "/submit"))
+        await worker.receive(2, {
+            "update_id": 2,
+            "callback_query": {
+                "id": "reject-test", "chat_instance": "test",
+                "from": {"id": 42, "is_bot": False, "first_name": "T"},
+                "message": _payload(2, "review card")["message"],
+                "data": "review_reject:202",
+            },
+        })
+        assert await worker.drain() == 2
+        assert (await store.counts())["done"]["n"] == 2
+        reject.assert_awaited_once_with(bot, 202, actor=42, source="telegram")
+        assert any("202" in text and "已拒绝" in text for text in bot.outbox)
+
+        restored = build_persistence(str(pickle_path))
+        assert await restored.get_bot_data() == {}
+        assert (await restored.get_chat_data())[42]["test_state"] == "retained"
+        assert (await restored.get_user_data())[42]["test_state"] == "retained"
+        conv = next(h for h in application.handlers[2]
+                    if isinstance(h, ConversationHandler))
+        assert (await restored.get_conversations(conv.name))[(42, 42)] == STATE["UPLOAD"]
+    finally:
+        await worker.stop()
+        await application.stop()
+        await application.shutdown()
+
+
 # ---- receipt & dedup --------------------------------------------------------
+
+
+def _review_callback(uid, action, rid, *, callback_id=None, actor=42):
+    return {"update_id": uid, "callback_query": {
+        "id": callback_id or f"click-{uid}", "chat_instance": "review-test",
+        "from": {"id": actor, "is_bot": False, "first_name": "Reviewer"},
+        "message": _payload(uid, "review card")["message"],
+        "data": f"review_{action}:{rid}",
+    }}
+
+
+async def _seed_review(rid, *, preview_state="present"):
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "INSERT INTO pending_reviews (id,idempotency_key,source,status,user_id,"
+            "submitter_user_id,actor_kind,actor_subject,title,tags,link,spoiler,"
+            "media_json,documents_json,review_chat_id,control_message_id,"
+            "preview_state,target_id,pixiv_id,work_type,created_at,updated_at) "
+            "VALUES (?,?,'api','pending',7,7,'service','api:test-token','Title','#t',"
+            "?,0,?,'[]','-100',99,?,'test-target',?,'illustration',1,1)",
+            (rid, f"review-test-{rid}", f"https://www.pixiv.net/artworks/{rid}",
+             json.dumps([{"type": "photo", "file_id": "IMG"}]), preview_state, str(rid)),
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cut", ["before_flush", "before_done"])
+async def test_all_review_actions_survive_completion_failure(
+    store, tmp_path, monkeypatch, cut,
+):
+    """Real routing, review transactions and publishing ledger; only wire is fake."""
+    from types import SimpleNamespace
+    from handlers import publish
+    from telepost.storage.sqlite.reviews import ReviewRepository
+    from telepost.telegram.review_stager import TelegramReviewStager
+
+    monkeypatch.setattr(review, "ADMIN_IDS", [42])
+    monkeypatch.setenv("PIXIVFLOW_REFETCH_BASE_URL", "https://pixivflow.example")
+    monkeypatch.setenv("PIXIVFLOW_REFETCH_TOKEN", "test-secret")
+    remote = MagicMock(return_value={"status": "accepted", "slotId": "slot-test"})
+    monkeypatch.setattr(review, "_submit_pixivflow_refetch", remote)
+    wire_message = SimpleNamespace(message_id=500, chat=None,
+                                   photo=(SimpleNamespace(file_id="CONFIRMED"),))
+    delivery = AsyncMock(return_value=([wire_message], wire_message))
+    monkeypatch.setattr(publish, "deliver_items_to_chat", delivery)
+    staged = []
+
+    async def stage(self, media, documents, *, message_ids, **kwargs):
+        staged.append(1)
+        message_ids.append(600)
+        return media, documents, list(message_ids)
+
+    monkeypatch.setattr(TelegramReviewStager, "stage_file_ids", stage)
+    actions = ["approve", "reject", "refetch", "spoiler", "preview", "block_user", "block_api"]
+    for rid, action in enumerate(actions, 1):
+        await _seed_review(rid, preview_state="cleared" if action == "preview" else "present")
+    path = tmp_path / "real.pickle"
+    app, bot = await _build_app(tmp_path, pickle_path=path)
+
+    class FaultRepo(InboxRepository):
+        fail = True
+
+        async def mark_done(self, update_id, *, now):
+            if cut == "before_done" and self.fail:
+                self.fail = False
+                raise OSError("injected completion failure")
+            await super().mark_done(update_id, now=now)
+
+    class AppProxy:
+        persistence = app.persistence
+        add_error_handler = app.add_error_handler
+        process_update = app.process_update
+        fail = True
+
+        async def update_persistence(self):
+            if cut == "before_flush" and self.fail:
+                self.fail = False
+                raise OSError("injected pre-flush failure")
+            await app.update_persistence()
+
+    proxy = AppProxy()
+    proxy.bot = bot
+    repo = FaultRepo()
+    worker = UpdateInboxWorker(proxy, repo=repo, poll_interval=3600)
+    app.bot_data["update_inbox_worker"] = worker
+    worker.start()
+    try:
+        # Force each action through both crash boundaries, then redeliver the
+        # same callback under a new update ID (a stricter case than HTTP dedup).
+        for rid, action in enumerate(actions, 1):
+            proxy.fail = repo.fail = True
+            uid = rid * 10
+            payload = _review_callback(uid, action, rid)
+            await worker.receive(uid, payload)
+            await worker.drain()
+            assert (await store.counts())["pending"]["n"] == 1
+            await worker.drain(now=NOW)
+            assert not await worker.receive(uid, payload)
+            payload["update_id"] = uid + 1
+            await worker.receive(uid + 1, payload)
+            await worker.drain()
+        # New deliberate clicks: published remains published, and a new
+        # spoiler click toggles once. An active refetch cannot fork.
+        for uid, action, rid in [(80, "approve", 1), (81, "spoiler", 4), (82, "refetch", 3)]:
+            await worker.receive(uid, _review_callback(uid, action, rid))
+        await worker.drain()
+        assert (await store.counts())["done"]["n"] == 17
+        assert delivery.await_count == 1
+        assert staged == [1]
+        assert (await ReviewRepository().get(1))["status"] == "published"
+        assert (await ReviewRepository().get(2))["status"] == "rejected"
+        assert (await ReviewRepository().get(4))["spoiler"] == 0
+        async with db_manager.get_db() as conn:
+            assert (await (await conn.execute("SELECT count(*) FROM refetch_attempts")).fetchone())[0] == 1
+            assert (await (await conn.execute("SELECT count(*) FROM delivery_ledger")).fetchone())[0] == 1
+        for _ in range(100):
+            if remote.call_count:
+                break
+            await asyncio.sleep(0.01)
+        assert remote.call_count == 1
+    finally:
+        await worker.stop()
+        await app.stop()
+        await app.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_ptb_swallowed_business_error_is_not_done(store, tmp_path):
+    from telegram.ext import TypeHandler
+    app, _ = await _build_app(tmp_path, pickle_path=tmp_path / "errors.pickle")
+
+    async def fail(update, context):
+        raise RuntimeError("injected business error")
+
+    app.add_handler(TypeHandler(Update, fail), group=-100)
+    worker = UpdateInboxWorker(app, repo=store)
+    try:
+        await worker.receive(1, _payload(1, "test"))
+        await worker.drain()
+        assert (await store.counts())["pending"]["n"] == 1
+        async with db_manager.get_db() as conn:
+            row = await (await conn.execute("SELECT last_error,attempts FROM webhook_inbox")).fetchone()
+            assert tuple(row) == ("RuntimeError", 1)
+    finally:
+        await app.stop()
+        await app.shutdown()
 
 
 @pytest.mark.asyncio
@@ -386,6 +575,80 @@ async def test_submission_conversation_survives_restart(store, tmp_path,
         await application.shutdown()
 
 
+# ---- legacy pickle compatibility --------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_legacy_pickle_with_bot_data_restores_sessions_under_new_config(
+        store, tmp_path, no_blacklist):
+    """A persistence.pickle written by the OLD config (default store_data:
+    everything True) is the real production upgrade path. The new config must
+    keep its conversations/user/chat state, never load the legacy runtime
+    bot_data into the Application, and still flush cleanly."""
+    from telegram.ext import PicklePersistence as OldPicklePersistence
+    pickle_path = tmp_path / "persistence.pickle"
+
+    # Handler names are static; borrow one from a throwaway build.
+    scratch, _ = await _build_app(tmp_path, pickle_path=tmp_path / "scratch.pickle")
+    conv_name = next(h for h in scratch.handlers[2]
+                     if isinstance(h, ConversationHandler)).name
+    await scratch.stop()
+    await scratch.shutdown()
+
+    # --- the old production process persisted everything, bot_data included.
+    old = OldPicklePersistence(str(pickle_path))
+    await old.update_conversation(conv_name, (42, 42), STATE["UPLOAD"])
+    await old.update_user_data(42, {"legacy_user": 1})
+    await old.update_chat_data(42, {"legacy_chat": 1})
+    await old.update_bot_data({"rate_window": {"count": 3}, "legacy": True})
+    await old.update_callback_data({("legacy", 1): (None, 0.0)})
+    legacy_bytes = pickle_path.read_bytes()
+
+    # The old process also left its submission session in the DB.
+    await create_session(42, "legacy-user")
+    assert await append_entry(42, "photo:legacy", update_id=99) == 1
+
+    # --- the NEW process boots on the same file.
+    application, bot = await _build_app(tmp_path, pickle_path=pickle_path)
+    worker = UpdateInboxWorker(application, repo=store, poll_interval=3600)
+    application.bot_data["update_inbox_worker"] = worker
+    worker.start()
+    try:
+        # Runtime Job handles legitimately live in bot_data (never persisted);
+        # the LEGACY bot_data content must not enter the process.
+        assert "legacy" not in application.bot_data
+        assert "rate_window" not in application.bot_data
+        assert application.user_data[42]["legacy_user"] == 1
+        assert application.chat_data[42]["legacy_chat"] == 1
+        conv = next(h for h in application.handlers[2]
+                    if isinstance(h, ConversationHandler))
+        assert conv._conversations[(42, 42)] == STATE["UPLOAD"]
+        # Booting and reading must not rewrite the file.
+        assert pickle_path.read_bytes() == legacy_bytes
+
+        # A live Task in bot_data must no longer poison persistence (the
+        # incident's exact failure), and the restored session still advances.
+        application.bot_data["runtime_task"] = asyncio.create_task(asyncio.sleep(60))
+        await worker.receive(1, _payload(1, "/done_media"))
+        await worker.drain()
+        assert conv._conversations[(42, 42)] == STATE["PREVIEW"]
+        assert (await store.counts())["done"]["n"] == 1
+        await application.update_persistence()     # must not raise
+    finally:
+        application.bot_data["runtime_task"].cancel()
+        await worker.stop()
+        await application.stop()
+        await application.shutdown()
+
+    # --- a third boot on the rewritten file: legacy state carried through,
+    # --- and the legacy bot_data section is carried on disk, not destroyed.
+    restored = build_persistence(str(pickle_path))
+    assert (await restored.get_user_data())[42]["legacy_user"] == 1
+    assert (await restored.get_chat_data())[42]["legacy_chat"] == 1
+    assert (await restored.get_conversations(conv_name))[(42, 42)] == STATE["PREVIEW"]
+    assert (await restored.get_bot_data())["legacy"] is True
+
+
 # ---- media append dedup -----------------------------------------------------
 
 
@@ -491,3 +754,126 @@ async def test_two_bots_keep_separate_inboxes(tmp_path, monkeypatch):
     monkeypatch.setattr(db_manager, "DB_PATH", str(db_b))
     counts = await Repo().counts()
     assert counts["pending"]["n"] == 1 and "done" not in counts
+
+
+# ---- dual-bot Application-level isolation -----------------------------------
+
+
+@pytest.mark.asyncio
+async def test_two_bot_applications_share_nothing(tmp_path, monkeypatch,
+                                                  no_blacklist, caplog):
+    """Two bot 'processes' (independent Applications, bots, SQLite files and
+    pickles) may receive the same Telegram update_id and use the same review
+    number without cross-talk; a persistence failure on one bot never blocks
+    the other, and each restart recovers its own inbox."""
+    import logging as _logging
+    from telepost.storage.sqlite.reviews import ReviewRepository
+    db1, db2 = tmp_path / "bot1.db", tmp_path / "bot2.db"
+    pickle1, pickle2 = tmp_path / "bot1.pickle", tmp_path / "bot2.pickle"
+
+    def use_db(path):
+        monkeypatch.setattr(db_manager, "DB_PATH", str(path))
+
+    use_db(db1)
+    await db_manager.init_db()
+    await _seed_review(1)                       # review #1 exists on BOTH bots
+    use_db(db2)
+    await db_manager.init_db()
+    await _seed_review(1)
+
+    app1, bot1 = await _build_app(tmp_path, pickle_path=pickle1)
+    app2, bot2 = await _build_app(tmp_path, pickle_path=pickle2)
+    bot1.username = bot1.name = "telepost_bot1"
+    bot2.username = bot2.name = "telepost_bot2"
+    monkeypatch.setattr(review, "ADMIN_IDS", [42])
+    repo1 = InboxRepository()
+    repo2 = InboxRepository()
+    worker1 = UpdateInboxWorker(app1, repo=repo1, poll_interval=3600)
+    worker2 = UpdateInboxWorker(app2, repo=repo2, poll_interval=3600)
+    app1.bot_data["update_inbox_worker"] = worker1
+    app2.bot_data["update_inbox_worker"] = worker2
+    worker1.start()
+    worker2.start()
+    assert worker1._task is not worker2._task
+    try:
+        # Same Telegram update_id on both bots — independent inboxes, and a
+        # shared review NUMBER must never operate across bots.
+        caplog.set_level(_logging.INFO, logger="telepost.telegram.inbox_worker")
+        use_db(db1)
+        await worker1.receive(5, _review_callback(5, "reject", 1, callback_id="cb-bot1"))
+        await worker1.drain()
+        use_db(db2)
+        await worker2.receive(5, _review_callback(5, "spoiler", 1, callback_id="cb-bot2"))
+        await worker2.drain()
+
+        use_db(db1)
+        assert (await repo1.counts())["done"]["n"] == 1
+        assert (await ReviewRepository().get(1))["status"] == "rejected"
+        use_db(db2)
+        assert (await repo2.counts())["done"]["n"] == 1
+        row2 = await ReviewRepository().get(1)
+        assert row2["status"] == "pending" and row2["spoiler"] == 1
+
+        # A persistence failure on bot1 keeps its update retryable while bot2
+        # completes the very same update_id — no shared queue, no head-of-line
+        # coupling across bots.
+        class _DyingApp:
+            bot = app1.bot
+            persistence = app1.persistence
+            add_error_handler = app1.add_error_handler
+            process_update = app1.process_update
+            fail = True
+
+            async def update_persistence(self):
+                if self.fail:
+                    self.fail = False
+                    raise OSError("bot1 persistence down")
+                await app1.update_persistence()
+
+        stuck = UpdateInboxWorker(_DyingApp(), repo=repo1)
+        use_db(db1)
+        await stuck.receive(7, _payload(7, "/submit"))
+        await stuck.drain()
+        use_db(db2)
+        await worker2.receive(7, _payload(7, "/submit"))
+        await worker2.drain()
+
+        use_db(db1)
+        assert (await repo1.counts())["pending"]["n"] == 1    # bot1: retryable
+        use_db(db2)
+        assert (await repo2.counts())["done"]["n"] == 2       # bot2: unaffected
+
+        # --- bot1 restarts: a fresh worker drains only bot1's own backlog.
+        use_db(db1)
+        assert await UpdateInboxWorker(app1, repo=repo1).recover(now=NOW + 1) == 0
+        await UpdateInboxWorker(app1, repo=repo1).drain(now=NOW + 9999)
+        counts1 = await repo1.counts()
+        assert counts1["done"]["n"] == 2 and "pending" not in counts1
+        use_db(db2)
+        counts2 = await repo2.counts()
+        assert counts2["done"]["n"] == 2 and "pending" not in counts2
+
+        # Stopping one bot's worker leaves the other one running.
+        await worker1.stop()
+        assert worker2._task is not None and not worker2._task.done()
+
+        # Each bot restarts from its OWN pickle: submission session per bot.
+        conv1 = next(h for h in app1.handlers[2] if isinstance(h, ConversationHandler))
+        conv2 = next(h for h in app2.handlers[2] if isinstance(h, ConversationHandler))
+        assert conv1._conversations[(42, 42)] == STATE["UPLOAD"]
+        assert conv2._conversations[(42, 42)] == STATE["UPLOAD"]
+        assert (await build_persistence(str(pickle2)).get_conversations(
+            conv2.name))[(42, 42)] == STATE["UPLOAD"]
+
+        # Aggregated logs must name the bot instance that processed what.
+        done_logs = [r.message for r in caplog.records
+                     if r.message.startswith("Inbox done")]
+        assert any("bot=telepost_bot1" in m for m in done_logs)
+        assert any("bot=telepost_bot2" in m for m in done_logs)
+    finally:
+        await worker1.stop()
+        await worker2.stop()
+        await app1.stop()
+        await app1.shutdown()
+        await app2.stop()
+        await app2.shutdown()
