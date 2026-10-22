@@ -56,6 +56,13 @@ tokens; new tokens can still only be created by the Owner through `/gen_token`.
 | `/sync_index` | Incrementally sync the database and the index |
 | `/index_stats` | Show the database/index difference |
 | `/optimize_index` | Merge Whoosh index segments |
+| `/restore_card <review id> [--dry-run]` | Rebuild a review card that lost its buttons (read-only; send it to the target Bot) |
+
+`/restore_card` only acts on the Bot that receives it — every Bot has its own SQLite database and
+review ids collide. Only `<review id>`, `#<review id>` and an optional `--dry-run` are accepted;
+`--bot`, unknown or extra arguments return the usage text and touch no card. Rebuilding only edits
+that Telegram message's text and keyboard: it never reposts media, never changes the review state
+and never writes business data.
 
 The approve, reject, spoiler-toggle and Pixiv-refetch buttons in the review group also require
 Admin. Refetch needs `PIXIVFLOW_REFETCH_BASE_URL` and `PIXIVFLOW_REFETCH_TOKEN` and only re-runs the
