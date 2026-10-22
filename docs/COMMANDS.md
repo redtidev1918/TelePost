@@ -53,6 +53,12 @@
 | `/sync_index` | 增量同步数据库与索引 |
 | `/index_stats` | 查看数据库/索引差异 |
 | `/optimize_index` | 合并 Whoosh 索引段 |
+| `/restore_card <审核ID> [--dry-run]` | 就地重建丢失按钮的审核卡（只读，发给目标 Bot） |
+
+`/restore_card` 只作用于收到命令的那个 Bot：每个 Bot 有独立 SQLite，审核 ID 会重复。
+参数只接受 `<审核ID>`、`#<审核ID>` 与可选的 `--dry-run`；`--bot`、未知参数、多余参数
+一律只回用法且不改动任何卡片。重建只编辑那条 Telegram 消息的文本与键盘，不重发媒体、
+不改变审核状态、不写业务数据。
 
 审核群的批准、拒绝、剧透切换和 Pixiv 重抓按钮同样要求 Admin。
 重抓需要 `PIXIVFLOW_REFETCH_BASE_URL` 和 `PIXIVFLOW_REFETCH_TOKEN`，只重跑原审核稿的 `target_id`；受理后会在审核群确认，新作品仍需人工审核。
