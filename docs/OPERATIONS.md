@@ -279,6 +279,13 @@ Webhook 模式下，Telegram Update 在返回 HTTP 200 之前先写入 `webhook_
 - 投稿会话已启用 `persistent=True`（PicklePersistence），重启后会话可继续；
   媒体追加按（user_id, update_id）跨投稿代去重（`submission_media_log`），
   重放不重复追加，用户重发同一图片（新 update_id）照常接收。
+- 持久化配置统一使用 `main.build_persistence()`：保留 conversation、user_data
+  和 chat_data；bot_data 只存进程内 worker、定时任务、就绪标志和投稿限流窗口，
+  不参与持久化。将运行中的 Task 放进持久化范围会导致 deepcopy 抛 TypeError，
+  阻止 Inbox 完成确认，后续审核按钮因此积压。
+- 修复持久化故障后，pending 更新会在退避到期后继续处理；dead 不会自动重放。
+  必须先核对审核/发布账本，再决定如何处理 dead 更新：它可能已经执行了业务动作，
+  只是完成确认失败，不能把整批 dead 当作未执行请求直接重放。
 - 重放边界是 at-least-once：崩溃后重放可能重复发送面向用户的确认消息，
   但不重复业务写入；不承诺 Telegram 外部副作用 exactly-once。
 - 保留：done 7 天、dead 30 天，由 300 秒维护任务清理；pending/重试中的行
