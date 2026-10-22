@@ -1284,8 +1284,11 @@ async def test_approve_does_not_reclaim_freshly_publishing(review_db, monkeypatc
     await review.approve_review(update, context)
 
     published.assert_not_awaited()
-    text = update.callback_query.edit_message_text.await_args.args[0]
-    assert "publishing" in text
+    # 正在发布中的重试只能用提示告知，绝不改写控制卡（§review-card-recovery）。
+    answer_kwargs = update.callback_query.answer.await_args.kwargs
+    assert answer_kwargs.get("show_alert") is True
+    assert "发布中" in answer_kwargs["text"]
+    update.callback_query.edit_message_text.assert_not_awaited()
 
 
 def test_review_keyboard_failed_shows_retry_label_on_approve_button():

@@ -3,10 +3,12 @@
 """
 from ui.i18n import tr
 import logging
+import re
 from telegram import Update
 from telegram.ext import CallbackContext, ConversationHandler
 from telegram.constants import ParseMode
 
+from telepost.telegram.callback_feedback import is_ui_only_error
 from ui.keyboards import Keyboards
 from ui.messages import MessageFormatter
 from database.db_manager import get_db
@@ -173,17 +175,52 @@ async def handle_callback_query(update: Update, context: CallbackContext):
             
     except Exception as e:
         logger.error(f"处理回调查询时出错: {e}", exc_info=True)
-        try:
-            await query.edit_message_text(
-                MessageFormatter.error_message("general")
-            )
-        except:
-            pass
+        if is_ui_only_error(e):
+            # §review-card-recovery: Telegram refused the edit/answer itself
+            # (not modified / not found / query too old). Nothing in the business
+            # layer failed, so nothing is retried and the card is left alone.
+            logger.info("回调仅 UI 更新失败（不重试、不改写卡片）: data=%s", data)
+            return
+        # Real failure: tell the operator via a popup (never by replacing the
+        # card — that is what destroyed 发布/拒绝 in production), try to rebuild
+        # the card from the row, then RE-RAISE so PTB's error observers and the
+        # durable inbox worker record a bounded retry instead of a silent "done".
+        await _safe_answer(query, tr('操作失败，已记录；卡片与审核状态保持不变。'), show_alert=True)
+        await _restore_card_after_failure(context, data)
+        raise
+
+
+_REVIEW_CALLBACK_DATA = re.compile(
+    r"^review_(?:approve|reject|spoiler|preview|refetch|block_user|block_api):(\d+)$"
+)
+
+
+async def _restore_card_after_failure(context, data: str) -> None:
+    """Best-effort card rebuild for a review callback that just failed."""
+    match = _REVIEW_CALLBACK_DATA.match(data or "")
+    if not match:
+        return
+    bot = getattr(context, "bot", None)
+    if bot is None:
+        return
+    try:
+        from handlers.review import restore_review_card
+        await restore_review_card(bot, int(match.group(1)))
+    except Exception:
+        logger.debug("失败后恢复审核卡出错: data=%s", data, exc_info=True)
 
 
 async def handle_unknown_callback(update: Update, context: CallbackContext):
-    """Final fallback for callback data unclaimed by every business namespace."""
-    await update.callback_query.edit_message_text(tr('❌ 未知操作'))
+    """Final fallback for callback data unclaimed by every business namespace.
+
+    §review-card-recovery: an unroutable click (stale menu, old client, a card
+    whose namespace was removed) is answered with a popup. The message is NOT
+    edited — editing it here used to strip the keyboard off a message that may
+    still carry working buttons.
+    """
+    query = update.callback_query
+    logger.warning("未路由的回调查询: %s", query.data)
+    await _safe_answer(query, tr('❌ 未知操作'), show_alert=True)
 
 
 async def handle_hot_filter(update: Update, context: CallbackContext):

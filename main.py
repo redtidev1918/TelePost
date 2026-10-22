@@ -66,6 +66,7 @@ from handlers.review import (
     poll_refetch_jobs,
     reconcile_incomplete_reviews,
     recover_refetch_jobs,
+    restore_card_command,
 )
 
 # 错误处理
@@ -737,6 +738,8 @@ def setup_application(application):
         application.add_handler(CommandHandler('blacklist_list', blacklist_list), group=-998)
         application.add_handler(CommandHandler('ban_user', ban_user_command), group=-998)
         application.add_handler(CommandHandler('ban_api', ban_api_command), group=-998)
+        # §review-card-recovery: read-only rebuild of a destroyed review card.
+        application.add_handler(CommandHandler('restore_card', restore_card_command), group=-998)
         application.add_handler(CommandHandler('botconfig', botconfig), group=-998)
         # 不再注册高优先级的cancel命令，只在ConversationHandler的fallbacks中注册
         # application.add_handler(CommandHandler('cancel', cancel), group=-998)  # 注释掉这行
