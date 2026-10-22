@@ -3489,3 +3489,48 @@ msgstr "This historical submission has no usable media file_id, so the preview c
 msgid "恢复预览失败，请稍后重试。"
 msgstr "Failed to restore the preview; please try again later."
 
+msgid "操作失败，已记录；卡片与审核状态保持不变。"
+msgstr "The action failed and was recorded; the card and review state are unchanged."
+
+msgid "用法：/restore_card <审核ID> [--dry-run]（只重建卡片，不改变审核状态）"
+msgstr "Usage: /restore_card <review id> [--dry-run] (rebuilds the card only; review state is unchanged)"
+
+msgid "已恢复审核 #{p0} 的卡片（状态：{p1}，未改变审核状态）。"
+msgstr "Restored the card for review #{p0} (state: {p1}; review state unchanged)."
+
+msgid "该投稿正在发布中，请勿重复点击。"
+msgstr "This submission is being published; do not click again."
+
+msgid "恢复审核卡失败：{p0}"
+msgstr "Failed to restore the review card: {p0}"
+
+msgid "审核 #{p0} 卡片预览（状态：{p1}，未修改任何内容）：\n\n{p2}"
+msgstr "Review #{p0} card preview (state: {p1}; nothing was changed):\n\n{p2}"
+
+msgid "该投稿已处理，无法发布"
+msgstr "This submission has already been processed and cannot be published"
+
+msgid "该投稿已处理，无法拒绝"
+msgstr "This submission has already been processed and cannot be rejected"
+
+msgid "（待审核，将按重抓状态重建）"
+msgstr "(pending — rebuilt with its refetch state)"
+
+msgid "🗂 审核 #{p0}（{p1}，只读）"
+msgstr "🗂 Review #{p0} ({p1}, read-only)"
+
+msgid "⏳ 审核 #{p0} 正在发布（只读）"
+msgstr "⏳ Review #{p0} is being published (read-only)"
+
+msgid "✅ 审核 #{p0} 已发布（只读）"
+msgstr "✅ Review #{p0} published (read-only)"
+
+msgid "❌ 审核 #{p0} 已拒绝（只读）"
+msgstr "❌ Review #{p0} rejected (read-only)"
+
+msgid "⌛ 审核 #{p0} 已过期（只读）"
+msgstr "⌛ Review #{p0} expired (read-only)"
+
+msgid "♻️ 审核 #{p0} 已被重抓结果替代（只读）"
+msgstr "♻️ Review #{p0} was replaced by a refetch result (read-only)"
+

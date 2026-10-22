@@ -71,7 +71,8 @@ def source_label(source: str) -> str:
 
 
 def control_text(*, review_id: int, command, media_count: int,
-                 document_count: int, original_count: int = 0) -> str:
+                 document_count: int, original_count: int = 0,
+                 status_note: str = "") -> str:
     provenance_line = ""
     if command.source_label:
         provenance_line = f"🏷️ {command.source_label}\n"
@@ -97,9 +98,10 @@ def control_text(*, review_id: int, command, media_count: int,
             tr('{p0} 个文档（含 {p1} 份原图）').format(p0=document_count, p1=original_count)
         )
     return (
-        tr("""🕵️ 投稿待审核 #{p0}
+        (status_note + "\n") if status_note else tr("""🕵️ 投稿待审核 #{p0}
 """).format(p0=review_id)
-        + provenance_line
+    ) + (
+        provenance_line
         + tr("""投稿方式：{p0}
 """).format(p0=source_label(command.source))
         + submitter_line
@@ -269,6 +271,60 @@ def control_card_from_row(row) -> Tuple[str, InlineKeyboardMarkup]:
         actor_subject=command.actor_subject,
     )
     return text, markup
+
+
+def _terminal_status_note(review_id: int, status: str) -> str:
+    """Read-only header for a terminal card.
+
+    Kept as literal ``tr()`` calls (not a module-level dict) so the per-bot
+    language is resolved when the card is rendered, not when the module loads.
+    """
+    if status == "publishing":
+        return tr('⏳ 审核 #{p0} 正在发布（只读）').format(p0=review_id)
+    if status == "published":
+        return tr('✅ 审核 #{p0} 已发布（只读）').format(p0=review_id)
+    if status == "rejected":
+        return tr('❌ 审核 #{p0} 已拒绝（只读）').format(p0=review_id)
+    if status == "expired":
+        return tr('⌛ 审核 #{p0} 已过期（只读）').format(p0=review_id)
+    if status == "superseded":
+        return tr('♻️ 审核 #{p0} 已被重抓结果替代（只读）').format(p0=review_id)
+    return tr('🗂 审核 #{p0}（{p1}，只读）').format(p0=review_id, p1=status)
+
+
+def _link_only_markup(link: str) -> Optional[InlineKeyboardMarkup]:
+    """Read-only card keyboard: at most the original-work link, never actions."""
+    candidate = (link or "").strip()
+    if not candidate.lower().startswith(("http://", "https://")):
+        return None
+    return InlineKeyboardMarkup([[InlineKeyboardButton(tr('🔗 查看原链接'), url=candidate)]])
+
+
+def card_from_row(row) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
+    """State-aware (re)render of a review control card from its DB row.
+
+    §review-card-recovery — Telegram is a projection of the row, so a card that
+    was destroyed by a failure can be rebuilt without touching review state.
+    Only an actionable review (pending/failed) gets moderation buttons; every
+    terminal state renders READ-ONLY, because the state machine would reject
+    those actions anyway (a replay must never look actionable again).
+    """
+    from ..application.review_queue import command_from_row
+
+    keys = _row_keys(row)
+    status = str(row["status"]) if "status" in keys else ""
+    if status in ("pending", "failed", ""):
+        return control_card_from_row(row)
+    review_id = int(row["id"])
+    command = command_from_row(row)
+    text = control_text(
+        review_id=review_id, command=command,
+        media_count=len(_json_list(row, "media_json")),
+        document_count=len(_json_list(row, "documents_json")),
+        status_note=_terminal_status_note(review_id, status),
+    )
+    link = str(row["link"]) if "link" in keys else ""
+    return text, _link_only_markup(link)
 
 
 def _row_keys(row) -> list:
