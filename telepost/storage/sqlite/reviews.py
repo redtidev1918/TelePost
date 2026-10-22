@@ -592,15 +592,31 @@ class ReviewRepository:
             row = await self._select_in_conn(conn, int(review_id))
         return changed, row
 
-    async def toggle_spoiler(self, review_id: int) -> tuple:
+    async def toggle_spoiler(self, review_id: int, *, callback_id: str = "") -> tuple:
         now = time.time()
         async with db_manager.get_db() as conn:
+            await conn.execute("BEGIN IMMEDIATE")
+            row = await self._select_in_conn(conn, int(review_id))
+            if row is None or row["status"] not in ("pending", "failed"):
+                return False, row
+            if callback_id:
+                receipt = await (await conn.execute(
+                    "SELECT 1 FROM review_spoiler_callbacks WHERE callback_id=? AND review_id=?",
+                    (callback_id, int(review_id)),
+                )).fetchone()
+                if receipt:
+                    return True, row
             cur = await conn.execute(
                 "UPDATE pending_reviews SET spoiler=1-COALESCE(spoiler,0), "
                 "updated_at=? WHERE id=? AND status IN ('pending', 'failed')",
                 (now, int(review_id)),
             )
             changed = cur.rowcount == 1
+            if changed and callback_id:
+                await conn.execute(
+                    "INSERT INTO review_spoiler_callbacks(callback_id,review_id,created_at) VALUES (?,?,?)",
+                    (callback_id, int(review_id), now),
+                )
             row = await self._select_in_conn(conn, int(review_id))
         return changed, row
 

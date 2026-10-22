@@ -24,6 +24,7 @@ import asyncio
 import json
 import logging
 import time
+from contextvars import ContextVar
 from typing import Optional
 
 from telegram import Update
@@ -31,6 +32,14 @@ from telegram import Update
 from telepost.storage.sqlite.inbox import InboxRepository
 
 logger = logging.getLogger(__name__)
+_processing_errors: ContextVar[Optional[list]] = ContextVar("inbox_errors", default=None)
+
+
+async def _capture_processing_error(update, context):
+    """PTB reports handler/persistence failures instead of raising them."""
+    errors = _processing_errors.get()
+    if errors is not None:
+        errors.append(context.error)
 
 
 class UpdateInboxWorker:
@@ -44,6 +53,16 @@ class UpdateInboxWorker:
         self._poll_interval = poll_interval
         self._wake = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
+        # Multi-bot deployments aggregate logs from several processes; every
+        # inbox line must name its bot so backlogs are attributed correctly.
+        bot = getattr(application, "bot", None)
+        self._bot_name = (getattr(bot, "username", None)
+                          or f"bot-{getattr(bot, 'id', '?')}")
+        # One observer per Application; it also sees errors reported by PTB's
+        # persistence gather. Context-local scope excludes unrelated jobs.
+        register_error_handler = getattr(application, "add_error_handler", None)
+        if register_error_handler is not None:
+            register_error_handler(_capture_processing_error)
 
     # ---- receipt -------------------------------------------------------
     async def receive(self, update_id: int, payload: dict) -> bool:
@@ -63,8 +82,8 @@ class UpdateInboxWorker:
         now = time.time() if now is None else now
         recovered = await self._repo.recover_stale(now=now)
         if recovered:
-            logger.info("启动恢复：%d 条未完成的 Telegram Update 已重新排队（按 update_id 顺序）",
-                        recovered)
+            logger.info("[%s] 启动恢复：%d 条未完成的 Telegram Update 已重新排队"
+                        "（按 update_id 顺序）", self._bot_name, recovered)
         return recovered
 
     def start(self) -> None:
@@ -127,18 +146,32 @@ class UpdateInboxWorker:
         # de_json attaches the bot to the Update's top level only; set_bot
         # propagates it so message.reply_text / query.answer work in handlers.
         update.set_bot(self._application.bot)
+        errors = []
+        token = _processing_errors.set(errors)
+        phase = "business"
         try:
             await self._application.process_update(update)
+            if errors:
+                raise errors[0]
             # Flush conversation state to disk BEFORE the done mark: a crash
             # after this point needs no replay; a crash before it replays an
             # update whose business writes are journalled and deduped.
             if getattr(self._application, "persistence", None):
+                phase = "persistence"
                 await self._application.update_persistence()
+                if errors:
+                    raise errors[0]
+            phase = "completion"
             await self._repo.mark_done(update_id, now=now)
+            logger.info("Inbox done bot=%s update_id=%s attempts=%s",
+                        self._bot_name, update_id, row["attempts"])
         except Exception as exc:
             await self._repo.mark_failed(
                 update_id, now=now, error=type(exc).__name__,
                 max_attempts=self._max_attempts)
-            logger.warning("Update 处理失败，按退避重试: update_id=%s error_class=%s "
-                           "attempts=%s", update_id, type(exc).__name__,
-                           row["attempts"] + 1)
+            logger.warning("Update 处理失败，按退避重试: bot=%s update_id=%s "
+                           "error_class=%s attempts=%s phase=%s",
+                           self._bot_name, update_id, type(exc).__name__,
+                           row["attempts"] + 1, phase)
+        finally:
+            _processing_errors.reset(token)

@@ -107,6 +107,17 @@ async def init_db():
                 'CREATE INDEX IF NOT EXISTS idx_webhook_inbox_due '
                 'ON webhook_inbox(state, next_attempt_at, update_id)')
 
+            # A toggle and its callback receipt commit together; Inbox replay
+            # must not invert the same review a second time.
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS review_spoiler_callbacks (
+                    callback_id TEXT NOT NULL,
+                    review_id INTEGER NOT NULL,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY (callback_id, review_id)
+                )
+            ''')
+
             # 媒体追加去重日志：同一 (user, update) 跨投稿代只应用一次
             # （epoch 仅作审计），与 submissions 行的更新同事务提交，崩溃后
             # 重放收敛。worker 严格按 update_id 头部顺序处理，正常路径不会
@@ -1063,6 +1074,9 @@ async def cleanup_old_data():
             await conn.execute(
                 "DELETE FROM webhook_inbox WHERE state='done' AND done_at < ?",
                 (now_ts - 7 * 86400,))
+            await conn.execute(
+                "DELETE FROM review_spoiler_callbacks WHERE review_id NOT IN "
+                "(SELECT id FROM pending_reviews)")
             await conn.execute(
                 "DELETE FROM webhook_inbox WHERE state='dead' AND updated_at < ?",
                 (now_ts - 30 * 86400,))
