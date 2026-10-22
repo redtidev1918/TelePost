@@ -8,6 +8,15 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.84.2](https://github.com/redtidev1918/TelePost/compare/v2.84.1...v2.84.2) (2026-10-22)
+
+
+### Bug Fixes
+
+* **review:** answer each callback once and make failure feedback non-destructive ([223b1c1](https://github.com/redtidev1918/TelePost/commit/223b1c1f4e718273253a140c416e8eea58458989))
+* **review:** keep review cards actionable when a callback fails ([455ba69](https://github.com/redtidev1918/TelePost/commit/455ba690e0ac15a95b986c8e83eeaadf6e5375bf))
+* **review:** keep review cards actionable when a callback fails ([1827946](https://github.com/redtidev1918/TelePost/commit/1827946759284ddf9143f913bb22ae2b1a6408dc))
+
 ## [2.84.1](https://github.com/redtidev1918/TelePost/compare/v2.84.0...v2.84.1) (2026-10-22)
 
 
