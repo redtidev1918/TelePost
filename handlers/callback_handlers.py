@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import CallbackContext, ConversationHandler
 from telegram.constants import ParseMode
 
-from telepost.telegram.callback_feedback import is_ui_only_error
+from telepost.telegram.callback_feedback import answer_callback, has_answered
 from ui.keyboards import Keyboards
 from ui.messages import MessageFormatter
 from database.db_manager import get_db
@@ -35,16 +35,15 @@ GLOBAL_CALLBACK_PATTERNS = (
 
 async def _safe_answer(query, text: str = None, **kwargs):
     """
-    安全应答回调查询。
+    安全应答回调查询（§review-card-recovery）。
 
-    每个 callback query 只能被应答一次，重复应答会抛出 telegram.error.BadRequest。
-    这里统一吞掉该类错误：先到的应答生效（例如带 show_alert 的提示），
-    后续重复调用不再中断业务流程。
+    每个 callback query 只能被应答一次，重复应答会被 Telegram 拒绝。这里统一
+    委托给 ``callback_feedback.answer_callback``：先到的应答生效（例如带
+    show_alert 的提示），后续重复调用直接跳过且不抛错。
     """
-    try:
-        await query.answer(text=text, **kwargs)
-    except Exception as e:
-        logger.debug(f"回调应答失败（通常为重复应答或已过期）: {e}")
+    await answer_callback(
+        query, text, show_alert=bool(kwargs.get("show_alert", False)),
+    )
 
 
 async def handle_callback_query(update: Update, context: CallbackContext):
@@ -175,18 +174,25 @@ async def handle_callback_query(update: Update, context: CallbackContext):
             
     except Exception as e:
         logger.error(f"处理回调查询时出错: {e}", exc_info=True)
-        if is_ui_only_error(e):
-            # §review-card-recovery: Telegram refused the edit/answer itself
-            # (not modified / not found / query too old). Nothing in the business
-            # layer failed, so nothing is retried and the card is left alone.
-            logger.info("回调仅 UI 更新失败（不重试、不改写卡片）: data=%s", data)
-            return
-        # Real failure: tell the operator via a popup (never by replacing the
-        # card — that is what destroyed 发布/拒绝 in production), try to rebuild
-        # the card from the row, then RE-RAISE so PTB's error observers and the
-        # durable inbox worker record a bounded retry instead of a silent "done".
-        await _safe_answer(query, tr('操作失败，已记录；卡片与审核状态保持不变。'), show_alert=True)
+        # §review-card-recovery: no text-based "UI-only" classification here. The
+        # global catch is the *outer* boundary: a Telegram edit failure inside a
+        # handler is classified at that call site (is_ui_only_error requires a
+        # BadRequest raised by the edit itself), while anything reaching this
+        # level may have been raised by a channel publish, media upload or the
+        # review DB. Treating it as display noise would mark the update done and
+        # silently drop a retryable business failure.
+        #
+        # Feedback is answer-only when the callback has not been answered yet
+        # (handlers answer exactly once, before long work); otherwise the card is
+        # rebuilt from the row — a second answer would be dropped by Telegram.
+        if not has_answered(query):
+            await _safe_answer(
+                query, tr('操作失败，已记录；卡片与审核状态保持不变。'),
+                show_alert=True,
+            )
         await _restore_card_after_failure(context, data)
+        # Re-raise so PTB's error observers and the durable inbox worker record a
+        # bounded retry instead of a silent "done".
         raise
 
 

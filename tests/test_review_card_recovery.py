@@ -14,6 +14,7 @@ recording fake. Every assertion is about what the moderator can still do — and
 about review state never changing as a side effect of failure handling.
 """
 import json
+import itertools
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -44,8 +45,15 @@ class _RecordingBot:
         self.outbox = []
         self.edits = []          # (chat_id, message_id, text, markup)
         self.answers = []        # (text, show_alert)
+        self.answer_calls = 0    # answers attempted for the CURRENT callback
+        self.refuse_answers = False  # simulates an expired/unanswerable callback
         self.fail_edit = None    # optional exception raised on the next edit
         self._mid = 500
+
+    def reset_callback(self):
+        """Telegram allows exactly one answer per callback query."""
+        self.answer_calls = 0
+        self.answers = []
 
     async def initialize(self):
         pass
@@ -87,8 +95,28 @@ class _RecordingBot:
         return True
 
     async def answer_callback_query(self, **kwargs):
+        # Models the real Bot API limit: the SECOND answer for one callback is a
+        # BadRequest, no matter who calls it. Tests therefore prove the handlers
+        # never depend on a late answer for feedback.
+        self.answer_calls += 1
+        if self.refuse_answers:
+            raise BadRequest(
+                "query is too old and response timeout expired or query id is invalid"
+            )
+        if self.answer_calls > 1:
+            raise BadRequest(
+                "query is too old and response timeout expired or query id is invalid"
+            )
         self.answers.append((kwargs.get("text"), kwargs.get("show_alert")))
         return True
+
+
+_CALLBACK_SEQ = itertools.count(1)
+
+
+def _callback_id() -> str:
+    """Real callback ids are unique per click; the harness must model that."""
+    return f"click-{next(_CALLBACK_SEQ)}"
 
 
 class _Harness:
@@ -100,6 +128,7 @@ class _Harness:
 
     async def click(self, action: str, review_id: int, *, update_id: int = 1,
                     actor: int = 42):
+        self.bot.reset_callback()
         message = {
             "message_id": 900 + update_id, "date": 0,
             "chat": {"id": -100, "type": "supergroup"},
@@ -107,7 +136,7 @@ class _Harness:
             "text": "review card",
         }
         payload = {"update_id": update_id, "callback_query": {
-            "id": f"click-{update_id}", "chat_instance": "review-test",
+            "id": _callback_id(), "chat_instance": "review-test",
             "from": {"id": actor, "is_bot": False, "first_name": "Reviewer"},
             "message": message,
             "data": f"review_{action}:{review_id}",
@@ -116,6 +145,7 @@ class _Harness:
         return await self.worker.drain()
 
     async def raw_click(self, data: str, *, update_id: int = 1, actor: int = 42):
+        self.bot.reset_callback()
         message = {
             "message_id": 900 + update_id, "date": 0,
             "chat": {"id": -100, "type": "supergroup"},
@@ -123,7 +153,7 @@ class _Harness:
             "text": "menu",
         }
         payload = {"update_id": update_id, "callback_query": {
-            "id": f"click-{update_id}", "chat_instance": "menu-test",
+            "id": _callback_id(), "chat_instance": "menu-test",
             "from": {"id": actor, "is_bot": False, "first_name": "Reviewer"},
             "message": message, "data": data,
         }}
@@ -132,6 +162,7 @@ class _Harness:
 
     async def command(self, text: str, *, update_id: int = 50, actor: int = 42):
         """Route a /command through the SAME handler graph production uses."""
+        self.bot.reset_callback()
         payload = {"update_id": update_id, "message": {
             "message_id": update_id, "date": 0,
             "chat": {"id": actor, "type": "private"},
@@ -329,7 +360,10 @@ async def test_handler_failure_keeps_card_and_leaves_update_for_retry(harness, m
     assert await harness.click("approve", 320) == 1
 
     _assert_no_generic_error(harness)
-    assert harness.last_alert[1] is True
+    # The handler already acknowledged the click (one answer before the long
+    # publish); a second popup would be dropped by Telegram, so feedback is the
+    # rebuilt card plus the automatic retry.
+    assert harness.bot.answer_calls == 1
     # Card rebuilt (buttons still there), state untouched.
     assert {"review_approve:320", "review_reject:320"} <= set(
         _callback_datas(harness.last_markup))
@@ -347,19 +381,182 @@ async def test_handler_failure_keeps_card_and_leaves_update_for_retry(harness, m
 
 
 @pytest.mark.asyncio
-async def test_ui_only_edit_failure_is_not_retried(harness, monkeypatch):
-    """Window 2: Telegram refusing the edit is not a business failure."""
+async def test_post_success_card_edit_failure_does_not_retry_business(harness, monkeypatch):
+    """Window 2: publish succeeded, the confirmation edit did not.
+
+    Telegram refusing the edit must not repeat the publish and must not keep the
+    update pending (that would re-run approve on a published row)."""
     await _seed_review(321, status="pending")
-    monkeypatch.setattr(
-        review.review_service, "approve",
-        AsyncMock(side_effect=BadRequest("Message is not modified")),
-    )
+    approve = AsyncMock(return_value=MagicMock(link="https://t.me/c/1/1"))
+    monkeypatch.setattr(review.review_service, "approve", approve)
+    harness.bot.fail_edit = BadRequest("Message is not modified")
 
     assert await harness.click("approve", 321) == 1
 
+    assert approve.await_count == 1, "card edit failure must not re-run approve"
     counts = await harness.store.counts()
     assert counts.get("done", {}).get("n", 0) == 1
     _assert_no_generic_error(harness)
+    assert harness.bot.answer_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_deleted_card_after_success_is_not_retried(harness, monkeypatch):
+    await _seed_review(322, status="pending")
+    approve = AsyncMock(return_value=MagicMock(link=""))
+    monkeypatch.setattr(review.review_service, "approve", approve)
+    harness.bot.fail_edit = BadRequest("Message to edit not found")
+
+    assert await harness.click("approve", 322) == 1
+
+    assert approve.await_count == 1
+    assert (await harness.store.counts()).get("done", {}).get("n", 0) == 1
+
+
+@pytest.mark.asyncio
+async def test_channel_publish_failure_still_retries(harness, monkeypatch):
+    """A BadRequest from the PUBLISH is a business failure, not UI noise.
+
+    THE regression: text-based classification used to treat this as a display
+    problem, mark the update done and silently lose the moderator's click."""
+    await _seed_review(323, status="pending")
+    monkeypatch.setattr(
+        review.review_service, "approve",
+        AsyncMock(side_effect=BadRequest("chat not found")),
+    )
+
+    assert await harness.click("approve", 323) == 1
+
+    row = await _review_row(323)
+    assert row["status"] == "pending"
+    counts = await harness.store.counts()
+    assert counts.get("pending", {}).get("n", 0) == 1
+    _assert_no_generic_error(harness)
+    assert harness.bot.answer_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_publish_network_timeout_retries(harness, monkeypatch):
+    await _seed_review(324, status="pending")
+    monkeypatch.setattr(
+        review.review_service, "approve",
+        AsyncMock(side_effect=TimeoutError("telegram timed out")),
+    )
+
+    assert await harness.click("approve", 324) == 1
+
+    assert (await harness.store.counts()).get("pending", {}).get("n", 0) == 1
+    assert harness.bot.answer_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_sqlite_unavailable_retries(harness, monkeypatch):
+    import sqlite3
+
+    await _seed_review(325, status="pending")
+    monkeypatch.setattr(
+        review.review_service, "approve",
+        AsyncMock(side_effect=sqlite3.OperationalError("database is locked")),
+    )
+
+    assert await harness.click("approve", 325) == 1
+
+    assert (await harness.store.counts()).get("pending", {}).get("n", 0) == 1
+
+
+@pytest.mark.asyncio
+async def test_expired_callback_still_delivers_card_feedback(harness):
+    """An unanswerable click must not swallow the failure nor the card sync."""
+    await _seed_review(326, status="pending")
+    harness.bot.refuse_answers = True
+
+    assert await harness.click("reject", 326) == 1
+
+    row = await _review_row(326)
+    assert row["status"] == "rejected"
+    assert harness.bot.answer_calls == 1
+    _assert_no_generic_error(harness)
+
+
+# ---- exactly one answer per callback ---------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rejected_repeat_click_answers_once(harness):
+    await _seed_review(340, status="rejected")
+    await harness.click("reject", 340)
+    assert harness.bot.answer_calls == 1
+    assert harness.last_alert[1] is True
+
+
+@pytest.mark.asyncio
+async def test_published_repeat_click_answers_once(harness):
+    """已发布的重复点击走发布复用账本（duplicate_suppressed），只应答一次。
+
+    预检不短路 published：那会丢掉 `publish.duplicate_suppressed` 审计。业务层
+    复用同一 publication，卡片改成「已发布」；反馈不是第二个弹窗。
+    """
+    await _seed_review(341, status="published")
+    await harness.click("approve", 341)
+    assert harness.bot.answer_calls == 1
+    assert harness.last_alert[1] is False  # the single answer is the plain ack
+    assert harness.last_edit and "已发布" in harness.last_edit
+
+
+@pytest.mark.asyncio
+async def test_publishing_repeat_click_answers_once(harness):
+    await _seed_review(342, status="publishing")
+    await harness.click("approve", 342)
+    assert harness.bot.answer_calls == 1
+    assert harness.last_edit and "正在发布（只读）" in harness.last_edit
+
+
+@pytest.mark.asyncio
+async def test_missing_review_answers_once(harness):
+    await harness.click("approve", 999999)
+    assert harness.bot.answer_calls == 1
+    assert harness.last_alert[0] == "审核记录不存在"
+    assert harness.bot.edits == []
+
+
+@pytest.mark.asyncio
+async def test_no_permission_answers_once(harness):
+    await _seed_review(343, status="pending")
+    await harness.click("approve", 343, actor=99)
+    assert harness.bot.answer_calls == 1
+    assert harness.last_alert[0] == "你没有审核权限"
+    assert harness.bot.edits == []
+
+
+@pytest.mark.asyncio
+async def test_publish_failure_answers_once_and_keeps_retry_button(harness, monkeypatch):
+    from services.review_service import PublishFailedError
+
+    await _seed_review(344, status="pending")
+    monkeypatch.setattr(
+        review.review_service, "approve",
+        AsyncMock(side_effect=PublishFailedError("频道发送失败")),
+    )
+
+    assert await harness.click("approve", 344) == 1
+
+    assert harness.bot.answer_calls == 1
+    datas = _callback_datas(harness.last_markup)
+    assert any(d.startswith("review_approve:") for d in datas)
+
+
+@pytest.mark.asyncio
+async def test_success_answers_once(harness, monkeypatch):
+    await _seed_review(345, status="pending")
+    monkeypatch.setattr(
+        review.review_service, "approve",
+        AsyncMock(return_value=MagicMock(link="https://t.me/c/9/9")),
+    )
+
+    assert await harness.click("approve", 345) == 1
+
+    assert harness.bot.answer_calls == 1
+    assert "已发布" in harness.last_edit
 
 
 @pytest.mark.asyncio
@@ -394,6 +591,56 @@ async def test_restore_command_dry_run_does_not_edit(harness):
     await harness.command("/restore_card 331 --dry-run", update_id=53)
     assert harness.bot.edits == []
     assert any("未修改任何内容" in text for text in harness.bot.outbox)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", [
+    "/restore_card 202",
+    "/restore_card #202",
+    "/restore_card 202 --dry-run",
+    "/restore_card #202 --dry-run",
+])
+async def test_restore_command_accepts_supported_forms(harness, command):
+    await _seed_review(202, status="published")
+    await harness.command(command, update_id=54)
+    if "--dry-run" in command:
+        assert harness.bot.edits == []
+        assert any("未修改任何内容" in text for text in harness.bot.outbox)
+    else:
+        assert harness.last_edit and "已发布（只读）" in harness.last_edit
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", [
+    "/restore_card",
+    "/restore_card abc",
+    "/restore_card 202 --bot 1",
+    "/restore_card 202 --unknown",
+    "/restore_card 202 extra",
+    "/restore_card 202 --dry-run --dry-run",
+])
+async def test_restore_command_rejects_invalid_args_without_touching_cards(harness, command):
+    await _seed_review(202, status="published")
+    before = await _review_row(202)
+
+    await harness.command(command, update_id=55)
+
+    assert harness.bot.edits == [], "invalid arguments must never edit a card"
+    assert any("用法：/restore_card" in text for text in harness.bot.outbox)
+    assert await _review_row(202) == before
+
+
+@pytest.mark.asyncio
+async def test_restore_command_never_crosses_bots(harness):
+    """Review ids collide across bots; a bot only restores its own rows."""
+    await _seed_review(202, status="published")
+    before = await _review_row(202)
+
+    await harness.command("/restore_card 202 --bot 2", update_id=56)
+
+    assert harness.bot.edits == []
+    assert any("用法：/restore_card" in text for text in harness.bot.outbox)
+    assert await _review_row(202) == before
 
 
 @pytest.mark.asyncio
@@ -440,7 +687,40 @@ def test_failure_classification():
     )
 
     assert is_ui_only_error(BadRequest("Message is not modified"))
-    assert is_ui_only_error(BadRequest("Query is too old and response timeout expired"))
-    assert not is_ui_only_error(RuntimeError("publisher exploded"))
+    assert is_ui_only_error(BadRequest("Message to edit not found"))
+    # Text that merely LOOKS like a Telegram edit failure is not UI-only unless
+    # the exception is a BadRequest raised by the edit call itself.
+    assert not is_ui_only_error(RuntimeError("Message is not modified"))
+    assert not is_ui_only_error(BadRequest("chat not found"))
+    assert not is_ui_only_error(BadRequest("query is too old and response timeout expired"))
     assert is_retryable_error(ConnectionError("reset"))
     assert not is_retryable_error(ValueError("bad id"))
+
+
+@pytest.mark.asyncio
+async def test_answer_callback_is_idempotent_per_query():
+    from telepost.telegram.callback_feedback import answer_callback, has_answered
+
+    class _Query:
+        # Telegram callback ids are strings; that is what the bookkeeping keys on.
+        def __init__(self, query_id):
+            self.id = query_id
+            self.calls = []
+            self.fail = False
+
+        async def answer(self, text=None, show_alert=False):
+            if self.fail:
+                raise BadRequest("query is too old")
+            self.calls.append((text, show_alert))
+
+    query = _Query("cb-1")
+    assert has_answered(query) is False
+    assert await answer_callback(query, "first", show_alert=True) is True
+    assert has_answered(query) is True
+    assert await answer_callback(query, "second", show_alert=True) is False
+    assert query.calls == [("first", True)]
+
+    expired = _Query("cb-2")
+    expired.fail = True
+    assert await answer_callback(expired, "boom") is True
+    assert expired.calls == []

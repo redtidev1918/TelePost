@@ -1284,10 +1284,13 @@ async def test_approve_does_not_reclaim_freshly_publishing(review_db, monkeypatc
     await review.approve_review(update, context)
 
     published.assert_not_awaited()
-    # 正在发布中的重试只能用提示告知，绝不改写控制卡（§review-card-recovery）。
+    # §review-card-recovery: exactly one answer per callback — the plain ack is
+    # consumed BEFORE the business call, so a late "busy" popup is impossible.
+    # Feedback for the late conflict is the read-only card sync, never a second
+    # answer and never a destructive edit.
+    update.callback_query.answer.assert_awaited_once()
     answer_kwargs = update.callback_query.answer.await_args.kwargs
-    assert answer_kwargs.get("show_alert") is True
-    assert "发布中" in answer_kwargs["text"]
+    assert answer_kwargs.get("show_alert") in (False, None)
     update.callback_query.edit_message_text.assert_not_awaited()
 
 
@@ -1417,7 +1420,8 @@ async def _insert_pending_spoiler_review(review_db):
     async with db_mod.get_db() as conn:
         await conn.execute(
             "UPDATE pending_reviews SET "
-            "review_message_ids=?, review_message_specs=?, spoiler=0 "
+            "review_message_ids=?, review_message_specs=?, spoiler=0, "
+            "control_message_id=? "
             "WHERE id=?",
             (
                 "[101, 102, 103]",
@@ -1426,6 +1430,7 @@ async def _insert_pending_spoiler_review(review_db):
                     {"kind": "video", "file_id": "V1"},
                     {"kind": "document", "file_id": "D1"},
                 ]),
+                9100,
                 review_id,
             ),
         )
@@ -1539,9 +1544,9 @@ async def test_apply_review_group_mask_paces_edits_to_avoid_flood(monkeypatch):
 async def test_toggle_spoiler_surfaces_keyboard_refresh_failure(review_db, caplog):
     """按钮刷新失败不得静默遗留陈旧标签：遮罩仍须立即生效，且对审核人可见。
 
-    §review-button-refresh: DB 遮罩状态与审核群媒体的即时改掩是权威且已生效；
-    edit_message_reply_markup 失败时按钮标签会成为陈旧值，代码必须 warn 级记录
-    并向审核人弹出可见提醒（show_alert），而不是 debug 级吞掉。
+    §review-card-recovery: Telegram 只接受一次 answerCallbackQuery，所以这里
+    也不能靠第二个弹窗 —— 键盘刷新失败属于 UI-only，代码必须 warn 级记录并用
+    「按库重建卡片」把新鲜标签交还给审核人（有控制卡时），绝不静默吞掉。
     """
     import logging as _logging
 
@@ -1558,16 +1563,20 @@ async def test_toggle_spoiler_surfaces_keyboard_refresh_failure(review_db, caplo
     with caplog.at_level(_logging.WARNING, logger="handlers.review"):
         await review.toggle_review_spoiler(update, context)
 
-    # 遮罩仍被立即应用（改掩未被键盘刷新失败牵连）。
+    # 遮罩仍被立即应用（改掩未被键盘刷新失败牵连；document 不可改掩）。
     assert bot.edit_message_media.await_count == 2
     for c in bot.edit_message_media.await_args_list:
         assert c.kwargs["media"].has_spoiler is True
     # 键盘刷新确实失败并被尝试过。
     assert update.callback_query.edit_message_reply_markup.await_count == 1
-    # 审核人收到可见的弹窗提醒，而非静默。
-    answers = update.callback_query.answer.await_args_list
-    alert = next(a for a in answers if a.kwargs.get("show_alert"))
-    assert alert.kwargs["show_alert"] is True
-    assert "按钮无法刷新" in alert.kwargs["text"]
+    # 只应答一次（不得依赖第二个弹窗）。
+    update.callback_query.answer.assert_awaited_once()
+    # 改为按库重建卡片：新鲜文字 + 键盘交还审核人，且不改变审核状态。
+    assert bot.edit_message_text.await_count == 1
+    restored = bot.edit_message_text.await_args.kwargs
+    assert restored["chat_id"] == str(review.REVIEW_CHAT_ID) or int(
+        restored["chat_id"]
+    ) == int(review.REVIEW_CHAT_ID)
+    assert restored["reply_markup"] is not None
     # 以 warn 级记录，而不是 debug 级吞掉。
     assert any("刷新审核键盘失败" in r.message for r in caplog.records)
