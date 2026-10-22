@@ -8,6 +8,15 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.84.1](https://github.com/redtidev1918/TelePost/compare/v2.84.0...v2.84.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* exclude runtime tasks from update persistence ([b420ed6](https://github.com/redtidev1918/TelePost/commit/b420ed629b2fa1e64d38f2f2a763439b199d956f))
+* harden inbox completion and spoiler replay idempotency ([4c6375c](https://github.com/redtidev1918/TelePost/commit/4c6375c4514cfe2b5ae5f18f55a6169b8763ef7c))
+* prevent runtime task persistence from blocking review callbacks ([21dec7d](https://github.com/redtidev1918/TelePost/commit/21dec7d41965bb436d309715c1e58668ae479d1c))
+
 ## [2.84.0](https://github.com/redtidev1918/TelePost/compare/v2.83.2...v2.84.0) (2026-10-21)
 
 
