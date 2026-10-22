@@ -83,6 +83,35 @@ HTTP 投稿接口、幂等键、审核队列、批准/驳回、发布与发布�
   `run.py` 路由进程占 `WEBHOOK_PORT`，`botN` 子进程占 `WEBHOOK_PORT+N`；
   webhook 模式的更新路径是 `/webhook/botN`。
 
+## 审核回调反馈与卡片恢复不变量（§review-card-recovery）
+
+```text
+Callback failure feedback is non-destructive.
+A failed review callback never removes the operator's buttons.
+Real failures propagate to PTB error observers (Durable Inbox retries);
+UI-only failures are logged and never retried.
+Card restoration is a read-only projection: it never mutates review state,
+never reposts a card, and never re-runs business side effects.
+```
+
+- 回调失败只能用 `answer_callback_query` / `show_alert` 提示；**禁止**用无
+  `reply_markup` 的 `edit_message_text` 覆盖控制卡（历史故障：按钮消失、错误被吞）。
+- `handlers/callback_handlers.py` 的全局兜底：记录 → alert → best-effort
+  `restore_review_card` → **重新抛出**。只有异常到达 PTB error observer，
+  `UpdateInboxWorker` 才会 `mark_failed` 并有限重试（`attempts<=5`）；吞掉异常等于
+  静默丢更新。
+- `is_ui_only_error`（消息未修改 / 已不存在 / 无权限编辑 / 回调过旧）只记日志即返回，
+  不重试、不改写卡片、不弹失败提示。
+- 业务已成功、仅 UI 失败时重放回调只能重新渲染，绝不重跑副作用：状态迁移、
+  `publish`、通知账本均已落库，重放必须命中幂等/终态判断。
+- `handlers/review.py:restore_review_card` 是唯一重建入口：按 `review_id` 读库，
+  需要 `review_chat_id` + `control_message_id`；`pending` 委托 `refresh_refetch_card`
+  （重抓进行中保留“重抓中”形态），终态用 `review_keyboard.card_from_row` 渲染只读
+  标题 + `🔗 查看原链接`。缺控制卡消息 ID 时返回 `no_control_message` 交给既有
+  `reconcile_incomplete_reviews`，**不得**在该路径补发新卡。
+- 管理员手工恢复只走 `/restore_card <审核ID> [--dry-run]`（写
+  `review.card_restored` 审计）；旧卡片已删除时返回 `message_gone`，不无限重试。
+
 ## 改完请自证
 
 ```bash
