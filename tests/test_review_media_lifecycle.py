@@ -180,7 +180,10 @@ async def test_admin_restore_resends_and_restarts_the_clock(store, monkeypatch):
     row = await store.get(rid)
     assert row["preview_state"] == "present"
     assert json.loads(row["review_message_ids"]) == [900, 901]
-    assert "2" in query.answer.await_args.kwargs["text"]
+    # §review-card-recovery: the single answer acknowledges BEFORE the slow
+    # re-stage; the result arrives as the refreshed card, never a second popup.
+    assert query.answer.await_count == 1
+    assert "恢复中" in query.answer.await_args.kwargs["text"]
     markup = query.edit_message_reply_markup.await_args.kwargs["reply_markup"]
     assert f"review_preview:{rid}" not in _callback_data(markup)
 
@@ -248,7 +251,10 @@ async def test_non_cleared_states_refuse_restore(store, monkeypatch, state):
     await review.restore_review_preview(update, context=MagicMock(bot=AsyncMock()))
     assert calls == []
     assert (await store.get(rid))["preview_state"] == state
-    assert "show_alert" not in query.answer.await_args.kwargs or state != "present"
+    # §review-card-recovery: one answer per click; a popup only when the operator
+    # must act (restricted/uncertain), a quiet note when the media is simply fine.
+    show_alert = query.answer.await_args.kwargs.get("show_alert")
+    assert show_alert is (state in ("restricted", "uncertain"))
 
 
 @pytest.mark.asyncio

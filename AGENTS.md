@@ -96,12 +96,19 @@ never reposts a card, and never re-runs business side effects.
 
 - 回调失败只能用 `answer_callback_query` / `show_alert` 提示；**禁止**用无
   `reply_markup` 的 `edit_message_text` 覆盖控制卡（历史故障：按钮消失、错误被吞）。
+- **每个 callback query 只应答一次**（`callback_feedback.answer_callback` 幂等记名，
+  后到的 `answer()` 会被 Telegram 丢弃）。因此：终态/权限类冲突在**业务调用前**预检并
+  用弹窗告知（`_terminal_state_alert`，只决定反馈，绝不替代 DB 的 CAS）；业务中途才发现
+  的状态冲突、发布中、已发布复用等**晚到**结果只能走卡片状态同步（`restore_review_card`），
+  **不得**依赖第二个弹窗。长耗时动作（发布、预览恢复）先应答再执行。
 - `handlers/callback_handlers.py` 的全局兜底：记录 → alert → best-effort
   `restore_review_card` → **重新抛出**。只有异常到达 PTB error observer，
   `UpdateInboxWorker` 才会 `mark_failed` 并有限重试（`attempts<=5`）；吞掉异常等于
-  静默丢更新。
-- `is_ui_only_error`（消息未修改 / 已不存在 / 无权限编辑 / 回调过旧）只记日志即返回，
-  不重试、不改写卡片、不弹失败提示。
+  静默丢更新。兜底只在 `not has_answered(query)` 时补 alert。
+- `is_ui_only_error` 只接受 Telegram `BadRequest` 的**消息编辑**类失败（消息未修改 /
+  已不存在 / 无权限编辑 / 无可编辑文本）——它只能在「编辑已发消息」这一调用点使用。
+  频道发送、媒体上传、审核 DB 失败等业务异常即使文案相似也**必须继续向上抛**；网络超时、
+  限流、未知异常同样不得吞掉。UI-only 分支只记日志 + 卡片重建，不重试。
 - 业务已成功、仅 UI 失败时重放回调只能重新渲染，绝不重跑副作用：状态迁移、
   `publish`、通知账本均已落库，重放必须命中幂等/终态判断。
 - `handlers/review.py:restore_review_card` 是唯一重建入口：按 `review_id` 读库，
@@ -109,8 +116,10 @@ never reposts a card, and never re-runs business side effects.
   （重抓进行中保留“重抓中”形态），终态用 `review_keyboard.card_from_row` 渲染只读
   标题 + `🔗 查看原链接`。缺控制卡消息 ID 时返回 `no_control_message` 交给既有
   `reconcile_incomplete_reviews`，**不得**在该路径补发新卡。
-- 管理员手工恢复只走 `/restore_card <审核ID> [--dry-run]`（写
+- 管理员手工恢复只走 `/restore_card <审核ID> [--dry-run]`（`#审核ID` 亦可；写
   `review.card_restored` 审计）；旧卡片已删除时返回 `message_gone`，不无限重试。
+  **不接受 `--bot` 等其它参数**：每个 Bot 各有独立 SQLite 且审核 ID 会碰撞，命令必须
+  发给目标 Bot 自己；`--bot n` / 未知参数 / 多余参数 / 重复 `--dry-run` 一律拒绝且不碰卡片。
 
 ## 改完请自证
 
