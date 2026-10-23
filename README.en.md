@@ -53,7 +53,8 @@ HTTP API submissions always need review, even with `API_REVIEW_REQUIRED=false`. 
 
 Installation requires an always-on computer or server with access to Telegram, a bot token, a publishing channel and a
 separate review group. Private-chat use can run in Polling mode without a domain; the Mini App
-requires Webhook mode and public HTTPS. Select an installation method, then continue with [First run](#first-run).
+requires Webhook mode and public HTTPS. If the bot and IDs are not ready, complete the first two
+steps of [First run](#first-run) before installing. Select an installation method below, then finish the setup.
 
 **Standalone program (no Python)**: Download the file for the target platform from the
 [download page](https://github.com/redtidev1918/TelePost/blob/main/docs/en/download.md) or
@@ -95,17 +96,26 @@ TOKEN=replace-with-your-bot-token
 CHANNEL_ID=@your_channel
 OWNER_ID=123456789
 REVIEW_CHAT_ID=-1001234567890
-TELEPOST_VERSION=2.x.y
 ```
 
-Replace the placeholders with your settings and `2.x.y` with a published version from
-[Releases](https://github.com/redtidev1918/TelePost/releases/latest), then start:
+Replace all four values with actual settings; the example token and IDs cannot be used as provided.
+For an initial trial, no version setting is required: Compose pulls the `latest` image by default.
+Run these commands from the directory containing `docker-compose.yml`:
 
 ```bash
 docker compose pull
 docker compose up -d
 docker compose ps
 ```
+
+After startup, `docker compose ps` should show the container running and, once the health check
+completes, `healthy`. Send `/start` to the bot in private chat to verify that the main menu opens.
+
+For long-term deployments, add `TELEPOST_VERSION` to `.env` with a published version selected from
+[Releases](https://github.com/redtidev1918/TelePost/releases/latest), without the `v` prefix.
+This variable selects the Docker image version; it is not a bot setting and is unnecessary for
+standalone or pip installations. Pinning a version controls upgrades and rollbacks.
+See [Install and deploy](https://github.com/redtidev1918/TelePost/blob/main/docs/en/INSTALL.md) for upgrade steps.
 
 Compose saves data in `./data` and exposes no HTTP ports by default. To add settings beyond the
 example above, also pass the corresponding variables through Compose's `environment`.
@@ -278,6 +288,11 @@ performing moderation actions. Before enabling write access, read
 ## Documentation
 
 Documentation site: <https://redtidev1918.github.io/TelePost/#/en/>
+
+Use the links below for installation and configuration. Before modifying the repository, developers
+and AI agents should read [AGENTS.md](https://github.com/redtidev1918/TelePost/blob/main/AGENTS.md)
+and its cross-repository requirements, then follow
+[Contributing](https://github.com/redtidev1918/TelePost/blob/main/CONTRIBUTING.md) for development setup and validation (Chinese).
 
 - Install, upgrade, remove: [Install and deploy](https://github.com/redtidev1918/TelePost/blob/main/docs/en/INSTALL.md)
 - Commands and required permissions: [Command reference](https://github.com/redtidev1918/TelePost/blob/main/docs/en/COMMANDS.md)
