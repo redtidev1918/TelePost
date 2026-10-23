@@ -2,22 +2,112 @@ name: Mini App CI
 
 # 独立于 releasegraph 托管流程的增量门禁：TelePost Python 全量 + webapp 前端
 # （install/typecheck/lint/test/build）。gitleaks 由既有 gitleaks.yml 覆盖。
+#
+# 增量执行：changes job 先做轻量变更分类（.github/actions/detect-changes +
+# .github/ci-policy.json），重型 job 按 needs.changes.outputs.run_* 门控；
+# workflow_dispatch 强制全量；无法分类的变更保守回退为全量，纯文档变更只跑
+# changes + ci-gate。job 名称保持不变，未来分支保护可要求 ci-gate 单项。
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# 同一 PR 的新推送取消旧的验证；main 推送与手动触发不会被取消。
+concurrency:
+  group: miniapp-ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  python:
-    timeout-minutes: 20
+  changes:
+    timeout-minutes: 5
     # Skip release-please PRs (authored by github-actions[bot]): GitHub holds their
     # workflow runs for approval so they never start, which shows a permanent failed
     # check on every release PR. Self-healing: once RELEASE_PLEASE_TOKEN (a real user
     # PAT) authors the release PR, this guard no longer matches and CI returns.
+    # Dependent jobs skip automatically when this job is skipped.
     if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.detect.outputs.docs_only }}
+      unclassified: ${{ steps.detect.outputs.unclassified }}
+      backend: ${{ steps.detect.outputs.backend }}
+      frontend: ${{ steps.detect.outputs.frontend }}
+      integration: ${{ steps.detect.outputs.integration }}
+      deploy: ${{ steps.detect.outputs.deploy }}
+      ci: ${{ steps.detect.outputs.ci }}
+      run_python: ${{ steps.gate.outputs.run_python }}
+      run_webapp: ${{ steps.gate.outputs.run_webapp }}
+      run_e2e: ${{ steps.gate.outputs.run_e2e }}
+    steps:
+      - name: Resolve diff range
+        id: range
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Detect changed files and categories
+        id: detect
+        uses: ./.github/actions/detect-changes
+        with:
+          base: ${{ steps.range.outputs.base }}
+          head: ${{ steps.range.outputs.head }}
+      - name: Policy scenario self-test
+        run: python3 scripts/ci_policy_selftest.py
+      - name: Gate heavy jobs by change scope
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          BACKEND: ${{ steps.detect.outputs.backend }}
+          FRONTEND: ${{ steps.detect.outputs.frontend }}
+          INTEGRATION: ${{ steps.detect.outputs.integration }}
+          DEPLOY: ${{ steps.detect.outputs.deploy }}
+          CI: ${{ steps.detect.outputs.ci }}
+          UNCLASSIFIED: ${{ steps.detect.outputs.unclassified }}
+          DOCS_ONLY: ${{ steps.detect.outputs.docs_only }}
+          COUNT: ${{ steps.detect.outputs.count }}
+        run: |
+          set -euo pipefail
+          any_of() {
+            for value in "$@"; do
+              if [ "$value" = "true" ]; then echo true; return 0; fi
+            done
+            echo false
+          }
+          dispatch=false
+          if [ "$EVENT" = "workflow_dispatch" ]; then dispatch=true; fi
+          # Project mapping (docs-only changes skip every heavy job):
+          #   python: backend / integration / deploy (compose + installer lint) / ci / unknown
+          #   webapp: frontend / integration / ci / unknown
+          #   e2e:    boots the real Python backend, so backend changes run it too
+          run_python="$(any_of "$dispatch" "$BACKEND" "$INTEGRATION" "$DEPLOY" "$CI" "$UNCLASSIFIED")"
+          run_webapp="$(any_of "$dispatch" "$FRONTEND" "$INTEGRATION" "$CI" "$UNCLASSIFIED")"
+          run_e2e="$(any_of "$dispatch" "$BACKEND" "$FRONTEND" "$INTEGRATION" "$CI" "$UNCLASSIFIED")"
+          {
+            echo "run_python=$run_python"
+            echo "run_webapp=$run_webapp"
+            echo "run_e2e=$run_e2e"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Mini App CI change gating"
+            echo
+            echo "- categories: backend=$BACKEND frontend=$FRONTEND integration=$INTEGRATION deploy=$DEPLOY ci=$CI unclassified=$UNCLASSIFIED"
+            echo "- docs_only=$DOCS_ONLY changed_files=$COUNT"
+            echo "- scheduled: python=$run_python webapp=$run_webapp e2e=$run_e2e (dispatch=$dispatch)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  python:
+    needs: changes
+    # Gated by the changes job; workflow_dispatch forces a full run.
+    if: needs.changes.outputs.run_python == 'true'
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -48,11 +138,8 @@ jobs:
           bash -n install.sh
 
   webapp:
-    # Skip release-please PRs (authored by github-actions[bot]): GitHub holds their
-    # workflow runs for approval so they never start, which shows a permanent failed
-    # check on every release PR. Self-healing: once RELEASE_PLEASE_TOKEN (a real user
-    # PAT) authors the release PR, this guard no longer matches and CI returns.
-    if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'github-actions[bot]'
+    needs: changes
+    if: needs.changes.outputs.run_webapp == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -75,11 +162,8 @@ jobs:
       - name: Generate API client + build
         run: npm run generate:api && npm run build
   browser-e2e:
-    # Skip release-please PRs (authored by github-actions[bot]): GitHub holds their
-    # workflow runs for approval so they never start, which shows a permanent failed
-    # check on every release PR. Self-healing: once RELEASE_PLEASE_TOKEN (a real user
-    # PAT) authors the release PR, this guard no longer matches and CI returns.
-    if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'github-actions[bot]'
+    needs: changes
+    if: needs.changes.outputs.run_e2e == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -93,6 +177,12 @@ jobs:
           cache-dependency-path: webapp/package-lock.json
       - name: Install
         run: npm ci || npm install
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('webapp/package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
       - name: Run browser E2E (vite dev server managed by Playwright webServer)
@@ -115,3 +205,27 @@ jobs:
           name: miniapp-visual-actuals
           path: webapp/test-results
           if-no-files-found: ignore
+
+  ci-gate:
+    # Stable aggregate result for humans and future branch protection: passes
+    # when every upstream job passed or was skipped by design, fails when any
+    # upstream job failed or was cancelled.
+    needs: [changes, python, webapp, browser-e2e]
+    if: always() && !cancelled()
+    timeout-minutes: 3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate result
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          PYTHON: ${{ needs.python.result }}
+          WEBAPP: ${{ needs.webapp.result }}
+          E2E: ${{ needs.browser-e2e.result }}
+        run: |
+          for result in "$CHANGES" "$PYTHON" "$WEBAPP" "$E2E"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "::error::upstream job ended as: $result"
+              exit 1
+            fi
+          done
+          echo "All required jobs passed or were skipped by design."

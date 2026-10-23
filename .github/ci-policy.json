@@ -1,0 +1,80 @@
+{
+  "_readme": [
+    "Declarative change-impact policy consumed by .github/actions/detect-changes.",
+    "A file may match several categories; a file matching none sets",
+    "unclassified=true, which callers must treat as run-everything.",
+    "Category slots are the stable cross-workflow contract:",
+    "  docs        non-executable documentation",
+    "  backend     TelePost Python package, tests and packaging",
+    "  frontend    Mini App webapp",
+    "  integration shared cross-stack contract (OpenAPI: api/openapi.yaml",
+    "              feeds both the Python API server docs and the webapp",
+    "              generated client via prebuild)",
+    "  deploy      Docker / install / deploy scripts (validated by the",
+    "              python job's compose config and installer syntax checks)",
+    "  ci          workflow and CI infrastructure, including release-please config",
+    "Update together with scripts/ci_policy_selftest.py (run: python scripts/ci_policy_selftest.py)."
+  ],
+  "docs": [
+    "*.md",
+    "docs/**"
+  ],
+  "backend": [
+    "telepost/**",
+    "utils/**",
+    "handlers/**",
+    "config/**",
+    "database/**",
+    "models/**",
+    "protocol/**",
+    "services/**",
+    "mcp_server/**",
+    "tests/**",
+    "scripts/**",
+    "ui/**",
+    "*.py",
+    "run_all_tests.sh",
+    "requirements*.txt",
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "MANIFEST.in",
+    "Makefile",
+    "Makefile.tests",
+    "conftest.py",
+    "pytest.ini",
+    ".coveragerc",
+    "config.ini.example"
+  ],
+  "frontend": [
+    "webapp/**"
+  ],
+  "integration": [
+    "api/**"
+  ],
+  "deploy": [
+    "Dockerfile",
+    "Dockerfile.*",
+    ".dockerignore",
+    "docker-compose*.yml",
+    "docker-compose*.yaml",
+    "docker/**",
+    "fly.toml",
+    "install.sh",
+    "install.bat",
+    "quickstart.sh",
+    "start.sh",
+    "restart.sh",
+    "update.sh",
+    "upgrade.sh",
+    "uninstall.sh",
+    "switch_mode.sh",
+    "deploy.sh",
+    "deploy_flyio.sh",
+    "run.bat"
+  ],
+  "ci": [
+    ".github/**",
+    "release-please-config.json"
+  ]
+}

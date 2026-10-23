@@ -1,0 +1,110 @@
+name: "Detect changes"
+description: >
+  Generic changed-file detection and category classification for incremental
+  CI. Diffs base..head (merge-base aware, with a conservative whole-tree
+  fallback), classifies files against a declarative policy JSON, and exposes
+  per-category booleans plus the derived docs_only / unclassified safety
+  flags. The category slots (docs, backend, frontend, integration, deploy,
+  ci) are the stable contract shared by callers; what each slot matches is
+  project policy and lives in the policy file. This action is mechanism only
+  and must stay project-agnostic.
+
+inputs:
+  base:
+    description: "Base commit SHA to diff against (PR base SHA, push before-SHA)."
+    required: true
+  head:
+    description: "Head commit SHA. Defaults to github.sha."
+    required: false
+    default: ""
+  policy:
+    description: "Policy JSON path, relative to the repository root."
+    required: false
+    default: ".github/ci-policy.json"
+
+outputs:
+  files:
+    description: "Changed files, newline-separated (capped at 200 lines)."
+    value: ${{ steps.classify.outputs.files }}
+  count:
+    description: "Number of changed files."
+    value: ${{ steps.classify.outputs.count }}
+  any:
+    description: "true when at least one file changed."
+    value: ${{ steps.classify.outputs.any }}
+  docs_only:
+    description: "true when every changed file matched only the docs category."
+    value: ${{ steps.classify.outputs.docs_only }}
+  unclassified:
+    description: "true when some changed file matched no category (run full CI)."
+    value: ${{ steps.classify.outputs.unclassified }}
+  docs:
+    description: "docs category matched."
+    value: ${{ steps.classify.outputs.docs }}
+  backend:
+    description: "backend category matched (TelePost: Python package & tests)."
+    value: ${{ steps.classify.outputs.backend }}
+  frontend:
+    description: "frontend category matched (TelePost: Mini App webapp)."
+    value: ${{ steps.classify.outputs.frontend }}
+  integration:
+    description: "integration category matched (TelePost: shared OpenAPI contract)."
+    value: ${{ steps.classify.outputs.integration }}
+  deploy:
+    description: "deploy category matched (Docker / install / deploy scripts)."
+    value: ${{ steps.classify.outputs.deploy }}
+  ci:
+    description: "ci category matched (workflow and CI infrastructure changes)."
+    value: ${{ steps.classify.outputs.ci }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Copy classifier out of the workspace
+      # The checkout below replaces .github/** with head-revision content;
+      # run the classifier from this stable copy taken before checkout.
+      shell: bash
+      run: cp -r "${{ github.action_path }}" "$RUNNER_TEMP/detect-changes"
+
+    - name: Check out head revision with full history
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+        ref: ${{ inputs.head || github.sha }}
+        persist-credentials: false
+
+    - name: Compute changed files
+      id: diff
+      shell: bash
+      env:
+        BASE_SHA: ${{ inputs.base }}
+      run: |
+        set -euo pipefail
+        head_sha="$(git rev-parse HEAD)"
+        base_sha=""
+        if [ -n "$BASE_SHA" ] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+          base_sha="$BASE_SHA"
+        else
+          base_sha="$(git rev-parse --verify -q HEAD~1 || true)"
+          if [ -n "$base_sha" ]; then
+            echo "::warning::base SHA unavailable in history; falling back to HEAD~1"
+          fi
+        fi
+        if [ -n "$base_sha" ]; then
+          merge_base="$(git merge-base "$base_sha" "$head_sha" 2>/dev/null || printf '%s' "$base_sha")"
+          git diff --name-only "$merge_base" "$head_sha" > "$RUNNER_TEMP/changed-files.txt"
+        else
+          # No usable base (root commit / shallow anomaly): treat the whole
+          # tree as changed so every category fires (conservative full run).
+          echo "::warning::no resolvable base; classifying the whole tree"
+          git ls-files > "$RUNNER_TEMP/changed-files.txt"
+        fi
+        echo "count=$(wc -l < "$RUNNER_TEMP/changed-files.txt")" >> "$GITHUB_OUTPUT"
+
+    - name: Classify changes
+      id: classify
+      shell: bash
+      run: |
+        python3 "$RUNNER_TEMP/detect-changes/classify.py" \
+          --policy "${{ inputs.policy }}" \
+          --files "$RUNNER_TEMP/changed-files.txt"
