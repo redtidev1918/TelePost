@@ -116,3 +116,5 @@ TelePost 可以独立使用，无需部署 PixivFlow 或整套生态。
 ## 许可证
 
 [MIT License](https://github.com/redtidev1918/TelePost/blob/main/LICENSE)
+
+<!-- ci gating probe: temporary -->
