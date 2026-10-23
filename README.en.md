@@ -2,23 +2,21 @@
 
 **Language / 语言:** [中文](https://github.com/redtidev1918/TelePost/blob/main/README.md) · English
 
-TelePost is an open-source bot for accepting submissions, reviewing them and publishing to a Telegram channel. Readers can
-send content in a private chat with the bot or upload and preview it in the Mini App. Admins handle
-pending submissions in a review group. Run it on your own computer or server, and use the HTTP API
-to accept submissions from scripts and other services.
+TelePost is an open-source, self-hosted submission and moderation bot for Telegram channels.
+It accepts submissions through private chat, a Mini App and an HTTP API. Users can upload, preview
+and edit content; administrators can review pending submissions and publish them to a channel.
 
 [![Release](https://img.shields.io/github/v/release/redtidev1918/TelePost)](https://github.com/redtidev1918/TelePost/releases/latest) [![PyPI](https://img.shields.io/pypi/v/telepost-bot.svg)](https://pypi.org/project/telepost-bot/) [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/) [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/redtidev1918/TelePost/blob/main/LICENSE) [![Documentation](https://img.shields.io/badge/docs-redtidev1918.github.io-6366f1)](https://redtidev1918.github.io/TelePost/#/en/)
 
 [Download](https://github.com/redtidev1918/TelePost/blob/main/docs/en/download.md) · [Install and deploy](https://github.com/redtidev1918/TelePost/blob/main/docs/en/INSTALL.md) · [Documentation](https://redtidev1918.github.io/TelePost/#/en/)
 
-**Start here:** [Review rules](#how-it-works) · [Install](#download-and-install) · [First submission](#first-run) · [Mini App](#mini-app-optional) · [FAQ](#faq)
+**Quick navigation:** [Review rules](#how-it-works) · [Install](#download-and-install) · [First submission](#first-run) · [Mini App](#mini-app-optional) · [FAQ](#faq)
 
 ## Screenshots
 
 ![Bot private-chat main menu](https://raw.githubusercontent.com/redtidev1918/TelePost/main/docs/assets/screenshots/bot-menu.jpg)
 
-The bot's main menu: submit work, follow your own submissions, search the channel, or browse
-rankings and tags.
+The private-chat menu provides access to submissions, submission history, channel search, rankings and tags.
 
 ## What it does
 
@@ -53,11 +51,11 @@ HTTP API submissions always need review, even with `API_REVIEW_REQUIRED=false`. 
 
 ## Download and install
 
-You need a machine that stays on and can reach Telegram, a bot token, a publishing channel and a
+Installation requires an always-on computer or server with access to Telegram, a bot token, a publishing channel and a
 separate review group. Private-chat use can run in Polling mode without a domain; the Mini App
-requires Webhook mode and public HTTPS. Pick an installation option, then continue with [First run](#first-run).
+requires Webhook mode and public HTTPS. Select an installation method, then continue with [First run](#first-run).
 
-**Standalone program (no Python)**: Take the file for your platform from the
+**Standalone program (no Python)**: Download the file for the target platform from the
 [download page](https://github.com/redtidev1918/TelePost/blob/main/docs/en/download.md) or
 [Releases](https://github.com/redtidev1918/TelePost/releases/latest):
 `telepost-windows-x64.exe` for Windows x64, `telepost-linux-x64` for Linux x64, and
@@ -161,14 +159,13 @@ Opening the URL in a normal browser does not log you in. Setup steps and BotFath
 
 ## AI-assisted review (MCP, optional)
 
-MCP is the protocol AI agents use to call external tools. TelePost can connect to agents such as
-Codex or Claude through [MCP](https://github.com/redtidev1918/TelePost/blob/main/docs/MCP_REVIEW.md)
-(Chinese): they read pending submissions, suggest decisions based on your channel's review policy,
-and perform moderation actions only when you explicitly ask and their permissions allow it.
+MCP is a protocol for AI agents to call external tools. TelePost provides MCP tools for external
+agents such as Codex and Claude to inspect pending submissions, suggest review decisions and,
+with write access, perform moderation actions.
 
-You need to provide your own AI agent. Start with both MCP and the review API set to read-only:
-the AI offers suggestions, and you decide what to publish. With write access enabled, the AI can
-perform moderation actions; the program does not ask for additional human confirmation.
+The AI agent requires separate configuration. Read-only access for both MCP and the review API is
+recommended, leaving publication decisions to administrators. With write access enabled, the program
+does not enforce additional human confirmation.
 Tool list, tokens and connection setup:
 [MCP review](https://github.com/redtidev1918/TelePost/blob/main/docs/MCP_REVIEW.md) (Chinese).
 
@@ -210,7 +207,7 @@ full fields and limits are in [HTTP API](https://github.com/redtidev1918/TelePos
 <details>
 <summary>Do I need a server and a domain?</summary>
 
-You need a machine that stays on. Polling mode with the bot's private chat and a review group
+A computer or server must remain running. Polling mode with the bot's private chat and a review group
 needs no domain; the public HTTPS requirements of Webhook and the Mini App are in
 [More capabilities](#more-capabilities). See
 [Install and deploy](https://github.com/redtidev1918/TelePost/blob/main/docs/en/INSTALL.md).
@@ -227,7 +224,7 @@ affected. Default behaviour per entry point: [How it works](#how-it-works).
 </details>
 
 <details>
-<summary>Why doesn't the Mini App show up?</summary>
+<summary>Why is the Mini App entry unavailable?</summary>
 
 First check that `MINIAPP_ENABLED` is on and the entry URL is configured, then that the page is
 reachable in Webhook mode. If the entry shows but login fails, check `MINIAPP_SESSION_SECRET` in
@@ -248,11 +245,11 @@ machine at the same time causes a Polling conflict. See
 </details>
 
 <details>
-<summary>The review preview disappeared. Is the submission still there?</summary>
+<summary>Are submissions retained after preview cleanup?</summary>
 
 Review preview media is cleared about 36 hours after sending by default; the control card and review
 record remain. This does not expire the submission. Tap **Restore preview** on a pending review's
-card to view it again. If the card's buttons are broken, admins can follow the recovery steps in
+card to view it again. If the card's buttons are unavailable, administrators can follow the recovery steps in
 [Operations](https://github.com/redtidev1918/TelePost/blob/main/docs/OPERATIONS.md) (Chinese).
 
 </details>
@@ -260,8 +257,8 @@ card to view it again. If the card's buttons are broken, admins can follow the r
 <details>
 <summary>Where are submission files stored?</summary>
 
-Submission records, settings and conversation state are saved in `data/` by default. With pip,
-this directory is inside the folder where you start the command. Multiple bots use `data/botN/`.
+Submission records, runtime policies and conversation state are saved in `data/` by default. With pip,
+this directory is relative to the command's working directory. Multiple bots use `data/botN/`.
 Uploaded media stays on Telegram; `data/` is not a full copy of those files.
 Back up and keep the whole `data/` directory when upgrading or moving. Backup steps:
 [Operations](https://github.com/redtidev1918/TelePost/blob/main/docs/OPERATIONS.md#持久数据) (Chinese).
@@ -269,7 +266,7 @@ Back up and keep the whole `data/` directory when upgrading or moving. Backup st
 </details>
 
 <details>
-<summary>Will MCP approve content for me?</summary>
+<summary>Can AI agents approve submissions through MCP?</summary>
 
 In read-only mode, the AI can view submissions and offer suggestions. Set
 `TELEPOST_MCP_REVIEW_MODE=readonly` and `TELEPOST_REVIEW_API_MODE=readonly` to prevent it from
