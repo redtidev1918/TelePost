@@ -9,7 +9,7 @@ README only shows the shortest path; the commands live here.
 
 | Method | Fits | Requires |
 |---|---|---|
-| pip | Python environments and automated installation | Python 3.10+, OS libvips |
+| pip | Python environments and automated installation | Python 3.10+ (libvips optional, see below) |
 | Release single file | Users who prefer not to install Python | No preinstalled Python |
 | Docker / Compose | Container deployments | Docker |
 | Fly.io | Resident production Webhook | `flyctl` |

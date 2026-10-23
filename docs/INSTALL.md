@@ -8,7 +8,7 @@
 
 | 方式 | 适合 | 需要 |
 |---|---|---|
-| pip | Python 环境与自动化安装 | Python 3.10+，系统 libvips |
+| pip | Python 环境与自动化安装 | Python 3.10+（libvips 可选，见下文） |
 | Release 单文件 | 不希望安装 Python 的用户 | 无需预装 Python |
 | Docker / Compose | 容器部署 | Docker |
 | Fly.io | 常驻生产 Webhook | `flyctl` |
