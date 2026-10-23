@@ -53,6 +53,13 @@ jobs:
             echo "base=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
             echo "head=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
+      - name: Materialize the local action
+        # Local composite actions need a checkout before `uses: ./...` can
+        # resolve; shallow is enough, the action re-checkouts head with full
+        # history for the diff itself.
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Detect changed files and categories
         id: detect
         uses: ./.github/actions/detect-changes
