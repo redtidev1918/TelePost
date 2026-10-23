@@ -50,6 +50,7 @@ HTTP API 投稿始终需要审核，`API_REVIEW_REQUIRED=false` 不会关闭 API
 ## 下载与安装
 
 准备一台可以长期运行、能连接 Telegram 的电脑或服务器，以及 Bot Token、发布频道和独立审核群。
+尚未创建 Bot 或取得相关 ID 时，先完成[首次使用](#首次使用)的前两步。
 仅使用 Bot 私聊时可选 Polling，无需域名；Mini App 需要 Webhook 与公网 HTTPS。
 按运行环境选择一种安装方式，完成后继续[首次使用](#首次使用)。
 
@@ -89,17 +90,24 @@ TOKEN=replace-with-your-bot-token
 CHANNEL_ID=@your_channel
 OWNER_ID=123456789
 REVIEW_CHAT_ID=-1001234567890
-TELEPOST_VERSION=2.x.y
 ```
 
-将占位值替换为实际配置，并将 `2.x.y` 替换为 [Releases](https://github.com/redtidev1918/TelePost/releases/latest)
-中的正式版本号，然后启动：
+以上四项均需替换为实际值，示例 Token 和 ID 不可直接使用。首次试用无需指定版本，
+Compose 默认拉取 `latest` 镜像。在 `docker-compose.yml` 所在目录执行：
 
 ```bash
 docker compose pull
 docker compose up -d
 docker compose ps
 ```
+
+启动后，`docker compose ps` 应显示容器运行，并在健康检查完成后显示 `healthy`。
+随后私聊 Bot 发送 `/start`，确认能够打开主菜单。
+
+长期部署应在 `.env` 中追加 `TELEPOST_VERSION`，值为
+[Releases](https://github.com/redtidev1918/TelePost/releases/latest) 中选定的正式版本号（不带 `v` 前缀）。
+该变量仅用于选择 Docker 镜像版本，不属于 Bot 配置；独立程序与 pip 安装无需设置。
+固定版本可控制升级和回滚，升级步骤见[安装与部署](https://github.com/redtidev1918/TelePost/blob/main/docs/INSTALL.md)。
 
 Compose 将数据保存在 `./data`，默认不映射宿主机 HTTP 端口。添加示例之外的配置时，
 还需在 Compose 的 `environment` 中传入对应变量；Webhook、Mini App 和审核开关的配置见
@@ -252,6 +260,10 @@ Bot 私聊投稿默认在用户确认后直接发布。设置 `CHAT_REVIEW_REQUI
 ## 文档
 
 完整文档站：<https://redtidev1918.github.io/TelePost/>
+
+安装与配置说明见下方文档。开发者和 AI Agent 修改仓库前，应先阅读
+[AGENTS.md](https://github.com/redtidev1918/TelePost/blob/main/AGENTS.md) 及其列出的跨仓库规范，
+再按[贡献指南](https://github.com/redtidev1918/TelePost/blob/main/CONTRIBUTING.md)配置开发环境并验证改动。
 
 - 安装、升级与卸载：[安装与部署](https://github.com/redtidev1918/TelePost/blob/main/docs/INSTALL.md)
 - 命令与所需权限：[命令参考](https://github.com/redtidev1918/TelePost/blob/main/docs/COMMANDS.md)
