@@ -8,6 +8,15 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.84.4](https://github.com/redtidev1918/TelePost/compare/v2.84.3...v2.84.4) (2026-10-24)
+
+
+### Bug Fixes
+
+* drop chain asset refs that belong to a different work ([f277843](https://github.com/redtidev1918/TelePost/commit/f2778430929694219321c49864ec10e6bd31e16e))
+* keep staged media kind when chain assets downgrade to photo ([d6ae2d1](https://github.com/redtidev1918/TelePost/commit/d6ae2d1c3c316278c2364d98966802ebac841b39))
+* plan replacement publications with the real staged media type ([59f0af9](https://github.com/redtidev1918/TelePost/commit/59f0af92b76c959ea653111674933db3a603e94f))
+
 ## [2.84.3](https://github.com/redtidev1918/TelePost/compare/v2.84.2...v2.84.3) (2026-10-24)
 
 
