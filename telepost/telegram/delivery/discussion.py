@@ -11,9 +11,9 @@ Workflow (previously embedded in ``handlers/publish._deliver_discussion``):
    exist; never blindly retry a request whose response was lost (that could
    duplicate an album Telegram actually accepted).
 
-Determinate failures are rolled back and retried exactly once. An
-*uncertain* failure (response lost after the comment album was sent) rolls
-back whatever is known and stops: a human must verify the channel/discussion.
+Determinate root failures with no confirmed progress are retried once.
+An uncertain root stops without deletion or resend and preserves checkpoints
+for the publication ledger. Confirmed roots survive discussion failures.
 """
 from __future__ import annotations
 
@@ -47,9 +47,10 @@ class DiscussionDeliveryError(RuntimeError):
     """
 
     def __init__(self, message: str, *, uncertain: bool = False,
-                 sent: Optional[dict] = None):
+                 sent: Optional[dict] = None, known_messages=None):
         super().__init__(message)
         self.uncertain = uncertain
+        self.known_messages = list(known_messages or [])
         self.sent = sent if sent is not None else {"cover": [], "anchor": [], "rest": []}
 
 
@@ -161,18 +162,22 @@ class DiscussionStrategy:
             )
         )
         if cover_result.is_uncertain:
-            found = await self._scan(int(request.chat_id))
-            if found is not None:
-                cover_id, dchat, dmsg = found
-                sent["cover"] = [(int(request.chat_id), cover_id)]
-                sent["anchor"] = [(dchat, dmsg)]
-                raise DiscussionDeliveryError(
-                    "频道首贴发送响应丢失，已反查到帖子并回滚", sent=sent
-                )
+            # A recent forward from this channel is not evidence for this
+            # publication. Preserve uncertainty and confirmed checkpoints;
+            # never delete or resend based on a channel-only cache match.
+            logger.warning("Channel root delivery uncertain: channel=%s reason=%s error_type=%s",
+                           request.chat_id, cover_result.reason,
+                           type(cover_result.error).__name__)
             raise DiscussionDeliveryError(
-                "频道首贴发送响应丢失，未在讨论区发现转发，重发一次", sent=sent
-            )
+                "频道首贴发送结果不确定，未自动重发或回滚；请先核验频道",
+                uncertain=True, known_messages=cover_result.known_messages,
+            ) from (cover_result.error if isinstance(cover_result.error, BaseException) else None)
         if not cover_result.ok:
+            if cover_result.known_messages:
+                raise DiscussionDeliveryError(
+                    f"频道首贴部分送达，需核验后恢复：{cover_result.reason}",
+                    uncertain=True, known_messages=cover_result.known_messages,
+                )
             raise DiscussionDeliveryError(
                 f"频道首贴发送失败：{cover_result.reason}", sent=sent
             )
@@ -316,7 +321,6 @@ class DiscussionStrategy:
             except DiscussionDeliveryError as exc:
                 last = exc
                 if exc.uncertain:
-                    await self._do_rollback(exc.sent)
                     raise
                 if not await self._do_rollback(exc.sent):
                     raise DiscussionDeliveryError(

@@ -529,7 +529,10 @@ linked-discussion follow-up failed, and must never be re-posted on retry.
 
 - 一旦频道 root（cover）确认投递，它就是既定 `Publication`。linked-discussion
   的 overflow（anchor 等待 / 评论区相册）失败**绝不删除**已确认的 root，也**绝不整组重跑**
-  （重跑会重复发 root）。cover 未确认时的失败才允许回滚整个 attempt 并重试一次。
+  （重跑会重复发 root）。仅明确拒绝且没有已确认消息时允许重试一次。
+- root 结果不确定时不得扫描同频道最新转发来推断当前投稿；没有可信消息 ID 就保持
+  `uncertain`，写既有 Publication Ledger，禁止自动删除或重发。已确认的部分消息必须
+  保留在 `progress_json`。PTB `BadRequest` 继承 `NetworkError`，必须先分类为明确拒绝。
 - 确定态 overflow 失败：best-effort 删除评论区已确认的 overflow，保留 root，把 root
   作为发布结果返回；溢出缺失仅降级并被操作者告警日志标记。
 - 不确定态 overflow（评论区相册响应丢失）：保留 root **且不盲删**可能已落地的 overflow；
