@@ -869,7 +869,7 @@ class ReviewService:
         if isinstance(error, DiscussionPublishError):
             if getattr(error, "uncertain", False):
                 return (
-                    tr('评论区发布结果不确定：请到频道确认首贴、到该帖评论串确认图片是否齐；确认缺图后再点重试（重试只补发，重复请手动删多余相册）')
+                    tr('发布结果不确定，已阻止自动重发；请管理员核验频道与发布账本后恢复。')
                 )
             return tr('发布失败，已自动重试一次仍未成功，可再点重试')
         if isinstance(error, NetworkError):
