@@ -8,6 +8,15 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.84.3](https://github.com/redtidev1918/TelePost/compare/v2.84.2...v2.84.3) (2026-10-24)
+
+
+### Bug Fixes
+
+* preserve publication uncertainty and prevent unrelated-forward rollback ([cf22cdf](https://github.com/redtidev1918/TelePost/commit/cf22cdf4614cbc3c7df892726f112273548d2b8c))
+* preserve uncertain publication outcomes and reject uncorrelated forwards ([5f7851a](https://github.com/redtidev1918/TelePost/commit/5f7851a15928048e61e4fd4874631b33f7935208))
+* translate uncertainty recovery guidance ([bd47a7f](https://github.com/redtidev1918/TelePost/commit/bd47a7f8009f0819e2b679709d99d3e7c874ffe0))
+
 ## [2.84.2](https://github.com/redtidev1918/TelePost/compare/v2.84.1...v2.84.2) (2026-10-22)
 
 
