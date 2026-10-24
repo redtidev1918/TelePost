@@ -745,7 +745,7 @@ async def publish_from_file_ids(bot, media, documents, *, tags="", title="",
     assets = [MediaAsset.coerce(a) for a in (media_assets or [])]
 
     if assets:
-        plan = plan_review_media(media, assets, documents=documents)
+        plan = plan_review_media(media, assets, documents=documents, work_id=pid)
         items = plan.to_media_items(spoiler=spoiler)
     else:
         items = _items_from_dicts([
