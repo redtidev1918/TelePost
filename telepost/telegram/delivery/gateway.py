@@ -104,4 +104,10 @@ class PTBTelegramDeliveryGateway:
         strategy = self._discussion or discussion_mod.DiscussionStrategy(
             self, self._bot
         )
-        return await strategy.deliver(request)
+        try:
+            return await strategy.deliver(request)
+        except discussion_mod.DiscussionDeliveryError as exc:
+            factory = DeliveryResult.uncertain if exc.uncertain else DeliveryResult.failed
+            result = factory(str(exc), known_messages=exc.known_messages)
+            result.error = exc
+            return result

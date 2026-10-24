@@ -204,7 +204,7 @@ class PTBSender:
     async def send_album(self, batch: Batch, *, reply_to: Optional[int],
                          caption: Optional[str],
                          reply_markup: Optional[object] = None) -> List[DeliveredMessage]:
-        from telegram.error import NetworkError
+        from telegram.error import BadRequest, NetworkError
 
         media_group = [
             self._input_media(item, caption if i == 0 else None)
@@ -219,6 +219,10 @@ class PTBSender:
         try:
             try:
                 messages = await self._bot.send_media_group(**kwargs)
+            except BadRequest:
+                # PTB BadRequest subclasses NetworkError, but is an explicit
+                # Telegram rejection, not a lost response.
+                raise
             except NetworkError as exc:
                 raise NetworkFailure(str(exc), original=exc) from exc
             finally:
@@ -235,7 +239,7 @@ class PTBSender:
     async def send_single(self, item: MediaItem, *, reply_to: Optional[int],
                           caption: Optional[str],
                           reply_markup: Optional[object] = None) -> DeliveredMessage:
-        from telegram.error import NetworkError
+        from telegram.error import BadRequest, NetworkError
 
         kw = self._single_kwargs(item, caption, reply_markup)
         method_name = kw.pop("method")
@@ -248,6 +252,8 @@ class PTBSender:
                     **self._timeouts,
                     **kw,
                 )
+            except BadRequest:
+                raise
             except NetworkError as exc:
                 raise NetworkFailure(str(exc), original=exc) from exc
         finally:
