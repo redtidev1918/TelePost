@@ -111,6 +111,23 @@ def _asset_kind_to_media_kind(asset_kind: str) -> str:
     return str(asset_kind).strip().lower()
 
 
+def _asset_belongs_to_other_work(asset_id: str, work_id: str) -> bool:
+    """True only for a ``pixiv:<work_id>:...`` ref whose work is NOT this one.
+
+    Unparseable / non-pixiv asset ids stay (conservative): filtering them would
+    silently drop legitimate uploads. A chain's refs are replaced per
+    submission, but a refetch replacement that arrives without its own asset
+    manifest leaves the SUPERSEDED work's refs on the chain — publishing must
+    never ship another work's pictures as this submission's content (review
+    208: a 4-page illustration refetch-replaced by a ugoira).
+    """
+    parts = str(asset_id or "").split(":")
+    if len(parts) < 3 or parts[0] != "pixiv":
+        return False
+    ref_work = parts[1].strip()
+    return bool(ref_work) and bool(work_id) and ref_work != work_id
+
+
 def _overall_strategy(entries: List[MediaPlanEntry]) -> str:
     if not entries:
         return "empty"
@@ -126,7 +143,8 @@ def _overall_strategy(entries: List[MediaPlanEntry]) -> str:
 
 def plan_review_media(media: List[Dict[str, Any]],
                       media_assets: List[Dict[str, Any]],
-                      *, documents: Optional[List[Dict[str, Any]]] = None) -> MediaDeliveryPlan:
+                      *, documents: Optional[List[Dict[str, Any]]] = None,
+                      work_id: str = "") -> MediaDeliveryPlan:
     """Build a delivery plan from a review's local media + canonical asset refs.
 
     ``media`` / ``documents`` mirror the raw ``pending_reviews`` JSON arrays
@@ -137,8 +155,14 @@ def plan_review_media(media: List[Dict[str, Any]],
     Positional pairing (same index) is used because PixivFlow manifests are
     ordered and match the Telegram file list order; a mismatch can ONLY fall
     back to ``remote_url`` and never produces a bogus file_id.
+
+    ``work_id`` drops chain refs that provably belong to a DIFFERENT pixiv
+    work (a refetch replacement may leave the superseded work's refs behind).
     """
     assets = [MediaAsset.coerce(a) for a in (media_assets or [])]
+    if work_id:
+        assets = [a for a in assets
+                  if not _asset_belongs_to_other_work(a.asset_id, work_id)]
     media_items = list(media or [])
     document_items = list(documents or [])
     local_items = media_items + document_items
