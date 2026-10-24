@@ -51,6 +51,48 @@ class TestPlanReviewMedia:
         strategies = [e.strategy for e in plan.entries]
         assert strategies == [STRATEGY_FILE_ID, STRATEGY_REMOTE_URL]
 
+    def test_stale_chain_asset_never_downgrades_local_animation_to_photo(self):
+        """Regression (review 208): a refetch replacement staged an animation
+        file_id while the chain's media_asset_refs still declared the OLD
+        multi-page work as kind=image. The indexed local item is authoritative:
+        sendPhoto on an animation file_id is a certain Telegram reject."""
+        plan = plan_review_media(
+            [{"type": "animation", "file_id": "UGOIRA_FID"}],
+            [
+                {"asset_id": "pixiv:1:illust:page-1", "kind": "image",
+                 "source_url": "https://x/1"},
+                {"asset_id": "pixiv:1:illust:page-2", "kind": "image",
+                 "source_url": "https://x/2"},
+            ],
+        )
+        assert plan.entries[0].kind == "animation"
+        assert plan.entries[0].strategy == STRATEGY_FILE_ID
+        assert plan.entries[0].file_id == "UGOIRA_FID"
+        # The asset-only tail keeps the documented remote fallback.
+        assert plan.entries[1].kind == "photo"
+        assert plan.entries[1].strategy == STRATEGY_REMOTE_URL
+
+    def test_local_video_and_audio_keep_their_kind_with_image_assets(self):
+        plan = plan_review_media(
+            [
+                {"type": "video", "file_id": "VID"},
+                {"type": "audio", "file_id": "AUD"},
+            ],
+            [
+                {"asset_id": "a1", "kind": "image", "source_url": "https://x/1"},
+                {"asset_id": "a2", "kind": "image", "source_url": "https://x/2"},
+            ],
+        )
+        assert [e.kind for e in plan.entries] == ["video", "audio"]
+        assert all(e.file_id for e in plan.entries)
+
+    def test_local_photo_stays_photo_with_image_asset(self):
+        plan = plan_review_media(
+            [{"type": "photo", "file_id": "AAA"}],
+            [{"asset_id": "a1", "kind": "image", "source_url": "https://x/a"}],
+        )
+        assert plan.entries[0].kind == "photo"
+
     def test_indexed_document_is_not_photo(self):
         """Regression: novel cover assets + indexed TXT file_id."""
         plan = plan_review_media(

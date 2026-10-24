@@ -182,8 +182,10 @@ def plan_review_media(media: List[Dict[str, Any]],
         else:
             local = local_items[index] if index < len(local_items) else None
         # The indexed local item is authoritative for presentation: a Telegram
-        # TXT document must never be sent as a photo, even though the matching
-        # canonical asset ref is kind=image (novel covers + TXT document case).
+        # TXT document must never be sent as a photo, and a staged animation /
+        # video / audio file_id must keep its real Telegram type even when the
+        # canonical asset ref (or a stale refetch-chain ref) says kind=image
+        # (review 208: sendPhoto on an animation file_id is a certain reject).
         local_kind = (
             str(local.get("type") or local.get("kind") or "")
             .strip().lower().replace("-", "_")
@@ -198,6 +200,8 @@ def plan_review_media(media: List[Dict[str, Any]],
         )
         if is_document:
             kind = MediaKind.DOCUMENT.value
+        elif local_kind:
+            kind = _asset_kind_to_media_kind(local_kind)
         else:
             kind = MediaKind.PHOTO.value
         local_file_id = (str(local.get("file_id") or "").strip()
