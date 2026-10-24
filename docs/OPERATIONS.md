@@ -544,3 +544,21 @@ print(c.execute('SELECT COUNT(*) FROM message_reaction_counts').fetchone()[0])
 
 - 若用户已加 reaction 但日志没有任何 `Reaction ingest`，说明 Telegram 没有推送
   或 webhook 入口失败；若有 ingest 但没有 `Reaction projected`，才查数据库投影。
+
+## 频道发布结果不确定
+
+发送响应丢失不等于 Telegram 已接收，也不等于发送失败。发布账本的 `uncertain`
+会阻止同一幂等键再次发送，包括进程重启后的请求。审核卡显示失败不代表可以直接重试：
+应先核对审核、`delivery_ledger`、`published_posts`、Durable Inbox 与频道实际内容。
+同频道最近转发不能证明当前投稿成功；只有已知频道消息 ID 才能用于讨论区锚点关联。
+不确定发送不自动删帖、不自动重发，也不宣称已回滚。已确认频道主帖不因评论区失败重发。
+
+恢复必须经过管理员核验，并复用既有审核与发布服务；不得用新幂等键绕过不确定账本，或直接改库
+制造“未发送”证据。没有可验证的发送结果时保持待核验，不能同时承诺自动补发与绝不重复。
+明确 Telegram 拒绝保留原始原因，修正原因后才适合重试。当前没有通用的管理员命令可
+自动解除不确定账本；此类恢复需要单独授权并验证，不能把再次点击发布当作恢复完成。
+
+实现依据：[PTB 错误层次](https://docs.python-telegram-bot.org/en/stable/telegram.error.html)
+（`BadRequest` 是 `NetworkError` 子类，需优先分类）及
+[Telegram 转发来源](https://core.telegram.org/bots/api#messageoriginchannel)。
+复用现有发送器、Publication Ledger、审核 CAS 和 Inbox，无新增数据库或重试管理器。

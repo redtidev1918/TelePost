@@ -1,10 +1,8 @@
 """In-memory registry of channel→discussion automatic forwards.
 
 ``capture_discussion_forward`` is fed every Telegram update by the channel
-listener. When the channel cover post is sent but the HTTP response is lost,
-the delivery strategy scans this bounded registry to discover whether Telegram
-actually accepted the post (and auto-forwarded it to the linked discussion),
-which makes a safe rollback + retry possible.
+listener. It correlates a confirmed channel message ID to its discussion
+anchor. It cannot identify a publication whose send response was lost.
 
 Deliberately a bounded process-local structure: at most ~200 entries / 60 s of
 history, matching the uncertainty window. No external cache is introduced.
@@ -90,18 +88,22 @@ class ForwardRegistry:
                 self._waiters.pop(key, None)
 
     async def scan_recent(self, channel_id: int, *,
+                          message_id: Optional[int] = None,
                           deadline_seconds: float = 6.0,
                           interval: float = 1.0) -> Optional[Tuple[int, int, int]]:
-        """Poll recent forwards after a cover-post response loss.
+        """Look up an already-confirmed channel message, never guess its ID.
 
-        Returns ``(source_message_id, discussion_chat_id, discussion_message_id)``
-        for the newest forward from this channel, or ``None`` on timeout.
+        Missing message identity cannot establish publication success. The
+        returned forward is only a discussion anchor, not delivery evidence.
         """
+        if message_id is None:
+            return None
         deadline = self._now() + deadline_seconds
         while self._now() < deadline:
+            self._prune()
             for i in range(len(self._recent) - 1, -1, -1):
                 cid, mid, dchat, dmsg, _t = self._recent[i]
-                if cid == channel_id:
+                if cid == channel_id and mid == message_id:
                     self._recent.pop(i)
                     return mid, dchat, dmsg
             await asyncio.sleep(interval)
