@@ -44,6 +44,20 @@ enqueue(key)
 - 发布互斥：`claim_for_publishing`（pending/failed→publishing CAS；publishing 超时可重认领）
 - 恢复互斥：`recovery_attempts` partial UNIQUE（每 target 一个 active）
 
+## 恢复执行的权威边界
+
+PixivFlow 的既有 slot/cell 是恢复执行的唯一事实源。TelePost 的
+`recovery_attempts` 保存稳定 requestId、回调去重和远端结果投影，不运行第二套
+执行超时状态机。`requested` 表示尚未确认受理（也可能是受理响应丢失），
+`accepted` 表示远端已受理；运行阶段由 `remote_state` 表达。
+查询失败或本地超龄只设置 `reconciliation_required`，保留每 target 的活动约束，
+绝不据此推断远端已停止。终态仅由关联到同一 requestId/target 的结果确认。
+执行成功表示投递到审核流程；是否已发布仍由 Review/Publication 账本决定。
+
+复用决策：使用 PixivFlow 已有的认证 GET recover/:requestId、SQLite CAS 和
+现有周期扫描；不引入新任务框架、队列、中央服务或跨语言同进程集成。
+网络访问与审计写入都在恢复数据库事务外执行，避免自锁和长事务。
+
 ## 持久化
 
 SQLite（按 Bot 分库，W + 卷 /app/data）：pending_reviews、webhook_inbox、recovery_attempts、

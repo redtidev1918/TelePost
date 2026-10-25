@@ -91,16 +91,19 @@ async def schedule_recover(update: Update, context: CallbackContext) -> None:
         # leaves the operator with a dead spinner and dead-letters the update.
         logger.exception("恢复请求处理异常: target=%s", target_id)
         await _answer(query, tr('恢复请求处理异常，请稍后重试'), show_alert=True)
-        return
+        raise
 
     label = MODE_LABEL.get(mode, tr('重试'))
     reply = tr('✅ 已提交{p0}：系统会自动继续处理。').format(p0=label)
     if mode == "relaxed":
         reply += f"\n{RELAXED_EXPLANATION}"
-    await _answer(query, reply)
     if result.get("already_running"):
         await _answer(query, ALREADY_TEXT)
         return
+    if result.get('replayed') and result.get('state') != 'requested':
+        await _answer(query, str(result['state']))
+        return
+    await _answer(query, reply)
     # KEEP the buttons (2026-10-25 UX fix): removing them after one click
     # left the operator with no retry entry at all once the attempt
     # terminalized (no_candidate / submit exhausted) — the outcome message is

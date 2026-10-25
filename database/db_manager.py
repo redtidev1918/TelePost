@@ -602,6 +602,15 @@ async def init_db():
                 "ON recovery_attempts(target_id) "
                 "WHERE state IN ('requested','accepted')"
             )
+            recovery_columns = {r[1] for r in await (await conn.execute(
+                'PRAGMA table_info(recovery_attempts)')).fetchall()}
+            for column, ddl in (
+                ('remote_state', "TEXT NOT NULL DEFAULT ''"),
+                ('last_checked_at', 'REAL'),
+                ('reconciliation_required', 'INTEGER NOT NULL DEFAULT 0'),
+            ):
+                if column not in recovery_columns:
+                    await conn.execute(f'ALTER TABLE recovery_attempts ADD COLUMN {column} {ddl}')
             await conn.execute(
                 'CREATE INDEX IF NOT EXISTS idx_recovery_target '
                 'ON recovery_attempts(target_id, created_at DESC)'

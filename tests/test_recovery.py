@@ -230,4 +230,4 @@ async def test_schedule_recover_shows_real_failure_reason(monkeypatch, tmp_path,
     assert "❌ 恢复请求失败" in sent
     assert "错误码：invalid_request" in sent
     assert "请求格式或参数被 PixivFlow 拒绝" in sent
-    assert "requestId must be a UUID" in sent
+    assert "HTTP 400" in sent

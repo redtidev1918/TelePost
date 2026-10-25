@@ -16,6 +16,32 @@ class RecoveryRepository:
     def __init__(self, conn):
         self._conn = conn
 
+    async def list_active_before(self, cutoff: float) -> list:
+        cur = await self._conn.execute(
+            "SELECT * FROM recovery_attempts WHERE state IN ('requested','accepted') "
+            "AND created_at <= ? ORDER BY created_at", (cutoff,))
+        return list(await cur.fetchall())
+
+    async def require_reconciliation(self, request_id: str) -> None:
+        await self._conn.execute(
+            "UPDATE recovery_attempts SET reconciliation_required=1, last_checked_at=? "
+            "WHERE request_id=? AND state IN ('requested','accepted')",
+            (time.time(), request_id))
+
+    async def apply_remote(self, request_id: str, target_id: str, *, state: str,
+                           remote_state: str, slot_id: str = '', reason: str = '') -> None:
+        if state not in ('accepted', 'succeeded', 'failed', 'no_candidate', 'duplicate', 'cancelled'):
+            raise ValueError('invalid recovery projection')
+        await self._conn.execute(
+            "UPDATE recovery_attempts SET state=?, remote_state=?, "
+            "slot_id=CASE WHEN ?='' THEN slot_id ELSE ? END, "
+            "failure_code=?, last_checked_at=?, reconciliation_required=0, finished_at=? "
+            "WHERE request_id=? AND target_id=? AND state IN ('requested','accepted') "
+            "AND (slot_id='' OR ?='' OR slot_id=?)",
+            (state, remote_state, slot_id, slot_id, reason if state == 'failed' else '',
+             time.time(), None if state == 'accepted' else time.time(), request_id,
+             target_id, slot_id, slot_id))
+
     async def find_by_callback_key(self, callback_key: str) -> Optional[dict]:
         cur = await self._conn.execute(
             "SELECT * FROM recovery_attempts WHERE callback_key = ?",
@@ -83,24 +109,6 @@ class RecoveryRepository:
         )
         return await cur.fetchone()
 
-    async def list_requested_before(self, cutoff: float) -> list:
-        """'requested' rows older than ``cutoff`` (submit-sweep candidates)."""
-        cur = await self._conn.execute(
-            "SELECT * FROM recovery_attempts WHERE state='requested' "
-            "AND created_at <= ? ORDER BY created_at ASC",
-            (float(cutoff),),
-        )
-        return list(await cur.fetchall())
-
-    async def list_stale_accepted(self, cutoff: float) -> list:
-        """'accepted' rows older than ``cutoff`` (outcome never landed)."""
-        cur = await self._conn.execute(
-            "SELECT * FROM recovery_attempts WHERE state='accepted' "
-            "AND created_at <= ? ORDER BY created_at ASC",
-            (float(cutoff),),
-        )
-        return list(await cur.fetchall())
-
     async def active_summary(self) -> dict:
         """{state: count} of ACTIVE (non-terminal) rows, for health output."""
         cur = await self._conn.execute(
@@ -111,4 +119,13 @@ class RecoveryRepository:
         rows = list(await cur.fetchall())
         summary = {str(r["state"]): int(r["n"]) for r in rows}
         oldest = min((float(r["oldest"]) for r in rows), default=None)
-        return {"states": summary, "oldest_age_seconds": oldest}
+        cur = await self._conn.execute(
+            "SELECT COUNT(*) AS n FROM recovery_attempts WHERE reconciliation_required=1 "
+            "AND state IN ('requested','accepted')")
+        unresolved = await cur.fetchone()
+        cur = await self._conn.execute(
+            "SELECT MAX(finished_at) AS last_success FROM recovery_attempts WHERE state='succeeded'")
+        last_success = await cur.fetchone()
+        return {"states": summary, "oldest_age_seconds": oldest,
+                "reconciliation_required": int(unresolved['n']),
+                "last_success_at": last_success['last_success']}
