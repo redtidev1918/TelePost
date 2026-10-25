@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.84.9](https://github.com/redtidev1918/TelePost/compare/v2.84.8...v2.84.9) (2026-10-25)
+
+
+### Bug Fixes
+
+* **recovery:** converge on remote execution truth, drop local age verdicts ([#360](https://github.com/redtidev1918/TelePost/issues/360)) ([bec7bb8](https://github.com/redtidev1918/TelePost/commit/bec7bb80fb99a51721d68ec0d75fef23bff460f3))
+
 ## [2.84.8](https://github.com/redtidev1918/TelePost/compare/v2.84.7...v2.84.8) (2026-10-25)
 
 
