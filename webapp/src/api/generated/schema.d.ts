@@ -263,7 +263,7 @@ export interface paths {
                         "application/json": components["schemas"]["ErrorResponse"];
                     };
                 };
-                /** @description Retryable transport failure; reconcile via /deliveries/lookup */
+                /** @description Retryable transport failure (or recovery_in_progress — a concurrent request is recovering the staging-failed review for this key); reconcile via /deliveries/lookup or retry the same key */
                 503: {
                     headers: {
                         [name: string]: unknown;
@@ -1847,7 +1847,7 @@ export interface components {
         };
         SubmissionResult: {
             /** @enum {string} */
-            business_status: "accepted" | "idempotent_replay" | "duplicate_existing";
+            business_status: "accepted" | "idempotent_replay" | "duplicate_existing" | "recovery_in_progress";
             /** @enum {string} */
             status?: "published" | "pending_review";
             message_id?: number | null;
@@ -1857,7 +1857,7 @@ export interface components {
             delivery_status?: string;
             reused?: boolean;
             /** @enum {string} */
-            reuse_reason?: "idempotent_replay" | "duplicate_existing";
+            reuse_reason?: "idempotent_replay" | "duplicate_existing" | "recovery_in_progress";
             matched_idempotency_key?: string;
             review_id?: number;
         };

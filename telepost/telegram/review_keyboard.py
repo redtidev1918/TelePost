@@ -128,7 +128,11 @@ def superseded_notice_text(*, new_review_id: int, source_review_id: int = 0) -> 
 def reused_notice_text(row) -> str:
     labels = {
         "pending": tr('待审核'),
-        "failed": tr('发布失败，可重试'),
+        # A staging failure never reached publication; with controlled
+        # recovery (§staging-reliability) a same-key retry re-stages instead
+        # of dead-ending, so the operator-facing wording must not claim a
+        # publish attempt ("发布失败") that never happened.
+        "failed": tr('审核准备失败'),
         "published": tr('已发布，本次未重复发布'),
     }
     return (

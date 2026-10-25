@@ -116,6 +116,9 @@ class TelegramReviewStager:
         # Monotonic deadline of the CURRENT staging call, or None when the
         # caller does not require bounded staging (background repair / tests).
         self._staging_deadline: Optional[float] = None
+        # Per-staging-call observability (P0): retry timeline fed into the
+        # review failure audit. Reset on every ``_stage`` entry.
+        self.last_staging_stats: dict = {}
 
     # ---- StagingPort ---------------------------------------------------
     async def stage_local(self, files, *, caption: str, spoiler: bool,
@@ -354,13 +357,14 @@ class TelegramReviewStager:
                 return await factory()
             except RetryAfter as exc:
                 last_error = exc
-                # First backoff is exactly retry_after+1 (matches tests and
-                # Telegram's flood guidance); later attempts grow geometrically.
-                wait = min(
-                    _retry_after_seconds(exc) + 1.0 if attempt == 0
-                    else (_retry_after_seconds(exc) * (2 ** attempt)) + 1.0,
-                    60.0,
-                )
+                # Telegram's retry_after is a MINIMUM wait (Bot API
+                # ResponseParameters). Pay it in full: never truncate it
+                # (the old 60s cap re-sent while the flood limit was still
+                # in force) and never amplify it (each 429 carries its own
+                # authoritative value). The +1s margin absorbs timer jitter
+                # (asyncio timers may wake early on Windows).
+                wait = _retry_after_seconds(exc) + 1.0
+                self._record_retry(attempt, _retry_after_seconds(exc), wait)
                 logger.warning(
                     "审核预览触发 Telegram 限流，等待 %.1fs 后重试（第 %d/%d 次）",
                     wait, attempt + 1, self._max_attempts,
@@ -371,15 +375,42 @@ class TelegramReviewStager:
                     raise
                 last_error = exc
                 wait = 5.0
+                self._record_retry(attempt, None, wait)
             if attempt + 1 >= self._max_attempts:
                 raise last_error
             left = self._budget_left()
-            if left is not None:
-                # Never sleep past the staging deadline: the next attempt would
-                # be rejected anyway, and the request must answer in time.
-                wait = min(wait, max(left, 0.0))
+            if left is not None and wait >= left:
+                # The demanded wait cannot fit in the remaining staging
+                # budget. Stop now instead of sleeping out the clock: after a
+                # capped sleep, timer jitter could start the next attempt
+                # against an unpaid retry_after (an early re-send), and the
+                # request must answer within its own budget anyway.
+                raise RuntimeError(
+                    "审核预览暂存超时（submission staging timeout），本次投稿未完成"
+                )
             await self._sleep(wait)
         raise RuntimeError("审核预览重试次数已耗尽")
+
+    def _record_retry(self, attempt: int, retry_after: Optional[float],
+                      wait: float) -> None:
+        """P0 observability: every throttled retry stays inspectable.
+
+        ``last_staging_stats`` is reset per staging call (see ``_stage``) and
+        feeds the ``review.failed`` audit detail, so a staging timeout can be
+        explained from durable evidence (retry_after vs. remaining budget)
+        instead of guesswork.
+        """
+        entry = {
+            "attempt": attempt + 1,
+            "retry_after": retry_after,
+            "wait": wait,
+            "budget_left": self._budget_left(),
+        }
+        stats = self.last_staging_stats.get("retries")
+        if stats is None:
+            self.last_staging_stats["retries"] = [entry]
+        else:
+            stats.append(entry)
 
     # ---- media construction -------------------------------------------
     def _make_media_item(self, kind, media, *, caption, spoiler, filename=None):
@@ -625,6 +656,11 @@ class TelegramReviewStager:
         # exactly one ``{kind, file_id}`` entry per appended message id, in the
         # same order. It lets the caller re-edit each already-sent preview
         # message (e.g. to flip the spoiler mask on demand).
+        self.last_staging_stats = {
+            "started": time.monotonic(),
+            "deadline": self._staging_deadline,
+            "retries": [],
+        }
         runs: List[tuple] = []
         for item in items:
             kind = item["kind"] if local else item["type"]
