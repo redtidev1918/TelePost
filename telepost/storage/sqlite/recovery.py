@@ -91,3 +91,24 @@ class RecoveryRepository:
             (float(cutoff),),
         )
         return list(await cur.fetchall())
+
+    async def list_stale_accepted(self, cutoff: float) -> list:
+        """'accepted' rows older than ``cutoff`` (outcome never landed)."""
+        cur = await self._conn.execute(
+            "SELECT * FROM recovery_attempts WHERE state='accepted' "
+            "AND created_at <= ? ORDER BY created_at ASC",
+            (float(cutoff),),
+        )
+        return list(await cur.fetchall())
+
+    async def active_summary(self) -> dict:
+        """{state: count} of ACTIVE (non-terminal) rows, for health output."""
+        cur = await self._conn.execute(
+            "SELECT state, COUNT(*) AS n, MIN(created_at) AS oldest "
+            "FROM recovery_attempts "
+            "WHERE state IN ('requested','accepted') GROUP BY state"
+        )
+        rows = list(await cur.fetchall())
+        summary = {str(r["state"]): int(r["n"]) for r in rows}
+        oldest = min((float(r["oldest"]) for r in rows), default=None)
+        return {"states": summary, "oldest_age_seconds": oldest}
