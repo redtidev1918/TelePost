@@ -58,6 +58,7 @@ CHECK_CODES: Tuple[str, ...] = (
     "review_queue_orphans",
     "review_queue_publishing",
     "review_queue_counts",
+    "review_staging_recoverable",
     "review_preview_lifecycle",
     "delivery_outbox",
     "audit_events_recent",
@@ -927,6 +928,62 @@ def _check_review_queue_counts(
     )
 
 
+# ---- check 6c: staging-failed reviews awaiting controlled recovery ---------
+
+
+def _check_staging_recoverable(
+    db_path: str, conn: sqlite3.Connection, collector: _Collector
+) -> None:
+    """Failed reviews that a same-key retry would recover (§staging-reliability).
+
+    These rows failed BEFORE becoming actionable (no control card, no staged
+    media, nothing published) and self-heal on the producer's next retry. A
+    persistent pile means retries stopped arriving — WARN so the operator can
+    see the backlog instead of rediscovering it via user reports.
+    """
+    columns = _table_columns(conn, "pending_reviews")
+    required = {
+        "id", "status", "error", "updated_at",
+        "control_message_id", "published_message_id", "refetch_request_id",
+        "media_json", "documents_json",
+    }
+    if not columns or not required.issubset(columns):
+        collector.add(
+            "review_staging_recoverable",
+            SKIP,
+            _prefix(db_path, "pending_reviews 缺少基础列，跳过"),
+        )
+        return
+    sql = (
+        "SELECT id, error, updated_at FROM pending_reviews "
+        "WHERE status='failed' AND control_message_id IS NULL "
+        "AND published_message_id IS NULL "
+        "AND (refetch_request_id IS NULL OR refetch_request_id='') "
+        "AND COALESCE(media_json,'[]') IN ('[]') "
+        "AND COALESCE(documents_json,'[]') IN ('[]')"
+    )
+    rows = conn.execute(sql).fetchall()
+    level = WARN if rows else OK
+    oldest = None
+    if rows:
+        oldest = min(_age_seconds(collector.now, r["updated_at"]) or 0.0 for r in rows)
+    collector.add(
+        "review_staging_recoverable",
+        level,
+        _prefix(
+            db_path,
+            f"有 {len(rows)} 条 staging 失败审核可被同键重试自动恢复"
+            + (f"，最久 {oldest / 3600.0:.1f} 小时" if oldest is not None else ""),
+        ),
+        {
+            "path": db_path,
+            "count": len(rows),
+            "review_ids": [r["id"] for r in rows[:_MAX_LISTED]],
+            "oldest_age_seconds": None if oldest is None else round(oldest, 1),
+        },
+    )
+
+
 # ---- check 6b: review preview media lifecycle (§review-media-ttl) ----------
 
 
@@ -1195,6 +1252,7 @@ def _check_database(db_path: str, collector: _Collector) -> None:
         _check_review_queue_orphans(db_path, conn, collector)
         _check_review_queue_publishing(db_path, conn, collector)
         _check_review_queue_counts(db_path, conn, collector)
+        _check_staging_recoverable(db_path, conn, collector)
         _check_review_preview_lifecycle(db_path, conn, collector)
         _check_delivery_outbox(db_path, conn, collector)
         _check_audit_events_recent(db_path, conn, collector, has_active)

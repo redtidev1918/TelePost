@@ -376,7 +376,33 @@ class ReviewQueueService:
             await stager.delete_preview_messages(old_ids)
             await self._repo.delete(existing["id"])
             existing = None
+        recovered_review_id: Optional[int] = None
+        if (existing is not None and existing["status"] == "failed"
+                and not command.refetch_request_id):
+            outcome = await self._attempt_failed_recovery(existing, command, stager)
+            if isinstance(outcome, int):
+                # This request now owns the recovery of the SAME review row;
+                # staging below proceeds with the original review identity.
+                recovered_review_id = outcome
+                existing = None
+            elif outcome is not None:
+                # A concurrent recovery is already running for this key: the
+                # caller must converge later, not record a false success.
+                if is_local:
+                    await stager.cleanup_files(files)
+                return outcome
         if existing is not None:
+            if (existing["status"] == "preparing"
+                    and (existing["error"] or "").strip()):
+                # The row was staging-failed before and is currently being
+                # RECOVERED by a concurrent same-key request (the claim keeps
+                # the old error text until re-staging succeeds). Converge
+                # later instead of ACKing an outcome that has not happened.
+                if is_local:
+                    await stager.cleanup_files(files)
+                return self.result_from_row(
+                    existing, reused=True, reuse_reason="recovery_in_progress",
+                )
             try:
                 if existing["target_id"] in (None, "") and command.target_id:
                     await self._repo.backfill_target(existing["id"], command.target_id)
@@ -394,7 +420,7 @@ class ReviewQueueService:
                     await stager.cleanup_files(files)
 
         work_id = command.work_id or work_id_from_link(command.link)
-        if work_id:
+        if recovered_review_id is None and work_id:
             historical = await self._repo.find_published_work(
                 command.target_id, command.work_type, work_id, self._dedup_window
             )
@@ -409,22 +435,25 @@ class ReviewQueueService:
 
         caption = _caption_from_command(command, media=media, documents=documents)
         preview_ids: List[int] = []
-        try:
-            review_id = await self._reserve(
-                command, work_id=work_id, stager=stager
-            )
-        except ReusedReview as reused:
-            if is_local:
-                await stager.cleanup_files(files)
-            reused_id = (reused.result or {}).get("review_id")
-            if reused_id is not None:
-                await _record(
-                    "submission.duplicate", command, review_id=reused_id,
-                    detail={"reused_id": reused_id},
+        if recovered_review_id is not None:
+            review_id = recovered_review_id
+        else:
+            try:
+                review_id = await self._reserve(
+                    command, work_id=work_id, stager=stager
                 )
-            return reused.result
+            except ReusedReview as reused:
+                if is_local:
+                    await stager.cleanup_files(files)
+                reused_id = (reused.result or {}).get("review_id")
+                if reused_id is not None:
+                    await _record(
+                        "submission.duplicate", command, review_id=reused_id,
+                        detail={"reused_id": reused_id},
+                    )
+                return reused.result
 
-        await _record("review.created", command, review_id=review_id)
+            await _record("review.created", command, review_id=review_id)
 
         # A live staging request and a crashed one look identical in the ledger
         # (status='preparing', control_message_id NULL), so the reconciliation
@@ -432,6 +461,9 @@ class ReviewQueueService:
         # window. Renew the row while we work on it, and bound the staging so
         # this request answers before the router's timeout turns it into a
         # synthetic 502 (which hides whether the submission was processed).
+        # The heartbeat stays alive through the CONTROL phase too: the row is
+        # still 'preparing' until finalize_control, and a slow control send
+        # must not be hijacked by the sweep either.
         heartbeat = asyncio.create_task(self._heartbeat_preparing(review_id))
         set_deadline = getattr(stager, "set_staging_deadline", None)
         if callable(set_deadline):
@@ -450,152 +482,209 @@ class ReviewQueueService:
         # media they are being asked to judge. (The reviewer's own on-demand
         # toggle re-edits the already-sent previews via the persisted
         # per-message specs — see handlers.review.toggle_review_spoiler.)
+        staging_started = time.monotonic()
         try:
-            # Pass the id list in-out: when staging fails mid-way, ids of
-            # already-uploaded previews survive for rollback deletion. The
-            # parallel ``preview_specs`` list records each preview's kind +
-            # file_id (aligned with preview_ids) so the spoiler toggle can
-            # re-edit every already-sent preview message on demand.
-            preview_specs: list = []
-            if is_local:
-                staged_media, staged_documents, preview_ids, media_decisions = \
-                    await stager.stage_local(
-                        files, caption=caption, spoiler=False,
+            try:
+                # Pass the id list in-out: when staging fails mid-way, ids of
+                # already-uploaded previews survive for rollback deletion. The
+                # parallel ``preview_specs`` list records each preview's kind +
+                # file_id (aligned with preview_ids) so the spoiler toggle can
+                # re-edit every already-sent preview message on demand.
+                preview_specs: list = []
+                if is_local:
+                    staged_media, staged_documents, preview_ids, media_decisions = \
+                        await stager.stage_local(
+                            files, caption=caption, spoiler=False,
+                            message_ids=preview_ids, cover_url=cover_url,
+                            specs=preview_specs,
+                        )
+                else:
+                    staged_media, staged_documents, preview_ids = await stager.stage_file_ids(
+                        media or [], documents or [],
+                        caption=caption, spoiler=False,
                         message_ids=preview_ids, cover_url=cover_url,
                         specs=preview_specs,
                     )
-            else:
-                staged_media, staged_documents, preview_ids = await stager.stage_file_ids(
-                    media or [], documents or [],
-                    caption=caption, spoiler=False,
-                    message_ids=preview_ids, cover_url=cover_url,
-                    specs=preview_specs,
+            except RuntimeError as exc:
+                message = str(exc)
+                # Best-effort preview deletion, but the ids STAY on the row (no
+                # clear_previews): they are the durable evidence of which Telegram
+                # messages may exist, for both the reconciler's cleanup pass and
+                # any later controlled recovery (§staging-reliability: empty
+                # persisted media is not evidence that nothing was sent).
+                await stager.delete_preview_messages(preview_ids)
+                await self._repo.mark_preparation_failed(
+                    review_id, message, preview_message_ids=preview_ids
                 )
-        except RuntimeError as exc:
-            message = str(exc)
-            await stager.delete_preview_messages(preview_ids)
-            await self._repo.mark_preparation_failed(
-                review_id, message, clear_previews=True
-            )
-            await _record(
-                "review.failed", command, review_id=review_id,
-                error_class=classify_error(exc),
-                detail={"stage": "preview_staging", "error": message[:200]},
-            )
-            if is_local:
-                await stager.cleanup_files(files)
-            if message.startswith("返回消息数") and "与文件数" in message:
-                raise RuntimeError(message.replace("返回消息数", "消息数", 1))
-            raise
-        except Exception as exc:
-            await stager.delete_preview_messages(preview_ids)
-            await self._repo.mark_preparation_failed(
-                review_id, "preview staging failed", clear_previews=True
-            )
-            await _record(
-                "review.failed", command, review_id=review_id,
-                error_class=classify_error(exc),
-                detail={"stage": "preview_staging", "error": str(exc)[:200]},
-            )
-            if is_local:
-                await stager.cleanup_files(files)
-            raise
+                await _record(
+                    "review.failed", command, review_id=review_id,
+                    error_class=classify_error(exc),
+                    detail=_staging_failure_detail(
+                        "preview_staging", message, stager, staging_started,
+                        sent=len(preview_ids),
+                    ),
+                )
+                if message.startswith("返回消息数") and "与文件数" in message:
+                    raise RuntimeError(message.replace("返回消息数", "消息数", 1))
+                raise
+            except Exception as exc:
+                await stager.delete_preview_messages(preview_ids)
+                await self._repo.mark_preparation_failed(
+                    review_id, "preview staging failed",
+                    preview_message_ids=preview_ids,
+                )
+                await _record(
+                    "review.failed", command, review_id=review_id,
+                    error_class=classify_error(exc),
+                    detail=_staging_failure_detail(
+                        "preview_staging", str(exc), stager, staging_started,
+                        sent=len(preview_ids),
+                    ),
+                )
+                raise
+
+            try:
+                # The previews are durably staged; the control card still needs its
+                # own bounded Telegram budget, and the request must still answer
+                # inside the router's window. A fresh deadline also keeps every
+                # remaining send observable against a real remaining budget.
+                if callable(set_deadline):
+                    set_deadline(time.monotonic() + self._staging_deadline_seconds)
+                staged = await self._repo.update_staged(
+                    review_id, media=staged_media, documents=staged_documents,
+                    preview_message_ids=preview_ids,
+                    preview_message_specs=preview_specs,
+                )
+                if not staged:
+                    raise RuntimeError("审核记录在预览完成前被并发修改")
+                await _record(
+                    "review.preview_staged", command, review_id=review_id,
+                    detail={"media": len(staged_media),
+                            "documents": len(staged_documents),
+                            "preview_messages": len(preview_ids)},
+                )
+                if is_local and media_decisions:
+                    await _record(
+                        "media.prepared", command, review_id=review_id,
+                        detail={"items": media_decisions},
+                    )
+                control_id = await stager.send_control_message_id(
+                    review_id=review_id, command=command,
+                    preview_message_ids=preview_ids,
+                    media_count=_review_media_count(preview_specs, staged_media),
+                    document_count=len(staged_documents),
+                    original_count=_original_count(staged_documents),
+                )
+                await _record("review.control_created", command,
+                              review_id=review_id,
+                              detail={"control_message_id": control_id})
+                replaced = await self._repo.finalize_control(
+                    review_id, control_id,
+                    refetch_request_id=command.refetch_request_id,
+                )
+                if not replaced:
+                    await stager.delete_preview_messages([control_id])
+                    raise RuntimeError("审核控制消息无法绑定到记录")
+                await _record("review.pending", command, review_id=review_id)
+                if command.refetch_request_id:
+                    # The replacement is COMMITTED: the previous generation is now
+                    # superseded history. Invalidate its review-group card so it can
+                    # no longer look actionable, and terminalize its editorial
+                    # drafts. Both are best effort — the backend stale guard is the
+                    # authority if Telegram delivery fails (§refetch-replacement).
+                    await self._post_replacement_cleanup(
+                        stager, review_id=review_id, command=command
+                    )
+                else:
+                    # REVIEW_REQUIRED acceptance: the review/control card is now
+                    # durable. Refetch generations deliberately skip this event.
+                    from telepost.application.submitter_notify import (
+                        ManagerAcceptanceContext,
+                        ManagerNotifyService,
+                    )
+                    await ManagerNotifyService().notify_accepted(
+                        ManagerAcceptanceContext(
+                            logical_submission_id=f"review:{review_id}",
+                            review_id=review_id,
+                            submitter_user_id=command.submitter_user_id or 0,
+                            submitter_username=command.submitter_username,
+                            submitter_display_name=command.submitter_display_name,
+                            anonymous=command.anonymous,
+                            link=command.link,
+                            source=command.source,
+                            review_chat_id=command.review_chat_id,
+                            control_message_id=control_id,
+                            status="pending_review",
+                            actor_kind=command.actor_kind,
+                            actor_subject=command.actor_subject,
+                        )
+                    )
+            except Exception as exc:
+                await stager.delete_preview_messages(preview_ids)
+                await self._repo.mark_preparation_failed(
+                    review_id, str(exc), clear_previews=True
+                )
+                await _record(
+                    "review.failed", command, review_id=review_id,
+                    error_class=classify_error(exc),
+                    detail=_staging_failure_detail(
+                        "control_message", str(exc), stager, staging_started,
+                        sent=len(preview_ids),
+                    ),
+                )
+                raise
+            return {
+                "status": "pending_review",
+                "review_id": review_id,
+                "media_count": _review_media_count(preview_specs, staged_media),
+                "document_count": len(staged_documents),
+                "reused": False,
+            }
         finally:
             if callable(set_deadline):
                 set_deadline(None)
             await self._stop_heartbeat(heartbeat)
-
-        try:
-            staged = await self._repo.update_staged(
-                review_id, media=staged_media, documents=staged_documents,
-                preview_message_ids=preview_ids,
-                preview_message_specs=preview_specs,
-            )
-            if not staged:
-                raise RuntimeError("审核记录在预览完成前被并发修改")
-            await _record(
-                "review.preview_staged", command, review_id=review_id,
-                detail={"media": len(staged_media),
-                        "documents": len(staged_documents),
-                        "preview_messages": len(preview_ids)},
-            )
-            if is_local and media_decisions:
-                await _record(
-                    "media.prepared", command, review_id=review_id,
-                    detail={"items": media_decisions},
-                )
-            control_id = await stager.send_control_message_id(
-                review_id=review_id, command=command,
-                preview_message_ids=preview_ids,
-                media_count=_review_media_count(preview_specs, staged_media),
-                document_count=len(staged_documents),
-                original_count=_original_count(staged_documents),
-            )
-            await _record("review.control_created", command,
-                          review_id=review_id,
-                          detail={"control_message_id": control_id})
-            replaced = await self._repo.finalize_control(
-                review_id, control_id,
-                refetch_request_id=command.refetch_request_id,
-            )
-            if not replaced:
-                await stager.delete_preview_messages([control_id])
-                raise RuntimeError("审核控制消息无法绑定到记录")
-            await _record("review.pending", command, review_id=review_id)
-            if command.refetch_request_id:
-                # The replacement is COMMITTED: the previous generation is now
-                # superseded history. Invalidate its review-group card so it can
-                # no longer look actionable, and terminalize its editorial
-                # drafts. Both are best effort — the backend stale guard is the
-                # authority if Telegram delivery fails (§refetch-replacement).
-                await self._post_replacement_cleanup(
-                    stager, review_id=review_id, command=command
-                )
-            else:
-                # REVIEW_REQUIRED acceptance: the review/control card is now
-                # durable. Refetch generations deliberately skip this event.
-                from telepost.application.submitter_notify import (
-                    ManagerAcceptanceContext,
-                    ManagerNotifyService,
-                )
-                await ManagerNotifyService().notify_accepted(
-                    ManagerAcceptanceContext(
-                        logical_submission_id=f"review:{review_id}",
-                        review_id=review_id,
-                        submitter_user_id=command.submitter_user_id or 0,
-                        submitter_username=command.submitter_username,
-                        submitter_display_name=command.submitter_display_name,
-                        anonymous=command.anonymous,
-                        link=command.link,
-                        source=command.source,
-                        review_chat_id=command.review_chat_id,
-                        control_message_id=control_id,
-                        status="pending_review",
-                        actor_kind=command.actor_kind,
-                        actor_subject=command.actor_subject,
-                    )
-                )
-        except Exception as exc:
-            await stager.delete_preview_messages(preview_ids)
-            await self._repo.mark_preparation_failed(
-                review_id, str(exc), clear_previews=True
-            )
-            await _record(
-                "review.failed", command, review_id=review_id,
-                error_class=classify_error(exc),
-                detail={"stage": "control_message", "error": str(exc)[:200]},
-            )
-            raise
-        finally:
             if is_local:
                 await stager.cleanup_files(files)
-        return {
-            "status": "pending_review",
-            "review_id": review_id,
-            "media_count": _review_media_count(preview_specs, staged_media),
-            "document_count": len(staged_documents),
-            "reused": False,
-        }
+
+    async def _attempt_failed_recovery(self, row, command: QueueCommand,
+                                       stager: StagingPort):
+        """CAS-claim a staging-failed review for controlled idempotent retry.
+
+        Eligibility is deliberately narrow (see ``_recoverable_failed_row``):
+        the review never became actionable (no control card, nothing
+        published, no staged media), so the only Telegram side effects that
+        can exist are PRIVATE review-chat preview messages — never a channel
+        publication, which stays gated by the pending→approve state machine
+        this row never reached. Kept preview ids are cleaned up best-effort
+        before re-staging; a residual duplicate preview in the private review
+        chat is the bounded, audit-visible cost of recovery, and an empty
+        ``media_json`` is treated as UNKNOWN external state, not as proof.
+
+        Returns the claimed ``review_id`` (this request owns the recovery),
+        a result dict (a concurrent recovery is mid-flight — converge later),
+        or ``None`` (not eligible → normal reuse semantics apply).
+        """
+        if not _recoverable_failed_row(row):
+            return None
+        old_ids = _loads(row["review_message_ids"])
+        if old_ids:
+            await stager.delete_preview_messages(old_ids)
+        if not await self._repo.claim_failed_recovery(int(row["id"])):
+            fresh = await self._repo.get(int(row["id"]))
+            if fresh is not None and fresh["status"] == "preparing":
+                return self.result_from_row(
+                    fresh, reused=True, reuse_reason="recovery_in_progress",
+                )
+            return None
+        await _record(
+            "review.recovery_claimed", command, review_id=int(row["id"]),
+            detail={
+                "previous_error": (row["error"] or "")[:200],
+                "cleaned_preview_ids": old_ids,
+            },
+        )
+        return int(row["id"])
 
     async def _reserve(self, command: QueueCommand, *, work_id: str,
                        stager: StagingPort) -> int:
@@ -824,15 +913,36 @@ class ReviewQueueService:
                             else {"action": action, "error": error}),
                 )
 
-            if not ready and preview_ids:
-                await stager.delete_preview_messages(preview_ids)
-                preview_ids = []
-                await self._repo.mark_preparation_failed(
-                    row["id"], "preview preparation interrupted by process restart",
-                    clear_previews=True,
-                )
-                await record_reconciled("orphan_preview_removed")
+            if not ready:
+                if row["status"] == "preparing":
+                    # Crash-left partial staging: clean the orphan previews and
+                    # converge the row to a terminal failure. This also covers
+                    # a process that died mid-RECOVERY: the reclaimed row is
+                    # 'preparing' with no staged media yet.
+                    if preview_ids:
+                        await stager.delete_preview_messages(preview_ids)
+                        preview_ids = []
+                    await self._repo.mark_preparation_failed(
+                        row["id"],
+                        "preview preparation interrupted by process restart",
+                        clear_previews=True,
+                    )
+                    await record_reconciled("orphan_preview_removed")
+                # A staging-failed row with no staged media must NOT get a
+                # control card: an actionable-looking「投稿待审核」card over a
+                # 0-media failed row is exactly the DB↔UI divergence seen in
+                # the 2026-10-25 incident (#209). The failure is already
+                # terminal; same-key retries go through controlled recovery
+                # (or the stable 400 reuse answer), not through a phantom card.
+                continue
             try:
+                # Background repair is bounded too: an unbounded control-card
+                # send would stall the whole sweep (and its job-queue slot).
+                set_deadline = getattr(stager, "set_staging_deadline", None)
+                if callable(set_deadline):
+                    set_deadline(
+                        time.monotonic() + self._staging_deadline_seconds
+                    )
                 control_id = await stager.send_control_message_id(
                     review_id=row["id"], command=command,
                     preview_message_ids=preview_ids,
@@ -852,6 +962,10 @@ class ReviewQueueService:
                 await record_reconciled(
                     "manual_intervention_required", error=str(exc)[:200]
                 )
+            finally:
+                set_deadline = getattr(stager, "set_staging_deadline", None)
+                if callable(set_deadline):
+                    set_deadline(None)
         return repaired
 
     async def _repo_get_by_key(self, key: str):
@@ -879,6 +993,67 @@ def _loads(value) -> list:
         return json.loads(value or "[]")
     except (TypeError, ValueError, json.JSONDecodeError):
         return []
+
+
+def _recoverable_failed_row(row) -> bool:
+    """Whether a ``failed`` review row may be claimed for controlled recovery.
+
+    The safety argument is about REACHABILITY, not about external effects:
+    a row that never had a control card could never be acted on by a
+    reviewer, and publication is only reachable from ``pending`` (approve
+    CAS), which this row never reached. Rows that DID become actionable —
+    a publish-path failure with staged media (the #208 class), or a card
+    that existed — are excluded: their external state may include channel
+    attempts and they must keep the stable terminal answer instead.
+    Refetch replacements have their own delete-and-recreate path.
+    """
+    if row is None or row["status"] != "failed":
+        return False
+    if row["refetch_request_id"]:
+        return False
+    if row["control_message_id"] or row["published_message_id"]:
+        return False
+    if _loads(row["media_json"]) or _loads(row["documents_json"]):
+        return False
+    return True
+
+
+def _staging_failure_detail(stage: str, error: str, stager,
+                            started: float, *, sent: int = 0) -> dict:
+    """Structured audit detail for a staging/control failure (P0-H).
+
+    Correlates the failure with the durable retry timeline so the deadline
+    verdict can be explained from evidence: which ``retry_after`` values
+    Telegram demanded, how much budget was left, how long we ran, and how
+    many preview messages may exist externally.
+    """
+    detail: dict = {"stage": stage, "error": str(error)[:200], "sent": sent}
+    stats = getattr(stager, "last_staging_stats", None)
+    if isinstance(stats, dict) and stats:
+        elapsed = None
+        if isinstance(stats.get("started"), (int, float)):
+            elapsed = round(time.monotonic() - stats["started"], 3)
+        retries = [
+            {
+                "attempt": entry.get("attempt"),
+                "retry_after": entry.get("retry_after"),
+                "wait": entry.get("wait"),
+                "budget_left": (
+                    round(entry["budget_left"], 3)
+                    if isinstance(entry.get("budget_left"), (int, float))
+                    else entry.get("budget_left")
+                ),
+            }
+            for entry in stats.get("retries", [])
+            if isinstance(entry, dict)
+        ][:10]
+        detail["staging"] = {
+            "elapsed_s": elapsed,
+            "retries": retries,
+        }
+    if started:
+        detail["elapsed_wall_s"] = round(time.monotonic() - started, 3)
+    return detail
 
 
 def _original_count(documents) -> int:

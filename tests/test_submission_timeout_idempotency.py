@@ -222,7 +222,14 @@ async def test_send_throttled_never_starts_an_attempt_without_budget():
 
 @pytest.mark.asyncio
 async def test_send_throttled_stops_at_deadline_instead_of_retrying(monkeypatch):
-    """Flood retries must not outlive the budget the router allows."""
+    """Flood retries must not outlive the budget the router allows.
+
+    Since the staging-reliability repair (2026-10-25): when Telegram's
+    demanded retry_after cannot fit in the remaining budget, the loop stops
+    IMMEDIATELY instead of sleeping out the clock — after a capped sleep,
+    timer jitter could start the next attempt against an unpaid retry_after
+    (an early re-send), and sleeping buys nothing.
+    """
     from telepost.telegram import review_stager
 
     calls = []
@@ -250,8 +257,9 @@ async def test_send_throttled_stops_at_deadline_instead_of_retrying(monkeypatch)
     with pytest.raises(RuntimeError, match="submission staging timeout"):
         await stager._send_throttled(factory)
     assert calls == [1000.0], "an attempt started after the staging deadline"
-    assert sleeps == [pytest.approx(0.05)], "backoff exceeded the remaining budget"
-    assert clock["now"] == deadline
+    assert sleeps == [], \
+        "a retry whose wait cannot fit the budget must not sleep first"
+    assert clock["now"] == 1000.0, "the stop must be immediate, not at deadline"
 
 
 @pytest.mark.asyncio
@@ -291,14 +299,16 @@ async def test_deadline_failure_is_coherent_and_never_duplicates(review_db):
     assert stager.deleted == [10], "previews must be rolled back"
     assert stager.deadline is None, "staging budget leaked past the request"
 
-    # Retrying the same key reuses THAT row: one review, never two.
+    # Retrying the same key RECOVERS that row (2026-10-25 staging-reliability
+    # repair): the staging failure never made the review actionable, so the
+    # controlled recovery re-stages under the SAME review identity — one
+    # review, never two, and the retry no longer dead-ends on the failed row.
     retry = await ReviewQueueService().enqueue(
         _command("api:9:deadline"), _Stager(), media=[{"x": 1}], documents=[]
     )
-    assert retry["reused"] is True
+    assert retry["reused"] is False
     assert retry["review_id"] == row["id"]
-    assert retry["status"] == "failed"
-    assert retry["reuse_reason"] == "idempotent_replay"
+    assert retry["status"] == "pending_review"
     assert len(await _all_reviews()) == 1
 
 

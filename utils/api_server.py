@@ -575,7 +575,16 @@ def _is_failed_status(status) -> bool:
 def _business_ack(result: dict) -> web.Response:
     """Normalize a facade result dict to the formal business ACK envelope."""
     reason = result.get("reuse_reason") or ""
-    if reason == "idempotent_replay" and _is_failed_status(result.get("status")):
+    if reason == "recovery_in_progress":
+        # A concurrent request already claimed the controlled recovery of the
+        # staging-failed review for this key and is re-staging it right now.
+        # Answering 200/idempotent_replay here would converge the caller's
+        # outbox on a success that has not happened yet; answering
+        # 400/permanent_failure would dead-letter it. Retryable-later is the
+        # only truthful answer (§staging-reliability).
+        business = "recovery_in_progress"
+        http_status = 503
+    elif reason == "idempotent_replay" and _is_failed_status(result.get("status")):
         # A reuse only ACKs successfully when the REUSED RECORD is itself on the
         # success path. Reporting a reused `failed` record as 200 /
         # idempotent_replay told callers "already accepted" for a submission

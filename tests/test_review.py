@@ -409,6 +409,13 @@ async def test_restart_reconciliation_restores_missing_control_message(review_db
 
 @pytest.mark.asyncio
 async def test_restart_reconciliation_cleans_partial_preview_and_marks_failed(review_db):
+    """A crash-left partial staging converges to failed WITHOUT a control card.
+
+    2026-10-25 staging-reliability repair: the reconciler used to fabricate an
+    actionable「投稿待审核」card over a 0-media failed row (the #209 phantom
+    card). A row with nothing staged must not look reviewable — same-key
+    retries go through controlled recovery instead.
+    """
     from telepost.storage.sqlite.reviews import NewReview, ReviewRepository
 
     repo = ReviewRepository()
@@ -423,13 +430,14 @@ async def test_restart_reconciliation_cleans_partial_preview_and_marks_failed(re
 
     assert await review.reconcile_incomplete_reviews(
         bot, stale_seconds=0
-    ) == 1
+    ) == 0
     row = await repo.get(review_id)
     assert row["status"] == "failed"
-    assert row["control_message_id"] == 83
+    assert row["control_message_id"] is None,         "a 0-media failed row must not receive a review card"
     bot.delete_message.assert_awaited_once_with(
         chat_id=-100123, message_id=82
     )
+    bot.send_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -13,7 +13,10 @@ info:
     * `duplicate_existing` — another key already published the same work;
     * `retryable_failure` — transport/timeout; Telegram state is unknown,
       the server never auto-resends; reconcile with `GET /deliveries/lookup`;
-    * `permanent_failure` — deterministic rejection; do not resend unchanged.
+    * `permanent_failure` — deterministic rejection; do not resend unchanged;
+    * `recovery_in_progress` (HTTP 503) — the staging-failed review for this
+      `idempotency_key` is being recovered by a concurrent request; retry the
+      same key later, it converges to the same review row.
 
     Identity and provenance (§identity) — three orthogonal concepts:
 
@@ -98,6 +101,7 @@ components:
             - accepted
             - idempotent_replay
             - duplicate_existing
+            - recovery_in_progress
         status:
           type: string
           enum: [published, pending_review]
@@ -109,7 +113,7 @@ components:
         reused: {type: boolean}
         reuse_reason:
           type: string
-          enum: [idempotent_replay, duplicate_existing]
+          enum: [idempotent_replay, duplicate_existing, recovery_in_progress]
         matched_idempotency_key: {type: string}
         review_id: {type: integer}
     FileIdMedia:
@@ -357,7 +361,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
         '503':
-          description: Retryable transport failure; reconcile via /deliveries/lookup
+          description: Retryable transport failure (or recovery_in_progress — a concurrent request is recovering the staging-failed review for this key); reconcile via /deliveries/lookup or retry the same key
           content:
             application/json:
               schema: {$ref: '#/components/schemas/BusinessFailure'}

@@ -310,13 +310,24 @@ class ReviewRepository:
         return source_id, ids
 
     async def mark_preparation_failed(self, review_id: int, error: str, *,
-                                      clear_previews: bool = False) -> bool:
+                                      clear_previews: bool = False,
+                                      preview_message_ids: Optional[List[int]] = None) -> bool:
         previews = ", review_message_ids='[]'" if clear_previews else ""
+        if preview_message_ids is not None:
+            # Persist the ids observed so far BEFORE the failure: they are the
+            # durable external-effect evidence (which Telegram messages may
+            # exist) for later cleanup and controlled recovery. An absent id
+            # list must never be mistaken for "nothing was sent".
+            previews = ", review_message_ids=?"
+        params: list = [time.time(), str(error)[:500]]
+        if preview_message_ids is not None:
+            params.append(json.dumps(preview_message_ids))
+        params.append(int(review_id))
         async with db_manager.get_db() as conn:
             cur = await conn.execute(
                 "UPDATE pending_reviews SET status='failed', updated_at=?, "
                 f"error=?{previews} WHERE id=? AND status='preparing'",
-                (time.time(), str(error)[:500], int(review_id)),
+                params,
             )
             return cur.rowcount == 1
 
@@ -386,6 +397,25 @@ class ReviewRepository:
             cur = await conn.execute(
                 "UPDATE pending_reviews SET updated_at=? "
                 "WHERE id=? AND status='preparing'",
+                (time.time(), int(review_id)),
+            )
+            return cur.rowcount == 1
+
+    async def claim_failed_recovery(self, review_id: int) -> bool:
+        """Atomically claim a staging-failed review for controlled recovery.
+
+        The WHERE clause is the single-writer CAS (§staging-reliability): the
+        row must still be ``failed``, never have carried a control card, and
+        never have published. ``failed → preparing`` is therefore NOT an
+        unconditional transition — only this exact, never-actionable shape
+        can be re-opened, and only one concurrent claimant wins.
+        """
+        async with db_manager.get_db() as conn:
+            cur = await conn.execute(
+                "UPDATE pending_reviews SET status='preparing', updated_at=? "
+                "WHERE id=? AND status='failed' "
+                "AND control_message_id IS NULL "
+                "AND published_message_id IS NULL",
                 (time.time(), int(review_id)),
             )
             return cur.rowcount == 1
