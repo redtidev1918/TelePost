@@ -1,24 +1,24 @@
 <!-- docsite-release-repo: redtidev1918/TelePost -->
-<!-- docsite-release-tag: v2.84.7 -->
+<!-- docsite-release-tag: v2.84.8 -->
 # 📥 Download TelePost
 
 **Language / 语言:** [中文](/download.md) · English
 
-<!-- docsite: generated from redtidev1918/TelePost release v2.84.7; do not edit by hand -->
+<!-- docsite: generated from redtidev1918/TelePost release v2.84.8; do not edit by hand -->
 
 This page is **generated automatically** by GitHub Actions on every release and always points at the latest one.
 
-## Latest version: `v2.84.7` (2026-10-25)
+## Latest version: `v2.84.8` (2026-10-25)
 
-👉 [Release notes and checksums](https://github.com/redtidev1918/TelePost/releases/tag/v2.84.7)
+👉 [Release notes and checksums](https://github.com/redtidev1918/TelePost/releases/tag/v2.84.8)
 
 | Platform | File | Size | Download |
 |---|---|---|---|
-| Linux · x64 | `telepost-2.84.7-linux-x64.tar.gz` | 45.6 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.7/telepost-2.84.7-linux-x64.tar.gz) |
-| Linux · x64 | `telepost-linux-x64` | 45.9 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.7/telepost-linux-x64) |
-| Windows · x64 | `telepost-2.84.7-windows-x64.zip` | 33.4 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.7/telepost-2.84.7-windows-x64.zip) |
-| Windows · x64 | `telepost-windows-x64.exe` | 33.8 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.7/telepost-windows-x64.exe) |
-| macOS · arm64 | `telepost-2.84.7-macos-arm64.tar.gz` | 30.4 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.7/telepost-2.84.7-macos-arm64.tar.gz) |
-| macOS · arm64 | `telepost-macos-arm64` | 30.6 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.7/telepost-macos-arm64) |
-| 通用 | `RELEASE-METADATA.json` | 3 KB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.7/RELEASE-METADATA.json) |
-| 通用 | `SHA256SUMS` | 1 KB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.7/SHA256SUMS) |
+| Linux · x64 | `telepost-2.84.8-linux-x64.tar.gz` | 45.6 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.8/telepost-2.84.8-linux-x64.tar.gz) |
+| Linux · x64 | `telepost-linux-x64` | 45.9 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.8/telepost-linux-x64) |
+| Windows · x64 | `telepost-2.84.8-windows-x64.zip` | 33.4 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.8/telepost-2.84.8-windows-x64.zip) |
+| Windows · x64 | `telepost-windows-x64.exe` | 33.8 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.8/telepost-windows-x64.exe) |
+| macOS · arm64 | `telepost-2.84.8-macos-arm64.tar.gz` | 30.4 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.8/telepost-2.84.8-macos-arm64.tar.gz) |
+| macOS · arm64 | `telepost-macos-arm64` | 30.6 MB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.8/telepost-macos-arm64) |
+| 通用 | `RELEASE-METADATA.json` | 3 KB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.8/RELEASE-METADATA.json) |
+| 通用 | `SHA256SUMS` | 1 KB | [⬇️ Download](https://github.com/redtidev1918/TelePost/releases/download/v2.84.8/SHA256SUMS) |
