@@ -921,6 +921,27 @@ class ReviewService:
             review_id, True, current_spoiler,
             len(_as_list(row["media_json"])), len(_as_list(row["documents_json"])),
         )
+        # A claimed row with NO publishable payload can only be a staging
+        # failure that never completed: admission requires media/documents,
+        # and a row that reached pending always has staged payload. Running
+        # the doomed publish (the 2026-10-25 #209 phantom-card clicks) just
+        # flips the row publishing→failed on every click while inviting
+        # 「可重试」 on a row that can never publish. Release the claim and
+        # refuse honestly. Rows WITH staged payload (#208-class recovery)
+        # and chain-asset rows are untouched.
+        if not _as_list(row["media_json"]) and not _as_list(row["documents_json"]):
+            try:
+                has_chain = bool(str(row["review_chain_id"] or ""))
+            except (KeyError, IndexError):
+                has_chain = False
+            if not has_chain:
+                await self._repo.mark_failed(
+                    review_id, "无可发布内容：审核暂存从未完成",
+                )
+                _audit("approve", review_id, actor, "failed",
+                       source=source, error="no_publishable_payload")
+                raise ReviewStateError(
+                    "该审核从未完成暂存，无可发布内容；请等待投稿方重新投递。")
         if on_claim is not None:
             try:
                 await on_claim(row)

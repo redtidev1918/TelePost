@@ -76,6 +76,51 @@ async def test_list_get_and_summary(service_db):
 
 
 @pytest.mark.asyncio
+async def test_approve_refuses_never_staged_row_without_running_publish(
+        service_db):
+    """2026-10-25 #209 phantom-card clicks: a claimed row with NO payload and
+    NO chain can never publish (admission requires media/documents; a row that
+    reached pending always has staged payload). The doomed publish must not
+    run — the claim is released and the refusal is honest, while #208-class
+    recovery rows (payload present) keep working."""
+    await _insert_review(status="failed", media=[], documents=[])
+    publish_calls = 0
+
+    async def publisher(*args, **kwargs):
+        nonlocal publish_calls
+        publish_calls += 1
+        return {"message_id": 1, "link": "x"}
+
+    service = ReviewService(publisher)
+    with pytest.raises(ReviewStateError) as err:
+        await service.approve(object(), 1, actor=9)
+    assert "无可发布内容" in str(err.value.message if hasattr(err.value, "message") else err.value)
+    assert publish_calls == 0, "the doomed publish must not run"
+
+    async with db_manager.get_db() as conn:
+        row = await (await conn.execute(
+            "SELECT status, error FROM pending_reviews WHERE id=1"
+        )).fetchone()
+    assert row["status"] == "failed", "the claim must be released"
+    assert "无可发布内容" in row["error"]
+
+
+@pytest.mark.asyncio
+async def test_approve_failed_row_with_payload_still_publishes(service_db):
+    """The #208-class manual recovery channel: a failed row WITH staged media
+    remains publishable through approve."""
+    await _insert_review(status="failed",
+                         media=[{"type": "photo", "file_id": "R"}])
+
+    async def publisher(*args, **kwargs):
+        return {"message_id": 77, "link": "https://t.me/c/1/77"}
+
+    result = await ReviewService(publisher).approve(object(), 1, actor=9)
+    assert result.status == "published"
+    assert result.message_id == 77
+
+
+@pytest.mark.asyncio
 async def test_approve_publishes_once_and_reuses_concurrent_result(service_db):
     await _insert_review()
     claimed = asyncio.Event()
