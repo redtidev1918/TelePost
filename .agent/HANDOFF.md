@@ -1,13 +1,14 @@
 # 会话交接（TelePost 可靠性专项）
 
-## 当前交接：2026-10-25 架构简化任务仍在进行
+## 当前交接：2026-10-25 晚——恢复权威收敛切片已闭环
 
-当前生产 2.84.8；分支 codex/recovery-reconciliation 的修改未发布。
-真实代码证实本地超龄误判与恢复通知不更新恢复行；红测复现，修复待完整交付。
-复核已过：TelePost 全量 1601P/1S、PixivFlow 全量 1605P、定向红绿 34/34；
-GET recover 契约字段（targetId/errorCode）与 CellStatus 8 值映射已逐项核对。
-Fly SSH 已恢复；#209 仅只读状态核查；不重放历史媒体或死信。
-下一步：PR/CI → 发行与只读生产验收 → 文档收尾。
+生产 2.84.9（`b3a97e1`）+ PixivFlow 3.7.2（`bd188cb`）；本地超龄裁决已删除，
+sweep 先查远端（GET recover）再投影；查询失败只置 reconciliation_required 并保留
+target 互斥。Webhook 60s 自核验 + /ready 门控已生产实证。
+#209 恢复待人工审核授权（failed、空载荷、控制卡在）；无持久化内容分类结论。
+回滚点：TelePost 2.84.8 / PixivFlow 3.7.1。
+下一会话若做恢复收尾：操作者点击恢复按钮 → 正常审核 → 人工批准 → 发布；
+或用 /restore_card 处理旧卡。架构证据见 Deploy recovery-ownership.md。
 架构证据见 Deploy docs/architecture/recovery-ownership.md。
 
 ## 以下为已被替代的 2.84.6 历史交接
