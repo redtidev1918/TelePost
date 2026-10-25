@@ -2,9 +2,11 @@
 
 ``sched_recover|<target_id>|<normal|relaxed>`` — one button row per FAILED
 target on the terminal schedule message. Clicking admits a durable recovery
-attempt (idempotent per callback id; one active recovery per target), shows the
-operator a business-friendly "accepted/queued" answer, and removes the buttons
-so the same outcome cannot be re-clicked into a second attempt.
+attempt (idempotent per callback id) and shows the operator a
+business-friendly "accepted/queued" answer. The buttons STAY on the message:
+re-clicks are governed by the data layer (one active attempt per target;
+active →「正在恢复中」, terminal → a fresh attempt), so a failed recovery can
+always be retried from the same message.
 """
 from __future__ import annotations
 from ui.i18n import tr
@@ -99,12 +101,14 @@ async def schedule_recover(update: Update, context: CallbackContext) -> None:
     if result.get("already_running"):
         await _answer(query, ALREADY_TEXT)
         return
-    # Remove the buttons: the outcome message is terminal history; the recovery
-    # itself reports through its own schedule-outcome notification.
-    try:
-        await query.edit_message_reply_markup(reply_markup=None)
-    except Exception as exc:
-        logger.debug("移除恢复按钮失败: %s", exc)
+    # KEEP the buttons (2026-10-25 UX fix): removing them after one click
+    # left the operator with no retry entry at all once the attempt
+    # terminalized (no_candidate / submit exhausted) — the outcome message is
+    # the ONLY surface carrying these buttons, and failed-recovery outcome
+    # messages deliberately carry none. Re-clicks are safe and informative:
+    # while an attempt is active the partial-UNIQUE answers「正在恢复中」,
+    # after a terminal outcome a fresh attempt is admitted, and PixivFlow
+    # refuses recovery of already-consumed targets with a clear error.
     # Out-of-band remote submission (same requestId; idempotent on PixivFlow).
     # Only for rows still awaiting submission — a replayed/terminal row must
     # not be resurrected by a second submit.
