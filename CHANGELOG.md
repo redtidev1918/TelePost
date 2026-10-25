@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.84.7](https://github.com/redtidev1918/TelePost/compare/v2.84.6...v2.84.7) (2026-10-25)
+
+
+### Bug Fixes
+
+* make recovery submission failures visible and never sticky ([#356](https://github.com/redtidev1918/TelePost/issues/356)) ([a64a30a](https://github.com/redtidev1918/TelePost/commit/a64a30a99ec495f433070f7f96c0f08539c86f50))
+
 ## [2.84.6](https://github.com/redtidev1918/TelePost/compare/v2.84.5...v2.84.6) (2026-10-25)
 
 
