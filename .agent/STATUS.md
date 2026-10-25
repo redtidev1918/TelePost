@@ -1,16 +1,14 @@
 # 工程状态（TelePost）
 
-## 当前核验：2026-10-25（Asia/Shanghai）
+## 当前核验：2026-10-25 晚（Asia/Shanghai）
 
-- 当前任务 IN_PROGRESS：架构复杂度审计与恢复生命周期职责收敛。
-- 实际生产为 2.84.8 / `e6cfcde968c3f1da95ebd6e2e8df598c25438a0d`，Fly SSH 已可用。
-- 两 Bot webhook 已注册；Doctor 报告历史 inbox dead=8/7，未重放。
-- #209 只读确认 failed、有控制卡、媒体 JSON 字段长度均为 2；未读取或发送媒体。
-- 修改待交付：远端结果投影、移除本地超龄失败裁决、Webhook 核验与本地故障注入。
-- 复核（2026-10-25 晚）：全量 1601 passed / 1 skipped（上次 1 失败已消除）；
-  PixivFlow 全量 1605 passed；定向红绿 34/34。审计事件改为仅首次转入待对账时记录。
-- 本轮以用户最新架构简化指令为准，不向真实频道发送测试媒体。
-- `.session_restore/`、`clear/` 是既有未跟踪内容，保留且不提交。
+- 当前任务：**DONE**——恢复执行权威收敛切片已发行部署验收（2.84.9 / b3a97e1）。
+- 生产：TelePost 2.84.9（自动部署 run 40210954825）+ PixivFlow 3.7.2（fly deploy）。
+- 验收：/health、/ready（含 per-bot 注册门控）、smoke 4/4、verify-webhooks、
+  机内 doctor（integrity/refetch/账本全净；inbox dead=8/7 为历史遗留）全过。
+- #209 只读核查：failed、空载荷、控制卡在；恢复待人工审核授权，媒体未触碰。
+- 内容分类争议：无持久化分类结论可查，工程记录不需更正；安全限制保留。
+- 回滚点：TelePost 2.84.8 / PixivFlow 3.7.1。
 
 ## 已被替代的历史快照（不代表当前状态）
 
