@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.84.5](https://github.com/redtidev1918/TelePost/compare/v2.84.4...v2.84.5) (2026-10-25)
+
+
+### Bug Fixes
+
+* bounded Telegram staging retries with controlled failure recovery ([#350](https://github.com/redtidev1918/TelePost/issues/350)) ([c9be5d6](https://github.com/redtidev1918/TelePost/commit/c9be5d66225e844be9a560a2456761c75775164f))
+
 ## [2.84.4](https://github.com/redtidev1918/TelePost/compare/v2.84.3...v2.84.4) (2026-10-24)
 
 
