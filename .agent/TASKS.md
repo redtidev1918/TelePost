@@ -4,11 +4,11 @@
 
 | 任务 | 状态 | 证据 |
 | --- | --- | --- |
-| 原 answer-first / durable admission / inbox health / release 2.84.6 | DONE | 当前生产已是 2.84.8，下方旧 TODO 不再有效 |
-| 组件、复杂度、职责与方案矩阵 | IN_PROGRESS | Deploy recovery-ownership.md |
-| 恢复执行权威收敛与结果投影 | IN_PROGRESS | 红测已复现，代码待交付 |
-| Webhook 注册核验与故障注入 | IN_PROGRESS | 本地漂移/退避测试 |
-| 全量、PR/CI、Release、只读生产验收 | IN_PROGRESS | 复核 1601P/1S 全过（1F 已消除）；PixivFlow 1605P；进入 PR |
+| 原 answer-first / durable admission / inbox health / release 2.84.6 | DONE | 当前生产已是 2.84.9，下方旧 TODO 不再有效 |
+| 组件、复杂度、职责与方案矩阵 | DONE | Deploy recovery-ownership.md（#272，Status: DELIVERED） |
+| 恢复执行权威收敛与结果投影 | DONE | PR #360 → 2.84.9 部署验收；红→绿 3 例 + 全量 1601P/1S |
+| Webhook 注册核验与故障注入 | DONE | PR #360 内 verify_webhook + 60s 任务；机内 per-bot /ready 门控实证 |
+| 全量、PR/CI、Release、只读生产验收 | DONE | 2.84.9（#361）+ 3.7.2（PF #213 + pin #273）；验收见 deploy current-state |
 | 大型插件框架、跨语言合并部署 | DEFERRED | 无真实多实现需求或实测收益 |
 
 ## 历史队列（已失效，仅保留追踪依据）
