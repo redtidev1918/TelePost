@@ -1103,7 +1103,42 @@ def add_api_routes(web_app, application) -> None:
                     "review_required": True,
                     "api_review_required": True,
                     "miniapp_review_required": MINIAPP_REVIEW_REQUIRED,
-                    "chat_review_required": CHAT_REVIEW_REQUIRED})
+                    "chat_review_required": CHAT_REVIEW_REQUIRED,
+                    "inbox": await _inbox_health()})
+
+    async def _inbox_health():
+        """Durable-inbox liveness from HTTP (§durable-inbox observability).
+
+        ``pending`` counts un-consumed rows (a persistently growing number
+        means the worker is wedged or delivery outpaces consumption);
+        ``oldest_age_seconds`` is the head-of-line age; ``dead_24h`` counts
+        recently dead-lettered updates. Read-only, no payload data leaves
+        the process."""
+        try:
+            from database import db_manager
+            async with db_manager.get_db() as conn:
+                row = await (await conn.execute(
+                    "SELECT COUNT(*) AS n, MIN(received_at) AS oldest "
+                    "FROM webhook_inbox "
+                    "WHERE state IN ('pending','processing')"
+                )).fetchone()
+                dead = await (await conn.execute(
+                    "SELECT COUNT(*) AS n FROM webhook_inbox "
+                    "WHERE state='dead' AND updated_at >= ?",
+                    (time.time() - 86400,),
+                )).fetchone()
+            oldest = row["oldest"] if row else None
+            return {
+                "pending": int(row["n"]) if row else 0,
+                "oldest_age_seconds": (
+                    round(time.time() - float(oldest), 1)
+                    if oldest is not None else None
+                ),
+                "dead_24h": int(dead["n"]) if dead else 0,
+            }
+        except Exception:
+            logger.warning("inbox health 读取失败", exc_info=True)
+            return {"error": "unavailable"}
 
     async def version(request):
         """GET /api/v1/version — per-bot release identity (dual-bot diagnostics).

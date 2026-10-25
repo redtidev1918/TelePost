@@ -881,6 +881,13 @@ def setup_application(application):
             await clean_review_preview_media(context.bot)
             await poll_refetch_jobs(context.bot, force=True)
             await reconcile_incomplete_reviews(context.bot)
+            # §manual-recovery answer-first 兜底：后台提交任务随进程死掉时，
+            # 按 requestId 幂等重投 'requested' 恢复行；超龄终态化（带审计）。
+            from telepost.application.recovery import resubmit_pending_recoveries
+            try:
+                await resubmit_pending_recoveries()
+            except Exception:
+                logger.warning("恢复提交兜底重扫失败", exc_info=True)
             from telepost.application.submitter_notify import (
                 flush_manager_notifications,
                 flush_submitter_notifications,

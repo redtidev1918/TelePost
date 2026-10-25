@@ -4,6 +4,7 @@ HTTP API（/api/v1）测试：鉴权、校验、投稿流转、路由转发
 import os
 import asyncio
 import json
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -79,6 +80,31 @@ class TestHealth:
             data = await resp.json()
             assert data["ok"] is True
             assert data["data"]["api_version"] == api_server.API_VERSION
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_health_exposes_durable_inbox_depth(self, monkeypatch, tmp_path):
+        """§durable-inbox observability: pending depth + oldest age + recent
+        dead-letters are readable over HTTP (SSH-less production diagnosis)."""
+        from database import db_manager as dbm
+        from telepost.storage.sqlite.inbox import InboxRepository
+        monkeypatch.setattr(dbm, "DB_PATH", str(tmp_path / "inbox.db"))
+        await dbm.init_db()
+        repo = InboxRepository()
+        await repo.receive(1001, '{"u": 1}')
+        await repo.receive(1002, '{"u": 2}')
+        await repo.mark_dead(1002, now=time.time(), error="TestError")
+
+        app, _ = _make_app(monkeypatch, _TOKEN_ROW)
+        client = await _client(app)
+        try:
+            resp = await client.get("/api/v1/health")
+            assert resp.status == 200
+            inbox = (await resp.json())["data"]["inbox"]
+            assert inbox["pending"] == 1
+            assert inbox["oldest_age_seconds"] is not None
+            assert inbox["dead_24h"] == 1
         finally:
             await client.close()
 

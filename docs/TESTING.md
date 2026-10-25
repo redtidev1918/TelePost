@@ -30,6 +30,23 @@ Windows 构建自动运行 `scripts/smoke-windows-release.py`：在隔离目录�
 冻结解释器隔离环境变量的行为见 [PyInstaller 运行时选项](https://pyinstaller.org/en/stable/spec-files.html#specifying-python-interpreter-options)，
 控制台编码使用标准库 [TextIOWrapper.reconfigure](https://docs.python.org/3/library/io.html#io.TextIOWrapper.reconfigure)。
 
+## 测试层级与质量规则（2026-10-25 可靠性专项增补）
+
+| 层 | 代表文件 | 必须证明 |
+|----|---------|---------|
+| 暂存预算/恢复 | `test_staging_recovery.py`、`test_submission_timeout_idempotency.py` | retry_after 最低支付、预算外不早重发、同键恢复复用身份 |
+| 发布不变量 | `test_review_service.py`、`test_review.py` | 无 payload 拒绝、并发 approve 单赢家、幻影卡禁令 |
+| Durable Inbox / HOL | `test_recovery_answer_first.py`、`test_durable_inbox*` | 回调先应答后慢作、慢远端不队头阻塞、replay 不复活终态 |
+| API 契约 | `test_api_server.py`（含 `inbox` 健康字段） | business_status 全集、鉴权、inbox 深度可观测 |
+
+编写规则（事故教训，详见 `.agent/LESSONS.md`）：
+
+1. 预算类测试双向断言（不早于/不晚于），不只断言最终结果。
+2. 错误分类测试的输入携带真实生产噪声（id 数字、JSON 片段）。
+3. 远端交互测试必须含「慢远端」与「异常远端」两种形态。
+4. 并发测试用确定性同步点（Event/可控时钟），禁止 sleep 碰运气。
+5. 修复前先写会失败的测试（红），修复后稳定通过（绿）。
+
 ## 常用选择
 
 ```bash

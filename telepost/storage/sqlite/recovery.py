@@ -60,8 +60,11 @@ class RecoveryRepository:
         return await cur.fetchone(), None
 
     async def mark_accepted(self, request_id: str, slot_id: str) -> None:
+        # State-guarded: a terminal (failed) row can never be resurrected by a
+        # late duplicate submit with the same requestId.
         await self._conn.execute(
-            "UPDATE recovery_attempts SET state='accepted', slot_id=? WHERE request_id=?",
+            "UPDATE recovery_attempts SET state='accepted', slot_id=? "
+            "WHERE request_id=? AND state IN ('requested','accepted')",
             (slot_id or "", request_id),
         )
 
@@ -79,3 +82,12 @@ class RecoveryRepository:
             (target_id,),
         )
         return await cur.fetchone()
+
+    async def list_requested_before(self, cutoff: float) -> list:
+        """'requested' rows older than ``cutoff`` (submit-sweep candidates)."""
+        cur = await self._conn.execute(
+            "SELECT * FROM recovery_attempts WHERE state='requested' "
+            "AND created_at <= ? ORDER BY created_at ASC",
+            (float(cutoff),),
+        )
+        return list(await cur.fetchall())
