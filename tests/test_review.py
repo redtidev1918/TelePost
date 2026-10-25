@@ -1247,10 +1247,15 @@ async def test_approve_reclaims_stale_publishing_after_crash(review_db, monkeypa
             """
             INSERT INTO pending_reviews (
                 idempotency_key, source, status, user_id, username,
-                review_chat_id, media_json, created_at, updated_at
-            ) VALUES ('k', 'api', 'publishing', 7, 'pf', ?, '[]', ?, ?)
+                review_chat_id, media_json, documents_json,
+                created_at, updated_at
+            ) VALUES ('k', 'api', 'publishing', 7, 'pf', ?, ?, '[]', ?, ?)
             """,
-            (str(review.REVIEW_CHAT_ID), _time.time() - 999, _time.time() - 999),
+            (
+                str(review.REVIEW_CHAT_ID),
+                json.dumps([{"type": "photo", "file_id": "STAGED"}]),
+                _time.time() - 999, _time.time() - 999,
+            ),
         )
     published = AsyncMock(return_value={
         "status": "published", "message_id": 99, "link": "https://t.me/test/99",
