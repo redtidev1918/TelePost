@@ -1104,7 +1104,26 @@ def add_api_routes(web_app, application) -> None:
                     "api_review_required": True,
                     "miniapp_review_required": MINIAPP_REVIEW_REQUIRED,
                     "chat_review_required": CHAT_REVIEW_REQUIRED,
-                    "inbox": await _inbox_health()})
+                    "inbox": await _inbox_health(),
+                    "recovery": await _recovery_health()})
+
+    async def _recovery_health():
+        """Active manual-recovery attempts (SSH-less 「正在恢复中」 diagnosis)."""
+        try:
+            from database import db_manager
+            from telepost.storage.sqlite.recovery import RecoveryRepository
+            async with db_manager.get_db() as conn:
+                summary = await RecoveryRepository(conn).active_summary()
+            import time as _time
+            oldest = summary.get("oldest_age_seconds")
+            summary["oldest_age_seconds"] = (
+                round(_time.time() - float(oldest), 1)
+                if oldest is not None else None
+            )
+            return summary
+        except Exception:
+            logger.warning("recovery health 读取失败", exc_info=True)
+            return {"error": "unavailable"}
 
     async def _inbox_health():
         """Durable-inbox liveness from HTTP (§durable-inbox observability).

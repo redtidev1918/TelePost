@@ -185,6 +185,41 @@ async def test_replayed_click_does_not_resubmit(monkeypatch, tmp_path,
     assert len(calls) == 1
 
 
+@pytest.mark.asyncio
+async def test_sweep_terminalizes_stale_accepted(monkeypatch, tmp_path,
+                                                 pixivflow_env):
+    """An accepted recovery whose outcome never landed must not block the
+    target forever (the「一直正在恢复中」trap)."""
+    await _init(monkeypatch, tmp_path)
+    from telepost.storage.sqlite.recovery import RecoveryRepository
+
+    request_id = str(uuid.uuid4())
+    key = f"cb-acc-{request_id[:8]}"
+    async with db_manager.get_db() as conn:
+        repo = RecoveryRepository(conn)
+        await repo.create_attempt(
+            target_id="bot1-illust-stale", retry_mode="normal",
+            callback_key=key,
+        )
+        await conn.execute(
+            "UPDATE recovery_attempts SET request_id=?, created_at=? "
+            "WHERE callback_key=?",
+            (request_id, time.time() - 3600, key),
+        )
+        await repo.mark_accepted(request_id, "slot-x")
+        # mark_accepted keeps created_at; force it old again if needed.
+        await conn.execute(
+            "UPDATE recovery_attempts SET created_at=? WHERE request_id=?",
+            (time.time() - 3600, request_id),
+        )
+
+    from telepost.application.recovery import resubmit_pending_recoveries
+    await resubmit_pending_recoveries()
+    row = await _row(request_id)
+    assert row["state"] == "failed"
+    assert row["failure_code"] == "accepted_stale"
+
+
 # ---- sweep: crash / transient safety net -----------------------------------
 @pytest.mark.asyncio
 async def test_sweep_resubmits_stale_requested_row(monkeypatch, tmp_path,
