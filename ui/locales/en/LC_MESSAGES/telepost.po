@@ -1990,6 +1990,9 @@ msgstr "Publishing failed; retry available"
 msgid "审核准备失败"
 msgstr "Review preparation failed"
 
+msgid "恢复请求处理异常，请稍后重试"
+msgstr "Recovery request error; please retry later"
+
 msgid "发布失败，已自动重试一次仍未成功，可再点重试"
 msgstr "Publishing failed after one automatic retry. You can retry again."
 

@@ -23,7 +23,9 @@ import asyncio
 import json
 import logging
 import os
+import time
 import uuid
+from typing import Optional
 from urllib.error import HTTPError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
@@ -90,21 +92,26 @@ def _normalize_mode(retry_mode: str) -> str:
     return mode if mode in (NORMAL, RELAXED) else NORMAL
 
 
-async def request_target_recovery(
-    target_id: str,
-    *,
-    retry_mode: str = NORMAL,
-    callback_key: str = "",
-    schedule_id: str = "",
-) -> dict:
-    """Admit one manual recovery attempt for a failed target (idempotent).
+async def admit_recovery(target_id: str, *, retry_mode: str = NORMAL,
+                         callback_key: str = "", schedule_id: str = "") -> dict:
+    """DURABLY admit one recovery attempt — local DB only, no remote I/O.
 
-    Returns::
+    Split from the remote submission (2026-10-25): the Telegram callback
+    handler runs inside the strictly-serial Durable Inbox worker, where a
+    remote wait (PixivFlow cold start ~8s+, worst case the submit timeout)
+    both blows Telegram's ~10s callback-answer window and head-of-line blocks
+    every later update of that bot. Callers answer the user from THIS result
+    and submit out-of-band via :func:`submit_recovery` (immediate background
+    task + the periodic resubmit sweep).
+
+    Returns the admission dict (``state`` is ``requested`` for a fresh admit,
+    or the replayed row's state) with the same shape as before::
 
         {"state", "request_id", "replayed", "already_running",
          "retry_mode", "target_id", "schedule_id"}
 
-    Raises RecoveryError subclasses mapped to user-safe answers by the handler.
+    Raises RecoveryError subclasses for configuration/admission failures
+    exactly as before.
     """
     target_id = str(target_id or "").strip()
     if not target_id:
@@ -164,7 +171,29 @@ async def request_target_recovery(
         )
     except Exception:
         pass
+    return {
+        "state": "requested",
+        "request_id": request_id,
+        "replayed": False,
+        "already_running": False,
+        "retry_mode": mode,
+        "target_id": target_id,
+        "schedule_id": schedule_id,
+    }
 
+
+async def submit_recovery(target_id: str, request_id: str,
+                          retry_mode: str, *,
+                          terminal_on_failure: bool = True) -> dict:
+    """POST the durable recovery to PixivFlow and settle the attempt row.
+
+    ``terminal_on_failure=False`` (the background/sweep path) keeps TRANSIENT
+    failures in state ``requested`` so the periodic sweep retries them with
+    the SAME requestId (PixivFlow converges); non-retryable failures
+    terminalize either way. The synchronous default preserves the historical
+    contract of :func:`request_target_recovery` for non-inbox callers.
+    """
+    mode = _normalize_mode(retry_mode)
     # Remote submission is async: the endpoint answers once the attempt is
     # DURABLE; PixivFlow queues/runs under its own resource admission.
     try:
@@ -178,7 +207,7 @@ async def request_target_recovery(
         try:
             await _record_recovery_event(
                 "schedule.recovery_remote_accepted", target_id=target_id,
-                request_id=request_id, retry_mode=mode, schedule_id=schedule_id,
+                request_id=request_id, retry_mode=mode, schedule_id="",
                 detail_slot=result.get("slotId"),
             )
         except Exception:
@@ -190,32 +219,126 @@ async def request_target_recovery(
             "already_running": False,
             "retry_mode": mode,
             "target_id": target_id,
-            "schedule_id": schedule_id,
+            "schedule_id": "",
         }
     except Exception as exc:
         failure = _classify_recovery_error(exc)
         code = failure["code"]
-        async with db_manager.get_db() as conn:
-            from telepost.storage.sqlite.recovery import RecoveryRepository
-            repo = RecoveryRepository(conn)
-            await repo.mark_failed(request_id, code)
+        terminal = terminal_on_failure or not failure.get("retryable", False)
+        if terminal:
+            async with db_manager.get_db() as conn:
+                from telepost.storage.sqlite.recovery import RecoveryRepository
+                repo = RecoveryRepository(conn)
+                await repo.mark_failed(request_id, code)
+            try:
+                await _record_recovery_event(
+                    "schedule.recovery_failed", target_id=target_id,
+                    request_id=request_id, retry_mode=mode, schedule_id="",
+                    error_class=code,
+                )
+            except Exception:
+                pass
+            cause = str(exc).strip().rstrip("。") or ""
+            reason = f"：{cause[:200]}" if cause else ""
+            raise RecoveryError(
+                f"恢复请求提交失败{reason}，请稍后重试",
+                code=code or failure["code"],
+                stage="recovery_request",
+                retryable=failure["retryable"],
+                hint=failure["hint"],
+            ) from exc
         try:
             await _record_recovery_event(
-                "schedule.recovery_failed", target_id=target_id,
-                request_id=request_id, retry_mode=mode, schedule_id=schedule_id,
+                "schedule.recovery_submit_deferred", target_id=target_id,
+                request_id=request_id, retry_mode=mode, schedule_id="",
                 error_class=code,
             )
         except Exception:
             pass
-        cause = str(exc).strip().rstrip("。") or ""
-        reason = f"：{cause[:200]}" if cause else ""
-        raise RecoveryError(
-            f"恢复请求提交失败{reason}，请稍后重试",
-            code=code or failure["code"],
-            stage="recovery_request",
-            retryable=failure["retryable"],
-            hint=failure["hint"],
-        ) from exc
+        return {
+            "state": "requested",
+            "request_id": request_id,
+            "replayed": False,
+            "already_running": True,
+            "retry_mode": mode,
+            "target_id": target_id,
+            "schedule_id": "",
+            "submit_error": code,
+        }
+
+
+async def request_target_recovery(
+    target_id: str,
+    *,
+    retry_mode: str = NORMAL,
+    callback_key: str = "",
+    schedule_id: str = "",
+) -> dict:
+    """Admit + synchronously submit (historical contract, non-inbox callers)."""
+    admitted = await admit_recovery(
+        target_id, retry_mode=retry_mode, callback_key=callback_key,
+        schedule_id=schedule_id,
+    )
+    if admitted.get("replayed") or admitted.get("state") != "requested":
+        return admitted
+    return await submit_recovery(
+        target_id, admitted["request_id"], admitted["retry_mode"],
+    )
+
+
+#: A 'requested' row younger than this is owned by its background submit task;
+#: older ones are fair game for the periodic sweep.
+RECOVERY_SUBMIT_SWEEP_MIN_AGE = 60.0
+#: Give up (terminalize with audit) after this total age — a recovery admit
+#: must never run forever.
+RECOVERY_SUBMIT_MAX_AGE = 15 * 60.0
+
+
+async def resubmit_pending_recoveries(*, now: Optional[float] = None) -> int:
+    """Crash/transient safety net for admitted-but-unsubmitted recoveries.
+
+    The answer-first callback flow admits durably and submits in a background
+    task; if that task died with the process (or its transient failure kept
+    the row 'requested'), this sweep — wired into the 300s runtime cleanup —
+    re-POSTs with the SAME requestId (idempotent on PixivFlow). Past
+    ``RECOVERY_SUBMIT_MAX_AGE`` the row terminalizes with an audit instead of
+    retrying forever.
+    """
+    now = time.time() if now is None else now
+    if not os.getenv("PIXIVFLOW_REFETCH_BASE_URL") or not os.getenv("PIXIVFLOW_REFETCH_TOKEN"):
+        return 0
+    from telepost.storage.sqlite.recovery import RecoveryRepository
+    rows = []
+    async with db_manager.get_db() as conn:
+        repo = RecoveryRepository(conn)
+        rows = await repo.list_requested_before(now - RECOVERY_SUBMIT_SWEEP_MIN_AGE)
+        for row in rows:
+            if float(row["created_at"]) < now - RECOVERY_SUBMIT_MAX_AGE:
+                await repo.mark_failed(
+                    row["request_id"], "submit_retry_exhausted")
+                await _record_recovery_event(
+                    "schedule.recovery_failed", target_id=row["target_id"],
+                    request_id=row["request_id"],
+                    retry_mode=row["retry_mode"] or NORMAL,
+                    schedule_id=row["schedule_id"] or "",
+                    error_class="submit_retry_exhausted",
+                )
+    for row in rows:
+        if float(row["created_at"]) < now - RECOVERY_SUBMIT_MAX_AGE:
+            continue
+        try:
+            await submit_recovery(
+                row["target_id"], row["request_id"],
+                row["retry_mode"] or NORMAL,
+                terminal_on_failure=False,
+            )
+        except RecoveryError:
+            # Non-retryable: already terminalized + audited inside.
+            pass
+        except Exception:
+            logger.warning("恢复提交兜底重投失败: request_id=%s",
+                           row["request_id"], exc_info=True)
+    return len(rows)
 
 
 def _submit_pixivflow_recover(target_id: str, request_id: str,

@@ -200,14 +200,30 @@ async def test_schedule_recover_shows_real_failure_reason(monkeypatch, tmp_path,
         data="sched_recover|bot1-illust-topic-a|relaxed",
         answer=AsyncMock(),
         edit_message_reply_markup=AsyncMock(),
+        message=SimpleNamespace(chat_id=-100777),
     )
+    context = MagicMock()
+    context.bot = AsyncMock()
+    context.bot_data = {}
     update = SimpleNamespace(callback_query=query)
-    await schedule_recover(update, MagicMock())
+    await schedule_recover(update, context)
 
+    # Answer-first (2026-10-25): the handler answers immediately — a remote
+    # wait here head-of-line blocked the serial inbox worker and blew
+    # Telegram's callback window. The REAL failure reason now reaches the
+    # operator as an in-chat message from the background submit task.
     call = query.answer.await_args
     answer = (call.kwargs.get("text") if call.kwargs else call.args[0])
-    assert call.kwargs.get("show_alert") is True
-    assert "❌ 恢复请求失败" in answer
-    assert "错误码：invalid_request" in answer
-    assert "请求格式或参数被 PixivFlow 拒绝" in answer
-    assert "requestId must be a UUID" in answer
+    assert call.kwargs.get("show_alert") is not True
+    assert "系统会自动继续处理" in answer
+
+    import asyncio as _asyncio
+    for _ in range(200):
+        if context.bot.send_message.await_count:
+            break
+        await _asyncio.sleep(0.01)
+    sent = context.bot.send_message.await_args.kwargs.get("text") or ""
+    assert "❌ 恢复请求失败" in sent
+    assert "错误码：invalid_request" in sent
+    assert "请求格式或参数被 PixivFlow 拒绝" in sent
+    assert "requestId must be a UUID" in sent
