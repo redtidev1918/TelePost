@@ -12,6 +12,48 @@ from telegram import Update
 
 logger = logging.getLogger(__name__)
 
+WEBHOOK_ALLOWED_UPDATES = [
+    'message', 'edited_message', 'channel_post', 'edited_channel_post',
+    'callback_query', 'inline_query', 'message_reaction_count',
+]
+
+
+async def verify_webhook(application, webhook_url, webhook_path, secret_token, *, now=None):
+    """Verify registration independently of inbox emptiness; bounded repair.
+
+    Called only by the webhook lifecycle. Polling never registers this job.
+    Telegram does not expose the secret, so URL/update verification cannot
+    prove secret equality; authenticated delivery remains a separate signal.
+    """
+    now = time.time() if now is None else now
+    state = application.bot_data.setdefault('webhook_registration', {})
+    expected = f'{webhook_url.rstrip("/")}{webhook_path}'
+    try:
+        info = await application.bot.get_webhook_info()
+        valid = info.url == expected and set(WEBHOOK_ALLOWED_UPDATES).issubset(set(info.allowed_updates or []))
+        state.update(registered=valid, last_verified_at=now)
+        if valid:
+            state.update(repair_attempts=0, next_repair_at=0)
+            return True
+        logger.error('Webhook registration drift detected')
+        if now < state.get('next_repair_at', 0):
+            return False
+        attempts = state.get('repair_attempts', 0) + 1
+        # At most three writes per recovery window, then a 15 minute cooldown.
+        state.update(repair_attempts=attempts, next_repair_at=now + (900 if attempts >= 3 else 60 * 2 ** attempts))
+        await application.bot.set_webhook(
+            url=expected, secret_token=secret_token,
+            allowed_updates=WEBHOOK_ALLOWED_UPDATES, drop_pending_updates=False)
+        info = await application.bot.get_webhook_info()
+        state['registered'] = info.url == expected and set(WEBHOOK_ALLOWED_UPDATES).issubset(set(info.allowed_updates or []))
+        if state['registered']:
+            state.update(repair_attempts=0, next_repair_at=0)
+        return state['registered']
+    except Exception as exc:
+        state['registered'] = False
+        logger.warning('Webhook verification unavailable: %s', type(exc).__name__)
+        return False
+
 
 def build_web_app() -> web.Application:
     """Create the aiohttp app used by webhook mode.
@@ -185,6 +227,7 @@ class WebhookServer:
             web.Response: HTTP 响应
         """
         payload = {"status": "ok", "bot_index": self.path.rsplit("bot", 1)[-1] or "?"}
+        payload['webhook_registration'] = self.application.bot_data.get('webhook_registration', {})
         payload["reaction_ingest"] = {
             "received_since_start": self.reaction_updates,
             "last_update_at": self.last_reaction_update_at,
@@ -213,6 +256,9 @@ class WebhookServer:
             bool(getattr(self.application, "running", False))
             and bool(self.application.bot_data.get("telepost_ready", False))
         ) if getattr(self, "application", None) else False
+        registration = self.application.bot_data.get('webhook_registration')
+        if registration is not None:
+            running = running and bool(registration.get('registered')) and time.time() - registration.get('last_verified_at', 0) < 180
         return _web.json_response(
             {"status": "ok" if running else "starting", "kind": "ready", "ready": running},
             status=200 if running else 503,

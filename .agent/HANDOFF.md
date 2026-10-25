@@ -1,5 +1,17 @@
 # 会话交接（TelePost 可靠性专项）
 
+## 当前交接：2026-10-25 架构简化任务仍在进行
+
+当前生产 2.84.8；分支 codex/recovery-reconciliation 的修改未发布。
+真实代码证实本地超龄误判与恢复通知不更新恢复行；红测复现，修复待完整交付。
+复核已过：TelePost 全量 1601P/1S、PixivFlow 全量 1605P、定向红绿 34/34；
+GET recover 契约字段（targetId/errorCode）与 CellStatus 8 值映射已逐项核对。
+Fly SSH 已恢复；#209 仅只读状态核查；不重放历史媒体或死信。
+下一步：PR/CI → 发行与只读生产验收 → 文档收尾。
+架构证据见 Deploy docs/architecture/recovery-ownership.md。
+
+## 以下为已被替代的 2.84.6 历史交接
+
 更新：2026-10-25 07:5x UTC（专项闭环）。下一会话先核对本文件仍有效（对照 STATUS.md 与 GitHub 实时状态）再继续。
 
 ## 当前任务与阶段

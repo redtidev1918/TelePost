@@ -565,6 +565,14 @@ async def main():
             sys.exit(1)
 
         if success:
+            from utils.webhook_server import verify_webhook
+            await verify_webhook(application, WEBHOOK_URL, WEBHOOK_PATH, secret_token)
+
+            async def verify_registration(context):
+                await verify_webhook(application, WEBHOOK_URL, WEBHOOK_PATH, secret_token)
+
+            application.job_queue.run_repeating(
+                verify_registration, interval=60, first=60, name='webhook_registration')
             logger.info("✅ Webhook 模式已启动")
             logger.info(f"   监听地址: 0.0.0.0:{WEBHOOK_PORT}{WEBHOOK_PATH}")
             logger.info(f"   外部地址: {WEBHOOK_URL}{WEBHOOK_PATH}")
@@ -882,7 +890,7 @@ def setup_application(application):
             await poll_refetch_jobs(context.bot, force=True)
             await reconcile_incomplete_reviews(context.bot)
             # §manual-recovery answer-first 兜底：后台提交任务随进程死掉时，
-            # 按 requestId 幂等重投 'requested' 恢复行；超龄终态化（带审计）。
+            # 按 requestId 查询执行权威；超龄未确认保留互斥，不能推断远端失败。
             from telepost.application.recovery import resubmit_pending_recoveries
             try:
                 await resubmit_pending_recoveries()
