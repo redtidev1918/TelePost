@@ -200,6 +200,10 @@ async def submit_recovery(target_id: str, request_id: str,
         result = await asyncio.to_thread(
             _submit_pixivflow_recover, target_id, request_id, mode
         )
+        logger.info(
+            "恢复提交成功: target=%s request=%s slot=%s",
+            target_id, request_id, result.get("slotId", ""),
+        )
         async with db_manager.get_db() as conn:
             from telepost.storage.sqlite.recovery import RecoveryRepository
             repo = RecoveryRepository(conn)
@@ -247,6 +251,11 @@ async def submit_recovery(target_id: str, request_id: str,
                 retryable=failure["retryable"],
                 hint=failure["hint"],
             ) from exc
+        logger.warning(
+            "恢复提交暂缓（可重试，等待兜底重扫）: target=%s request=%s "
+            "error_class=%s detail=%s",
+            target_id, request_id, code, str(exc)[:200],
+        )
         try:
             await _record_recovery_event(
                 "schedule.recovery_submit_deferred", target_id=target_id,
@@ -292,6 +301,9 @@ RECOVERY_SUBMIT_SWEEP_MIN_AGE = 60.0
 #: Give up (terminalize with audit) after this total age — a recovery admit
 #: must never run forever.
 RECOVERY_SUBMIT_MAX_AGE = 15 * 60.0
+#: An accepted recovery older than this with no outcome terminalizes so the
+#: target never stays "正在恢复中" forever.
+RECOVERY_ACCEPTED_STALE_MAX_AGE = 30 * 60.0
 
 
 async def resubmit_pending_recoveries(*, now: Optional[float] = None) -> int:
@@ -323,6 +335,26 @@ async def resubmit_pending_recoveries(*, now: Optional[float] = None) -> int:
                     schedule_id=row["schedule_id"] or "",
                     error_class="submit_retry_exhausted",
                 )
+        # An ACCEPTED recovery whose outcome never landed (PixivFlow died
+        # after accepting, outcome notification lost) used to block the
+        # target's partial-UNIQUE slot FOREVER — every later click answered
+        # 「正在恢复中」 with nothing running. Terminalize past a staleness
+        # cap so the operator can click again.
+        stale_accepted = await repo.list_stale_accepted(
+            now - RECOVERY_ACCEPTED_STALE_MAX_AGE)
+        for row in stale_accepted:
+            await repo.mark_failed(row["request_id"], "accepted_stale")
+            logger.warning(
+                "恢复行 accepted 超龄终态化: target=%s request=%s",
+                row["target_id"], row["request_id"],
+            )
+            await _record_recovery_event(
+                "schedule.recovery_failed", target_id=row["target_id"],
+                request_id=row["request_id"],
+                retry_mode=row["retry_mode"] or NORMAL,
+                schedule_id=row["schedule_id"] or "",
+                error_class="accepted_stale",
+            )
     for row in rows:
         if float(row["created_at"]) < now - RECOVERY_SUBMIT_MAX_AGE:
             continue
