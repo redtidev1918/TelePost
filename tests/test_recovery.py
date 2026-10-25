@@ -148,7 +148,11 @@ async def test_schedule_recover_button_handler(monkeypatch, tmp_path,
     answer = query.answer.await_args.kwargs.get("text") or ""
     assert "系统会自动继续处理" in answer
     assert "放宽条件重试" in answer
-    query.edit_message_reply_markup.assert_awaited_once_with(reply_markup=None)
+    # 2026-10-25 UX fix: the buttons STAY — removing them left no retry entry
+    # once an attempt terminalized (the outcome message is the only surface
+    # carrying them). Re-click safety comes from the one-active-per-target
+    # constraint + its「正在恢复中」answer, not from hiding the buttons.
+    query.edit_message_reply_markup.assert_not_awaited()
 
 
 @pytest.mark.asyncio
