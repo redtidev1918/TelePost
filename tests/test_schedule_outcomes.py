@@ -58,6 +58,34 @@ PAYLOAD = {
 
 
 @pytest.mark.asyncio
+async def test_recovery_receipt_converges_even_when_notification_fails(monkeypatch, tmp_path):
+    await _db(monkeypatch, tmp_path)
+    from telepost.storage.sqlite.recovery import RecoveryRepository
+    async with db_manager.get_db() as conn:
+        attempt, refused = await RecoveryRepository(conn).create_attempt(
+            target_id='safe-test', retry_mode='normal', callback_key='safe-click')
+    assert refused is None
+    app, application = _make_app(monkeypatch)
+    application.bot.send_message.side_effect = [RuntimeError('offline'), MagicMock(message_id=2)]
+    client = await _client(app)
+    payload = {'schedule_id': 'safe-schedule', 'slot_id': 'safe-slot', 'status': 'success',
+               'recovery': {'requestId': attempt['request_id'], 'mode': 'normal'},
+               'targets': [{'target_id': 'safe-test', 'status': 'submitted'}]}
+    try:
+        response = await client.post('/api/v1/schedule/outcomes', json=payload)
+        assert response.status == 502
+        async with db_manager.get_db() as conn:
+            row = await RecoveryRepository(conn).find_by_callback_key('safe-click')
+        assert row['state'] == 'succeeded'
+        for _ in range(2):
+            response = await client.post('/api/v1/schedule/outcomes', json=payload)
+            assert response.status == 200
+        assert application.bot.send_message.await_count == 2
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_requires_service_token(monkeypatch, tmp_path):
     await _db(monkeypatch, tmp_path)
     app, _ = _make_app(monkeypatch)

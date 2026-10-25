@@ -33,6 +33,7 @@ def _test_db(monkeypatch, tmp_path):
 def pixivflow_env(monkeypatch):
     monkeypatch.setenv("PIXIVFLOW_REFETCH_BASE_URL", "http://pixivflow.test:8090")
     monkeypatch.setenv("PIXIVFLOW_REFETCH_TOKEN", "recover-secret")
+    monkeypatch.setattr('telepost.application.recovery._get_pixivflow_recovery', lambda *args: None)
     yield
     monkeypatch.delenv("PIXIVFLOW_REFETCH_BASE_URL", raising=False)
     monkeypatch.delenv("PIXIVFLOW_REFETCH_TOKEN", raising=False)
@@ -216,8 +217,8 @@ async def test_sweep_terminalizes_stale_accepted(monkeypatch, tmp_path,
     from telepost.application.recovery import resubmit_pending_recoveries
     await resubmit_pending_recoveries()
     row = await _row(request_id)
-    assert row["state"] == "failed"
-    assert row["failure_code"] == "accepted_stale"
+    assert row["state"] == "accepted"
+    assert row["reconciliation_required"] == 1
 
 
 # ---- sweep: crash / transient safety net -----------------------------------
@@ -301,8 +302,8 @@ async def test_sweep_terminalizes_past_max_age(monkeypatch, tmp_path,
     from telepost.application.recovery import resubmit_pending_recoveries
     await resubmit_pending_recoveries()
     row = await _row(request_id)
-    assert row["state"] == "failed"
-    assert row["failure_code"] == "submit_retry_exhausted"
+    assert row["state"] == "requested"
+    assert row["reconciliation_required"] == 1
     assert calls == []
 
 

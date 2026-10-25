@@ -187,11 +187,10 @@ async def submit_recovery(target_id: str, request_id: str,
                           terminal_on_failure: bool = True) -> dict:
     """POST the durable recovery to PixivFlow and settle the attempt row.
 
-    ``terminal_on_failure=False`` (the background/sweep path) keeps TRANSIENT
-    failures in state ``requested`` so the periodic sweep retries them with
-    the SAME requestId (PixivFlow converges); non-retryable failures
-    terminalize either way. The synchronous default preserves the historical
-    contract of :func:`request_target_recovery` for non-inbox callers.
+    Transient failures retain the same requestId. Non-retryable admission
+    errors require reconciliation: a previous response may already have been
+    lost, so rejection of this HTTP request cannot terminate that execution.
+    ``terminal_on_failure`` preserves synchronous error reporting only.
     """
     mode = _normalize_mode(retry_mode)
     # Remote submission is async: the endpoint answers once the attempt is
@@ -228,15 +227,17 @@ async def submit_recovery(target_id: str, request_id: str,
     except Exception as exc:
         failure = _classify_recovery_error(exc)
         code = failure["code"]
-        terminal = terminal_on_failure or not failure.get("retryable", False)
+        # A lost HTTP response is not proof that admission failed. Even the
+        # synchronous caller must retain the same durable identity and lock.
+        terminal = not failure.get("retryable", False)
         if terminal:
             async with db_manager.get_db() as conn:
                 from telepost.storage.sqlite.recovery import RecoveryRepository
                 repo = RecoveryRepository(conn)
-                await repo.mark_failed(request_id, code)
+                await repo.require_reconciliation(request_id)
             try:
                 await _record_recovery_event(
-                    "schedule.recovery_failed", target_id=target_id,
+                    "schedule.recovery_reconciliation_required", target_id=target_id,
                     request_id=request_id, retry_mode=mode, schedule_id="",
                     error_class=code,
                 )
@@ -264,6 +265,10 @@ async def submit_recovery(target_id: str, request_id: str,
             )
         except Exception:
             pass
+        if terminal_on_failure:
+            raise RecoveryError(
+                '恢复请求结果尚未确认，系统将按原请求继续对账', code=code,
+                retryable=True, hint=failure['hint']) from exc
         return {
             "state": "requested",
             "request_id": request_id,
@@ -298,24 +303,13 @@ async def request_target_recovery(
 #: A 'requested' row younger than this is owned by its background submit task;
 #: older ones are fair game for the periodic sweep.
 RECOVERY_SUBMIT_SWEEP_MIN_AGE = 60.0
-#: Give up (terminalize with audit) after this total age — a recovery admit
-#: must never run forever.
+#: Stop automatic submission after this age; unresolved requests retain their
+#: identity and exclusion lock while querying the execution owner.
 RECOVERY_SUBMIT_MAX_AGE = 15 * 60.0
-#: An accepted recovery older than this with no outcome terminalizes so the
-#: target never stays "正在恢复中" forever.
-RECOVERY_ACCEPTED_STALE_MAX_AGE = 30 * 60.0
 
 
 async def resubmit_pending_recoveries(*, now: Optional[float] = None) -> int:
-    """Crash/transient safety net for admitted-but-unsubmitted recoveries.
-
-    The answer-first callback flow admits durably and submits in a background
-    task; if that task died with the process (or its transient failure kept
-    the row 'requested'), this sweep — wired into the 300s runtime cleanup —
-    re-POSTs with the SAME requestId (idempotent on PixivFlow). Past
-    ``RECOVERY_SUBMIT_MAX_AGE`` the row terminalizes with an audit instead of
-    retrying forever.
-    """
+    """Reconcile the existing remote ledger; local age never stops remote work."""
     now = time.time() if now is None else now
     if not os.getenv("PIXIVFLOW_REFETCH_BASE_URL") or not os.getenv("PIXIVFLOW_REFETCH_TOKEN"):
         return 0
@@ -323,54 +317,67 @@ async def resubmit_pending_recoveries(*, now: Optional[float] = None) -> int:
     rows = []
     async with db_manager.get_db() as conn:
         repo = RecoveryRepository(conn)
-        rows = await repo.list_requested_before(now - RECOVERY_SUBMIT_SWEEP_MIN_AGE)
-        for row in rows:
-            if float(row["created_at"]) < now - RECOVERY_SUBMIT_MAX_AGE:
-                await repo.mark_failed(
-                    row["request_id"], "submit_retry_exhausted")
-                await _record_recovery_event(
-                    "schedule.recovery_failed", target_id=row["target_id"],
-                    request_id=row["request_id"],
-                    retry_mode=row["retry_mode"] or NORMAL,
-                    schedule_id=row["schedule_id"] or "",
-                    error_class="submit_retry_exhausted",
-                )
-        # An ACCEPTED recovery whose outcome never landed (PixivFlow died
-        # after accepting, outcome notification lost) used to block the
-        # target's partial-UNIQUE slot FOREVER — every later click answered
-        # 「正在恢复中」 with nothing running. Terminalize past a staleness
-        # cap so the operator can click again.
-        stale_accepted = await repo.list_stale_accepted(
-            now - RECOVERY_ACCEPTED_STALE_MAX_AGE)
-        for row in stale_accepted:
-            await repo.mark_failed(row["request_id"], "accepted_stale")
-            logger.warning(
-                "恢复行 accepted 超龄终态化: target=%s request=%s",
-                row["target_id"], row["request_id"],
-            )
-            await _record_recovery_event(
-                "schedule.recovery_failed", target_id=row["target_id"],
-                request_id=row["request_id"],
-                retry_mode=row["retry_mode"] or NORMAL,
-                schedule_id=row["schedule_id"] or "",
-                error_class="accepted_stale",
-            )
+        rows = await repo.list_active_before(now - RECOVERY_SUBMIT_SWEEP_MIN_AGE)
     for row in rows:
-        if float(row["created_at"]) < now - RECOVERY_SUBMIT_MAX_AGE:
-            continue
         try:
-            await submit_recovery(
-                row["target_id"], row["request_id"],
-                row["retry_mode"] or NORMAL,
-                terminal_on_failure=False,
-            )
-        except RecoveryError:
-            # Non-retryable: already terminalized + audited inside.
-            pass
+            result = await asyncio.to_thread(
+                _get_pixivflow_recovery, row["target_id"], row["request_id"])
+            if result is not None:
+                await reconcile_recovery_result(row["target_id"], row["request_id"], result)
+            elif (row["state"] == 'requested' and not row['reconciliation_required']
+                  and float(row['created_at']) >= now - RECOVERY_SUBMIT_MAX_AGE):
+                await submit_recovery(row['target_id'], row['request_id'],
+                                      row['retry_mode'] or NORMAL, terminal_on_failure=False)
+            else:
+                raise RecoveryError('远端记录未确认', code='reconciliation_required')
         except Exception:
-            logger.warning("恢复提交兜底重投失败: request_id=%s",
-                           row["request_id"], exc_info=True)
+            async with db_manager.get_db() as conn:
+                await RecoveryRepository(conn).require_reconciliation(row['request_id'])
+            logger.warning('恢复需要对账: request=%s', row['request_id'])
+            # 无进展不重复记账：审计只在首次转入待对账时落一条，
+            # 之后每轮仅刷新 last_checked_at（对账进度信号）。
+            if not row['reconciliation_required']:
+                await _record_recovery_event(
+                    'schedule.recovery_reconciliation_required', target_id=row['target_id'],
+                    request_id=row['request_id'], retry_mode=row['retry_mode'] or NORMAL)
     return len(rows)
+
+
+async def reconcile_recovery_result(target_id: str, request_id: str, result: dict) -> None:
+    if result.get('requestId') != request_id:
+        raise ValueError('recovery identity mismatch')
+    if result.get('targetId', target_id) != target_id:
+        raise ValueError('recovery target mismatch')
+    remote_state = result.get('state')
+    states = {'submitted': 'succeeded', 'failed': 'failed',
+              'no_candidate': 'no_candidate', 'duplicate': 'duplicate',
+              'cancelled': 'cancelled', 'pending': 'accepted', 'running': 'accepted',
+              'selected': 'accepted', 'artifact_ready': 'accepted', 'delivery_pending': 'accepted'}
+    if remote_state not in states:
+        raise ValueError('unknown remote recovery state')
+    from telepost.storage.sqlite.recovery import RecoveryRepository
+    async with db_manager.get_db() as conn:
+        await RecoveryRepository(conn).apply_remote(
+            request_id, target_id, state=states[remote_state], remote_state=remote_state,
+            slot_id=str(result.get('slotId') or ''),
+            reason=str(result.get('errorCode') or 'remote_execution_failed'))
+
+
+def _get_pixivflow_recovery(target_id: str, request_id: str) -> Optional[dict]:
+    base = os.environ['PIXIVFLOW_REFETCH_BASE_URL'].rstrip('/')
+    parsed = urlparse(base)
+    if parsed.scheme not in {'http', 'https'} or not parsed.netloc or parsed.username or parsed.password:
+        raise ValueError('invalid recovery endpoint')
+    request = Request(
+        f'{base}/internal/targets/{quote(target_id, safe="")}/recover/{quote(request_id, safe="")}',
+        headers={'Authorization': f'Bearer {os.environ["PIXIVFLOW_REFETCH_TOKEN"]}'})
+    try:
+        with urlopen(request, timeout=30) as response:
+            return json.load(response)
+    except HTTPError as error:
+        if error.code == 404:
+            return None
+        raise RecoveryError('恢复状态查询暂不可用', code='remote_error') from error
 
 
 def _submit_pixivflow_recover(target_id: str, request_id: str,
@@ -396,14 +403,10 @@ def _submit_pixivflow_recover(target_id: str, request_id: str,
                 raise RuntimeError(f"PixivFlow 拒绝恢复（HTTP {response.status}）")
             return result
     except HTTPError as error:
-        detail = ""
-        try:
-            body_bytes = error.read()
-            if body_bytes:
-                detail = " " + body_bytes.decode("utf-8", "replace")[:300]
-        except Exception:
-            pass
-        raise RuntimeError(f"PixivFlow 拒绝恢复（HTTP {error.code}{detail}）") from error
+        code = {400: 'invalid_request', 401: 'unauthorized', 403: 'unauthorized',
+                404: 'not_found', 409: 'invalid_request'}.get(error.code, 'remote_error')
+        raise RecoveryError(f'PixivFlow 拒绝恢复（HTTP {error.code}）', code=code,
+                            retryable=code == 'remote_error') from error
 
 
 _FAILURE_META = {
@@ -417,6 +420,9 @@ _FAILURE_META = {
 
 
 def _classify_recovery_error(exc: Exception) -> dict:
+    if isinstance(exc, RecoveryError):
+        return {'code': exc.code, 'retryable': exc.retryable,
+                'hint': _FAILURE_META.get(exc.code, {}).get('hint', '')}
     message = str(exc)
     lowered = message.lower()
     if "http 401" in lowered or "http 403" in lowered:

@@ -2802,6 +2802,17 @@ def add_api_routes(web_app, application) -> None:
             return _error(400, "invalid_recovery", "recovery 必须是对象")
         recovery = recovery if isinstance(recovery, dict) else None
 
+        # Execution receipt and notification receipt are distinct. Persist the
+        # correlated result even when notification delivery must be retried.
+        if recovery and recovery.get('requestId'):
+            from telepost.application.recovery import reconcile_recovery_result
+            for target in targets:
+                if target.get('status') in ('submitted', 'failed', 'no_candidate', 'duplicate', 'cancelled'):
+                    await reconcile_recovery_result(
+                        str(target.get('target_id') or ''), str(recovery['requestId']),
+                        {'requestId': str(recovery['requestId']), 'slotId': slot_id,
+                         'state': target['status'], 'errorCode': target.get('terminal_reason_code')})
+
         from database import db_manager as _db_manager
         key = f"schedule-outcome:{slot_id}"
         # Keep legacy receipts, but new delivery uses the shared durable claim.
