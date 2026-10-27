@@ -133,6 +133,7 @@ python check_config.py             # 配置自检
 `scripts/verify-telepost-contract.py`，验证实际 HTTP/SQLite 接口以及 Telegram 媒体适配器
 回归（见 `docs/TESTING.md`）。默认分支 ruleset 要求该检查，声明在部署仓库
 `config/github/telepost-delivery-contract.json`；不得为绕过失败而移除门禁。
+该必需检查不得按 PR 作者（含 github-actions[bot]）跳过；自动稿与人工改动使用同一门禁。
 
 跨仓库的只读生产校验在部署仓库：`./scripts/verify-production.sh`、`./scripts/smoke-telepost.sh`、
 `./scripts/verify-webhooks.sh`（不会打印密钥）。
