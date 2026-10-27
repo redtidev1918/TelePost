@@ -47,6 +47,24 @@ Windows 构建自动运行 `scripts/smoke-windows-release.py`：在隔离目录�
 4. 并发测试用确定性同步点（Event/可控时钟），禁止 sleep 碰运气。
 5. 修复前先写会失败的测试（红），修复后稳定通过（绿）。
 
+## PixivFlow ↔ TelePost 真实投递契约
+
+两仓的 PR CI 都运行 PixivFlow 的 `scripts/verify-telepost-contract.py`，并记录两端
+commit。它使用实际下载器、SQLite outbox、multipart HTTP、TelePost 路由/校验/审核
+application service 与隔离 SQLite；认证与 Telegram staging 为测试端口，绝不访问
+真实 Telegram。验证重复小说插图、旧冻结清单兼容、响应丢失后重启幂等、12 页插画、
+纯 TXT 与压缩包/重复资产拒收。该必需检查随后执行现有 Telegram adapter 回归，
+验证分组、限流、暂存恢复、媒体类型与发布幂等；测试端口不会调用真实 Telegram。
+
+本地先在 PixivFlow 执行 `npm ci && npm run build`，再用装有 TelePost requirements
+的 Python 运行（路径可为任意两个 checkout）：
+
+```bash
+python /path/to/PixivFlow/scripts/verify-telepost-contract.py /path/to/TelePost
+```
+
+该测试不会改写两仓业务数据库；所有合成投稿、资产和上传目录都在临时目录内。
+
 ## 常用选择
 
 ```bash

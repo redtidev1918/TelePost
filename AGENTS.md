@@ -129,6 +129,11 @@ pytest -q tests/test_api_server.py tests/test_conversation_flow.py
 python check_config.py             # 配置自检
 ```
 
+跨服务投递改动还必须通过 `PixivFlow delivery contract`：两仓共用 PixivFlow 的
+`scripts/verify-telepost-contract.py`，验证实际 HTTP/SQLite 接口以及 Telegram 媒体适配器
+回归（见 `docs/TESTING.md`）。默认分支 ruleset 要求该检查，声明在部署仓库
+`config/github/telepost-delivery-contract.json`；不得为绕过失败而移除门禁。
+
 跨仓库的只读生产校验在部署仓库：`./scripts/verify-production.sh`、`./scripts/smoke-telepost.sh`、
 `./scripts/verify-webhooks.sh`（不会打印密钥）。
 
