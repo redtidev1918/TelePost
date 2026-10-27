@@ -10,7 +10,7 @@
 | Webhook 注册核验与故障注入 | DONE | PR #360 内 verify_webhook + 60s 任务；机内 per-bot /ready 门控实证 |
 | 全量、PR/CI、Release、只读生产验收 | DONE | 2.84.9（#361）+ 3.7.2（PF #213 + pin #273）；验收见 deploy current-state |
 | 大型插件框架、跨语言合并部署 | DEFERRED | 无真实多实现需求或实测收益 |
-| 2026-10-27 双仓投递契约 + 媒体适配器合并门禁 | IN_PROGRESS | .github/workflows/delivery-contract.yml；共用 PixivFlow harness，真实 HTTP/SQLite + 80 项媒体回归；本机全量 1601P/1S |
+| 2026-10-27 双仓投递契约 + 媒体适配器合并门禁 | DONE | PR #363 已合并（3cbf264）；真实 HTTP/SQLite + 80 项媒体回归，CI Linux/Windows/浏览器均通过；required-check ruleset 25938992 active；自动下载页也经 PR/CI，无 bypass；生产版本/验收见 deploy current-state |
 
 ## 历史队列（已失效，仅保留追踪依据）
 
