@@ -1,0 +1,11 @@
+{
+  "repo": "redtidev1918/TelePost",
+  "name": "TelePost",
+  "emoji": "📮",
+  "description": "Telegram 投稿、审核与发布服务文档。",
+  "branch": "main",
+  "engine": "vitepress",
+  "engineVersion": "1.6.4",
+  "version": 2,
+  "themeKey": "telepost-theme"
+}

@@ -5,7 +5,6 @@
   - [Commands](/en/COMMANDS.md)
   - [Configuration](/en/CONFIGURATION.md)
   - [HTTP API](/en/API.md)
-  - [中文](/)
 - Deployment and operations (Chinese)
   - [Mini App](/MINIAPP.md)
   - [Fly.io deployment](/FLYIO_DEPLOYMENT.md)
@@ -16,6 +15,6 @@
 - Development
   - [MCP review (Chinese)](/MCP_REVIEW.md)
   - [Testing (Chinese)](/TESTING.md)
-  - [Resubmit contract](/RESUBMIT.md)
+  - [Resubmit contract (Chinese)](/RESUBMIT.md)
   - [Runtime architecture (Chinese)](/internals/architecture.md)
   - [Identity and provenance (Chinese)](/architecture/identity-and-provenance.md)
