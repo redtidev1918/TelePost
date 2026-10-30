@@ -173,3 +173,7 @@ config.ini.backup.*
 *.spec
 *.private.json
 *.bundle
+
+node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/

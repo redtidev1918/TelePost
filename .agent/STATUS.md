@@ -1,5 +1,11 @@
 # 工程状态（TelePost）
 
+## 文档站迁移：2026-10-31
+
+- VitePress 1.6.4 接入完成；保留原 Markdown、Docsify index/vendor 与停用的 static workflow 备份。
+- 文档构建及无 .git fixture 的 docsite check/navcheck 已通过；独立文档 PR 待审核，未合并。
+- 本次仅文档工具链变更，未发布应用，未触碰运行配置或 Telegram。
+
 ## 当前核验：2026-10-25 晚（Asia/Shanghai）
 
 - 当前任务：**DONE**——恢复执行权威收敛切片已发行部署验收（2.84.9 / b3a97e1）。

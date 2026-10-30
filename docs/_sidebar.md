@@ -3,7 +3,6 @@
   - [下载](/download.md)
   - [安装与部署](/INSTALL.md)
   - [命令参考](/COMMANDS.md)
-  - [English](/en/)
 - 配置与部署
   - [配置参考](/CONFIGURATION.md)
   - [Telegram Mini App](/MINIAPP.md)
