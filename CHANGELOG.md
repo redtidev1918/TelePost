@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.84.11](https://github.com/redtidev1918/TelePost/compare/v2.84.10...v2.84.11) (2026-10-31)
+
+
+### Bug Fixes
+
+* **release-infra:** post-release docs dispatch and download-page push gate ([#372](https://github.com/redtidev1918/TelePost/issues/372)) ([ffdb30c](https://github.com/redtidev1918/TelePost/commit/ffdb30c9d0cb677414dc741402bafc44b21dcdb3))
+
 ## [2.84.10](https://github.com/redtidev1918/TelePost/compare/v2.84.9...v2.84.10) (2026-10-31)
 
 
