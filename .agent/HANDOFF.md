@@ -1,6 +1,17 @@
 # 会话交接（TelePost 可靠性专项）
 
-## 当前交接：2026-10-25 晚——恢复权威收敛切片已闭环
+## 当前交接：2026-10-31 晚——多图相册发布布局修复已发版闭环
+
+生产 **2.84.10**（release PR #368，`61ae2c7`，deploy run 41194897817，验收全绿）。
+修复内容/验证/回滚点（2.84.9）见 `STATUS.md` 同日条目。两件遗留：
+
+- **#224 生产归因待 flyctl**：公开页证据（3328 = 8 图完整相册）与事故描述不符，
+  需只读账本（原稿媒体总数、progress_json、机器 env）定论；本机 `flyctl auth login` 后可做。
+- **发版基建待修**：finalize 的 deploy-docs dispatch 已退役 `static.yml`（422），
+  应改读 `download-page.json` → `docs.yml`；`update-download-page` 直推 main 必被
+  ruleset 拒，需改为自动开 PR（本次由 PR #370 人工合规补推）。
+
+## 以下为已被替代的 2.84.9 历史交接（2026-10-25 晚）
 
 生产 2.84.9（`b3a97e1`）；上游 PixivFlow 版本基线以 deploy 仓
 `docs/operations/current-state.md` 为准（本文件不维护跨仓版本快照）。本地超龄裁决已删除，

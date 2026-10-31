@@ -1,5 +1,23 @@
 # 工程状态（TelePost）
 
+## 当前核验：2026-10-31 晚（Asia/Shanghai）
+
+- 当前任务：**DONE（发版闭环；#224 生产归因待 flyctl）**——多图相册发布布局修复已发行部署验收。
+- 修复 PR #367（squash `1baed23`）：相册确定性拒绝不再静默拆单图（executor + legacy_runner），
+  失败可重试且保留 checkpoint；`publish.layout` 审计记录实际相册分组（media_group_id /
+  reply_to_message_id 贯通 ledger 与重启恢复）；`fly.toml` 显式 `CHANNEL_ALBUM_REPLY=discussion`、
+  `MEDIA_GROUP_CAPACITY=10`。全量 1621 passed + 投递契约 VERIFIED + PR CI 全绿（含 Windows）。
+- 生产：**2.84.10**（release PR #368，/health commit `61ae2c7`，deploy run 41194897817 成功，
+  自动部署）；`/ready`、bot1/bot2 health 200（inbox pending=0/dead=0）、smoke 4/4。
+  deploy 仓基线 PR #291 已合并。回滚点：**2.84.9**（镜像 `ghcr.io/redtidev1918/telepost:v2.84.9`）。
+- 发版基建两处既有回归（非本次修复引入，#364 门禁 / #366 VitePress 迁移遗留）：
+  `update-download-page` 直推 main 被必需检查拒绝 → 已以 PR #370 合规补推同形 commit；
+  finalize 的 deploy-docs 仍 dispatch 已退役 `static.yml`（422，`download-page.json` 已指向
+  `docs.yml`）→ 待专项修复。
+- #224 只读取证：公开嵌入页显示 t.me/xgdShare/3328 为 **8 图完整相册**（占 3328–3335），
+  与「散落单图」描述不符；3336/3337 与前日「1 图+5 文档」模式同构，疑为另一投稿。
+  生产账本归因（原稿总数/progress_json/机器 env）**BLOCKED：本机 flyctl 未登录**。
+
 ## 文档站迁移：2026-10-31
 
 - VitePress 1.6.4 接入完成；保留原 Markdown、Docsify index/vendor 与停用的 static workflow 备份。
