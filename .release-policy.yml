@@ -81,7 +81,7 @@
         "id": "deploy-docs",
         "type": "github-workflow",
         "required": true,
-        "workflow": "static.yml",
+        "workflow": "docs.yml",
         "ref": "default"
       },
       {
