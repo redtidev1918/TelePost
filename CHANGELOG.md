@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.84.10](https://github.com/redtidev1918/TelePost/compare/v2.84.9...v2.84.10) (2026-10-31)
+
+
+### Bug Fixes
+
+* **delivery:** 多图相册拒绝时停止发送并记录实际布局 ([#367](https://github.com/redtidev1918/TelePost/issues/367)) ([1baed23](https://github.com/redtidev1918/TelePost/commit/1baed2367698b0d2d8c2b484af5b8a987448bb30))
+
 ## [2.84.9](https://github.com/redtidev1918/TelePost/compare/v2.84.8...v2.84.9) (2026-10-25)
 
 
