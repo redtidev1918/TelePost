@@ -114,6 +114,8 @@ async def run_item_batches(items, *, caption, album_size,
     ``send_one(item, caption, reply_to) -> Message``
     ``send_album(media_built_list, reply_to) -> [Message]``
     Returns ``(sent_messages, main_message)``.
+    ``fallback_single`` is retained for call compatibility; albums never split
+    after rejection or an incomplete response.
     """
     sent_messages = []
     previous_id = None
@@ -138,9 +140,9 @@ async def run_item_batches(items, *, caption, album_size,
                     for i, item in enumerate(batch)
                 ]
                 messages = await send_album(media_group, reply_to)
-                if messages is not None and len(messages) != len(batch):
+                if messages is None or len(messages) != len(batch):
                     raise RuntimeError(
-                        f"返回消息数 {len(messages)} 与文件数 {len(batch)} 不一致"
+                        f"返回消息数 {len(messages or [])} 与文件数 {len(batch)} 不一致"
                     )
                 for member in media_group:
                     _close_item_handle(member.media)
@@ -155,9 +157,11 @@ async def run_item_batches(items, *, caption, album_size,
                 if media_group:
                     for member in media_group:
                         _close_item_handle(member.media)
-                logger.warning("相册发送失败（%s），降级为逐条发送 %d 个文件",
-                               exc, len(batch))
-                messages = None
+                logger.warning(
+                    "delivery layout=failed method=send_media_group items=%d "
+                    "fallback=disabled error_type=%s", len(batch), type(exc).__name__,
+                )
+                raise
         if messages is None:
             messages = []
             for index, item in enumerate(batch):

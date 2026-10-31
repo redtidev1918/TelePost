@@ -11,8 +11,8 @@ and distinguishes three outcomes:
   album / single send                 might have accepted it, so the caller must
                                        NEVER blindly resend it.
 
-An album failure that is *not* a network error falls back to one-by-one sends
-(memory-safety for small machines), preserving the historical behaviour.
+A rejected album stops the batch. Splitting it into single sends would silently
+change the publication layout; confirmed earlier batches remain checkpointed.
 """
 from __future__ import annotations
 
@@ -34,6 +34,7 @@ from ...domain.delivery import (
     RemoteUrl,
     ReplyMode,
 )
+from ...observability.redact import redact_text
 from .planner import Batch, DeliveryPlan
 from .preparation import (
     PHOTO_MAX_BYTES,
@@ -265,7 +266,6 @@ async def execute_plan(
             else None
         )
         messages: Optional[List[DeliveredMessage]] = None
-        album_error: Optional[BaseException] = None
 
         if batch.is_album:
             try:
@@ -281,9 +281,21 @@ async def execute_plan(
                 result.error = getattr(exc, "original", None) or exc
                 return result
             except Exception as exc:
-                # Certain album failure (bad request etc.): degrade to singles.
-                album_error = exc
-                messages = None
+                # A deterministic rejection is not permission to change topology.
+                # Keep the album intact for explicit recovery; never scatter it.
+                logger.warning(
+                    "delivery layout=failed method=send_media_group items=%d "
+                    "reply_mode=%s reply_to=%s fallback=disabled error_type=%s reason=%s",
+                    len(batch.items), plan.reply_mode.value, reply_to,
+                    type(exc).__name__, redact_text(str(exc))[:300],
+                )
+                result = DeliveryResult.failed(
+                    f"album rejected ({type(exc).__name__}): "
+                    f"{redact_text(str(exc))[:300]}; single-message fallback disabled",
+                    retryable=True, known_messages=sent,
+                )
+                result.error = exc
+                return result
 
         if messages is not None and len(messages) != len(batch.items):
             return DeliveryResult.uncertain(
@@ -375,5 +387,4 @@ async def execute_plan(
         if on_sent is not None:
             on_sent(messages)
 
-    _ = album_error  # fallback already handled; kept for debugger introspection
     return DeliveryResult.delivered(sent, main_message)

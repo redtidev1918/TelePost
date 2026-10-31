@@ -392,8 +392,8 @@ Pixiv-sourced review items with `target_id` can also trigger a target-level refe
 ## Publication layout
 
 Channel publication and review preview share the same layout: image/video albums → GIF/audio → document group; each group has at most 10
-items, and the caption only appears on the first message. Local images larger than 10 MiB are compressed first, and only sent as documents on failure; album failures
-degrade to per-item sends only for deterministic album errors. Check delivery before retrying timeouts or network errors.
+items, and the caption only appears on the first message. Local images larger than 10 MiB are compressed first, and only sent as documents on failure; a rejected album
+stops its batch instead of silently splitting into single messages. Confirmed batches are preserved. Check delivery before retrying timeouts or network errors.
 With `CHANNEL_ALBUM_REPLY=discussion`, the channel root keeps the first image group + first file group (images
 first, files after); overflow images/files go to the image/file threads of the linked discussion group respectively. For novel submissions only the TXT
 document remains the download attachment. The root uses a real cover, then a fallback card, or the TXT alone

@@ -80,6 +80,10 @@ def _to_delivered(message, kind: MediaKind, *, fallback_chat_id=None) -> Deliver
         thumbnail_file_id=thumbnail_file_id_of(message),
         file_unique_id=file_unique_id_of(message),
         raw=message,
+        media_group_id=getattr(message, "media_group_id", None),
+        reply_to_message_id=getattr(
+            getattr(message, "reply_to_message", None), "message_id", None
+        ),
     )
 
 

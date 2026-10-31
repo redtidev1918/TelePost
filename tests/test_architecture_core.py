@@ -227,13 +227,13 @@ async def test_executor_album_network_failure_is_uncertain_and_no_fallback():
 
 
 @pytest.mark.asyncio
-async def test_executor_album_other_error_degrades_to_singles():
+async def test_executor_album_other_error_preserves_album_and_fails():
     sender = FakeSender(album_raises=[ValueError("bad request")])
     result = await execute_plan(_plan(), sender, caption="cap")
-    assert result.ok
-    assert len(sender.single_calls) == 3
-    assert sender.single_calls[0]["caption"] == "cap"
-    assert sender.single_calls[1]["caption"] is None
+    assert not result.ok
+    assert sender.single_calls == []
+    assert "fallback disabled" in result.reason
+    assert isinstance(result.error, ValueError)
 
 
 @pytest.mark.asyncio
@@ -249,16 +249,8 @@ async def test_executor_single_network_failure_is_uncertain():
 
 @pytest.mark.asyncio
 async def test_executor_single_other_error_is_failed_with_known_messages():
-    sender = FakeSender(single_raises=[ValueError("bad media")])
-    plan = plan_delivery([_fid("photo", 1), _fid("photo", 2)])
-    plan_album_fail = FakeSender(
-        album_raises=[ValueError("bad album")],
-        single_raises=[None, ValueError("second failed")],
-    )
-    # First single succeeds, second deterministically fails.
-    async def send_album_ok(*a, **k):
-        raise ValueError("bad album")
-    sender = FakeSender(album_raises=[ValueError("bad album")])
+    plan = plan_delivery([_fid("animation", 1), _fid("animation", 2)])
+    sender = FakeSender()
 
     async def broken_send_single(item, *, reply_to, caption):
         sender.single_calls.append({"reply_to": reply_to, "caption": caption})

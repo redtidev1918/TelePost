@@ -351,6 +351,49 @@ class PublicationService:
             if not request.items else await self._delivery.deliver(request)
         )
 
+        # Independent of publish.completed ownership: review approvals need the
+        # same durable layout evidence as direct submissions. Never store media,
+        # captions or file IDs in this projection.
+        actual = prior + result.messages
+        groups = {}
+        for message in actual:
+            group_id = message.media_group_id
+            identity = (message.chat_id, group_id or message.message_id)
+            group = groups.setdefault(identity, [
+                message.chat_id, message.message_id, group_id,
+                message.reply_to_message_id, 0,
+            ])
+            group[4] += 1
+        layout = (
+            "uncertain" if result.is_uncertain else
+            "failed" if not result.ok else
+            "incomplete" if len(actual) != len(ordered_items) else
+            "degraded" if sorted(g[4] for g in groups.values() if g[2]) !=
+            sorted(len(b.items) for b in plan.batches if b.is_album) else "complete"
+        )
+        await audit.record_event(
+            "publish.layout",
+            error_class=type(result.error).__name__ if result.error else None,
+            detail={
+                "reply_mode": mode.value, "album_size": command.album_size,
+                "planned_batches": [len(batch.items) for batch in plan.batches],
+                "confirmed_messages": len(actual), "layout": layout,
+                "reason": result.reason,
+                "error": str(result.error)[:500] if result.error else None,
+                "group_columns": ["chat_id", "first_message_id", "media_group_id",
+                                  "reply_to_message_id", "count"],
+                "groups": list(groups.values())[:20],
+                "omitted_groups": max(0, len(groups) - 20),
+                "album_single_fallback": "disabled",
+            },
+            **event_fields,
+        )
+        if layout != "complete":
+            logger.warning(
+                "publication layout=%s reply_mode=%s planned=%d confirmed=%d",
+                layout, mode.value, len(ordered_items), len(actual),
+            )
+
         if result.is_uncertain:
             await self._ledger.record_partial(
                 key,
@@ -467,6 +510,8 @@ class PublicationService:
                     file_id=item.get("file_id"),
                     thumbnail_file_id=item.get("thumbnail_file_id"),
                     file_unique_id=item.get("file_unique_id"),
+                    media_group_id=item.get("media_group_id"),
+                    reply_to_message_id=item.get("reply_to_message_id"),
                 ))
         except (KeyError, TypeError, ValueError):
             return []
