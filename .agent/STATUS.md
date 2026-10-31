@@ -2,23 +2,21 @@
 
 ## 当前核验：2026-10-31 晚（Asia/Shanghai）
 
-- 当前任务：**DONE（发版闭环；#224 生产归因待 flyctl）**——多图相册发布布局修复已发行部署验收。
-- 修复 PR #367（squash `1baed23`）：相册确定性拒绝不再静默拆单图（executor + legacy_runner），
-  失败可重试且保留 checkpoint；`publish.layout` 审计记录实际相册分组（media_group_id /
-  reply_to_message_id 贯通 ledger 与重启恢复）；`fly.toml` 显式 `CHANNEL_ALBUM_REPLY=discussion`、
-  `MEDIA_GROUP_CAPACITY=10`。全量 1621 passed + 投递契约 VERIFIED + PR CI 全绿（含 Windows）。
-- 生产：**2.84.10**（release PR #368，/health commit `61ae2c7`，deploy run 41194897817 成功，
-  自动部署）；`/ready`、bot1/bot2 health 200（inbox pending=0/dead=0）、smoke 4/4。
-  deploy 仓基线 PR #291 已合并。回滚点：**2.84.9**（镜像 `ghcr.io/redtidev1918/telepost:v2.84.9`）。
-- 发版基建两处既有回归（非本次修复引入，#364 门禁 / #366 VitePress 迁移遗留），
-  v2.84.10 当次以 PR #370 人工合规补推下载页，随后已由 **PR #372 修复**：
-  `deploy-docs` postRelease 改 dispatch `docs.yml`（原 `static.yml` 已退役 → 422）；
-  `update-download-page.yml` v3 改为 PAT（RELEASE_PLEASE_TOKEN）开 PR + 等必需检查
-  绿后自动 squash 合并（25 分钟上限 < releasegraph 30 分钟 max_wait），PAT 合并的
-  push 经 `docs/**` 路径自动重建 Pages，超时显式失败可修复重入。
-- #224 只读取证：公开嵌入页显示 t.me/xgdShare/3328 为 **8 图完整相册**（占 3328–3335），
-  与「散落单图」描述不符；3336/3337 与前日「1 图+5 文档」模式同构，疑为另一投稿。
-  生产账本归因（原稿总数/progress_json/机器 env）**BLOCKED：本机 flyctl 未登录**。
+- 当前任务：**DONE（全部闭环）**——多图相册修复 + 发版基建修复已发行；**#224 生产归因已完成**。
+- **#224 定论（flyctl 只读取证）**：bot1 pending_reviews#224 = PixivFlow 自动稿（pixiv 151463510），
+  **8 张 photo、0 文档**；02:36:09 批准 → 02:36:10 **一次成功**发布 message 3328，
+  related=3329–3335（8 消息完整相册）；audit 无错误、delivery_ledger 无 partial/uncertain。
+  公开频道 3328 同为 8 图相册；8 ≤ 容量 10，任何 reply mode 预期均为单个完整 root 相册。
+  **「首贴单图 + 散图」从未在频道发生**（疑为客户端渲染异常或与审核群 8 条独立预览
+  消息混淆，preview_messages:8）。本次修复属防御性加固，非该缺陷的实际触发。
+- **生产 env 实测**：`CHANNEL_ALBUM_REPLY=discussion`（Fly secret 一直存在，**从无 chain 漂移**）、
+  `MEDIA_GROUP_CAPACITY=10`；2.84.10 的 fly.toml 声明与 secret 同值，是配置即代码化。
+- 应用修复 2.84.10（PR #367）：相册拒绝不静默拆图 + `publish.layout` 审计 + 拓扑显式化；
+  全量 1621 passed + 契约 VERIFIED。生产验收 smoke 4/4。
+- 发版基建 2.84.11（PR #372/#374）：`deploy-docs`→docs.yml；download-page v3 自动 PR 链。
+  **2.84.11 post-release 五项全 success**（refresh-download-page/pypi/deploy-docs/
+  deploy-production/notify），自动 PR #375 检查绿后自动合并、Pages 自动重建。回滚点 2.84.9。
+- 机内 doctor：仅 2 CRIT = inbox 死信 bot1:8/bot2:7（10-25 已知历史遗留，非回归），其余全 OK。
 
 ## 文档站迁移：2026-10-31
 
