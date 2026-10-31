@@ -10,10 +10,12 @@
 - 生产：**2.84.10**（release PR #368，/health commit `61ae2c7`，deploy run 41194897817 成功，
   自动部署）；`/ready`、bot1/bot2 health 200（inbox pending=0/dead=0）、smoke 4/4。
   deploy 仓基线 PR #291 已合并。回滚点：**2.84.9**（镜像 `ghcr.io/redtidev1918/telepost:v2.84.9`）。
-- 发版基建两处既有回归（非本次修复引入，#364 门禁 / #366 VitePress 迁移遗留）：
-  `update-download-page` 直推 main 被必需检查拒绝 → 已以 PR #370 合规补推同形 commit；
-  finalize 的 deploy-docs 仍 dispatch 已退役 `static.yml`（422，`download-page.json` 已指向
-  `docs.yml`）→ 待专项修复。
+- 发版基建两处既有回归（非本次修复引入，#364 门禁 / #366 VitePress 迁移遗留），
+  v2.84.10 当次以 PR #370 人工合规补推下载页，随后已由 **PR #372 修复**：
+  `deploy-docs` postRelease 改 dispatch `docs.yml`（原 `static.yml` 已退役 → 422）；
+  `update-download-page.yml` v3 改为 PAT（RELEASE_PLEASE_TOKEN）开 PR + 等必需检查
+  绿后自动 squash 合并（25 分钟上限 < releasegraph 30 分钟 max_wait），PAT 合并的
+  push 经 `docs/**` 路径自动重建 Pages，超时显式失败可修复重入。
 - #224 只读取证：公开嵌入页显示 t.me/xgdShare/3328 为 **8 图完整相册**（占 3328–3335），
   与「散落单图」描述不符；3336/3337 与前日「1 图+5 文档」模式同构，疑为另一投稿。
   生产账本归因（原稿总数/progress_json/机器 env）**BLOCKED：本机 flyctl 未登录**。

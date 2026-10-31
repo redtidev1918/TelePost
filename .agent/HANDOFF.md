@@ -7,9 +7,8 @@
 
 - **#224 生产归因待 flyctl**：公开页证据（3328 = 8 图完整相册）与事故描述不符，
   需只读账本（原稿媒体总数、progress_json、机器 env）定论；本机 `flyctl auth login` 后可做。
-- **发版基建待修**：finalize 的 deploy-docs dispatch 已退役 `static.yml`（422），
-  应改读 `download-page.json` → `docs.yml`；`update-download-page` 直推 main 必被
-  ruleset 拒，需改为自动开 PR（本次由 PR #370 人工合规补推）。
+- ~~发版基建待修~~ → 已由 PR #372 修复（deploy-docs → docs.yml；download-page v3
+  自动 PR + 检查绿后合并），下次发版走全自动路径，无需人工补推。
 
 ## 以下为已被替代的 2.84.9 历史交接（2026-10-25 晚）
 
