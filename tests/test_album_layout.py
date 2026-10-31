@@ -143,7 +143,10 @@ def test_production_topology_and_child_config(tmp_path, monkeypatch):
     from pathlib import Path
     from run import build_bot_env
     monkeypatch.chdir(tmp_path)
-    config = tomllib.loads((Path(__file__).parents[1] / "fly.toml").read_text())["env"]
+    # Binary mode keeps the UTF-8 Chinese comments in fly.toml readable on
+    # Windows, matching tests/test_fly_deploy_contract.py.
+    with (Path(__file__).parents[1] / "fly.toml").open("rb") as file:
+        config = tomllib.load(file)["env"]
     for index in (1, 2):
         env = build_bot_env(index, config)
         assert env["CHANNEL_ALBUM_REPLY"] == "discussion"
