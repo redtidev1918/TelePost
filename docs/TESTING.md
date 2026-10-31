@@ -56,14 +56,10 @@ application service 与隔离 SQLite；认证与 Telegram staging 为测试端�
 纯 TXT 与压缩包/重复资产拒收。该必需检查随后执行现有 Telegram adapter 回归，
 验证分组、限流、暂存恢复、媒体类型与发布幂等；测试端口不会调用真实 Telegram。
 
-本地先在 PixivFlow 执行 `npm ci && npm run build`，再用装有 TelePost requirements
-的 Python 运行（路径可为任意两个 checkout）：
-
-```bash
-python /path/to/PixivFlow/scripts/verify-telepost-contract.py /path/to/TelePost
-```
-
-该测试不会改写两仓业务数据库；所有合成投稿、资产和上传目录都在临时目录内。
+本地复现（可选）：构建 PixivFlow checkout 后，用装有本仓 requirements 的 Python
+运行 `python <PixivFlow>/scripts/verify-telepost-contract.py <TelePost>`（两个
+checkout 路径任意）；前置构建步骤以 PixivFlow 仓说明为准。该测试不会改写两仓
+业务数据库；所有合成投稿、资产和上传目录都在临时目录内。
 
 ## 常用选择
 

@@ -73,7 +73,7 @@ HTTP 投稿接口、幂等键、审核队列、批准/驳回、发布与发布�
 
 - **投稿幂等**：投稿接口接受 `idempotency_key`（也接受表单/字段形式），经
   `normalize_idempotency_key(user_id, raw_key, "api")` 归一；已受理/已发布的重放返回
-  `idempotent_replay`，**不重复通知、不重复发布**。这是 PixivFlow 槽位账本之外的最后一道防线。
+  `idempotent_replay`，**不重复通知、不重复发布**。这是上游执行系统自身账本之外的最后一道防线。
 - **重启可恢复**：审核队列、幂等记录、会话状态都在持久卷 `/app/data` 上；重启后账本存活，
   同一作品不产生重复审核，同一审核不重复发布。
 - **Webhook Durable Inbox（§durable-inbox）**：Update 在 HTTP 200 前先落
@@ -165,7 +165,7 @@ python check_config.py             # 配置自检
   绝不覆盖终态审核结论。
 - PixivFlow 拥有执行状态，TelePost 拥有审核状态。正常重抓必须由替换投稿或
   `refetch/outcomes` 主动到达业务终态；watchdog 只是崩溃兜底。已受理 attempt
-  不可仅凭本地时间判失败，应先查 PixivFlow durable slot。
+  不可仅凭本地时间判失败，应按 request UUID 查询上游作业状态。
 - 替换稿必须在预览和控制卡准备成功后，与旧稿 `superseded`、attempt `replaced`
   同事务提交。来源不明或过期的 `refetch_request_id` 不能作为普通投稿落库。
 - 点击重抓后**审核卡本身必须立刻反映该事实**（§refetch-card）：控制卡切到「重抓中」形态
@@ -222,8 +222,8 @@ rejection notification.
   回归测试：`tests/test_refetch_replacement.py::test_chained_refetch_a_to_b_to_c_keeps_one_active_generation`。
 - **替换被丢弃时必须可见**：迟到或来源过期的替换稿会被交付入口拒绝
   （`_reserve_replacement` 的两处 400：`refetch attempt is unknown or terminal` /
-  `refetch attempt is cancelled or already terminal`，文案是 PixivFlow 的死信契约，
-  **逐字不可改**）。拒绝**之前**必须：向源审核控制卡通知「重抓未生效：原审核已结束
+  `refetch attempt is cancelled or already terminal`，文案是上游死信分类的匹配依据
+  （跨仓契约见部署仓库），**逐字不可改**）。拒绝**之前**必须：向源审核控制卡通知「重抓未生效：原审核已结束
   （当前状态：…），替换作品已丢弃，当前稿件保持不变。任务ID：…」，并落一条
   `review.refetch_dropped_replacement` 审计（`error_class` 为
   `refetch_attempt_obsolete` / `refetch_attempt_unknown`，request id 在 `detail`）。
@@ -438,14 +438,14 @@ REQUESTED → SEARCHING → FILTERING → CANDIDATE_FOUND → REPLACED
   更短时（默认 15 < 30）先报 `stalled_no_progress`，排队时钟已过期才报
   `queued_too_long`。两者都是终态、都带 `terminal_reason`、都会通知审核人。
 - **admission 超时只针对未被接受的 requested**：超过
-  `REFETCH_STALE_TIMEOUT_MINUTES`（默认 20）分钟仍未被 PixivFlow 接受 →
+  `REFETCH_STALE_TIMEOUT_MINUTES`（默认 20）分钟仍未被上游接受 →
   `timeout(admission_timeout)`；该分支在分支顺序中**先于**硬上限与 `watchdog_no_heartbeat`，
   且必须 `continue`，不得再落进硬上限分支（否则两个终态会互相覆盖 `failure_code`）。
 - **`heartbeat_at IS NULL` 不是「心跳过期」**：它表示「本进程还没轮询过这条 attempt」
   （历史行或刚重启接管），必须去轮询，绝不能凭它判 `watchdog_no_heartbeat`。
 - **watchdog 对同一 request UUID 可做幂等 wake**：机器不可达且超过
   `REFETCH_WAKE_MINUTES`（默认 12）分钟无进展、**且仍在硬上限内**时，用同一 request UUID
-  再调 PixivFlow refetch（Fly Proxy 拉起机器，PixivFlow 恢复既有 manual slot）；
+  再调上游 refetch（Fly Proxy 拉起机器，上游按同一 request UUID 幂等恢复既有作业）；
   不得创建第二条 attempt。已过 `REFETCH_HARD_TIMEOUT_MINUTES` 的 attempt 只终止、不唤醒。
 - **硬性 SLA**：超过 `REFETCH_HARD_TIMEOUT_MINUTES`（默认 90）仍无法形成任何 terminal
   outcome 时，attempt 必须 `timeout(stalled_after_hard_timeout)` 并通知审核群——accepted
@@ -453,7 +453,7 @@ REQUESTED → SEARCHING → FILTERING → CANDIDATE_FOUND → REPLACED
 - **交付入口没有静默路径**：`telepost/application/review_queue.py:_reserve_replacement`
   的两处 `ValueError`（`refetch attempt is unknown or terminal` /
   `refetch attempt is cancelled or already terminal`）**HTTP 400 文案必须逐字不变**
-  （PixivFlow 按字符串死信），但抛之前必须先向审核群通知「重抓未生效：原审核已结束
+  （上游按该文案字符串做死信分类，跨仓契约见部署仓库），但抛之前必须先向审核群通知「重抓未生效：原审核已结束
   （当前状态：…），替换作品已丢弃」并记 `review.refetch_dropped_replacement`
   （`error_class` = `refetch_attempt_obsolete` / `refetch_attempt_unknown`，request id 进
   `detail`）。丢弃是允许的，静默丢弃不允许。
@@ -565,8 +565,8 @@ Relaxed recovery is a predefined occurrence-scoped server policy,
 not arbitrary client-supplied tuning.
 ```
 
-- PixivFlow 在每个 terminal cell 持久化 `terminal_reason_code` + 业务消息；outcome
-  payload 原样携带。`build_schedule_outcome_text` 只展示一级原因（业务语言），
+- 上游随每个终态 outcome 携带 `terminal_reason_code` + 业务消息（契约见部署仓库）。
+  `build_schedule_outcome_text` 只展示一级原因（业务语言），
   绝不把 stack trace / 路径 / SQL / token 发到 Telegram。
 - 失败的 schedule 终态消息为失败 target 提供 `[再试一次]`（normal）与
   `[放宽条件重试]`（relaxed）按钮；回调 `sched_recover|<target_id>|<mode>` 只提交
@@ -723,12 +723,12 @@ The Telegram review group previews the SAME shape: the real cover leads the
 submission and never becomes part of the review's staged media.
 ```
 
-- **资源角色不靠猜**：PixivFlow 把封面发布为专用 `pixiv:<id>:novelcover`
-  canonical asset（wire 仍是 `kind: image`）；正文插图保留
+- **资源角色不靠猜**：封面资产由上游以专用 `pixiv:<id>:novelcover`
+  canonical 标识发布（wire 仍是 `kind: image`）；正文插图保留
   `uploadedimage` / `pixivimage` 身份。禁止用 `asset[0]`、图片数量、
   MIME 或 URL 顺序猜测资源角色。
-- **Pixiv 默认封面不是封面**：`novel-cover-master-default` 占位图在
-  PixivFlow 归一化为 `cover_url: null`，绝不作为 Telegram media 发布。
+- **Pixiv 默认封面不是封面**：`novel-cover-master-default` 占位图经上游归一化为
+  `cover_url: null`，绝不作为 Telegram media 发布。
 - **TelePost 消费侧**：`novel_cover_asset_ids()` 只认显式 `:novelcover`
   后缀；旧 payload（无封面字段）保守降级为 fallback card / text-only root，
   绝不把正文第一张图当封面。

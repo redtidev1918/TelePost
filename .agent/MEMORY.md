@@ -10,8 +10,8 @@
   `review_stager._send_throttled` 现为实现基准）。
 - 空 `media_json` ≠ 无外部副作用；staging 失败保留 preview ids 作证据，
   受控恢复资格基于「不可达发布」论证（`review_queue._recoverable_failed_row`）。
-- PixivFlow 机器空闲自停（exitWhenIdle），公网 HTTPS 唤醒实测 ~8s——TelePost 侧一切
-  同步等待它的路径都会先付这笔冷启动税。
+- 上游执行机空闲自停、公网 HTTPS 唤醒实测 ~8s（部署观测，权威在 deploy 仓）——
+  TelePost 侧一切同步等待它的路径都会先付这笔冷启动税。
 - 生产取证限制：本开发机 Fly SSH（WireGuard DNS）不可用；用 HTTP 探针 + `fly logs`（HTTPS）
   替代，机内 doctor 标记 BLOCKED 而非跳过。
 - 发布节奏：fix PR → CI 双平台绿 → squash merge → release-please PR → 合并即 tag/
