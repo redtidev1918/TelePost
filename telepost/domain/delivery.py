@@ -168,6 +168,8 @@ class DeliveredMessage:
     thumbnail_file_id: Optional[str] = None
     file_unique_id: Optional[str] = None
     raw: object = None
+    media_group_id: Optional[str] = None
+    reply_to_message_id: Optional[int] = None
 
 
 class DeliveryState(str, Enum):

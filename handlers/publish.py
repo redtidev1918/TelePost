@@ -1030,6 +1030,10 @@ class _LegacyDeliveryPort:
                 thumbnail_file_id=_thumbnail_file_id(m),
                 file_unique_id=_file_unique_id_of(m),
                 raw=m,
+                media_group_id=getattr(m, "media_group_id", None),
+                reply_to_message_id=getattr(
+                    getattr(m, "reply_to_message", None), "message_id", None
+                ),
             )
             for m in raw_messages
         ]

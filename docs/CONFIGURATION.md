@@ -200,12 +200,14 @@ fly secrets set -a <app> API_MAX_FILES=100
 ```
 
 - `CHANNEL_ALBUM_REPLY=discussion` 生效样例：11 张图 + 4 个文件 → 频道发首组 10 图 + 全部 4 文件（文件相册跟随图片组），第 11 图进入图片讨论串；文件超过 10 个时，超出部分进入文件讨论串。
-- 2.10.43 起，相册降级为单张发送时也保持所选层级：`chain` 逐条回复上一条，`post` 都回复主贴（或调用方指定的锚点）。网络超时仍不自动重发，需先确认频道中是否已送达。
+- 相册明确拒绝时停止发送该批，不再自动拆成单图。`chain` / `post` 仍保留已确认批次供同键恢复；超时不会自动重发。
+- 正式发布的 `fly.toml` 显式声明 `CHANNEL_ALBUM_REPLY=discussion`、`MEDIA_GROUP_CAPACITY=10`；多 Bot 继承父配置，`BOTn_CHANNEL_ALBUM_REPLY` 可覆盖对应 Bot。`CHANNEL_ALBUM_SIZE` 是容量常量的代码别名，不是独立环境变量。
+- `publish.layout` 审计记录实际 reply mode、容量、计划批次、已确认数量、相册 ID / chat / 首消息 / 回复锚点 / 组大小，以及 `complete`、`degraded`、`incomplete`、`failed` 或 `uncertain` 布局状态。组明细最多 20 组，超出数显式记录；失败原因脱敏。讨论串未完整投递会记录 `incomplete`，已确认主贴仍保留为已发布，禁止整组重发。
 - `post` 指同一频道内的消息回复，不会把后续图片移到关联讨论群的评论区；它不改变发送目标。
 - `discussion` 才是评论区展示：频道 root 保留首组图片和首组文件（图片在前、文件在后），溢出图片/文件分别进入各自的讨论锚点串；Bot 必须在频道的关联讨论组中且可发消息。
 - 普通 `chain` / `post` 多批发布遇到**确定失败**时，会把已确认的 Telegram 消息写入 delivery ledger；同一幂等键重试只续发剩余批次。响应状态不确定时该键会停止自动发送，必须先人工核对，避免重复主贴。
 - `discussion` 仅在 **Webhook 模式**可用——自动转发事件要在进入 PTB 更新队列前捕获；Polling 模式拿不到自动转发，root 确认后只能保留频道主贴、不能投递溢出，不会自动重跑。配错时启动日志会有告警。
-- 频道 root 未确认（发送失败 / 响应丢失且反查不到转发）时允许回滚并自动重试一次；root 一旦确认，linked-discussion overflow 失败**绝不删除或重跑 root**，只按可确定部分清理讨论区并保留主贴，需人工核验对应评论串。仅评论相册"发了没成功"这类无法判断是否重复的情况不自动重试。
+- 频道 root 被明确拒绝且无已确认消息时允许自动重试一次；响应丢失时禁止扫描最近转发猜测结果或自动重发；root 一旦确认，linked-discussion overflow 失败**绝不删除或重跑 root**，只按可确定部分清理讨论区并保留主贴，需人工核验对应评论串。仅评论相册"发了没成功"这类无法判断是否重复的情况不自动重试。
 - 审核发布若进程中途崩溃，记录会卡在 `publishing`；超过 `PUBLISHING_STALE_SECONDS`（默认 300）秒后点「重试发布」会自动解锁重发。
 - `API_MAX_FILES` 放宽的是 HTTP API 投稿入口（PixivFlow 等）；单个 Telegram 相册仍 ≤10，发布侧自动分批。
 - 设置会触发应用重启；单个 Telegram 相册仍最多 10 项。

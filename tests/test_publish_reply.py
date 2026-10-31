@@ -88,30 +88,19 @@ async def test_post_mode_with_external_anchor():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode,anchor,expected", [
-    ("chain", None, [None, 1, 2, 3]),
-    ("post", None, [None, 1, 1, 1]),
-    ("post", 77, [77, 77, 77, 77]),
-])
-async def test_album_fallback_preserves_reply_layout(mode, anchor, expected):
-    replies = []
-    captions = []
-
+@pytest.mark.parametrize("mode", ["chain", "post"])
+async def test_album_rejection_never_scatters_singles(mode):
     async def send_album(*args):
         raise TelegramError("album rejected")
 
-    async def send_one(item, cap, reply_to):
-        replies.append(reply_to)
-        captions.append(cap)
-        return _Msg(len(replies))
-
-    await publish._run_item_batches(
-        [{"kind": "photo", "file_id": str(i)} for i in range(4)],
-        caption="caption", album_size=3, send_one=send_one,
-        send_album=send_album, reply_mode=mode, anchor_id=anchor,
-    )
-    assert replies == expected
-    assert captions == ["caption", None, None, None]
+    send_one = AsyncMock()
+    with pytest.raises(TelegramError, match="album rejected"):
+        await publish._run_item_batches(
+            [{"kind": "photo", "file_id": str(i)} for i in range(4)],
+            caption="caption", album_size=3, send_one=send_one,
+            send_album=send_album, reply_mode=mode,
+        )
+    send_one.assert_not_awaited()
 
 
 @pytest.mark.asyncio

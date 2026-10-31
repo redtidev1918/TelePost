@@ -529,6 +529,9 @@ Multi-media publication uses capacity-first packing.
   审核预览必须与实际发布按同一容量分批，否则审核看到 10 张、发布只发 5 张）。
 - `pack_media(ordered, capacity)` 是纯函数 SSOT：`root = first capacity`，
   overflow 按同一 capacity 分块。11 → root 10 + reply 1；21 → root 10 + reply 10 + reply 1。
+- 相册明确拒绝时停止该批次，不自动降级逐条发送；已确认批次仍按既有 ledger 恢复，
+  网络不确定时禁止重发。`publish.layout` 审计记录有效配置、计划批次与实际相册分组，
+  不允许把媒体数量相同当作布局正确的证据。
 - 一个 media group 在业务上是 ONE root publication，即使 Telegram 把它建模为多条
   Message；caption 只挂 root，canonical link/message_id 指向 root。
 
