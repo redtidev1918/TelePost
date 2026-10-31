@@ -1177,7 +1177,7 @@ paths:
                           result_candidate_id: {type: string}
                           failure_code: {type: string, description: Set only for failure terminals (failed / timeout)}
                           terminal_reason: {type: string}
-                          last_remote_state: {type: string, description: Last PixivFlow slot cell state observed (may be empty)}
+                          last_remote_state: {type: string, description: Last remote job state observed (may be empty)}
                           notify_count: {type: integer, description: How many progress/terminal messages were sent for this attempt}
                           scanned: {type: integer}
                           skipped_duplicate: {type: integer}

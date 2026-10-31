@@ -245,7 +245,7 @@ wakes it on incoming HTTPS requests); review-chat refetch uses the following con
 | `PIXIVFLOW_REFETCH_BASE_URL` | PixivFlow's HTTPS address, e.g. `https://pixivflow-scheduler.fly.dev` |
 | `PIXIVFLOW_REFETCH_TOKEN` | Dedicated Bearer matching the same-named Secret on the PixivFlow side; separate from the scheduled-trigger token |
 | `PIXIVFLOW_JOB_TRANSPORT` | Job channel: `protocol` (default, Workflow Protocol v1) or `legacy` (rollback, see below) |
-| `TELEPOST_API_BASE_URL` | TelePost's public address (all bot processes share the same domain), e.g. `http://telepost:8080`. Only effective under the `protocol` channel and when this variable **is configured**: when TelePost submits a job as the protocol consumer, it declares `callback_url = {base}/api/bot{N}/v1/jobs/events` on the Task (`N` is the subprocess `TELEPOST_BOT_INDEX`, default `1`), so PixivFlow's outbox can push events to this end's event entry `POST /api/botN/v1/jobs/events`. When unset, no `callback_url` is carried (the Task payload stays byte-for-byte stable) |
+| `TELEPOST_API_BASE_URL` | TelePost's public address (all bot processes share the same domain), e.g. `http://telepost:8080`. Only effective under the `protocol` channel and when this variable **is configured**: when TelePost submits a job as the protocol consumer, it declares `callback_url = {base}/api/bot{N}/v1/jobs/events` on the Task (`N` is the subprocess `TELEPOST_BOT_INDEX`, default `1`), so the upstream can push job events back to this end's event entry `POST /api/botN/v1/jobs/events`. When unset, no `callback_url` is carried (the Task payload stays byte-for-byte stable) |
 
 `PIXIVFLOW_JOB_TRANSPORT` is read in exactly one place, `telepost/application/pixivflow_jobs.py`, defaulting to
 `protocol`: submission goes through `POST /jobs` (`job_type=candidate_search`, `params.target_id`, with
@@ -263,15 +263,15 @@ protocol version `1` or `candidate_search`, it fails directly without silent fal
 Review chat clicks "refetch" → TelePost persists one attempt (only one active attempt per chain at a time)
 → POST /jobs (default channel; with `PIXIVFLOW_JOB_TRANSPORT=legacy` still
   POST /internal/targets/{targetId}/refetch, carrying UUID requestId + review-chain correlation)
-→ Fly proxy wakes the stopped PixivFlow → writes a durable manual Slot → executes in background
+→ Fly proxy wakes the stopped PixivFlow → the upstream persists that manual job → executes in background
 → New candidate found: once the new preview and control card are ready, the new item, old item superseded,
   and attempt replaced are committed in the same transaction
-→ No new candidate: PixivFlow reports no_alternative; the current item stays unchanged; refetch can be retried later
+→ No new candidate: the upstream reports no_alternative; the current item stays unchanged; refetch can be retried later
 → Real failure: reports failed; the current item stays unchanged
 ```
 
-- Idempotency: webhook redelivery of the same button click (same `callback_query.id`) reuses the same requestId and
-  the same manual Slot, never producing a second execution; only **another deliberate user click** creates a new-generation attempt.
+- Idempotency: webhook redelivery of the same button click (same `callback_query.id`) reuses the same requestId
+  (the upstream converges it to the same persisted job), never producing a second execution; only **another deliberate user click** creates a new-generation attempt.
 - Only one active refetch per review chain at a time; repeated clicks while processing get "refetching, please wait".
 - Approval-race safe: if a reviewer has already approved/rejected while the refetch runs, the late result is marked obsolete —
   it does not overwrite the review verdict and does not create a phantom superseded.

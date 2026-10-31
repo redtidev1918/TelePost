@@ -2,11 +2,12 @@
 
 ## 当前交接：2026-10-25 晚——恢复权威收敛切片已闭环
 
-生产 2.84.9（`b3a97e1`）+ PixivFlow 3.7.2（`bd188cb`）；本地超龄裁决已删除，
+生产 2.84.9（`b3a97e1`）；上游 PixivFlow 版本基线以 deploy 仓
+`docs/operations/current-state.md` 为准（本文件不维护跨仓版本快照）。本地超龄裁决已删除，
 sweep 先查远端（GET recover）再投影；查询失败只置 reconciliation_required 并保留
 target 互斥。Webhook 60s 自核验 + /ready 门控已生产实证。
 #209 恢复待人工审核授权（failed、空载荷、控制卡在）；无持久化内容分类结论。
-回滚点：TelePost 2.84.8 / PixivFlow 3.7.1。
+回滚点：TelePost 2.84.8（上游回滚基线同见 deploy 仓）。
 下一会话若做恢复收尾：操作者点击恢复按钮 → 正常审核 → 人工批准 → 发布；
 或用 /restore_card 处理旧卡。架构证据见 Deploy recovery-ownership.md。
 架构证据见 Deploy docs/architecture/recovery-ownership.md。

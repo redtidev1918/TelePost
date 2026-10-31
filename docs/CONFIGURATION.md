@@ -255,7 +255,7 @@ HTTPS 请求时自动唤醒）；审核群重抓使用以下配置：
 | `PIXIVFLOW_REFETCH_BASE_URL` | PixivFlow 的 HTTPS 地址，例如 `https://pixivflow-scheduler.fly.dev` |
 | `PIXIVFLOW_REFETCH_TOKEN` | 与 PixivFlow 端同名 Secret 一致的专用 Bearer；与定时触发令牌分离 |
 | `PIXIVFLOW_JOB_TRANSPORT` | 作业通道：`protocol`（默认，Workflow Protocol v1）或 `legacy`（回滚，见下） |
-| `TELEPOST_API_BASE_URL` | TelePost 的对外公开地址（各 bot 进程共用同域），例如 `http://telepost:8080`。仅在 `protocol` 通道下、且该变量**已配置**时生效：TelePost 作为协议消费端提交作业时，会在 Task 上声明 `callback_url = {base}/api/bot{N}/v1/jobs/events`（`N` 为子进程 `TELEPOST_BOT_INDEX`，默认 `1`），供 PixivFlow 的出站盒把事件推送到本端事件入口 `POST /api/botN/v1/jobs/events`。未配置则不携带 `callback_url`（Task 报文保持逐字节稳定） |
+| `TELEPOST_API_BASE_URL` | TelePost 的对外公开地址（各 bot 进程共用同域），例如 `http://telepost:8080`。仅在 `protocol` 通道下、且该变量**已配置**时生效：TelePost 作为协议消费端提交作业时，会在 Task 上声明 `callback_url = {base}/api/bot{N}/v1/jobs/events`（`N` 为子进程 `TELEPOST_BOT_INDEX`，默认 `1`），供上游把作业事件回推到本端事件入口 `POST /api/botN/v1/jobs/events`。未配置则不携带 `callback_url`（Task 报文保持逐字节稳定） |
 
 `PIXIVFLOW_JOB_TRANSPORT` 只在 `telepost/application/pixivflow_jobs.py` 一处读取，默认
 `protocol`：提交走 `POST /jobs`（`job_type=candidate_search`、`params.target_id`、以
@@ -273,14 +273,14 @@ requestId 作 `idempotency_key`），读取走 `GET /jobs?idempotency_key=`（�
 审核群点「重抓」 → TelePost 持久化一次 attempt（一链同时只允许一个活跃 attempt）
 → POST /jobs（默认通道；`PIXIVFLOW_JOB_TRANSPORT=legacy` 时仍为
   POST /internal/targets/{targetId}/refetch，携带 UUID requestId + 审核链 correlation）
-→ Fly 代理唤醒已停止的 PixivFlow → 写入 durable manual Slot → 后台执行
+→ Fly 代理唤醒已停止的 PixivFlow → 上游持久化该手动作业 → 后台执行
 → 找到新候选：新稿预览和控制卡就绪后，同事务提交新稿、旧稿 superseded、attempt replaced
-→ 没有新候选：PixivFlow 回报 no_alternative，当前稿件保持不变，之后可再次重抓
+→ 没有新候选：上游回报 no_alternative，当前稿件保持不变，之后可再次重抓
 → 真正失败：回报 failed，当前稿件保持不变
 ```
 
-- 幂等：同一次按钮点击（同一 `callback_query.id`）的 webhook 重投复用同一个 requestId 与
-  同一个 manual Slot，绝不产生第二次执行；只有**用户再次主动点击**才创建新一代 attempt。
+- 幂等：同一次按钮点击（同一 `callback_query.id`）的 webhook 重投复用同一个 requestId
+  （上游据此收敛到同一次持久化作业），绝不产生第二次执行；只有**用户再次主动点击**才创建新一代 attempt。
 - 一个审核链同一时刻只能有一个活跃重抓；处理中重复点击返回「正在重抓，请稍候」。
 - 审批竞态安全：重抓运行期间若审核人已批准/拒绝，迟到的结果标记为 obsolete，
   不会覆盖审核结论、不会创建虚假的 superseded。

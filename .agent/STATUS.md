@@ -9,12 +9,13 @@
 ## 当前核验：2026-10-25 晚（Asia/Shanghai）
 
 - 当前任务：**DONE**——恢复执行权威收敛切片已发行部署验收（2.84.9 / b3a97e1）。
-- 生产：TelePost 2.84.9（自动部署 run 40210954825）+ PixivFlow 3.7.2（fly deploy）。
+- 生产：TelePost 2.84.9（自动部署 run 40210954825）；上游 PixivFlow 版本基线以
+  deploy 仓 `docs/operations/current-state.md` 为准（本文件不维护跨仓版本快照）。
 - 验收：/health、/ready（含 per-bot 注册门控）、smoke 4/4、verify-webhooks、
   机内 doctor（integrity/refetch/账本全净；inbox dead=8/7 为历史遗留）全过。
 - #209 只读核查：failed、空载荷、控制卡在；恢复待人工审核授权，媒体未触碰。
 - 内容分类争议：无持久化分类结论可查，工程记录不需更正；安全限制保留。
-- 回滚点：TelePost 2.84.8 / PixivFlow 3.7.1。
+- 回滚点：TelePost 2.84.8（上游回滚基线同见 deploy 仓）。
 
 ## 已被替代的历史快照（不代表当前状态）
 

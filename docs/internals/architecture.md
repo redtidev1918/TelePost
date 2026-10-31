@@ -119,14 +119,14 @@ Final Publication Snapshot
 
 
 
-## Rich Novel 富媒体预览（PixivFlow → TelePress → Telegraph）
+## Rich Novel 富媒体预览（上游 → TelePress → Telegraph）
 
 上游可通过独立 TelePress 服务的 `/publish/rich-novel` 生成 `novel_preview_url`。
 TelePost 的 provider 也可从最终发布快照与媒体引用生成预览；渲染、分页和媒体 provider
 由 TelePress 负责。具体生产服务与 provider 配置以部署仓库为准。
 
 ```text
-PixivFlow Novel Artifact (txt / md / images / zip)
+上游 novel 产物（txt / md / images / zip）
         │
         ▼
 TelePress /publish/rich-novel → media provider → Telegraph
@@ -139,7 +139,7 @@ TelePost channel root  →  [ 📖 在线阅读 ]
 ```
 
 - `build_caption` + `presentation_policy` 是展示放置 SSOT：凡 publication 数据
-  携带可用于导航的 `novel_preview_url`（无论来自上游 PixivFlow 字段还是本侧
+  携带可用于导航的 `novel_preview_url`（无论来自上游字段还是本侧
   TelePress enrichment），频道 CHANNEL_PUBLICATION 就会在主贴 root 挂
   `[ 📖 在线阅读 ]` 按钮（审核/预览面则仍是 footer 超链接），且只出现一次。
 - 富媒体正文与插图顺序由 TelePress/Telegraph 负责；TelePost 不解析 Pixiv Novel

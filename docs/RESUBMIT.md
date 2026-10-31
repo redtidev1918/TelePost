@@ -2,8 +2,8 @@
 
 Business-purpose: a submitter re-submits the SAME logical content of a
 terminal, not-yet-published submission for a fresh review. This is deliberately
-different from the PixivFlow schedule-recovery button (`sched_recover`, 再试一次/
-放宽条件重试) and from the reviewer's refetch replacement (重抓): resubmit is a
+different from the upstream schedule-recovery button (再试一次/放宽条件重试)
+and from the reviewer's refetch replacement (重抓): resubmit is a
 **new pending review of the same content**, not a remote re-acquisition.
 
 ## Outcome vocabulary

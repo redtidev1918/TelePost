@@ -28,6 +28,5 @@ description: TelePost 的可重复发布流程（fix PR → CI → merge → rel
 ## 约束
 
 - 生产操作（部署/重启/迁移）仅走上述自动化通道；未经用户明确授权不执行其它不可逆操作。
-- PixivFlow 侧发布同构（release-please → npm/镜像 → deploy 仓 `fly/deploy.pixivflow.toml`
-  pin `PIXIVFLOW_REF`（40 位 commit）→ `fly deploy -c fly/deploy.pixivflow.toml --ha=false`）。
+- PixivFlow 侧发布流程见其仓库自身文档，此处不复述；生产 pin 与部署权威在 deploy 仓。
 - 多仓发布顺序：TelePost 与 PixivFlow 可并行；协议不兼容变更需先发消费者侧或同批部署。

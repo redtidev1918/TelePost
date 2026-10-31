@@ -1616,7 +1616,7 @@ export interface paths {
                                     /** @description Set only for failure terminals (failed / timeout) */
                                     failure_code?: string;
                                     terminal_reason?: string;
-                                    /** @description Last PixivFlow slot cell state observed (may be empty) */
+                                    /** @description Last remote job state observed (may be empty) */
                                     last_remote_state?: string;
                                     /** @description How many progress/terminal messages were sent for this attempt */
                                     notify_count?: number;

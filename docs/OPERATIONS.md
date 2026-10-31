@@ -221,10 +221,10 @@ Webhook Secret 不能通过 Telegram 修改。
 - `REVIEW_RETENTION_DAYS` 默认 30 天，清理已决审核和 API 通知幂等记录；审计由独立的 `AUDIT_RETENTION_DAYS`（默认 30 天）控制。
 - outbox 数量、失败数、累计重试和最老年龄持续增长，说明 TelePost/API 链路异常。
 - 不要直接删 outbox 引用的缓存文件；先恢复投递，让上游完成重试。
-- PixivFlow 使用 `pixivflow outbox list` / `inspect <id>` 查看状态，使用
-  `retry <id>` 或 `retry --dead` 正式重放 dead letter，使用 `cancel <id>` 取消尚未开始的
-  intent；不要手改 SQLite `next_attempt_at`，也不要用 `run-once` 代替 outbox retry。
-- replay 保留原 idempotency key。TelePost `/ready` 非 200 时 PixivFlow 只延后，不增加 attempt。
+- 上游（PixivFlow）的 outbox 运维——查看状态、正式重放 dead letter、取消未开始的
+  intent——使用其自有 CLI；命令与禁令（不要手改 SQLite、不要用 run-once 代替 retry）
+  见 PixivFlow 仓库文档，此处不复述。
+- replay 保留原 idempotency key。TelePost `/ready` 非 200 时上游只延后，不增加 attempt。
 
 ### 过期恢复与可追溯边界
 
