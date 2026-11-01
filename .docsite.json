@@ -7,5 +7,6 @@
   "engine": "vitepress",
   "engineVersion": "1.6.4",
   "version": 2,
-  "themeKey": "telepost-theme"
+  "themeKey": "telepost-theme",
+  "downloadPageFlow": "pull-request"
 }

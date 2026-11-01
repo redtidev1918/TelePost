@@ -1,6 +1,9 @@
 # docsite-managed-file: update-download-page.yml
-# docsite-managed-version: 3
+# docsite-managed-version: 4
 # docsite: managed file, run `python3 docsite.py update` to refresh.
+# 变体:update-download-page.pr-flow.yml — 由 .docsite.json 的
+# "downloadPageFlow": "pull-request" 选择。默认变体(update-download-page.yml)
+# 保持直推;本变体为启用了 ruleset 必需检查、直推会被拒绝的仓库设计。
 #
 # 刷新下载页（docs/download.md 与语言镜像）。
 #
@@ -11,7 +14,7 @@
 #   3. 不传 tag 时生成器回落到最新 stable Release，并在日志中明确说明。
 #
 # v3（ruleset 必需检查生效后）：
-#   - 直推 main 已被必需检查（PixivFlow delivery contract）一律拒绝，改为
+#   - downloadPageFlow=pull-request 的仓库：直推 main 已被必需检查一律拒绝，改为
 #     自动开 PR（chore/download-page-<tag>）。
 #   - PR 必须用真实 PAT（RELEASE_PLEASE_TOKEN）创建：GITHUB_TOKEN 开的 PR
 #     不会触发 pull_request 型 workflow，必需检查永远 pending。
