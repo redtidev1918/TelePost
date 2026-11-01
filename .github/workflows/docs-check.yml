@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: redtidev1918/docsite
-          ref: db706b1c5d8de4caa02add9c5e2451e463dc85db
+          ref: 75621ccb0166a3dd363bd224eeb592619891cf22
           path: .docsite-tool
           persist-credentials: false
       - name: Check managed files and navigation
