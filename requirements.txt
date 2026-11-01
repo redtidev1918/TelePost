@@ -5,13 +5,13 @@ python-telegram-bot[job-queue]==22.8
 aiohttp>=3.14.3
 
 # 配置管理（configparser 已由 Python 标准库提供）
-python-dotenv==1.2.3
+python-dotenv==1.2.4
 
 # 数据库
 aiosqlite==0.22.1
 
 # 系统监控（可选，用于内存分析）
-psutil==5.9.8
+psutil==7.2.2
 
 # 图片压缩：超大原图（>10MiB）自动压到可发范围，保证频道内直接看图
 Pillow>=10.0.0
@@ -38,8 +38,8 @@ whoosh>=2.7.4
 # 4. 重启应用（自动适配索引）
 
 # Telegram Mini App server-side initData verification (MIT, maintained)
-init-data-py==1.0.0
+init-data-py==1.0.1
 
 # Optional novel preview enrichment: TXT novels get a Telegraph "read online" link.
 # Published to PyPI by the telepress repo; TelePress owns Telegraph rendering/pagination.
-telepress==0.17.2
+telepress==0.18.0
