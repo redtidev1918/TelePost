@@ -207,7 +207,7 @@ jobs:
         # actual/diff images are the only way to refresh them from the exact
         # environment that produced the committed baseline.
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: miniapp-visual-actuals
           path: webapp/test-results
