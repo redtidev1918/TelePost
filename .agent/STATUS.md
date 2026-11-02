@@ -8,7 +8,7 @@
 - IN_PROGRESS：正常环境恢复补丁并复核；已补同一 boot 身份校验、超时采用保护、重试 CAS 旧代保护和 provider 内部不确定建页重试保护。
 - 本环境跨仓实际 HTTP/SQLite 投递契约 + 80 个适配回归通过；TelePress 0.17.2 兼容/恢复 36 passed，0.18.0 定向 82 passed；文档构建及 docsite 9/9/navcheck 通过。
 - 已解除的临时访问故障：本次早先 Fly host_status=unreachable / exec 408 / health 超时，后恢复 ok；原帖键盘及 Telegraph 页面仍需补偿前再对账。
-- VERIFIED：本次最终全量 1657 passed / 2 skipped；TelePress 上游不确定建页重试修复 PR #83 已创建，448 passed / 1 skipped / 覆盖率 81.72%；待用户合并和发行。TelePost 暂保留对 0.17/0.18 的兼容保护。
+- VERIFIED：本次最终全量 1657 passed / 2 skipped；TelePress 上游不确定建页重试修复 PR #83 已创建，448 passed / 1 skipped / 覆盖率 81.72%；待用户合并和发行。TelePost 正在升级到 0.18.1 并移除临时兼容保护，正式发行仍在执行。
 - 原帖未修改，发行/部署/原帖恢复验收尚未完成。
 
 ## 当前核验：2026-10-31 晚（Asia/Shanghai）
