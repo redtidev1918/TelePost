@@ -593,9 +593,8 @@ python -m telepost.telegram.preview_recovery --bot 2 --review 42 --message 100 -
 还要求 Linux boot ID / PID / 进程启动时间证明原执行者已退出，才能 CAS 恢复；
 原进程仍存活、身份未知、缺少 `/proc` 或 boot 不同时拒绝，不能只改成 failed 后直接重跑。
 超时但执行者仍存活时同样拒绝采用其它 URL；认领绑定已核验的 attempt，过期观察不能覆盖新一代。
-TelePress 0.17/0.18 内部会重试建页异常，provider 适配器在一次远端建页失败后阻止后续
-createPage 写入，保留原库渲染与分页；TelePress 上游修复见 PR #83，
-新版本发行并完成依赖迁移前保留此保护。即使结果不确定，也必须先对账再恢复。
+TelePress 0.18.1 已在上游修复不确定 createPage 重试，TelePost 直接复用正式 API。
+只有明确的限流拒绝可重试；超时、连接中断或部分分页必须先对账再恢复。
 
 命令使用 supervisor 的 Bot 环境选择，凭据不出容器；预览开关、超时、大小和
 Telegraph token 支持 `BOTn_` 覆盖。认领/结果属于各 Bot 自己的 SQLite。

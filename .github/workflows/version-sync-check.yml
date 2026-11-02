@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        telepress: ['0.17.2', '0.18.0']
+        telepress: ['0.18.1']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6

@@ -54,3 +54,5 @@
   0.18.0 保留旧 author kwargs，尚无证据将本次故障归因于该升级。
 
 - 真实库复核：TelePress 0.17/0.18 会重试不确定 createPage 异常；薄 client guard 阻止该次调用后续写入，不复制渲染/分页。每次 publish 使用独立浅拷贝，避免并发请求共享失败标记。上游修复见 TelePress PR #83，正式版发行并升级本仓后再移除兼容保护。
+
+- 发行集成：TelePress 0.18.1 接管 createPage 重试判定；TelePost 最低依赖同步到 0.18.1，删除临时 client guard 与浅拷贝。真实库故障回归继续验证远端写入次数。
