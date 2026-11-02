@@ -1,3 +1,14 @@
+# 2026-11-02 小说在线阅读恢复（IN_PROGRESS）
+
+先核对 STATUS.md 与运行版本。实现和操作流程见 docs/OPERATIONS.md「小说在线阅读补偿」。
+交接时生产 2.84.11 / TelePress 0.17.2，不能从 requirements==0.18.0 推断已部署。
+旧 TXT fetch 适配器吞异常；failed 行永久复用，未持久化 reason，具体原始网络异常不可追溯。
+新实现不得重复建页、重发原主贴或 TXT；超时/未知结果先对账，成功 URL 优先复用。
+尚未发布，原帖恢复未执行。本次早先 Fly host_status=unreachable / exec 408，后恢复 ok。公网和机内 /health 已重新确认 TelePost 2.84.11 / 进程内 TelePress 0.17.2；bot2 #184 仍 published、root 676、preview failed / 空 URL。原帖键盘与远端页面仍待补偿前对账。发布必须按本仓 release skill，经 PR/CI/Release/自动部署。
+已恢复到正常本地环境，补丁基于最新 main；GitHub 身份核验通过。TelePress 上游不确定建页重试修复 PR #83 已创建并等待用户合并；本仓 PR/CI 正在完成。由用户合并功能和 Release PR，禁止自动合并。
+
+---
+
 # 会话交接（TelePost 可靠性专项）
 
 ## 当前交接：2026-10-31 晚——#224 归因闭环，专项全部完成

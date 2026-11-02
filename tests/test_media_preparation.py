@@ -298,6 +298,7 @@ def test_compression_failure_uses_preview_then_document(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 def test_unbounded_decode_budget_is_capacity_aware(monkeypatch):
+    monkeypatch.setattr(preparation, "_container_memory_limit_bytes", lambda: None)
     monkeypatch.delenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_MB", raising=False)
     # No container limit AND no detectable physical RAM -> the flat floor.
     monkeypatch.setattr(preparation, "_physical_memory_bytes", lambda: None)
@@ -317,6 +318,7 @@ def test_unbounded_decode_budget_is_capacity_aware(monkeypatch):
 @pytest.mark.unit
 def test_unbounded_decode_budget_falls_back_to_physical_ram(monkeypatch):
     """A 'cgroup unlimited' host still admits a transform that truly fits RAM."""
+    monkeypatch.setattr(preparation, "_container_memory_limit_bytes", lambda: None)
     monkeypatch.delenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_MB", raising=False)
     # ~469 MB MemTotal (a 512 MB box with the 2^63 'unlimited' sentinel): the
     # budget should climb to 192 MB (capped) instead of the flat 128 MB floor,
@@ -335,6 +337,7 @@ def test_unbounded_decode_budget_falls_back_to_physical_ram(monkeypatch):
 @pytest.mark.unit
 def test_unbounded_decode_budget_tunables_are_env_driven(monkeypatch):
     """The floor/cap/fractions/fallback are all tunable, not code literals."""
+    monkeypatch.setattr(preparation, "_container_memory_limit_bytes", lambda: None)
     monkeypatch.delenv("TELEPOST_UNBOUNDED_DECODE_BUDGET_MB", raising=False)
     monkeypatch.setattr(
         preparation, "_physical_memory_bytes", lambda: 1000 * 1024 * 1024

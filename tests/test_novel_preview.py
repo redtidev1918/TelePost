@@ -709,7 +709,7 @@ def test_enricher_attaches_review_media_assets_to_snapshot(db):
     )
 
 
-def test_enricher_upgrades_legacy_text_only_preview_to_rich_form(db, tmp_path):
+def test_enricher_reuses_legacy_url_without_creating_another_page(db, tmp_path):
     import time
     async def setup():
         async with db_manager.get_db() as conn:
@@ -750,9 +750,9 @@ def test_enricher_upgrades_legacy_text_only_preview_to_rich_form(db, tmp_path):
         record = await db.find("review:92:api:x")
         return provider, result, record
     provider, result, record = asyncio.run(setup())
-    assert result.succeeded and result.url == "https://telegra.ph/rich-92"
-    assert provider.calls == 1
-    assert record.title == "rich-v2"
+    assert result.succeeded and result.url == "https://telegra.ph/text-only"
+    assert provider.calls == 0
+    assert record.url == "https://telegra.ph/text-only"
 
 
 def test_telepress_provider_wraps_library_failures():

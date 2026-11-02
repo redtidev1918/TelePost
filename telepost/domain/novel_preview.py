@@ -93,6 +93,14 @@ class NovelPreviewPublisher(Protocol):
     async def publish_preview(self, snapshot: NovelSnapshot) -> PreviewResult: ...
 
 
+class TxtReadError(Exception):
+    """Safe diagnostic code; never carries Telegram credentials or request URLs."""
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
+
+
 class TxtFetcher(Protocol):
     """Resolve the bytes of one attached TXT document.
 

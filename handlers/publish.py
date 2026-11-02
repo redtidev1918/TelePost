@@ -908,15 +908,25 @@ def _make_txt_fetch(bot):
         file_id = item.telegram_file_id
         if not file_id or bot is None:
             return b""
-        try:
-            tg_file = await bot.get_file(file_id)
-        except Exception:
-            return b""
-        try:
-            raw = await tg_file.download_as_bytearray()
-        except Exception:
-            return b""
-        return bytes(raw or b"")
+        from telegram.error import NetworkError, BadRequest, TimedOut
+        from telepost.domain.novel_preview import TxtReadError
+        # GET-only retry: safe to repeat, unlike Telegraph createPage. The
+        # enricher imposes the overall deadline including both attempts.
+        for attempt in range(2):
+            stage = "txt_get_file"
+            try:
+                tg_file = await bot.get_file(file_id)
+                stage = "txt_download"
+                raw = await tg_file.download_as_bytearray()
+                return bytes(raw or b"")
+            except BadRequest as exc:
+                raise TxtReadError(f"{stage}_rejected") from exc
+            except NetworkError as exc:
+                if attempt:
+                    code = "timeout" if isinstance(exc, TimedOut) else "network_error"
+                    raise TxtReadError(f"{stage}_{code}") from exc
+            except Exception as exc:
+                raise TxtReadError(f"{stage}_failed") from exc
 
     return fetch
 
