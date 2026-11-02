@@ -842,6 +842,19 @@ async def init_db():
                 )
             ''')
 
+            # Preview compensation metadata; additive for existing volumes.
+            for column, declaration in (
+                ("reason", "TEXT NOT NULL DEFAULT ''"),
+                ("stage", "TEXT NOT NULL DEFAULT ''"),
+                ("attempt_id", "TEXT NOT NULL DEFAULT ''"),
+                ("attempts", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                cursor = await conn.execute("PRAGMA table_info(publication_previews)")
+                if column not in {row[1] for row in await cursor.fetchall()}:
+                    await conn.execute(
+                        f"ALTER TABLE publication_previews ADD COLUMN {column} {declaration}"
+                    )
+
             # Append-only audit/observability log. pending_reviews remains the
             # source of truth; these rows are evidence only and are pruned by
             # cleanup_old_data (never while the referenced review is still open).

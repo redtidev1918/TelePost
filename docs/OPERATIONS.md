@@ -562,3 +562,50 @@ print(c.execute('SELECT COUNT(*) FROM message_reaction_counts').fetchone()[0])
 （`BadRequest` 是 `NetworkError` 子类，需优先分类）及
 [Telegram 转发来源](https://core.telegram.org/bots/api#messageoriginchannel)。
 复用现有发送器、Publication Ledger、审核 CAS 和 Inbox，无新增数据库或重试管理器。
+
+## 小说在线阅读补偿
+
+TXT 发布成功与在线阅读生成是独立结果。先查实际 `/health` 中的 TelePost / TelePress
+版本，再执行 `python -m telepost.observability.cli reviews inspect <id> --bot <n>`：
+输出 review、publication_previews（status / URL / reason / stage / attempt_id / 时间）和
+发布账本。不要从 requirements 的 pin 推断当前运行版本。旧预览行没有失败原因，
+无法从 `failed` 推断具体异常；需结合发布时段日志取证。
+
+受控运维入口（在已部署容器 `/app` 目录执行，要求操作系统运维权限）：
+
+```bash
+# 默认只读：核对选定 Bot、审核、原主贴与当前 Telegram 公共消息
+python -m telepost.telegram.preview_recovery --bot 2 --review 42 --message 100 --actor operator
+# 已有成功 URL：只补原主贴按钮，不生成页面、不发频道消息或 TXT
+python -m telepost.telegram.preview_recovery --bot 2 --review 42 --message 100 --actor operator --apply
+# 明确 TXT 读取阶段失败：单独重试预览并补原主贴
+python -m telepost.telegram.preview_recovery --bot 2 --review 42 --message 100 --actor operator --retry --apply
+# provider 失败、超时或旧无原因记录：人工对账后，额外检查完整 Telegraph 账户页列表
+python -m telepost.telegram.preview_recovery --bot 2 --review 42 --message 100 --actor operator --retry --confirm-no-page --apply
+# 已有未落账页面：核实账户归属与标题后复用，不再生成
+python -m telepost.telegram.preview_recovery --bot 2 --review 42 --message 100 --actor operator --adopt-url https://telegra.ph/Example-11-02 --apply
+```
+
+`--confirm-no-page` 表示操作者已核实原请求已停止且不存在部分分页结果；账户列表检查
+只是额外防线，不是远端 exactly-once 保证。发现同标题或分页结果时停止并对账，
+不可通过改标题或重新投稿绕过。旧任务仍在进程中执行时拒绝重复生成。
+`generating` 行在重启后不按年龄自动抢占：`--confirm-no-page` 在完成远端对账后，
+还要求 Linux boot ID / PID / 进程启动时间证明原执行者已退出，才能 CAS 恢复；
+原进程仍存活、身份未知、缺少 `/proc` 或 boot 不同时拒绝，不能只改成 failed 后直接重跑。
+超时但执行者仍存活时同样拒绝采用其它 URL；认领绑定已核验的 attempt，过期观察不能覆盖新一代。
+TelePress 0.17/0.18 内部会重试建页异常，provider 适配器在一次远端建页失败后阻止后续
+createPage 写入，保留原库渲染与分页；TelePress 上游修复见 PR #83，
+新版本发行并完成依赖迁移前保留此保护。即使结果不确定，也必须先对账再恢复。
+
+命令使用 supervisor 的 Bot 环境选择，凭据不出容器；预览开关、超时、大小和
+Telegraph token 支持 `BOTn_` 覆盖。认领/结果属于各 Bot 自己的 SQLite。
+公开消息观察只读取 Telegram 公共频道页面，因为 Bot API 没有 getMessage。
+私有频道、消息消失、标题/时间不符、相册或无法可靠解析的键盘均停止；不能据此声称
+已恢复。修改前复查当前消息，生成成功先保存 URL，再编辑原消息键盘；编辑响应验证
+目标键盘，网络失败可重复执行，只复用同一 URL。`preview.recovery_requested` 与
+`preview.keyboard_restored` 写入既有 audit_events；每次生成/超时/迟到结果通过
+`preview.attempt_outcome` 保留诊断历史，补偿成功不抹掉先前失败证据。
+
+内部 `recover_preview` 服务也可由可信适配器提供当前 Message；不得将不可信 HTTP
+客户端提交的 Message JSON 当作消息归属证据。此入口不改变审核状态、发布账本或
+投稿处置策略，不绕过 API 固定人工审核。

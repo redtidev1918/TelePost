@@ -1,5 +1,16 @@
 # 工程状态（TelePost）
 
+## 2026-11-02 小说在线阅读恢复
+
+- IN_PROGRESS：实现预览 CAS、失败诊断、安全补偿与原帖键盘修复，未发行。
+- 历史取证：交接时生产为 2.84.11 / TelePress 0.17.2，当前运行状态需重新核验。
+- VERIFIED：故障定位 TXT 读取阶段；旧适配器吞异常，旧预览账本未保存原因。
+- IN_PROGRESS：正常环境恢复补丁并复核；已补同一 boot 身份校验、超时采用保护、重试 CAS 旧代保护和 provider 内部不确定建页重试保护。
+- 本环境跨仓实际 HTTP/SQLite 投递契约 + 80 个适配回归通过；TelePress 0.17.2 兼容/恢复 36 passed，0.18.0 定向 82 passed；文档构建及 docsite 9/9/navcheck 通过。
+- BLOCKED_EXTERNAL：Fly machine list 返回 host_status=unreachable，机内只读 exec 408、公网 health 超时；当前运行版本与原帖尚不能重新核验。
+- VERIFIED：本次最终全量 1657 passed / 2 skipped；TelePress 上游不确定建页重试修复 PR #83 已创建，448 passed / 1 skipped / 覆盖率 81.72%；待用户合并和发行。TelePost 暂保留对 0.17/0.18 的兼容保护。
+- 原帖未修改，发行/部署/原帖恢复验收尚未完成。
+
 ## 当前核验：2026-10-31 晚（Asia/Shanghai）
 
 - 当前任务：**DONE（全部闭环）**——多图相册修复 + 发版基建修复已发行；**#224 生产归因已完成**。

@@ -32,6 +32,26 @@ _BOT_AUTHOR_CACHE = {}
 _CACHE_MISS = object()
 
 
+class _CreatePageGuard:
+    """Do not let TelePress retry a possibly successful createPage request."""
+
+    def __init__(self, client):
+        self.client = client
+        self.failed = False
+
+    def __getattr__(self, name):
+        return getattr(self.client, name)
+
+    def create_page(self, *args, **kwargs):
+        if self.failed:
+            raise RuntimeError("preview_reconciliation_required")
+        try:
+            return self.client.create_page(*args, **kwargs)
+        except Exception as exc:
+            self.failed = True
+            raise RuntimeError("preview_reconciliation_required") from exc
+
+
 def clear_bot_author_cache() -> None:
     """Clear the process-local bot identity cache (primarily for tests)."""
     _BOT_AUTHOR_CACHE.clear()
@@ -114,6 +134,12 @@ class TelePressNovelPreviewPublisher(NovelPreviewPublisher):
         """Return ``(url, rich)``; ``rich`` is true only when the rich markdown
         path (with image manifest) was actually used."""
         publisher = self._publisher()
+        # TelePress 0.17/0.18 retries every createPage exception, including
+        # response loss. Guard only the remote write; keep its renderer/paginator.
+        if hasattr(publisher, "client"):
+            from copy import copy
+            publisher = copy(publisher)
+            publisher.client = _CreatePageGuard(publisher.client)
         author_kwargs = {}
         if author_name and author_url:
             author_kwargs = {
@@ -164,10 +190,10 @@ class TelePressNovelPreviewPublisher(NovelPreviewPublisher):
             )
         except Exception as exc:  # provider/library/network failure — never fatal
             logger.warning(
-                "novel preview publish failed (%s): %s", type(exc).__name__, exc
+                "novel preview publish failed (%s)", type(exc).__name__
             )
             return PreviewResult(PreviewStatus.FAILED,
-                                 reason=f"{type(exc).__name__}: {exc}"[:200])
+                                 reason=type(exc).__name__)
         url = str(url or "").strip()
         if not url.startswith(("http://", "https://")):
             logger.warning("novel preview returned an unusable url")

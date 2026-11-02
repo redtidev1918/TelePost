@@ -94,6 +94,21 @@ def inspect_review(db_path: str, review_id: int) -> int:
         else:
             for key in ledger.keys():
                 print(f"  {key}: {ledger[key]}")
+        print("\npublication_previews:")
+        preview = None
+        has_previews = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='publication_previews'"
+        ).fetchone()
+        if has_previews and review is not None and review["idempotency_key"]:
+            key = f"publication:review:{review_id}:{review['idempotency_key']}:novel-preview"[:240]
+            preview = conn.execute(
+                "SELECT * FROM publication_previews WHERE publication_key=?", (key,),
+            ).fetchone()
+        if preview is None:
+            print("  <none>")
+        else:
+            for key in preview.keys():
+                print(f"  {key}: {preview[key]}")
     return 0 if review is not None else 1
 
 

@@ -779,8 +779,11 @@ TelePost must not reimplement Telegraph rendering and pagination.
 - 幂等：`publication_previews` 以发布 idempotency key 为主键，
   `publication:<key>:novel-preview`；终态（succeeded/failed/timeout）复用，
   Telegram 投递重试**绝不**再次调用 TelePress；TelePress 自己的内容缓存不是
-  本幂等的替代。rich 成功记录带 `title=rich-v2` 标记；旧 `rich` 或空标题的文本页
-  在带图 manifest 可解析时会重生成一次。
+  本幂等的替代。成功 URL 在读取 TXT 前复用，绝不为升级 rich 展示重建页面。
+  生成前 CAS 写 `generating` 与 attempt_id；`reason/stage/attempts` 持久化诊断。
+  普通发布重放不重试失败；独立补偿见 `docs/OPERATIONS.md`「小说在线阅读补偿」。
+  TXT 读取失败可受控重试；provider 失败/timeout/旧无原因记录需先对账，不能盲重试。
+  超时任务继续保存迟到 URL；崩溃遗留 generating 不按年龄抢占。
 - 小说内嵌图片是 preview-only：PixivFlow novel review 只把 TXT document 发频道，
   所有 `media_asset_refs` 图片只渲染在 Telegraph 阅读页。
 - 跨仓依赖契约：`requirements.txt` 的 `telepress` pin 必须等于 deploy 仓库

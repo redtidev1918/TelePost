@@ -3,7 +3,7 @@
 Called by :class:`~telepost.application.publication.PublicationService` with
 the FINAL publication snapshot (the ordered items a publication actually
 carries) right before the channel caption is built, so a successful preview can
-be presented as one extra "read online" line without touching the TXT delivery
+be presented as a root "read online" button without touching the TXT delivery
 itself.
 
 Contract (AGENTS.md §telepress-preview):
@@ -31,10 +31,11 @@ from ..domain.novel_preview import (
     PreviewResult,
     PreviewStatus,
     TxtFetcher,
+    TxtReadError,
     fallback_title,
     first_novel_txt,
 )
-from ..storage.sqlite.novel_preview import PublicationPreviewRepository
+from ..storage.sqlite.novel_preview import PublicationPreviewRepository, attempt_alive
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,8 @@ DEFAULT_PREVIEW_MAX_BYTES = 4 * 1024 * 1024
 _REVIEW_KEY_RE = re.compile(r"(?:publication:)?review:(\d+):")
 _URL_EXT_RE = re.compile(r"\.(jpg|jpeg|png|gif|webp)$", re.IGNORECASE)
 _RICH_PREVIEW_TITLE = "rich-v2"
+# Strong references keep timeout work alive until its definitive outcome is saved.
+_PENDING_PREVIEWS: dict = {}
 
 
 def _asset_extension(source_url: str) -> str:
@@ -151,7 +154,8 @@ class NovelPreviewEnricher:
 
     async def enrich(self, *, publication_key: str, title: str,
                      items: Optional[Iterable[MediaItem]] = None,
-                     fetch: Optional[TxtFetcher] = None) -> PreviewResult:
+                     fetch: Optional[TxtFetcher] = None,
+                     retry: bool = False, confirmed_absent: bool = False) -> PreviewResult:
         """Ensure this publication has (at most) one novel preview."""
         if not self._enabled:
             return PreviewResult(PreviewStatus.DISABLED)
@@ -161,87 +165,101 @@ class NovelPreviewEnricher:
             # idempotent, so it is not attempted at all.
             return PreviewResult(PreviewStatus.NOT_APPLICABLE)
 
+        # URL reuse must precede TXT download: files can disappear after publish.
+        existing = await self._repo.find(key)
+        if existing and existing.status == "succeeded" and existing.url:
+            return PreviewResult(PreviewStatus.SUCCEEDED, url=existing.url)
+        if existing:
+            if not retry:
+                return PreviewResult(_status_of(existing.status), reason=existing.reason or "reused_record")
+            if key in _PENDING_PREVIEWS:
+                return PreviewResult(PreviewStatus.FAILED, reason="preview_in_progress")
+            if existing.status == "generating":
+                if not confirmed_absent or not await self._repo.release_abandoned(key, existing.attempt_id):
+                    return PreviewResult(PreviewStatus.FAILED, reason="preview_in_progress")
+            if existing.status == "timeout" and existing.attempt_id and attempt_alive(existing.attempt_id):
+                return PreviewResult(PreviewStatus.FAILED, reason="preview_in_progress")
+            # Telegraph has no createPage idempotency key. Legacy failure rows
+            # and provider errors/timeouts require an explicit remote reconciliation.
+            if existing.stage != "txt_read" and not confirmed_absent:
+                return PreviewResult(PreviewStatus.FAILED, reason="reconciliation_required")
+
         document = first_novel_txt(items)
         if document is None:
             return PreviewResult(PreviewStatus.NOT_APPLICABLE)
-
-        content = await self._read_txt(document, fetch)
-        if content is None:
-            return await self._record(
-                key, PreviewResult(PreviewStatus.FAILED, reason="unreadable_txt")
-            )
-        if not content.strip():
-            return await self._record(
-                key, PreviewResult(PreviewStatus.FAILED, reason="empty_txt")
-            )
-
+        attempt = await self._repo.claim(
+            key, retry=retry, expected_attempt=existing.attempt_id if existing else "",
+        )
+        if not attempt:
+            existing = await self._repo.find(key)
+            if existing and existing.status == "succeeded" and existing.url:
+                return PreviewResult(PreviewStatus.SUCCEEDED, url=existing.url)
+            return PreviewResult(PreviewStatus.FAILED, reason="preview_in_progress")
+        started = asyncio.get_running_loop().time()
+        try:
+            content = await self._read_txt(document, fetch)
+            read_reason = "unreadable_txt" if content is None else "empty_txt"
+        except TxtReadError as exc:
+            content, read_reason = None, exc.code
+        if content is None or not content.strip():
+            result = PreviewResult(PreviewStatus.FAILED,
+                                   reason=read_reason)
+            await self._finish(key, attempt, result, stage="txt_read")
+            return result
         snapshot = NovelSnapshot(
-            title=str(title or "").strip() or fallback_title(document),
-            content=content,
+            title=str(title or "").strip() or fallback_title(document), content=content,
         )
         snapshot = await _attach_review_media_assets(snapshot, key)
-        if snapshot.media_manifest:
-            logger.info(
-                "novel preview rich media attached: assets=%s",
-                len(snapshot.media_manifest),
-            )
-
-        existing = await self._repo.find(key)
-        if existing is not None:
-            # A recorded outcome is terminal for this publication: a retry of
-            # the same publication reuses it instead of calling the provider
-            # again (never a second Telegraph page for the same publication).
-            # Exception: a legacy text-only page may be upgraded when the same
-            # publication now resolves canonical media refs for the first time.
-            if existing.status == PreviewStatus.SUCCEEDED.value and existing.url:
-                if (
-                    existing.title == _RICH_PREVIEW_TITLE
-                    or not snapshot.media_manifest
-                ):
-                    return PreviewResult(PreviewStatus.SUCCEEDED, url=existing.url)
-                logger.info(
-                    "upgrading legacy text-only preview to rich form: %s",
-                    key[:80],
-                )
-            else:
-                return PreviewResult(
-                    _status_of(existing.status), reason="reused_record"
-                )
-
-        result = await self._publish_bounded(snapshot)
-        logger.info("novel preview for publication %s: %s", key[:80], result.status.value)
-        return await self._record(
-            key,
-            result,
-        )
-
-    async def _publish_bounded(self, snapshot: NovelSnapshot) -> PreviewResult:
+        # Shield the task, not the synchronous call: cancellation of to_thread
+        # does not cancel requests/Telegraph. A late URL must never be discarded.
+        remaining = self._timeout - (asyncio.get_running_loop().time() - started)
+        if remaining <= 0:
+            result = PreviewResult(PreviewStatus.FAILED, reason="txt_read_timeout")
+            await self._finish(key, attempt, result, stage="txt_read")
+            return result
+        await self._repo.set_stage(key, attempt, "provider")
+        task = asyncio.create_task(self._generate(key, attempt, snapshot))
+        _PENDING_PREVIEWS[key] = task
+        task.add_done_callback(lambda done: _PENDING_PREVIEWS.pop(key, None))
         try:
-            result = await asyncio.wait_for(
-                self._provider.publish_preview(snapshot), timeout=self._timeout
-            )
+            return await asyncio.wait_for(asyncio.shield(task), remaining)
         except asyncio.TimeoutError:
-            return PreviewResult(PreviewStatus.TIMEOUT, reason="preview_timeout")
-        except Exception as exc:  # provider contract violation — never propagate
-            logger.warning("novel preview provider error: %s", type(exc).__name__)
-            return PreviewResult(PreviewStatus.FAILED,
-                                 reason=f"{type(exc).__name__}")
-        if not isinstance(result, PreviewResult):
-            return PreviewResult(PreviewStatus.FAILED, reason="invalid_result")
+            result = PreviewResult(PreviewStatus.TIMEOUT, reason="preview_timeout")
+            await self._finish(key, attempt, result, stage="provider")
+            return result
+
+    async def _generate(self, key, attempt, snapshot):
+        try:
+            result = await self._provider.publish_preview(snapshot)
+            if not isinstance(result, PreviewResult):
+                result = PreviewResult(PreviewStatus.FAILED, reason="invalid_result")
+        except Exception as exc:
+            result = PreviewResult(PreviewStatus.FAILED, reason=type(exc).__name__)
+        await self._finish(key, attempt, result, stage="provider")
         return result
 
-    async def _record(self, key: str, result: PreviewResult) -> PreviewResult:
+    async def _finish(self, key, attempt, result, *, stage):
+        # Store bounded codes, never the provider's raw exception/URL credentials.
+        reason = re.split(r"[^A-Za-z0-9_]", result.reason or "", maxsplit=1)[0][:80]
         try:
-            await self._repo.upsert(
-                key,
-                provider="telepress",
-                status=result.status.value,
-                url=result.url if result.succeeded else "",
+            await self._repo.finish(
+                key, attempt, status=result.status.value,
+                url=result.url if result.succeeded else "", reason=reason, stage=stage,
                 title=_RICH_PREVIEW_TITLE if result.rich else "",
             )
-        except Exception as exc:  # a bookkeeping failure is still not a publication failure
+        except Exception as exc:
             logger.warning("novel preview record failed: %s", type(exc).__name__)
-        return result
+        from ..observability import audit
+        match = _REVIEW_KEY_RE.search(key)
+        await audit.record_event(
+            "preview.attempt_outcome", idempotency_key=key,
+            review_id=int(match.group(1)) if match else None,
+            actor="system:preview",
+            detail={"attempt_id": attempt, "stage": stage,
+                    "status": result.status.value, "reason": reason},
+        )
+        logger.info("novel preview outcome key=%s attempt=%s stage=%s status=%s reason=%s",
+                    key[:80], attempt, stage, result.status.value, reason)
 
     async def _read_txt(self, document: MediaItem,
                         fetch: Optional[TxtFetcher]) -> Optional[str]:
@@ -252,7 +270,7 @@ class NovelPreviewEnricher:
             return raw.decode("utf-8")
         except UnicodeDecodeError:
             logger.warning("novel preview skipped: TXT is not UTF-8 text")
-            return None
+            raise TxtReadError("txt_invalid_utf8")
 
     async def _read_bytes(self, document: MediaItem,
                           fetch: Optional[TxtFetcher]) -> Optional[bytes]:
@@ -260,30 +278,35 @@ class NovelPreviewEnricher:
         if path:
             try:
                 size = os.path.getsize(path)
-            except OSError:
-                return None
-            if size <= 0 or size > self._max_bytes:
-                return None
+            except OSError as exc:
+                raise TxtReadError("txt_local_unavailable") from exc
+            if size <= 0:
+                raise TxtReadError("txt_empty")
+            if size > self._max_bytes:
+                raise TxtReadError("txt_too_large")
             try:
                 with open(path, "rb") as handle:
                     raw = handle.read(self._max_bytes + 1)
-            except OSError:
-                return None
-            return raw if len(raw) <= self._max_bytes else None
+            except OSError as exc:
+                raise TxtReadError("txt_local_read_failed") from exc
+            if len(raw) > self._max_bytes:
+                raise TxtReadError("txt_too_large")
+            return raw
 
         if fetch is None:
             # file_id attachments can only be read through the Telegram
             # adapter; without one the enrichment is simply not available.
-            return None
+            raise TxtReadError("txt_fetch_unavailable")
         try:
             raw = await asyncio.wait_for(fetch(document), timeout=self._timeout)
         except asyncio.TimeoutError:
-            logger.warning("novel preview skipped: TXT download timed out")
-            return None
+            raise TxtReadError("txt_read_timeout")
+        except TxtReadError:
+            raise
         except Exception as exc:
-            logger.warning("novel preview skipped: TXT download failed (%s)",
-                           type(exc).__name__)
-            return None
+            raise TxtReadError("txt_fetch_failed") from exc
         if not raw:
-            return None
-        return bytes(raw) if len(raw) <= self._max_bytes else None
+            raise TxtReadError("txt_empty")
+        if len(raw) > self._max_bytes:
+            raise TxtReadError("txt_too_large")
+        return bytes(raw)

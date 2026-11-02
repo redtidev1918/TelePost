@@ -40,3 +40,17 @@
   而不是并发化消费者。回归定性为 C（暴露既有缺陷），非 A（设计错误）——#209 链在
   HTTP 路径与 inbox 无关；串行语义与 inbox 前 PTB 默认一致。
 - 失效条件：若未来单 Bot 更新吞吐成为瓶颈，再评估 per-chat 分片串行。
+
+## D-2026-11-02 Novel preview compensation（IN_PROGRESS）
+
+- 调研：复用现有 publication_previews、SQLite 条件更新、audit_events、PTB
+  edit_message_reply_markup；Telegraph createPage 无请求幂等键，TelePress 内容缓存不能
+  证明一次 Publication 是否已创建页面。无需引入重试框架或第二个账本。
+- 设计：成功 URL 在读取 TXT 前复用，取消自动创建第二个 rich 页面；生成前 durable CAS
+  认领；失败原因/阶段持久化。普通发布重放仍不重试失败预览。
+- 超时后保留原任务，迟到成功写回同一 attempt；进程消失/远端结果不明时禁止盲重试。
+  受控补偿必须核对原 publication/root、Bot 权限和消息当前键盘；生成与按钮修复分别幂等。
+- 交接取证：2026-11-02 /health = TelePost 2.84.11 / TelePress 0.17.2；
+  0.18.0 保留旧 author kwargs，尚无证据将本次故障归因于该升级。
+
+- 真实库复核：TelePress 0.17/0.18 会重试不确定 createPage 异常；薄 client guard 阻止该次调用后续写入，不复制渲染/分页。每次 publish 使用独立浅拷贝，避免并发请求共享失败标记。上游修复见 TelePress PR #83，正式版发行并升级本仓后再移除兼容保护。
