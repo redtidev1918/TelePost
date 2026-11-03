@@ -7,7 +7,7 @@
 公开源码、UI 示例、测试夹具、文档、PR 与发布说明一律使用中性虚构数据。
 不得把私有运行配置导出回仓库；历史清理后的旧克隆不得直接推送，以免重新污染历史。
 
-这份文件写给任何进入本仓库的智能体或工程师。先读跨仓库权威文档，它们共同定义职责边界与执行纪律：
+以下文档是跨仓库权威来源，但不要求每次任务全部读取。普通开发仅加载适用约束；涉及跨仓库接口、生产状态或部署变更时，按根目录 AGENTS.md 的默认读取规则读取对应文档：
 
 * `pixivflow-telepost-deploy/AGENTS.md`（PixivFlow Ecosystem Agent Operating Contract）
 * `pixivflow-telepost-deploy/docs/architecture/ecosystem-platform.md`（长期架构）
