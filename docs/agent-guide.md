@@ -131,6 +131,10 @@ never reposts a card, and never re-runs business side effects.
 
 ## 改完请自证
 
+验证执行位置与 CI 读取以 [测试指南](TESTING.md#agent-验证与-ci-读取) 为准。
+以下是测试命令入口，不要求每次文档修改在本地重复全量测试；适用领域的回归
+与当前 head 的必需 CI 仍不可省略。生产探针只用于授权的生产验收任务。
+
 ```bash
 pytest -q                          # 全量测试
 pytest -q tests/test_api_server.py tests/test_conversation_flow.py
