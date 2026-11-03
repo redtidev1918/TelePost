@@ -86,7 +86,7 @@ checkout 路径任意）；前置构建步骤以 PixivFlow 仓说明为准。该
 | 数据库 | `test_database.py`、`test_database_operations.py` |
 | 权限/安全 | `test_security.py`、`test_api_commands.py`、`test_no_owner_probe.py` |
 
-提交前仍要跑全量，表格只用于开发迭代。
+本地按表执行相关回归；合并前必须取得当前 head 的适用完整 CI 证据。验证执行位置及补充条件见下文「Agent 验证与 CI 读取」。
 
 ## Presentation contract
 
