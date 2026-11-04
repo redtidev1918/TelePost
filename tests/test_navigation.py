@@ -28,6 +28,7 @@ from telepost.domain.navigation import (
     READ_ONLINE_LABEL,
     bot_submission_url,
     bot_username_from_link,
+    channel_message_url,
     miniapp_submission_url,
 )
 
@@ -79,6 +80,22 @@ def test_miniapp_direct_short_name_form_when_provided():
     # Invalid short name → private-chat Web App launch fallback.
     assert miniapp_submission_url("https://t.me/xgdPost_bot", short_name="not allowed!") == \
         "https://t.me/xgdPost_bot?startapp=miniapp"
+
+
+@pytest.mark.parametrize("channel,message_id,expected", [
+    ("@some_channel", 5, "https://t.me/some_channel/5"),
+    ("-100999111", 4242, "https://t.me/c/999111/4242"),
+    ("-9990001111", 4242, "https://t.me/c/9990001111/4242"),
+    ("", 5, None),           # configured-but-absent sentinel (§review-chat-contract)
+    (None, 5, None),
+    ("@some_channel", 0, None),
+    ("@some_channel", -3, None),
+    ("@some_channel", "bad", None),
+])
+def test_channel_message_url_never_malformed(channel, message_id, expected):
+    """Every published post lives in the channel; missing config never
+    produces a broken ``t.me/c/None/…`` link (§submission-entrypoint)."""
+    assert channel_message_url(channel, message_id) == expected
 
 
 def _patch(monkeypatch, *, link, cta):

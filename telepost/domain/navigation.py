@@ -86,6 +86,30 @@ def miniapp_submission_url(
     return f"https://t.me/{username}?startapp=miniapp"
 
 
+def channel_message_url(channel: object, message_id: object) -> Optional[str]:
+    """Public ``t.me`` link to one channel message, or None without valid input.
+
+    ``@username`` public channels use ``https://t.me/<username>/<id>``; numeric
+    supergroup/channel ids (``-100…``) use the member-only
+    ``https://t.me/c/<internal>/<id>`` form (leading ``-100`` prefix stripped,
+    a bare negative id keeps its digits). An unconfigured channel ("" is the
+    configured-but-absent sentinel, §review-chat-contract) or a non-positive
+    message id never produces a malformed ``t.me/c/None/…`` link — the caller
+    omits the navigation entry instead.
+    """
+    text = str(channel or "").strip()
+    try:
+        mid = int(message_id or 0)
+    except (TypeError, ValueError):
+        return None
+    if not text or mid <= 0:
+        return None
+    if text.startswith("@"):
+        return f"https://t.me/{text.lstrip('@')}/{mid}"
+    internal = text[4:] if text.startswith("-100") else text.lstrip("-")
+    return f"https://t.me/c/{internal}/{mid}"
+
+
 def read_online_navigation(url: Optional[str]) -> Optional[NavigationItem]:
     """A READ_ONLINE semantic navigation item, or None without a valid URL.
 

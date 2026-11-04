@@ -122,6 +122,14 @@ export function SubmissionDetailPage() {
             <div className="tag-list">{item.tags.map((tag) => <span key={tag} className="tag">{tag}</span>)}</div>
           </div>
         )}
+        {item.channel_url && /^https?:\/\//i.test(item.channel_url) && (
+          <div className="card__row card__row--static">
+            <div className="card__row-meta">{tr("频道")}</div>
+            <a href={item.channel_url} target="_blank" rel="noopener noreferrer" data-testid="submission-channel-link">
+              {tr("在频道中查看")}
+            </a>
+          </div>
+        )}
         {item.link && /^https?:\/\//i.test(item.link) && (
           <div className="card__row card__row--static">
             <div className="card__row-meta">{tr("链接")}</div>

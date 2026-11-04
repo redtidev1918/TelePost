@@ -124,3 +124,36 @@ async def test_head_of_chain_returns_latest_generation(monkeypatch, tmp_path):
     head = await ReviewRepository().head_of_chain("chain-9")
     assert head["id"] == b
     assert head["generation_count"] == 2
+
+@pytest.mark.asyncio
+async def test_own_detail_channel_url_only_for_published_chain(
+    monkeypatch, tmp_path,
+):
+    """The published chain head exposes its channel post link
+    (published_message_id is the authoritative review → publication link);
+    unpublished chains carry no channel link (§mine)."""
+    from utils import api_server
+
+    await _db(monkeypatch, tmp_path)
+    monkeypatch.setattr(api_server.bot_settings, "CHANNEL_ID",
+                        "-100999111")
+    base = time.time() - 120
+    published = await _row(chain="chain-pub", status="published",
+                           created=base, updated=base, submitter=7,
+                           submitter_name="alice")
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "UPDATE pending_reviews SET published_message_id=? WHERE id=?",
+            (4242, published),
+        )
+
+    detail = await api_server._own_submission_detail(7, published)
+    assert detail["channel_url"] == "https://t.me/c/999111/4242"
+    assert detail["status"] == "published"
+
+    rejected = await _row(chain="chain-rej", status="rejected",
+                          created=base + 1, updated=base + 1, submitter=7,
+                          submitter_name="alice")
+    detail2 = await api_server._own_submission_detail(7, rejected)
+    assert detail2["channel_url"] == ""
+    assert detail2["resubmit_available"] is True

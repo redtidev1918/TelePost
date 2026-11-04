@@ -207,6 +207,16 @@ USER_STATUS = {
 }
 
 
+def _channel_url_for(message_id) -> str:
+    """Public t.me link to one channel post (this bot's channel), or "".
+
+    The Mini App's primary content entry: every published post lives in the
+    channel, independent of whether the submission carried a source link.
+    """
+    from telepost.domain.navigation import channel_message_url
+    return channel_message_url(bot_settings.CHANNEL_ID, message_id) or ""
+
+
 def _logical_summary(row) -> dict:
     """User-facing LOGICAL submission DTO (one per review chain, §mine).
 
@@ -294,6 +304,9 @@ async def _own_submission_detail(user_id: int, review_id: int) -> dict:
                   for item in _media(source)],
         "note": source["note"] or "",
         "link": source["link"] or "",
+        # The channel post of a published chain (published_message_id is the
+        # authoritative review → publication link, set by mark_published).
+        "channel_url": _channel_url_for(source["published_message_id"]),
         # A terminal non-published chain head may be resubmitted by its owner.
         "resubmit_available": source["status"] in ("rejected", "failed",
                                                    "expired", "cancelled"),
@@ -1278,7 +1291,11 @@ def add_api_routes(web_app, application) -> None:
             return _error(500, "unknown", "热门列表获取失败")
         from telepost.application.hot import hot_post_payload
         return _ok({
-            "items": [hot_post_payload(item) for item in page.items],
+            "items": [
+                hot_post_payload(
+                    item, channel_url=_channel_url_for(item.message_id)
+                ) for item in page.items
+            ],
             "next_cursor": page.next_cursor,
         })
 
@@ -1302,7 +1319,10 @@ def add_api_routes(web_app, application) -> None:
             return _error(500, "unknown", "帖子获取失败")
         if post is None:
             return _error(404, "not_found", "帖子不存在")
-        return _ok(hot_post_payload(post, include_note=True))
+        return _ok(hot_post_payload(
+            post, include_note=True,
+            channel_url=_channel_url_for(post.message_id),
+        ))
 
     async def public_post_media(request):
         """GET /api/v1/posts/{message_id}/media/{index} — bounded preview bytes."""

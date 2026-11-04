@@ -41,6 +41,8 @@ export interface LogicalSubmission {
 export interface LogicalSubmissionDetail extends LogicalSubmission {
   note: string;
   link: string;
+  /** Channel post link once the submission is published (owner-only view). */
+  channel_url?: string;
   media: SubmissionAttachment[];
   /** Owner may re-submit a terminal non-published submission (§resubmit). */
   resubmit_available?: boolean;

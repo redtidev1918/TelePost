@@ -56,6 +56,9 @@ components:
         title: {type: string}
         tags: {type: array, items: {type: string}}
         link: {type: string}
+        channel_url:
+          type: string
+          description: Public t.me link to the channel post itself (primary content entry); omitted when the channel is unconfigured.
         publish_time: {type: number}
         heat_score: {type: number}
         reactions: {type: integer}
@@ -907,6 +910,9 @@ paths:
                   title: {type: string}
                   note: {type: string}
                   link: {type: string}
+                  channel_url:
+                    type: string
+                    description: Public t.me link to the published channel post; empty while the chain is not published.
                   tags: {type: array, items: {type: string}}
                   media_count: {type: integer}
                   document_count: {type: integer}
