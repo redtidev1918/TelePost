@@ -296,15 +296,18 @@ def _terminal_status_note(review_id: int, status: str) -> str:
     return tr('🗂 审核 #{p0}（{p1}，只读）').format(p0=review_id, p1=status)
 
 
-def _link_only_markup(link: str) -> Optional[InlineKeyboardMarkup]:
-    """Read-only card keyboard: at most the original-work link, never actions."""
+def read_only_keyboard(link: str, channel_url: str = "") -> Optional[InlineKeyboardMarkup]:
+    """Read-only navigation: confirmed channel post first, optional source second."""
+    rows = []
+    if channel_url:
+        rows.append([InlineKeyboardButton(tr('📣 在频道中查看'), url=channel_url)])
     candidate = (link or "").strip()
-    if not candidate.lower().startswith(("http://", "https://")):
-        return None
-    return InlineKeyboardMarkup([[InlineKeyboardButton(tr('🔗 查看原链接'), url=candidate)]])
+    if candidate.lower().startswith(("http://", "https://")):
+        rows.append([InlineKeyboardButton(tr('🔗 查看原链接'), url=candidate)])
+    return InlineKeyboardMarkup(rows) if rows else None
 
 
-def card_from_row(row) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
+def card_from_row(row, *, channel_id=None) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     """State-aware (re)render of a review control card from its DB row.
 
     §review-card-recovery — Telegram is a projection of the row, so a card that
@@ -328,7 +331,10 @@ def card_from_row(row) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
         status_note=_terminal_status_note(review_id, status),
     )
     link = str(row["link"]) if "link" in keys else ""
-    return text, _link_only_markup(link)
+    from ..domain.navigation import channel_message_url
+    channel_url = (channel_message_url(channel_id, row["published_message_id"])
+                   if status == "published" and "published_message_id" in keys else None)
+    return text, read_only_keyboard(link, channel_url or "")
 
 
 def _row_keys(row) -> list:

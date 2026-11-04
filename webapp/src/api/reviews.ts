@@ -22,6 +22,7 @@ export interface ReviewMedia {
 }
 
 export interface ReviewDetail {
+  channel_url?: string;
   id: number;
   status: string;
   title: string;

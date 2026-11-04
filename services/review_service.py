@@ -147,6 +147,7 @@ class ReviewItem:
     # was submitted.
     # Batch 5: canonical MediaAsset objects (wire dicts only at the API edge).
     media_assets: List[Any] = None  # type: ignore[assignment]
+    channel_url: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         payload = asdict(self)
@@ -365,14 +366,10 @@ async def _channel_link(message_id) -> str:
     """Channel t.me link for a published review message (mirrors the publish
     adapter's ``_link_of``). Empty message id → empty link (callers `or ''` it).
     """
-    if not message_id:
-        return ""
     from config.settings import CHANNEL_ID
+    from telepost.domain.navigation import channel_message_url
 
-    channel = str(CHANNEL_ID)
-    if channel.startswith("@"):
-        return f"https://t.me/{channel.lstrip('@')}/{int(message_id)}"
-    return f"https://t.me/c/{channel.replace('-100', '')}/{int(message_id)}"
+    return channel_message_url(CHANNEL_ID, message_id) or ""
 
 
 async def _record_review_event(event: str, row, actor: Any, *,
@@ -770,7 +767,10 @@ class ReviewService:
         from telepost.storage.sqlite import media_assets as ma
         chain_id = str(row["review_chain_id"] or "") if row else ""
         refs = await ma.list_for_chain(chain_id) if chain_id else []
-        return replace(item, media_assets=refs)
+        return replace(item, media_assets=refs, channel_url=(
+            await _channel_link(row["published_message_id"])
+            if row["status"] == "published" else ""
+        ))
 
     async def set_spoiler(self, review_id: int, spoiler: bool, *,
                           actor: Any = None, source: str = "service") -> ActionResult:

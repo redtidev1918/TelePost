@@ -25,7 +25,7 @@ from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 from typing import Optional, Tuple
 
-from config.settings import ADMIN_IDS, REVIEW_CHAT_ID
+from config.settings import ADMIN_IDS, CHANNEL_ID, REVIEW_CHAT_ID
 from services.review_service import (
     PublishFailedError,
     ReviewBusyError,
@@ -1635,7 +1635,7 @@ async def restore_review_card(bot, review_id: int, *, dry_run: bool = False,
             result.update({"ok": False, "reason": "edit_failed", "card": "pending"})
         return result
 
-    text, markup = review_keyboard.card_from_row(row)
+    text, markup = review_keyboard.card_from_row(row, channel_id=CHANNEL_ID)
     result.update({"card": "read_only", "text": text})
     if dry_run:
         result.update({"ok": True, "dry_run": True})
@@ -2306,7 +2306,7 @@ async def approve_review(update, context):
         query, context, review_id,
         tr("""✅ 审核 #{p0} 已发布
 {p1}""").format(p0=review_id, p1=result.link or ''),
-        None,
+        review_keyboard.read_only_keyboard("", result.link or ""),
     )
 
 

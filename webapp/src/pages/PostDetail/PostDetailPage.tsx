@@ -1,3 +1,4 @@
+import { ChannelPostButton } from '../../components/ChannelPostButton';
 import { tr } from "../../lib/i18n";
 import { useTranslation } from 'react-i18next';
 import { Button, Spinner } from '@telegram-apps/telegram-ui';
@@ -12,7 +13,7 @@ import { useBackButton } from '../../lib/useBackButton';
 /**
  * PostDetail = a real content page (§hot).
  *
- * media → title → metadata → tags → note → channel entry → optional source,
+ * title → channel entry → media → metadata → tags → note → optional source,
  * in that order. The channel entry is the PRIMARY navigation: every post
  * lives in the channel, independent of whether the submission carried a
  * source link. The source link is optional attribution (original work page)
@@ -67,6 +68,7 @@ export function PostDetailPage() {
           time,
         ].filter(Boolean).join(' · ')}
       />
+      <ChannelPostButton url={post.channel_url} testId="post-channel" />
       {post.media_count > 0 && (
         <div className="post-detail__media">
           <MediaThumb
@@ -89,15 +91,7 @@ export function PostDetailPage() {
         </div>
       )}
       {post.note ? <p className="post-detail__note">{post.note}</p> : null}
-      {post.channel_url && /^https?:\/\//i.test(post.channel_url) && (
-        <Button
-          mode="filled"
-          stretched
-          data-testid="post-channel"
-          onClick={() => window.open(post.channel_url, '_blank', 'noopener')}
-        >
-          {tr("在频道中查看")}</Button>
-      )}
+
       {post.link && /^https?:\/\//i.test(post.link) && (
         <Button
           mode="outline"

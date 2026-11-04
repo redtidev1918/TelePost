@@ -251,3 +251,25 @@ async def test_image_preview_is_bounded_jpeg(service_db):
     assert result.kind == "image"
     assert max(image.size) <= 1600
     assert result.size < len(source_bytes)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,message_id,expected", [
+    ("pending", None, ""),
+    ("publishing", 81, ""),
+    ("published", None, ""),
+    ("published", 81, "https://t.me/example_channel/81"),
+])
+async def test_review_detail_channel_link_uses_confirmed_publication(
+        service_db, monkeypatch, status, message_id, expected):
+    from config import settings
+    monkeypatch.setattr(settings, "CHANNEL_ID", "@example_channel")
+    await _insert_review(status=status)
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "UPDATE pending_reviews SET published_message_id=?, link='' WHERE id=1",
+            (message_id,),
+        )
+    item = await ReviewService().get_review(1)
+    assert item.to_dict()["channel_url"] == expected
+    assert item.link == ""

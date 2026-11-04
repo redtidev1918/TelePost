@@ -724,3 +724,19 @@ async def test_answer_callback_is_idempotent_per_query():
     expired.fail = True
     assert await answer_callback(expired, "boom") is True
     assert expired.calls == []
+
+
+@pytest.mark.asyncio
+async def test_published_card_restores_channel_button_without_republishing(harness, monkeypatch):
+    monkeypatch.setattr(review, "CHANNEL_ID", "@example_channel")
+    await _seed_review(350, status="published")
+    async with db_manager.get_db() as conn:
+        await conn.execute(
+            "UPDATE pending_reviews SET published_message_id=81, link='' WHERE id=350"
+        )
+    result = await review.restore_review_card(harness.bot, 350)
+    assert result["ok"]
+    buttons = [button for row in harness.last_markup.inline_keyboard for button in row]
+    assert [button.url for button in buttons] == ["https://t.me/example_channel/81"]
+    assert not _callback_datas(harness.last_markup)
+    assert (await _review_row(350))["status"] == "published"

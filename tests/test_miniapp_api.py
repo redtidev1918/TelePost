@@ -424,6 +424,8 @@ class TestMiniAppReadonlyExemption:
 
         monkeypatch.setenv("TELEPOST_REVIEW_API_MODE", "readonly")
         app, _ = _make_app(monkeypatch, _REVIEWER, reviewer=True)
+        sync_card = AsyncMock()
+        monkeypatch.setattr("handlers.review.restore_review_card", sync_card)
         monkeypatch.setenv("MINIAPP_SESSION_SECRET", "s" * 40)
         token = _session_token(100, ["submitter", "reviewer", "admin"])
         client = await _client(app)
@@ -441,6 +443,8 @@ class TestMiniAppReadonlyExemption:
                     headers={"Authorization": f"Bearer {token}"},
                 )
                 assert resp.status == 200
+                sync_card.assert_awaited_once()
+                assert sync_card.call_args.args[1] == 7
         finally:
             await client.close()
 
@@ -465,3 +469,20 @@ class TestMiniAppReadonlyExemption:
             assert body["error"]["code"] == "permission_denied"
         finally:
             await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed", [False, True])
+async def test_review_projection_failure_never_retries_or_masks_action(monkeypatch, failed):
+    from services.review_service import ReviewStateError
+    sync_card = AsyncMock(side_effect=RuntimeError("card edit failed"))
+    monkeypatch.setattr("handlers.review.restore_review_card", sync_card)
+    action = AsyncMock(return_value="published")
+    if failed:
+        action.side_effect = ReviewStateError("already resolved")
+        with pytest.raises(ReviewStateError, match="already resolved"):
+            await api_server._sync_review_action(object(), 7, action())
+    else:
+        assert await api_server._sync_review_action(object(), 7, action()) == "published"
+    action.assert_awaited_once()
+    sync_card.assert_awaited_once()

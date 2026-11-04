@@ -31,7 +31,7 @@ function QueueEmptyState() {
   const peek = useQuery({
     queryKey: ['review-history-peek'],
     queryFn: () => fetchReviewHistory(null, 3),
-    refetchInterval: 30_000,
+    refetchInterval: 5_000,
     retry: false,
   });
   const recent = peek.data?.items ?? [];
@@ -81,7 +81,7 @@ export function ReviewQueuePage() {
     queryFn: ({ pageParam }) => fetchReviewQueue(pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_cursor,
-    refetchInterval: 15_000, // §37: first version polls, no WebSocket/SSE
+    refetchInterval: 5_000, // §37: first version polls, no WebSocket/SSE
   });
 
   if (query.isLoading) {

@@ -283,3 +283,30 @@ def test_review_prompt_never_mentions_automatic_write():
     prompt = mcp_server_module.review_submission_prompt("184")
     assert "未执行审核动作" in prompt or "不调用 approve_review" in prompt
     assert "自动发布" not in prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path,payload,service_method", [
+    ("post", "approve", {}, "approve"),
+    ("post", "reject", {}, "reject"),
+    ("patch", "spoiler", {"spoiler": True}, "set_spoiler"),
+    ("post", "publish", {}, "approve"),
+    ("post", "publish", {"revision_id": 2}, "publish_edited"),
+])
+async def test_http_review_mutations_refresh_original_card(
+        monkeypatch, tmp_path, method, path, payload, service_method):
+    client, application = await _client_for_reviews(monkeypatch, tmp_path, mode="write")
+    mutation = AsyncMock(return_value=service_module.ActionResult(7, "published", False, 81))
+    monkeypatch.setattr(service_module.ReviewService, service_method, mutation)
+    sync = AsyncMock()
+    monkeypatch.setattr("handlers.review.restore_review_card", sync)
+    try:
+        response = await getattr(client, method)(
+            f"/api/v1/reviews/7/{path}", json=payload,
+            headers={"Authorization": "Bearer tp_owner"},
+        )
+        assert response.status == 200
+        mutation.assert_awaited_once()
+        sync.assert_awaited_once_with(application.bot, 7)
+    finally:
+        await client.close()

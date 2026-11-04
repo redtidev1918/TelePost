@@ -1,3 +1,5 @@
+import { ChannelPostButton } from '../../components/ChannelPostButton';
+import { invalidateReview } from '../../lib/invalidateReview';
 import { tr } from "../../lib/i18n";
 import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
@@ -100,7 +102,7 @@ export function ReviewDetailPage() {
   const review = useQuery({
     queryKey: ['review', id],
     queryFn: () => fetchReview(id!),
-    refetchInterval: 15_000,
+    refetchInterval: 5_000,
   });
   const refetchState = useQuery({
     queryKey: ['review-refetch', id],
@@ -109,16 +111,12 @@ export function ReviewDetailPage() {
     refetchIntervalInBackground: true,
   });
 
-  const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ['review', id] });
-    void queryClient.invalidateQueries({ queryKey: ['review-refetch', id] });
-    void queryClient.invalidateQueries({ queryKey: ['review-queue'] });
-  };
+  const invalidate = () => invalidateReview(queryClient);
 
   const approve = useMutation({
     mutationFn: () => approveReview(id!),
+    onSettled: invalidate,
     onSuccess: () => {
-      invalidate();
       window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
     },
     onError: () => {
@@ -127,22 +125,19 @@ export function ReviewDetailPage() {
   });
   const reject = useMutation({
     mutationFn: () => rejectReview(id!, rejectReason.trim() || undefined),
+    onSettled: invalidate,
     onSuccess: () => {
-      invalidate();
       setRejectOpen(false);
     },
     onError: () => undefined,
   });
   const spoiler = useMutation({
     mutationFn: (value: boolean) => setSpoiler(id!, value),
-    onSuccess: invalidate,
+    onSettled: invalidate,
   });
   const refetch = useMutation({
     mutationFn: () => requestRefetch(id!),
-    onSuccess: () => {
-      invalidate();
-      void queryClient.invalidateQueries({ queryKey: ['review-refetch', id] });
-    },
+    onSettled: invalidate,
     onError: () => undefined,
   });
 
@@ -189,6 +184,7 @@ export function ReviewDetailPage() {
         title={item.title || tr("（无标题）")}
         subtitle={tr("审核 #{{p0}}", {p0: item.id})}
       />
+      <ChannelPostButton url={item.channel_url} testId="review-channel" />
 
       <div className="card">
         <div className="card__row card__row--static">
@@ -303,7 +299,7 @@ export function ReviewDetailPage() {
                 loading={approve.isPending}
                 disabled={approve.isPending || refetch.isPending}
                 data-testid="approve"
-                onClick={() => void approve.mutateAsync()}
+                onClick={() => approve.mutate()}
               >
                 {tr("通过并发布")}</Button>
             }
@@ -321,14 +317,14 @@ export function ReviewDetailPage() {
                   mode="bezeled"
                   loading={refetch.isPending}
                   disabled={refetch.isPending || refetchState.isPending || refetchState.isError || refetchActive}
-                  onClick={() => void refetch.mutateAsync()}
+                  onClick={() => refetch.mutate()}
                 >
                   {tr("重抓")}</Button>
                 <Button
                   size="m"
                   mode="bezeled"
                   disabled={spoiler.isPending || item.spoiler}
-                  onClick={() => void spoiler.mutateAsync(true)}
+                  onClick={() => spoiler.mutate(true)}
                 >
                   {tr("剧透")}</Button>
               </>
@@ -353,7 +349,7 @@ export function ReviewDetailPage() {
                       disabled={reject.isPending}
                       style={{ color: 'var(--tgui--destructive_text_color)' }}
                       data-testid="reject-confirm"
-                      onClick={() => void reject.mutateAsync()}
+                      onClick={() => reject.mutate()}
                     >
                       {tr("确认拒绝")}</Button>
                   }

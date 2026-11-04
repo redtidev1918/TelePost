@@ -103,9 +103,10 @@ function SubmissionRow({ item, onOpen }: { item: LogicalSubmission; onOpen: () =
             {STATUS_LABELS()[item.status] || item.status}
           </StatusBadge>
           {deletable ? (
-            <button
-              type="button"
-              className="page-section__action"
+            <Button
+              size="s"
+              mode="bezeled"
+              aria-expanded={open}
               aria-label={tr("更多操作")}
               data-testid={`mine-row-more-${item.current_review_id}`}
               onClick={(event) => {
@@ -113,8 +114,8 @@ function SubmissionRow({ item, onOpen }: { item: LogicalSubmission; onOpen: () =
                 setOpen((value) => !value);
               }}
             >
-              ⋯
-            </button>
+              {tr("更多操作")}
+            </Button>
           ) : null}
         </div>
       </div>
@@ -151,6 +152,7 @@ export function MySubmissionsPage() {
   });
   const query = useInfiniteQuery({
     queryKey: ['my-submissions'],
+    refetchInterval: 5_000,
     queryFn: ({ pageParam }) => fetchMySubmissions(pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_cursor,
@@ -182,13 +184,14 @@ export function MySubmissionsPage() {
         subtitle={all.length > 0 ? tr("共 {{p0}} 条记录", {p0: all.length}) : undefined}
         action={
           all.length > 0 ? (
-            <button
-              type="button"
-              className="page-section__action"
+            <Button
+              size="m"
+              mode="bezeled"
+              aria-expanded={moreOpen}
               data-testid="mine-more"
               onClick={() => setMoreOpen((value) => !value)}
             >
-              {tr("更多")}</button>
+              {tr("更多")}</Button>
           ) : null
         }
       />
