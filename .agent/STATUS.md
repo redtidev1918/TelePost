@@ -1,5 +1,22 @@
 # 工程状态（TelePost）
 
+## 2026-11-05 Mini App 频道入口（2.84.13 已发行部署）
+
+- DONE：Mini App 内容详情/我的投稿详情以频道帖链接为主入口（`channel_url`），
+  可选来源链接降为次级 attribution；原创稿（无来源）也有频道出口。
+- 实现：domain SSOT `channel_message_url`（navigation.py）；
+  `_link`/`_legacy_link` 委托；`/posts/hot`、`/posts/{id}`、`/me/submissions/{id}`
+  （published 链头经 `published_message_id`）三处 DTO；webapp 两页 UI + i18n +
+  openapi 同步（同切片）。PR #387、release PR #388。
+- 测试：全量 1632 passed / 2 skipped；webapp 86 tests + typecheck + lint + build
+  全绿。gitleaks 首跑误报 `-100`+10 位测试 id，改为仓库既有短 id 风格后通过。
+- VERIFIED（只读验收）：v2.84.13 8 产物 + PyPI 200；deploy-fly 自动部署成功；
+  公网 /health 2.84.13 / f58419b、/ready bot1+bot2 ok、botN v1/health 200
+  （inbox pending 0 / dead_24h 0）、smoke 4/4（首跑 /live 000 为本地网络抖动，
+  复跑 4/4）；fly logs 抽查无错误。回滚点：ghcr 镜像 2.84.12。
+- deploy 仓收尾：baseline PR #303、state docs PR #304 已合并；
+  current-state.md 基线 2.84.13、回滚基线 2.84.12。机内 doctor 未执行（如实记录）。
+
 ## 2026-11-02 小说在线阅读恢复
 
 - IN_PROGRESS：实现预览 CAS、失败诊断、安全补偿与原帖键盘修复，未发行。
