@@ -1070,6 +1070,8 @@ export interface paths {
                             title?: string;
                             note?: string;
                             link?: string;
+                            /** @description Public t.me link to the published channel post; empty while the chain is not published. */
+                            channel_url?: string;
                             tags?: string[];
                             media_count?: number;
                             document_count?: number;
@@ -1819,6 +1821,8 @@ export interface components {
             title: string;
             tags: string[];
             link?: string;
+            /** @description Public t.me link to the channel post itself (primary content entry); omitted when the channel is unconfigured. */
+            channel_url?: string;
             publish_time: number;
             heat_score: number;
             reactions: number;

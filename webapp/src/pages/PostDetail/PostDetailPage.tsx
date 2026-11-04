@@ -12,9 +12,13 @@ import { useBackButton } from '../../lib/useBackButton';
 /**
  * PostDetail = a real content page (§hot).
  *
- * media → title → metadata → tags → note → source → channel entry, in that
- * order. It is a detail route, so its only back affordance is the Telegram
- * BackButton (§back) — no in-page back button.
+ * media → title → metadata → tags → note → channel entry → optional source,
+ * in that order. The channel entry is the PRIMARY navigation: every post
+ * lives in the channel, independent of whether the submission carried a
+ * source link. The source link is optional attribution (original work page)
+ * and only renders when the submission carried one. It is a detail route, so
+ * its only back affordance is the Telegram BackButton (§back) — no in-page
+ * back button.
  */
 export function PostDetailPage() {
   useTranslation();
@@ -85,7 +89,16 @@ export function PostDetailPage() {
         </div>
       )}
       {post.note ? <p className="post-detail__note">{post.note}</p> : null}
-      {post.link && (
+      {post.channel_url && /^https?:\/\//i.test(post.channel_url) && (
+        <Button
+          mode="filled"
+          stretched
+          data-testid="post-channel"
+          onClick={() => window.open(post.channel_url, '_blank', 'noopener')}
+        >
+          {tr("在频道中查看")}</Button>
+      )}
+      {post.link && /^https?:\/\//i.test(post.link) && (
         <Button
           mode="outline"
           stretched
@@ -94,7 +107,9 @@ export function PostDetailPage() {
         >
           {tr("打开来源")}</Button>
       )}
-      <div className="mutation-help">{tr("完整内容在 Telegram 频道中查看。")}</div>
+      {!post.channel_url && (
+        <div className="mutation-help">{tr("完整内容在 Telegram 频道中查看。")}</div>
+      )}
     </div>
   );
 }

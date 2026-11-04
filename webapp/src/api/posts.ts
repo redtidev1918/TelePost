@@ -7,6 +7,8 @@ export interface PostSummary {
   title: string;
   tags: string[];
   link: string;
+  /** Public t.me link to the channel post itself (primary content entry). */
+  channel_url?: string;
   publish_time: number;
   heat_score: number;
   reactions: number;

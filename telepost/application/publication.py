@@ -149,10 +149,8 @@ class PublicationService:
     def _link(self, message_id: int, channel) -> str:
         if self._link_builder is not None:
             return self._link_builder(message_id)
-        channel = str(channel)
-        if channel.startswith("@"):
-            return f"https://t.me/{channel.lstrip('@')}/{message_id}"
-        return f"https://t.me/c/{channel.replace('-100', '')}/{message_id}"
+        from telepost.domain.navigation import channel_message_url
+        return channel_message_url(channel, message_id) or ""
 
     @staticmethod
     def _media_delivery_strategy(items: List[MediaItem]) -> str:
@@ -749,9 +747,7 @@ def _legacy_link(message_id: int) -> str:
     """Replay rows predate command context; resolve channel from live config."""
     try:
         from config.settings import CHANNEL_ID
-        channel = str(CHANNEL_ID)
-        if channel.startswith("@"):
-            return f"https://t.me/{channel.lstrip('@')}/{message_id}"
-        return f"https://t.me/c/{channel.replace('-100', '')}/{message_id}"
+        from telepost.domain.navigation import channel_message_url
+        return channel_message_url(CHANNEL_ID, message_id) or ""
     except Exception:
         return ""

@@ -149,6 +149,54 @@ async def test_post_detail_api_returns_safe_public_dto(monkeypatch, isolated_db)
 
 
 @pytest.mark.asyncio
+async def test_post_apis_expose_channel_url_as_primary_entry(
+    monkeypatch, isolated_db,
+):
+    """channel_url is built from this bot's channel for EVERY post; the
+    optional source ``link`` stays untouched attribution (§hot)."""
+    monkeypatch.setattr(api_server.bot_settings, "CHANNEL_ID", "@some_channel")
+    message_id = await _insert_post(message_id=401)
+    app = _make_app(monkeypatch)
+    client = await _client(app)
+    try:
+        token = _session_token()
+        resp = await client.get("/api/v1/posts/hot",
+                                headers={"Authorization": f"Bearer {token}"})
+        assert resp.status == 200
+        items = (await resp.json())["data"]["items"]
+        assert items[0]["channel_url"] == "https://t.me/some_channel/401"
+        assert items[0]["link"] == "https://pixiv.example/1"
+
+        resp = await client.get(f"/api/v1/posts/{message_id}",
+                                headers={"Authorization": f"Bearer {token}"})
+        assert resp.status == 200
+        data = (await resp.json())["data"]
+        assert data["channel_url"] == "https://t.me/some_channel/401"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_apis_omit_channel_url_without_channel_config(
+    monkeypatch, isolated_db,
+):
+    """No channel config → no ``channel_url`` key, never a malformed link."""
+    monkeypatch.setattr(api_server.bot_settings, "CHANNEL_ID", "")
+    await _insert_post(message_id=402)
+    app = _make_app(monkeypatch)
+    client = await _client(app)
+    try:
+        token = _session_token()
+        resp = await client.get("/api/v1/posts/hot",
+                                headers={"Authorization": f"Bearer {token}"})
+        assert resp.status == 200
+        items = (await resp.json())["data"]["items"]
+        assert "channel_url" not in items[0]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_content_feature_flag_disables_api(monkeypatch, isolated_db):
     monkeypatch.setattr(api_server, "MINIAPP_CONTENT_ENABLED", False)
     app = _make_app(monkeypatch)

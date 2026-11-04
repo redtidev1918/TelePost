@@ -229,8 +229,17 @@ class HotService:
         return await self.repository.get(message_id)
 
 
-def hot_post_payload(post: HotPost, *, include_note: bool = False) -> dict:
-    """Stable Mini App DTO. Never expose file_ids or submitter identity."""
+def hot_post_payload(
+    post: HotPost, *, include_note: bool = False,
+    channel_url: Optional[str] = None,
+) -> dict:
+    """Stable Mini App DTO. Never expose file_ids or submitter identity.
+
+    ``channel_url`` is the public t.me link to the channel post itself — the
+    primary "view this content where it lives" entry for every post. The
+    optional ``link`` stays the submission's carried source attribution
+    (original work page) and only exists when a source was provided.
+    """
     try:
         media = json.loads(post.file_ids or "[]")
         if not isinstance(media, list):
@@ -248,6 +257,8 @@ def hot_post_payload(post: HotPost, *, include_note: bool = False) -> dict:
         "content_type": post.content_type,
         "media_count": len(media),
     }
+    if channel_url:
+        payload["channel_url"] = channel_url
     if include_note:
         payload["note"] = post.note
     return payload

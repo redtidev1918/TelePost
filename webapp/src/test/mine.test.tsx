@@ -1,10 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { AppRoot } from '@telegram-apps/telegram-ui';
 import { MySubmissionsPage } from '../pages/MySubmissions/MySubmissionsPage';
+import { SubmissionDetailPage } from '../pages/SubmissionDetail/SubmissionDetailPage';
 import * as me from '../api/me';
+import * as reviewsApi from '../api/reviews';
 
 function chainItem(
   submissionId: string,
@@ -123,5 +125,49 @@ describe('MySubmissionsPage (logical submissions)', () => {
       expect(row).toHaveLength(1);
       cleanup();
     }
+  });
+});
+
+describe('SubmissionDetailPage channel entry', () => {
+  function renderDetail(detail: me.LogicalSubmissionDetail) {
+    vi.spyOn(me, 'fetchMySubmission').mockResolvedValue(detail);
+    vi.spyOn(reviewsApi, 'fetchEditorialHistory').mockRejectedValue(
+      new Error('no history'),
+    );
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <AppRoot>
+          <MemoryRouter initialEntries={['/mine/chain-1']}>
+            <Routes>
+              <Route path="/mine/:id" element={<SubmissionDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </AppRoot>
+      </QueryClientProvider>,
+    );
+  }
+
+  function detail(overrides: Partial<me.LogicalSubmissionDetail> = {}): me.LogicalSubmissionDetail {
+    return {
+      ...chainItem('chain-1'),
+      status: 'published',
+      note: '',
+      link: 'https://pixiv.example/1',
+      media: [],
+      ...overrides,
+    };
+  }
+
+  it('shows the channel link for a published submission', async () => {
+    renderDetail(detail({ channel_url: 'https://t.me/some_channel/77' }));
+    const link = await screen.findByTestId('submission-channel-link');
+    expect(link.textContent).toContain('在频道中查看');
+  });
+
+  it('keeps the source link row without a channel entry when unpublished', async () => {
+    renderDetail(detail({ status: 'rejected', channel_url: undefined }));
+    expect(await screen.findByText('https://pixiv.example/1')).toBeTruthy();
+    expect(screen.queryByTestId('submission-channel-link')).toBeNull();
   });
 });
