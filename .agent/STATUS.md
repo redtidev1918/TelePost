@@ -1,5 +1,26 @@
 # 工程状态（TelePost）
 
+## 2026-11-05（晚）频道入口 + 审核状态同步（2.84.14 已发行部署）
+
+- DONE：用户验收 2.84.13 后反馈「打开来源仍跳 Pixiv、有的稿没有、审核页无频道入口、
+  更多不显眼、状态不同步」。并行的 codex/miniapp-channel-sync 会话（因用量上限中断）
+  已实现全量方案，本班次接手审查、合并与发版。
+- 内容（PR #391）：三处「在频道中查看」统一入口（内容详情/我的投稿详情/审核详情，
+  标题下方，openTelegramLink 优先）；审核群控制卡终态恢复带「📣 在频道中查看」
+  （仅 published）；HTTP 审核 mutation 后原位恢复控制卡（`_sync_review_action`，
+  只读投影、失败仅记日志）；Mini App 5 秒前台轮询 + 操作后全缓存失效；
+  「更多」改可见按钮。来源链接保留为独立标注（用户方案选择）。
+- 审查结论：与 §review-card-recovery / §review-cta 兼容（频道链接不是公共投稿 CTA，
+  只出现在 published 终态只读卡）；`_channel_link` 收敛到 2.84.13 的 domain SSOT。
+  曾并行提交的 #390（移除来源跳转）经用户确认被 #391 方案取代，已关闭。
+- 测试：#391/#392 CI 全绿（17 项，含 Linux/Windows 全量、webapp、browser-e2e、
+  delivery contract）；另一会话本地定向回归 216 backend + 95 frontend + 3 e2e。
+- VERIFIED（只读验收）：v2.84.14 8 产物 + PyPI 200；deploy-fly 自动部署成功；
+  /health 2.84.14 / 9c8752ab；/ready bot1+bot2 ok；botN inbox pending 0 / dead_24h 0；
+  生产包 index-C8XZJyo3 实测含 review-channel / post-channel / openTelegramLink /
+  轮询标记；smoke 4/4；fly logs 无错误。回滚点：2.84.13。
+- deploy 仓收尾：docs PR #306（基线 2.84.14、回滚 2.84.13）。机内 doctor 未执行。
+
 ## 2026-11-05 Mini App 频道入口（2.84.13 已发行部署）
 
 - DONE：Mini App 内容详情/我的投稿详情以频道帖链接为主入口（`channel_url`），
