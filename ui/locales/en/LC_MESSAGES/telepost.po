@@ -3539,3 +3539,6 @@ msgstr "⌛ Review #{p0} expired (read-only)"
 msgid "♻️ 审核 #{p0} 已被重抓结果替代（只读）"
 msgstr "♻️ Review #{p0} was replaced by a refetch result (read-only)"
 
+
+msgid "📣 在频道中查看"
+msgstr "📣 View in channel"

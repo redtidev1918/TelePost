@@ -15,7 +15,7 @@ function renderDetail() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
-      <AppRoot appearance="light">
+      <AppRoot appearance="light" platform="ios">
         <MemoryRouter initialEntries={['/review/7']}>
           <Routes>
             <Route path="/review/:id" element={<ReviewDetailPage />} />
@@ -24,6 +24,7 @@ function renderDetail() {
       </AppRoot>
     </QueryClientProvider>,
   );
+  return qc;
 }
 
 describe('ReviewDetailPage', () => {
@@ -70,6 +71,44 @@ describe('ReviewDetailPage', () => {
     const approve = screen.getByRole('button', { name: /通过/ });
     await userEvent.click(approve);
     await waitFor(() => expect(reviewsApi.approveReview).toHaveBeenCalledWith('7'));
+  });
+
+  it('refreshes detail and other cached views after approval, exposing the channel without a source', async () => {
+    mockReview();
+    const pending = await reviewsApi.fetchReview(7);
+    vi.mocked(reviewsApi.fetchReview).mockResolvedValueOnce(pending).mockResolvedValue({
+      ...pending, status: 'published', link: '', channel_url: 'https://t.me/example_channel/81',
+    });
+    vi.spyOn(reviewsApi, 'fetchRefetchAttempt').mockResolvedValue({ attempt: null, lineage: [] });
+    vi.spyOn(reviewsApi, 'approveReview').mockResolvedValue({
+      review_id: 7, status: 'published', reused: false, message_id: 81, link: 'https://t.me/example_channel/81',
+    });
+    const qc = renderDetail();
+    for (const key of ['review-history', 'review-history-peek', 'my-submissions', 'my-submission', 'hot-posts']) {
+      qc.setQueryData([key], {});
+    }
+    await userEvent.click(await screen.findByTestId('approve'));
+    expect(await screen.findByTestId('review-channel')).toBeInTheDocument();
+    expect(screen.queryByTestId('approve')).toBeNull();
+    expect(screen.getByText('已发布')).toBeInTheDocument();
+    for (const key of ['review-history', 'review-history-peek', 'my-submissions', 'my-submission', 'hot-posts']) {
+      expect(qc.getQueryState([key])?.isInvalidated).toBe(true);
+    }
+  });
+
+  it('refreshes actual state after a failed concurrent action', async () => {
+    mockReview();
+    const pending = await reviewsApi.fetchReview(7);
+    vi.mocked(reviewsApi.fetchReview).mockResolvedValueOnce(pending).mockResolvedValue({
+      ...pending, status: 'rejected',
+    });
+    vi.spyOn(reviewsApi, 'fetchRefetchAttempt').mockResolvedValue({ attempt: null, lineage: [] });
+    vi.spyOn(reviewsApi, 'approveReview').mockRejectedValue(new Error('already resolved'));
+    renderDetail();
+    await userEvent.click(await screen.findByTestId('approve'));
+    expect(await screen.findByText('已拒绝')).toBeInTheDocument();
+    expect(screen.queryByTestId('approve')).toBeNull();
+    expect(screen.queryByTestId('review-channel')).toBeNull();
   });
 
   // §refetch-lifecycle: the durable job id, the stage the remote state proves,

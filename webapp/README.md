@@ -94,3 +94,14 @@ The `dist/` output is served from the same domain as TelePost's API (e.g.
 `https://telepost.example/app/`), removing CORS/cookie/session friction (§68-§69).
 See the [Mini App guide](../docs/MINIAPP.md) for configuration and deployment,
 and the [testing guide](../docs/TESTING.md) for backend and browser checks.
+
+### 频道入口与状态同步
+
+内容详情、已发布投稿详情与审核详情在标题下提供「在频道中查看」，
+从服务端确认的发布消息 ID 生成频道链接，优先使用 Telegram SDK 打开。
+「打开来源」仍表示投稿的原始来源；未填写来源不会影响频道入口。
+未发布的审核没有频道帖子，因此不会显示频道按钮。
+
+审核与投稿进度页在前台每 5 秒刷新；审核操作结束（含冲突/失败）后失效相关列表、
+详情和历史缓存。HTTP 审核操作也原位刷新 Telegram 审核控制卡；卡片编辑失败不重试发布。
+「更多」使用可见按钮，投稿记录的折叠菜单带展开状态。

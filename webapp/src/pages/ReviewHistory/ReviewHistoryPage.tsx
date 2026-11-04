@@ -36,7 +36,7 @@ export function ReviewHistoryPage() {
     queryFn: ({ pageParam }) => fetchReviewHistory(pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_cursor,
-    refetchInterval: 30_000,
+    refetchInterval: 5_000,
   });
 
   if (query.isLoading) {

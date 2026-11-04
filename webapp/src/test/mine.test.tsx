@@ -65,6 +65,16 @@ describe('MySubmissionsPage (logical submissions)', () => {
     expect(rows[0].textContent).not.toContain('review-');
   });
 
+  it('refreshes a submission published from another surface while the page stays open', async () => {
+    renderPage([chainItem('chain-1')]);
+    expect(await screen.findByText('审核中')).toBeInTheDocument();
+    vi.mocked(me.fetchMySubmissions).mockResolvedValue({
+      items: [chainItem('chain-1', { status: 'published' })], next_cursor: null,
+    });
+    await waitFor(() => expect(screen.getByText('已发布')).toBeInTheDocument(), { timeout: 8000 });
+    expect(screen.queryByText('审核中')).toBeNull();
+  }, 10000);
+
   it('collapses an A→B→C refetch chain into a single item', async () => {
     renderPage([chainItem('chain-1')]);
     const rows = await screen.findAllByTestId('mine-item');

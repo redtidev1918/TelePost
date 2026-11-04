@@ -122,7 +122,7 @@ never reposts a card, and never re-runs business side effects.
 - `handlers/review.py:restore_review_card` 是唯一重建入口：按 `review_id` 读库，
   需要 `review_chat_id` + `control_message_id`；`pending` 委托 `refresh_refetch_card`
   （重抓进行中保留“重抓中”形态），终态用 `review_keyboard.card_from_row` 渲染只读
-  标题 + `🔗 查看原链接`。缺控制卡消息 ID 时返回 `no_control_message` 交给既有
+  标题；已发布且有确认消息 ID 时提供 `📣 在频道中查看`，原始来源独立保留为 `🔗 查看原链接`。缺控制卡消息 ID 时返回 `no_control_message` 交给既有
   `reconcile_incomplete_reviews`，**不得**在该路径补发新卡。
 - 管理员手工恢复只走 `/restore_card <审核ID> [--dry-run]`（`#审核ID` 亦可；写
   `review.card_restored` 审计）；旧卡片已删除时返回 `message_gone`，不无限重试。

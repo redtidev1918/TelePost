@@ -455,6 +455,9 @@ paths:
                   id: {type: integer}
                   status: {type: string}
                   title: {type: string}
+                  channel_url:
+                    type: string
+                    description: Confirmed channel post URL for a published review; empty before publication. Separate from the optional original source link.
                   submitter_user_id: {type: [integer, 'null'], description: Verified human owner; NULL for service/automatic submissions}
                   source: {type: string}
                   target_id: {type: string}

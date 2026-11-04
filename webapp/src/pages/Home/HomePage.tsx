@@ -77,6 +77,7 @@ function ReviewShortcut() {
   const navigate = useBotNavigate();
   const query = useInfiniteQuery({
     queryKey: ['review-queue'],
+    refetchInterval: 5_000,
     queryFn: ({ pageParam }) => fetchReviewQueue(pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_cursor,

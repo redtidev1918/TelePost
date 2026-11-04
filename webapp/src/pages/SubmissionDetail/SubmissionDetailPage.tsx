@@ -1,3 +1,4 @@
+import { ChannelPostButton } from '../../components/ChannelPostButton';
 import { tr } from "../../lib/i18n";
 import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
@@ -53,6 +54,7 @@ export function SubmissionDetailPage() {
   const [resubmitResult, setResubmitResult] = useState<string | null>(null);
   const submission = useQuery({
     queryKey: ['my-submission', id],
+    refetchInterval: 5_000,
     queryFn: () => fetchMySubmission(id!),
   });
   const resubmit = useMutation({
@@ -60,6 +62,7 @@ export function SubmissionDetailPage() {
     onSuccess: (result) => {
       setResubmitResult(result.message);
       void qc.invalidateQueries({ queryKey: ['my-submission', id] });
+      void qc.invalidateQueries({ queryKey: ['my-submissions'] });
     },
     onError: (error: unknown) => {
       setResubmitResult((error as Error).message || tr("重新提交失败，请稍后重试。"));
@@ -69,6 +72,7 @@ export function SubmissionDetailPage() {
   // whether publication was preceded by an edit; the UI only renders it.
   const history = useQuery({
     queryKey: ['editorial-history', id],
+    refetchInterval: 5_000,
     queryFn: () => fetchEditorialHistory(id!),
     retry: false,
   });
@@ -100,6 +104,7 @@ export function SubmissionDetailPage() {
         title={item.title || tr("未命名投稿")}
         subtitle={tr("{{p0}} 个媒体 · {{p1}} 个文件", {p0: item.media_count, p1: item.document_count})}
       />
+      <ChannelPostButton url={item.channel_url} testId="submission-channel-link" />
 
       <div className="card">
         <div className="card__row card__row--static">
@@ -120,14 +125,6 @@ export function SubmissionDetailPage() {
           <div className="card__row card__row--static">
             <div className="card__row-meta">{tr("标签")}</div>
             <div className="tag-list">{item.tags.map((tag) => <span key={tag} className="tag">{tag}</span>)}</div>
-          </div>
-        )}
-        {item.channel_url && /^https?:\/\//i.test(item.channel_url) && (
-          <div className="card__row card__row--static">
-            <div className="card__row-meta">{tr("频道")}</div>
-            <a href={item.channel_url} target="_blank" rel="noopener noreferrer" data-testid="submission-channel-link">
-              {tr("在频道中查看")}
-            </a>
           </div>
         )}
         {item.link && /^https?:\/\//i.test(item.link) && (

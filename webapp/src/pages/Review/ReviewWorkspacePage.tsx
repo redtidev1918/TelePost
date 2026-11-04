@@ -1,3 +1,4 @@
+import { Button } from '@telegram-apps/telegram-ui';
 import { tr } from "../../lib/i18n";
 import { useTranslation } from 'react-i18next';
 import { useEffect, useState } from 'react';
@@ -40,13 +41,13 @@ export function ReviewWorkspacePage() {
         title={tr("审核")}
         subtitle={tab === 'queue' ? tr("处理等待中的投稿") : tr("查看已处理的记录")}
         action={
-          <button
-            type="button"
-            className="page-section__action"
+          <Button
+            size="m"
+            mode="bezeled"
             data-testid="review-more"
             onClick={() => navigate('/more')}
           >
-            {tr("更多")}</button>
+            {tr("更多")}</Button>
         }
       />
       <Segmented<'queue' | 'history'>

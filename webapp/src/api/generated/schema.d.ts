@@ -2064,6 +2064,8 @@ export interface operations {
                         id?: number;
                         status?: string;
                         title?: string;
+                        /** @description Confirmed channel post URL for a published review; empty before publication. Separate from the optional original source link. */
+                        channel_url?: string;
                         /** @description Verified human owner; NULL for service/automatic submissions */
                         submitter_user_id?: number | null;
                         source?: string;

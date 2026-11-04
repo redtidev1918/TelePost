@@ -1,3 +1,4 @@
+import { invalidateReview } from '../../lib/invalidateReview';
 import { tr } from "../../lib/i18n";
 import { useTranslation } from 'react-i18next';
 import { useEffect, useMemo, useState } from 'react';
@@ -127,10 +128,9 @@ export function ReviewEditPage() {
   });
 
   const publish = useMutation({
+    onSettled: () => invalidateReview(queryClient),
     mutationFn: () => publishReview(id!, active!.id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['review', id] });
-      void queryClient.invalidateQueries({ queryKey: ['review-queue'] });
       window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
       navigate(`/review/${id}`);
     },

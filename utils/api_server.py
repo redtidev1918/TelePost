@@ -217,6 +217,17 @@ def _channel_url_for(message_id) -> str:
     return channel_message_url(bot_settings.CHANNEL_ID, message_id) or ""
 
 
+async def _sync_review_action(bot, review_id, action):
+    try:
+        return await action
+    finally:
+        try:
+            from handlers.review import restore_review_card
+            await restore_review_card(bot, review_id)
+        except Exception:
+            logger.warning("审核卡同步失败: review_id=%s", review_id, exc_info=True)
+
+
 def _logical_summary(row) -> dict:
     """User-facing LOGICAL submission DTO (one per review chain, §mine).
 
@@ -2392,14 +2403,14 @@ def add_api_routes(web_app, application) -> None:
             except (TypeError, ValueError):
                 return _error(400, "invalid_review_id", "review_id 必须是整数")
             source = _action_source(request, actor_row)
-            result = await review_service.approve(
+            result = await _sync_review_action(bot, review_id, review_service.approve(
                 bot,
                 review_id,
                 spoiler=spoiler,
                 actor=_action_actor(actor_row),
                 source=source,
                 notify_chat_submitter=True,
-            )
+            ))
             return _ok(result.to_dict())
         return await _run_review_action(action)
 
@@ -2419,14 +2430,14 @@ def add_api_routes(web_app, application) -> None:
             except (TypeError, ValueError):
                 return _error(400, "invalid_review_id", "review_id 必须是整数")
             source = _action_source(request, actor_row)
-            result = await review_service.reject(
+            result = await _sync_review_action(bot, review_id, review_service.reject(
                 bot,
                 review_id,
                 reason=reason,
                 actor=_action_actor(actor_row),
                 source=source,
                 notify_chat_submitter=True,
-            )
+            ))
             return _ok(result.to_dict())
         return await _run_review_action(action)
 
@@ -2445,12 +2456,12 @@ def add_api_routes(web_app, application) -> None:
             except (TypeError, ValueError):
                 return _error(400, "invalid_review_id", "review_id 必须是整数")
             source = _action_source(request, actor_row)
-            result = await review_service.set_spoiler(
+            result = await _sync_review_action(bot, review_id, review_service.set_spoiler(
                 review_id,
                 payload["spoiler"],
                 actor=_action_actor(actor_row),
                 source=source,
-            )
+            ))
             return _ok(result.to_dict())
         return await _run_review_action(action)
 
@@ -3095,17 +3106,17 @@ def add_api_routes(web_app, application) -> None:
             source = _action_source(request, actor_row)
             try:
                 if revision_id is None:
-                    result = await review_service.approve(
+                    result = await _sync_review_action(bot, review_id, review_service.approve(
                         bot, review_id, spoiler=spoiler,
                         actor=_action_actor(actor_row), source=source,
                         notify_chat_submitter=True,
-                    )
+                    ))
                 else:
-                    result = await review_service.publish_edited(
+                    result = await _sync_review_action(bot, review_id, review_service.publish_edited(
                         bot, review_id, int(revision_id),
                         actor=_action_actor(actor_row), source=source,
                         notify_chat_submitter=True,
-                    )
+                    ))
             except ReviewError as exc:
                 return _review_error(exc)
             except Exception as exc:
