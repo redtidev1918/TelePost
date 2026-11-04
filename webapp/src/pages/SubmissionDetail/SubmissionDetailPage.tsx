@@ -130,14 +130,6 @@ export function SubmissionDetailPage() {
             </a>
           </div>
         )}
-        {item.link && /^https?:\/\//i.test(item.link) && (
-          <div className="card__row card__row--static">
-            <div className="card__row-meta">{tr("链接")}</div>
-            <a href={item.link} target="_blank" rel="noopener noreferrer" style={{ overflowWrap: 'anywhere' }}>
-              {item.link}
-            </a>
-          </div>
-        )}
         <div className="card__row card__row--static">
           <div className="card__row-meta">{tr("剧透")}</div>
           <div className="card__row-foot">

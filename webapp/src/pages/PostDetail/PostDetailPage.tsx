@@ -12,13 +12,13 @@ import { useBackButton } from '../../lib/useBackButton';
 /**
  * PostDetail = a real content page (§hot).
  *
- * media → title → metadata → tags → note → channel entry → optional source,
- * in that order. The channel entry is the PRIMARY navigation: every post
- * lives in the channel, independent of whether the submission carried a
- * source link. The source link is optional attribution (original work page)
- * and only renders when the submission carried one. It is a detail route, so
- * its only back affordance is the Telegram BackButton (§back) — no in-page
- * back button.
+ * media → title → metadata → tags → note → channel entry, in that order.
+ * The channel entry is the ONLY outbound navigation: every post lives in the
+ * channel, uniformly for reposts and original works. The submission's optional
+ * source link is never rendered here — an optional field would make the jump
+ * inconsistent across posts and would leave the channel (where the content
+ * actually lives) for a Pixiv page. It is a detail route, so its only back
+ * affordance is the Telegram BackButton (§back) — no in-page back button.
  */
 export function PostDetailPage() {
   useTranslation();
@@ -97,15 +97,6 @@ export function PostDetailPage() {
           onClick={() => window.open(post.channel_url, '_blank', 'noopener')}
         >
           {tr("在频道中查看")}</Button>
-      )}
-      {post.link && /^https?:\/\//i.test(post.link) && (
-        <Button
-          mode="outline"
-          stretched
-          data-testid="post-link"
-          onClick={() => window.open(post.link, '_blank', 'noopener')}
-        >
-          {tr("打开来源")}</Button>
       )}
       {!post.channel_url && (
         <div className="mutation-help">{tr("完整内容在 Telegram 频道中查看。")}</div>

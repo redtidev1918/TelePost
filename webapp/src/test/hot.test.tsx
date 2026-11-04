@@ -108,34 +108,34 @@ describe('PostDetailPage', () => {
     await waitFor(() => expect(mediaSpy).not.toHaveBeenCalled());
   });
 
-  it('puts the channel entry first and keeps the source as secondary', async () => {
+  it('offers the channel entry as the ONLY outbound jump, even for reposts', async () => {
     vi.spyOn(postsApi, 'fetchPost').mockResolvedValue({
       ...post({ channel_url: 'https://t.me/some_channel/11' }),
       note: '',
     });
     renderUi(<PostDetailPage />);
     expect(await screen.findByTestId('post-channel')).toBeTruthy();
-    expect(await screen.findByTestId('post-link')).toBeTruthy();
+    // The source (Pixiv) link is never rendered as a jump — repost or not.
+    expect(screen.queryByTestId('post-link')).toBeNull();
     // The static fallback hint is replaced by the real channel entry.
     expect(document.body.innerHTML).not.toContain('完整内容在 Telegram 频道中查看');
   });
 
-  it('still offers the channel entry for original works without a source link', async () => {
+  it('keeps the channel entry uniform for original works without a source link', async () => {
     vi.spyOn(postsApi, 'fetchPost').mockResolvedValue({
       ...post({ link: '', channel_url: 'https://t.me/some_channel/12' }),
       note: '',
     });
     renderUi(<PostDetailPage />);
     expect(await screen.findByTestId('post-channel')).toBeTruthy();
-    // No source attribution exists for an original submission — no button.
     expect(screen.queryByTestId('post-link')).toBeNull();
   });
 
   it('falls back to the static hint when channel_url is missing', async () => {
     vi.spyOn(postsApi, 'fetchPost').mockResolvedValue({ ...post(), note: '' });
     renderUi(<PostDetailPage />);
-    expect(await screen.findByTestId('post-link')).toBeTruthy();
     expect(screen.queryByTestId('post-channel')).toBeNull();
+    expect(screen.queryByTestId('post-link')).toBeNull();
     expect(await screen.findByText('完整内容在 Telegram 频道中查看。')).toBeTruthy();
   });
 });

@@ -163,11 +163,15 @@ describe('SubmissionDetailPage channel entry', () => {
     renderDetail(detail({ channel_url: 'https://t.me/some_channel/77' }));
     const link = await screen.findByTestId('submission-channel-link');
     expect(link.textContent).toContain('在频道中查看');
+    // The Pixiv source link is never rendered as a jump target.
+    expect(screen.queryByText('https://pixiv.example/1')).toBeNull();
   });
 
-  it('keeps the source link row without a channel entry when unpublished', async () => {
+  it('renders no outbound jump for an unpublished submission', async () => {
     renderDetail(detail({ status: 'rejected', channel_url: undefined }));
-    expect(await screen.findByText('https://pixiv.example/1')).toBeTruthy();
+    expect(await screen.findByTestId('page-header')).toBeTruthy();
     expect(screen.queryByTestId('submission-channel-link')).toBeNull();
+    // The Pixiv source link row is gone — no Pixiv jump anywhere.
+    expect(screen.queryByText('https://pixiv.example/1')).toBeNull();
   });
 });
