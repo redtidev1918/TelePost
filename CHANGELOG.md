@@ -8,6 +8,13 @@
 > 发布说明面向普通用户：写「对用户有什么改变」，不写内部实现细节（模块名、函数名、配置键）；
 > 技术细节放进代码注释或 `docs/`。每个 Release 的正文由本文件对应版本段自动生成。
 
+## [2.84.14](https://github.com/redtidev1918/TelePost/compare/v2.84.13...v2.84.14) (2026-11-04)
+
+
+### Bug Fixes
+
+* **miniapp:** expose channel posts and synchronize review state ([#391](https://github.com/redtidev1918/TelePost/issues/391)) ([34d1d85](https://github.com/redtidev1918/TelePost/commit/34d1d85b1f7a38b54d80ad3841325b305652a3e9))
+
 ## [2.84.13](https://github.com/redtidev1918/TelePost/compare/v2.84.12...v2.84.13) (2026-11-04)
 
 
